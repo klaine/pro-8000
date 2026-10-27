@@ -335,6 +335,23 @@ firmware's names are in `src/controls.h` and `src/display.c`.
 - Not seen changing yet: `MIDI_CH_0..3` (PD9-PD12), `BACKPANEL_PRESENCE` (PD13), `PEDAL_DT` (PA7), SYNC IN
   (PD14/PD15).
 
+## Synth engine (0.2.0–0.2.1, 2026-10-27)
+
+`src/synth.c` replaces the test voice code: the front panel sets the sound, MIDI (any channel) plays it, pitch
+bend ±2, mod wheel adds LFO depth. Everything runs in the main loop with the real elapsed time (about 2.2 ms per
+pass, set by the S&H refresh). Pitch, filter cutoff and keyboard tracking are worked out in semitones and turned
+into CVs through each voice's tuning tables. First-guess ranges, all constants in `synth.c`:
+- frequency knobs ±24 semitones in semitone steps; fine (B) ±1; master tune ±1
+- envelopes 1 ms – 10 s per stage (linear attack, exponential decay and release); filter envelope amount bipolar,
+  ±72 semitones; cutoff knob 16 Hz – 16 kHz; keyboard tracking 0 / ½ / 1
+- LFO 0.05–50 Hz, triangle (or square with LFO Shape), depth = amount² (+ mod wheel), to pitch ±12 semitones,
+  filter ±48, PW ±0.45
+- poly-mod: filter envelope to oscillator A's pitch in software (up to 48 semitones); oscillator B through the
+  analog path with PMOD OSC B as its amount
+- unison: all 8 voices, last-note priority, legato, 2-cent spread; glide 2 ms – 2 s time constant
+- pulse width: square off = PW A at maximum, PW B at minimum (as p600fw); on = 5–95 % of the CV range
+- display shows a pot's value (0-99) while it moves; Tune runs autotune; `pro800 state` dumps the panel
+
 ## Plan
 
 1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 180 MHz,

@@ -46,6 +46,7 @@ Probe (our firmware 0.0.9+):
   pro800 tuning                         print the tuning tables (Hz per CV point)
   pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
+  pro800 state                          print every pot (0-99) and switch as the firmware reads them
   pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
 Changes the synth (only when you mean it):
@@ -677,6 +678,30 @@ extension String {
     func leftPad(_ n: Int) -> String { String(repeating: "0", count: max(0, n - count)) + self }
 }
 
+let potNames = ["AMP REL", "AMP SUS", "AMP DEC", "AMP ATT", "FIL REL", "FIL SUS", "FIL DEC", "FIL ATT", "RESONANCE",
+                "FIL ENV AMT", "FREQ A", "FREQ B", "FINE", "A PW", "B PW", "A LEVEL", "GLIDE", "LFO FREQ", "LFO AMOUNT",
+                "M TUNE", "M VOL", "B LEVEL", "PMOD OSC B", "PMOD FIL ENV", "CUTOFF", "NOISE"]
+let switchLabels = ["Osc A Saw", "Osc A Tri", "Osc A Square", "Osc B Saw", "Osc B Tri", "Osc B Square", "LFO → PW",
+                    "LFO → Freq", "Poly-mod → Freq A", "LFO Shape", "LFO → Filter", "Poly-mod → Filter", "Unison",
+                    "Keytrack HALF line", "Keytrack FULL line", "Sync", "MIDI_CH_0", "MIDI_CH_1", "MIDI_CH_2", "MIDI_CH_3",
+                    "BACKPANEL_PRESENCE", "PEDAL_DT", "SYNC_IN_A", "SYNC_IN_B"]
+
+// Prints every pot (0-99) and switch as the firmware reads them.
+func state() {
+    let midi = Midi(port: portName)
+    guard let reply = midi.request([0x7C], expect: [0x7C], timeout: 2) else { fail("no reply (firmware 0.2.0 or later?)") }
+    let b = Array(reply[(sysexHeader.count + 1)...])
+    guard b.count >= 26 * 2 + 24 else { fail("short reply") }
+    for i in 0..<26 {
+        let v = Int(b[2 * i]) << 7 | Int(b[2 * i + 1])
+        print(potNames[i].padding(toLength: 14, withPad: " ", startingAt: 0) + String(format: "%3d", v * 99 / 4095))
+    }
+    let on = (0..<16).filter { b[52 + $0] == 1 && $0 != 13 && $0 != 14 }.map { switchLabels[$0] }
+    print("pressed in: " + (on.isEmpty ? "none" : on.joined(separator: ", ")))
+    let keytrack = b[52 + 14] == 0 ? "Full" : b[52 + 13] == 0 ? "Half" : "Off"
+    print("keyboard tracking: \(keytrack)")
+}
+
 // MARK: - Bootloader
 
 func updateMode() {
@@ -802,6 +827,7 @@ case "tune": tune()
 case "tuning": tuning()
 case "check": check()
 case "panel": panel()
+case "state": state()
 case "leds": leds()
 case "update-mode": updateMode()
 case "flash": flash()

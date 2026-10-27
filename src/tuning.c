@@ -10,6 +10,7 @@
 #include "tuning.h"
 #include <stddef.h>
 #include "clock.h"
+#include "fastmath.h"
 #include "regs.h"
 #include "sh.h"
 #include "tune.h"
@@ -40,22 +41,6 @@ static store_t store;
 static int valid;
 
 uint16_t tuning_point_cv(int point) { return (uint16_t)(0x2000 + 0x1000 * point); }
-
-// log2 for positive normal floats, to about 1e-7: split off the exponent, then 2·atanh series on the mantissa.
-static float log2_approx(float x)
-{
-    union { float f; uint32_t u; } v = {.f = x};
-    int exponent = (int)((v.u >> 23) & 0xFF) - 127;
-    v.u = (v.u & 0x007FFFFFu) | 0x3F800000u; // mantissa in [1, 2)
-    float m = v.f;
-    if (m > 1.41421356f) {
-        m *= 0.5f;
-        exponent++;
-    }
-    float z = (m - 1.0f) / (m + 1.0f), z2 = z * z;
-    float series = z * (1.0f + z2 * (1.0f / 3 + z2 * (1.0f / 5 + z2 * (1.0f / 7 + z2 * (1.0f / 9)))));
-    return (float)exponent + 2.0f * series * 1.44269504f;
-}
 
 static uint32_t checksum(const store_t *s)
 {
@@ -146,7 +131,7 @@ static int measure_row(int row, cv_t cv, int points, float step_octaves)
         tune_result_t r = tune_measure(periods, timeout_ms, 0);
         if (!r.cycles)
             continue;
-        float y = log2_approx((float)r.periods * (float)system_hz / (float)r.cycles);
+        float y = fast_log2((float)r.periods * (float)system_hz / (float)r.cycles);
         if (good && (y >= last_y || y - expected_y > step_octaves / 3 || expected_y - y > step_octaves / 3))
             continue;
         store.log2_hz[row][p] = y;
@@ -211,14 +196,7 @@ uint32_t tuning_centihertz(int row, int point)
     float y = store.log2_hz[row][point];
     if (!valid || y <= 0)
         return 0;
-    // 2^y: integer part by shifting, fraction by a short series (only for reporting)
-    int whole = (int)y;
-    float f = (y - (float)whole) * 0.69314718f, term = 1, sum = 1;
-    for (int i = 1; i < 10; i++) {
-        term *= f / (float)i;
-        sum += term;
-    }
-    return (uint32_t)((float)(1u << whole) * sum * 100.0f + 0.5f);
+    return (uint32_t)(fast_exp2(y) * 100.0f + 0.5f);
 }
 
 uint16_t tuning_note_cv(int row, float note)

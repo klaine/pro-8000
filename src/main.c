@@ -1,6 +1,7 @@
-// USB MIDI test firmware: plays notes from the host on all 8 voices (any channel), answers the stock firmware's
-// version request, and enters the bootloader's update mode on the stock update-mode SysEx, so flashing no longer
-// needs the panel buttons. The panel lights while any note is held.
+// The PRO-800 firmware: the synth engine (synth.c) plays MIDI notes from USB (any channel) with the sound set on
+// the front panel. Turning a pot shows its value (0-99) for a moment; Tune runs autotune; a button's LED lights
+// while it's held. It answers the stock firmware's version request and enters the bootloader's update mode on the
+// stock update-mode SysEx, so flashing doesn't need the panel buttons.
 //
 // Probe commands (our own, after the PRO-800 header), for exploring the hardware from the host:
 //   74 <0|1>              direct mode off/on: on stops the voice engine, so the host owns every CV and gate
@@ -18,6 +19,7 @@
 //                          60 <pot> <v1> <v0>   61 <switch> <0|1>   62 <key byte> <v1> <v0>   63 <64 ± transitions>
 //                          64 <button> <0|1>
 //   7B <address> <v1> <v0> write a byte of the HT16K33 display RAM (address 0-15)
+//   7C                     panel state; replies 7C <26 pots, 2 × 7 bits each> <24 switches, 0/1 each>
 // Each other command is acknowledged with 7F <command>.
 #include "clock.h"
 #include "controls.h"
@@ -29,13 +31,12 @@
 #include "tuning.h"
 #include "update.h"
 #include "usb.h"
-#include "voice.h"
+#include "synth.h"
 
-#define MASTER_VOLUME 0x6000u // about 37%, kept low on purpose
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 96
+#define SYSEX_MAX 112
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -98,8 +99,9 @@ static void show_version(void)
     display_update();
 }
 
-// Panel test behaviour until the synth engine owns the panel: a button's LED lights while it's held, the keypad
-// types a number on the display, and played notes show their number.
+static uint32_t display_until; // ms_ticks when a pot value on the display gives way; 0 = nothing shown
+static int tune_requested;
+
 static void control_event(control_kind_t kind, int index, int32_t value)
 {
     static const led_t button_led[BUTTON_COUNT] = {
@@ -108,27 +110,35 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         [BUTTON_REC] = LED_REC, [BUTTON_SEQ1] = LED_SEQ1, [BUTTON_SEQ2] = LED_SEQ2, [BUTTON_ARP_UP] = LED_ARP_UP,
         [BUTTON_ARP_ASSIGN] = LED_ARP_ASSIGN,
     };
-    static int typed;
 
     if (report_mode) {
         report_event(kind, index, value);
         return;
     }
-    if (kind != CONTROL_BUTTON)
-        return;
-    if (index <= BUTTON_9) {
-        if (value) {
-            typed = (typed * 10 + index) % 1000;
-            display_number(typed);
-        }
-    } else {
-        display_led(button_led[index], (int)value);
+    if (kind == CONTROL_POT) {
+        display_number((int)(value * 99 / 4095));
+        display_until = ms_ticks + 1500;
     }
+    if (kind == CONTROL_BUTTON && index > BUTTON_9) {
+        display_led(button_led[index], (int)value);
+        if (index == BUTTON_TUNE && value)
+            tune_requested = 1;
+    }
+}
+
+static void run_tuning(void)
+{
+    synth_all_off();
+    display_text("tUnE");
+    display_update();
+    tuning_run();
+    synth_init();
+    display_clear();
 }
 
 static void enter_update_mode(void)
 {
-    voice_all_off();
+    synth_all_off();
     sh_set(CV_MASTER_VOL, 0);
     for (int i = 0; i < 4; i++)
         sh_refresh();
@@ -155,11 +165,9 @@ static void handle_sysex(const uint8_t *message, int length)
         enter_update_mode();
     if (data_length == 2 && data[0] == 0x74) {
         direct_mode = data[1] != 0;
-        voice_all_off();
-        if (!direct_mode) {
-            voice_init();
-            sh_set(CV_MASTER_VOL, MASTER_VOLUME);
-        }
+        synth_all_off();
+        if (!direct_mode)
+            synth_init();
         reply[n++] = 0x7F;
         reply[n++] = 0x74;
     }
@@ -202,11 +210,21 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = 0x7F;
         reply[n++] = 0x7B;
     }
+    if (data_length == 1 && data[0] == 0x7C) {
+        reply[n++] = 0x7C;
+        for (int i = 0; i < POT_COUNT; i++) {
+            reply[n++] = (uint8_t)(controls_pot(i) >> 7);
+            reply[n++] = controls_pot(i) & 0x7F;
+        }
+        for (int i = 0; i < SWITCH_COUNT; i++)
+            reply[n++] = (uint8_t)controls_switch(i);
+    }
     if (data_length == 1 && data[0] == 0x75) {
-        voice_all_off();
+        synth_all_off();
         int rows = tuning_run();
-        voice_init();
-        sh_set(CV_MASTER_VOL, direct_mode ? 0 : MASTER_VOLUME);
+        synth_init();
+        if (direct_mode)
+            sh_set(CV_MASTER_VOL, 0); // otherwise the engine sets it from M VOL
         reply[n++] = 0x76;
         reply[n++] = (uint8_t)rows;
     }
@@ -250,19 +268,22 @@ static void handle_midi(void)
         case 0x9:
             if (direct_mode)
                 break;
-            if (p[3]) {
-                voice_note_on(p[2]);
-                display_number(p[2]);
-            }
+            if (p[3])
+                synth_note_on(p[2], p[3]);
             else
-                voice_note_off(p[2]);
+                synth_note_off(p[2]);
             break;
         case 0x8:
-            voice_note_off(p[2]);
+            synth_note_off(p[2]);
             break;
         case 0xB:
             if (status == 0xB0 && (p[2] == 120 || p[2] == 123)) // all sound off, all notes off
-                voice_all_off();
+                synth_all_off();
+            if (status == 0xB0 && p[2] == 1)
+                synth_mod_wheel(p[3]);
+            break;
+        case 0xE:
+            synth_pitch_bend(p[2] | p[3] << 7);
             break;
         case 0x4: case 0x5: case 0x6: case 0x7: {
             int n = cin == 0x4 ? 3 : cin - 0x4;
@@ -295,12 +316,11 @@ int main(void)
     SCB_SHPR3 = (SCB_SHPR3 & 0x00FFFFFFu) | 0x40u << 24; // SysTick below the tuning edge interrupt
     tune_init();
 
-    sh_set(CV_MASTER_VOL, 0);
+    sh_set(CV_MASTER_VOL, 0); // the engine sets it from the M VOL pot once the pots have been read
     tuning_load();
-    voice_init();
-    for (int i = 0; i < 20; i++) // charge every S&H before the master volume comes up
+    synth_init();
+    for (int i = 0; i < 20; i++) // charge every S&H
         sh_refresh();
-    sh_set(CV_MASTER_VOL, MASTER_VOLUME);
 
     panel_gpio_init();
     panel_init();
@@ -312,25 +332,37 @@ int main(void)
         display_text("tUnE");
         display_update();
         tuning_run();
-        voice_init();
-        sh_set(CV_MASTER_VOL, MASTER_VOLUME);
+        synth_init();
     }
     show_version();
+    display_until = ms_ticks + 1500;
 
     controls_init();
     usb_init();
 
-    uint32_t last = ms_ticks;
+    uint32_t last = DWT_CYCCNT;
     for (;;) {
         IWDG_KR = IWDG_KR_REFRESH;
         handle_midi();
 
-        uint32_t now = ms_ticks;
-        if (!direct_mode)
-            voice_update(now - last);
-        last = now;
+        uint32_t cycles = DWT_CYCCNT;
+        float dt = (float)(cycles - last) / (float)system_hz;
+        last = cycles;
 
+        uint32_t now = ms_ticks;
         controls_poll(now, control_event);
+        if (tune_requested) {
+            tune_requested = 0;
+            run_tuning();
+            last = DWT_CYCCNT;
+        }
+        if (!direct_mode)
+            synth_update(dt);
+
+        if (display_until && (int32_t)(now - display_until) > 0) {
+            display_clear();
+            display_until = 0;
+        }
         if (!report_mode)
             display_update();
 
