@@ -544,6 +544,15 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   an idle voice 0. Sustain stays linear in amplitude (50 = −6 dB).
 - Tuning check on 0.6.3: worst 1.1 cents (the top octave runs up to +1 cent sharp as the synth warms up).
 
+## Pitch route depth curve (0.6.5, 2026-10-27)
+
+- Pitch destinations (pitch A, pitch B, both) scale the route depth squared: semitones = 24 · sign(d) · (d/99)².
+  Linear, depth 1 was already 0.24 semitones, too coarse for vibrato. Checked through `synth.c` on the Mac: depth 5
+  → 0.061, 10 → 0.245, 20 → 0.979, 50 → 6.12, 99 → 24.0, −10 → −0.245 semitones. Existing pitch routes come out
+  shallower (except at 0 and ±99).
+- The web editor got depth sliders per LFO (VCA, cutoff, pitch A / B, PWM = the A and B pulse-width routes), backed
+  by mod routes on the edit layer; pitch readouts use the curve (cents below a semitone).
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

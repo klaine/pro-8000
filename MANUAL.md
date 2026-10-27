@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.6.4. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.6.5. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -234,9 +234,9 @@ Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn stil
 
 | Touch | Destination | Display | Full depth |
 |---|---|---|---|
-| FREQ A | Pitch A | `P.A` | ±24 semitones |
-| FREQ B or FINE | Pitch B | `P.b` | ±24 semitones |
-| M TUNE | Pitch A and B | `PIt` | ±24 semitones |
+| FREQ A | Pitch A | `P.A` | ±24 semitones ‡ |
+| FREQ B or FINE | Pitch B | `P.b` | ±24 semitones ‡ |
+| M TUNE | Pitch A and B | `PIt` | ±24 semitones ‡ |
 | CUTOFF | Cutoff | `CUt` | ±96 semitones |
 | FIL ENV AMT | Filter envelope amount | `F.EA` | full scale |
 | PMOD FIL ENV | Poly-mod envelope amount | `P.EA` | full scale |
@@ -253,6 +253,9 @@ Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn stil
 
 \* Single wires for all voices: they follow the most recently played note of the layer. Everything else acts per
 voice.
+
+‡ Pitch depths follow a squared curve, fine near zero for vibrato: depth 5 = 6 cents, 10 = 25 cents, 20 = 1
+semitone, 50 = 6 semitones, 99 = 24 semitones.
 
 † The VCA destination is a gain on the amp envelope, so it never opens a voice that isn't playing. A swinging
 source (an LFO, random, note) at depth 99 goes from closed to fully open: tremolo, or a gate with the step shape.
@@ -321,7 +324,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.6.4.syx --yes
+build/pro800 install build/pro800-0.6.5.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

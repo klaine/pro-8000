@@ -706,7 +706,10 @@ function depthText(dests, d) {
   const signed = x => (x > 0 ? "+" : "") + x;
   if (d === 0) return "off";
   if (dests[0] === 3) return signed((d * 96 / 99).toFixed(0)) + " st";         // cutoff: 99 = ±96 semitones
-  if (dests[0] <= 1) return signed((d * 24 / 99).toFixed(1)) + " st";          // pitch: 99 = ±24 semitones
+  if (dests[0] <= 1) {                                                         // pitch: squared, 99 = ±24 semitones
+    const st = 24 * d * Math.abs(d) / 99 / 99;
+    return Math.abs(st) < 1 ? signed(Math.round(st * 100)) + " ct" : signed(st.toFixed(1)) + " st";
+  }
   if (dests[0] === 14) return signed(Math.round(d * 50 / 99)) + " %";          // pulse width: 99 = ±50 %
   return signed(d);                                                            // VCA: 99 = full gate
 }

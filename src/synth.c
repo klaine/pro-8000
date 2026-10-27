@@ -53,7 +53,7 @@
 #define UNISON_SPREAD         0.02f // semitones between neighbouring voices
 #define POT_SMOOTHING_S       0.01f
 #define PICKUP_WINDOW         0.015f // a knob this close to the stored value picks it up
-// what a route of depth 99 does at full source
+// what a route of depth 99 does at full source (pitch on a squared curve: depth 10 is 0.24 semitones, 50 is 6.1)
 #define MOD_PITCH_SEMITONES   24.0f
 #define MOD_CUTOFF_SEMITONES  96.0f
 #define MOD_PW                0.5f
@@ -807,7 +807,10 @@ static void evaluate_routes(int layer, int voice, float *mod)
         float value = source_value(&voices[voice], voice, layer, x->source);
         if (x->dest == DEST_VCA && !bipolar(x->source))
             value -= 1.0f;
-        mod[x->dest] += value * (float)x->depth / 99.0f;
+        float depth = (float)x->depth / 99.0f;
+        if (x->dest <= DEST_PITCH) // pitch: a squared depth curve, fine near zero for vibrato
+            depth *= depth < 0 ? -depth : depth;
+        mod[x->dest] += value * depth;
     }
 }
 
