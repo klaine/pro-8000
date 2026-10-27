@@ -18,11 +18,19 @@
 #define RCC_AHB1ENR     REG(RCC_BASE + 0x30)
 #define RCC_APB1ENR     REG(RCC_BASE + 0x40)
 
+#define RCC_PLLCFGR     REG(RCC_BASE + 0x04)
+
 #define RCC_CR_HSION    (1u << 0)
 #define RCC_CR_HSIRDY   (1u << 1)
+#define RCC_CR_HSEON    (1u << 16)
+#define RCC_CR_HSERDY   (1u << 17)
 #define RCC_CR_PLLON    (1u << 24)
 #define RCC_CR_PLLRDY   (1u << 25)
-#define RCC_CFGR_SWS    (3u << 2)
+#define RCC_CFGR_SW_PLL  (2u << 0)
+#define RCC_CFGR_SWS     (3u << 2)
+#define RCC_CFGR_SWS_PLL (2u << 2)
+
+#define FLASH_ACR       REG(0x40023C00u)
 
 // peripherals reset on entry, so nothing the bootloader left running stays active
 #define RCC_AHB1_RESET_MASK 0x006000FFu // GPIOA-H, DMA1, DMA2
@@ -35,6 +43,7 @@
 #define RCC_AHB1ENR_GPIOC (1u << 2)
 #define RCC_AHB1ENR_GPIOD (1u << 3)
 #define RCC_AHB1ENR_GPIOE (1u << 4)
+#define RCC_APB1ENR_SPI3  (1u << 15)
 #define RCC_APB1ENR_DAC   (1u << 29)
 
 // GPIO
@@ -49,6 +58,22 @@
 #define GPIO_PUPDR(p)   REG((p) + 0x0C)
 #define GPIO_IDR(p)     REG((p) + 0x10)
 #define GPIO_BSRR(p)    REG((p) + 0x18)
+#define GPIO_AFR(p, n)  REG((p) + 0x20 + 4u * (n)) // n = 0 for pins 0-7, 1 for 8-15
+
+// SPI3 (APB1): drives the DAC80501
+#define SPI3_BASE       0x40003C00u
+#define SPI3_CR1        REG(SPI3_BASE + 0x00)
+#define SPI3_SR         REG(SPI3_BASE + 0x08)
+#define SPI3_DR         REG(SPI3_BASE + 0x0C)
+#define SPI_CR1_CPHA    (1u << 0)
+#define SPI_CR1_MSTR    (1u << 2)
+#define SPI_CR1_BR_DIV4 (1u << 3)
+#define SPI_CR1_SPE     (1u << 6)
+#define SPI_CR1_SSI     (1u << 8)
+#define SPI_CR1_SSM     (1u << 9)
+#define SPI_SR_RXNE     (1u << 0)
+#define SPI_SR_TXE      (1u << 1)
+#define SPI_SR_BSY      (1u << 7)
 
 // on-chip 12-bit DAC: channel 1 on PA4, channel 2 on PA5
 #define DAC_BASE        0x40007400u
@@ -76,5 +101,6 @@
 #define DWT_CYCCNT      REG(0xE0001004u)
 
 #define HSI_HZ 16000000u
+#define HSE_HZ 8000000u // Y1
 
 #endif

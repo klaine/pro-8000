@@ -1,6 +1,7 @@
 // HT16K33 over bit-banged I2C. The lines go through BSS138 level shifters (Q5, Q6) with pull-ups on both
 // sides, so the pins are open-drain and "high" means released.
 #include "panel.h"
+#include "clock.h"
 #include "regs.h"
 
 #define SCL_PIN 6
@@ -14,12 +15,8 @@
 
 static uint8_t ht_addr;
 
-// About 10 µs at 16 MHz, so the bus runs near 50 kHz: slow, but safe through the level shifters.
-static void bit_delay(void)
-{
-    for (volatile int i = 0; i < 40; i++)
-        ;
-}
+// The bus runs near 50 kHz: slow, but safe through the level shifters.
+static void bit_delay(void) { delay_us(10); }
 
 static void scl(int high) { GPIO_BSRR(GPIOB_BASE) = high ? 1u << SCL_PIN : 1u << (SCL_PIN + 16); }
 static void sda(int high) { GPIO_BSRR(GPIOB_BASE) = high ? 1u << SDA_PIN : 1u << (SDA_PIN + 16); }

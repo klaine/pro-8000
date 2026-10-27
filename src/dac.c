@@ -1,6 +1,8 @@
-// DAC80501 in SPI mode (SPI2C tied low): SCLK = PC10, SDIN = PB0, SYNC = PA15. Bit-banged for now; the pins
-// are SPI3's, so hardware SPI can take over once its alternate-function mapping is confirmed.
+// DAC80501 in SPI mode (SPI2C tied low): SCLK = PC10, SDIN = PB0, SYNC = PA15, bit-banged at about 250 kHz.
+// These are SPI3's pins, but hardware SPI3 only worked at its slowest clock (APB1 / 128): diagnostics 0.0.5 and
+// 0.0.6 got wrong output at 0.66-10.5 MHz while bit-banging at the same core clock worked. Cause unknown so far.
 #include "dac.h"
+#include "clock.h"
 #include "gpio.h"
 
 #define SCLK_PORT GPIOC_BASE
@@ -20,17 +22,22 @@
 // 0 V out), so: reference / 2, buffer gain 2, giving 0-2.5 V; U47A doubles that.
 #define DAC80501_REF_DIV_GAIN2 0x0101u
 
-// 24-bit frame: command byte then 16 data bits, MSB first, latched on SCLK falling edges.
+// 24-bit frame: command byte then 16 data bits, MSB first. SDIN changes while SCLK is high; the DAC latches on
+// the falling edge.
 static void dac80501_write(uint8_t command, uint16_t data)
 {
     uint32_t frame = (uint32_t)command << 16 | data;
     gpio_write(SYNC_PORT, SYNC_PIN, 0);
+    delay_us(1);
     for (int bit = 23; bit >= 0; bit--) {
         gpio_write(SCLK_PORT, SCLK_PIN, 1);
         gpio_write(SDIN_PORT, SDIN_PIN, (frame >> bit) & 1);
+        delay_us(1);
         gpio_write(SCLK_PORT, SCLK_PIN, 0);
+        delay_us(1);
     }
     gpio_write(SYNC_PORT, SYNC_PIN, 1);
+    delay_us(1);
 }
 
 void dac_init(void)
@@ -46,8 +53,7 @@ void dac_init(void)
     gpio_output(SDIN_PORT, SDIN_PIN);
 
     dac80501_write(DAC80501_TRIGGER, DAC80501_SOFT_RESET);
-    for (volatile int i = 0; i < 2000; i++) // reset takes a few µs
-        ;
+    delay_us(100);
     dac80501_write(DAC80501_CONFIG, 0); // internal reference and DAC powered
     dac80501_write(DAC80501_GAIN, DAC80501_REF_DIV_GAIN2);
     dac80501_write(DAC80501_DATA, 0);

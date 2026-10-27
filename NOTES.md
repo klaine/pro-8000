@@ -229,6 +229,34 @@ Oscillator 1A, untrimmed: **6515 codes per octave** (the 16-bit range covers 10.
 ±4 cents from 38 Hz to 3 kHz. 0x894D ≈ A440, 0x29DB ≈ C1. (The first recording showed 0xE000/0xF000 an octave low:
 that was the pitch estimator's 4 kHz limit, since raised to 10 kHz.)
 
+## 168 MHz, hardware SPI, and the all-voices test (0.0.3–0.0.7, 2026-10-27)
+
+- Clock: 8 MHz HSE → PLL (M 8, N 336, P 2, Q 7) = 168 MHz SYSCLK, 48 MHz for USB; APB1 42 MHz, APB2 84 MHz,
+  5 flash wait states. Works (all timing measured correct in recordings).
+- Pin functions confirmed from Zephyr's `stm32f446v(c-e)tx-pinctrl.dtsi`: SPI3_SCK PC10 AF6, SPI3_MOSI PB0 AF7,
+  SPI3_NSS PA15 AF6, USB OTG FS DM/DP PA11/PA12 AF10.
+- **Hardware SPI3 to the DAC80501 doesn't work** above APB1/128 (0.33 MHz): from 0.66 to 10.5 MHz the DAC gets
+  wrong data (the voice plays a ~10 Hz sawtooth at −44 dB), while bit-banging at the same 168 MHz core clock
+  works (0.0.5 A/B test, 0.0.6 speed scan). The first suspected cause, raising SYNC on BSY before the frame
+  finished, was real and fixed (wait for RXNE per byte) but wasn't the whole story. Not a plain edge-rate limit,
+  since 0.0.2's ~1 MHz bit-bang worked. Unresolved: probably data/clock timing at the DAC; needs a scope.
+  `src/dac.c` bit-bangs at ~250 kHz for now (~50 µs per write, ~1.2 ms of each refresh).
+- All-voices test (0.0.7): every channel maps as the schematic says. At CV 0x8000, untrimmed:
+
+  | Voice | Osc A Hz | Osc B Hz | Filter (self-osc, full resonance) Hz |
+  |---|---|---|---|
+  | 1 | 341.9 | 333.8 | 1028.8 |
+  | 2 | 340.2 | 335.9 | 1039.6 |
+  | 3 | 335.5 | 340.5 | 1002.7 |
+  | 4 | 350.2 | 330.5 | 998.6 |
+  | 5 | 339.7 | 338.5 | 991.0 |
+  | 6 | 332.4 | 345.4 | 1026.2 |
+  | 7 | 351.7 | 324.5 | 983.2 |
+  | 8 | 338.7 | 348.7 | 963.9 |
+
+  Oscillators spread −77..+63 cents around 339 Hz (autotune will take that out); every voice within 0.7 dB at
+  −38 dBFS (master 0x6000, mixer 0xC000); the filters self-oscillate at about −26 dBFS.
+
 ## Plan
 
 1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 180 MHz,

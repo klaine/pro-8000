@@ -6,6 +6,7 @@
 //   EN4 PW_A, PW_B, RES (addresses 0-2) ← on-chip DAC1
 // EN1-EN3 select the pot multiplexers and stay high here.
 #include "sh.h"
+#include "clock.h"
 #include "dac.h"
 #include "gpio.h"
 
@@ -45,13 +46,6 @@ static const uint32_t gate_pins[GATE_COUNT] = {
 
 static uint16_t cvs[CV_COUNT];
 
-static void delay_us(uint32_t us)
-{
-    uint32_t start = DWT_CYCCNT;
-    while (DWT_CYCCNT - start < us * (HSI_HZ / 1000000u))
-        ;
-}
-
 static void select_address(uint32_t address)
 {
     GPIO_BSRR(GPIOB_BASE) = (address & 1 ? 1u << 5 : 1u << (5 + 16))
@@ -86,9 +80,6 @@ void sh_safe(void)
 void sh_init(void)
 {
     sh_safe();
-    DEMCR |= DEMCR_TRCENA;
-    DWT_CYCCNT = 0;
-    DWT_CTRL |= 1; // cycle counter on
 
     RCC_AHB1ENR |= RCC_AHB1ENR_GPIOE;
     gpio_write(GPIOE_BASE, GATE_PINS_E, 0);
