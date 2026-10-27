@@ -84,7 +84,7 @@
     <div class="keys" id="keys"></div>
     <p class="hint" id="last-button"></p>
     <div class="row" style="margin-top:10px">Encoder: <span id="encoder">0</span>
-      <span class="hint" id="encoder-hint">transitions (turn one detent to see how many it makes)</span></div>
+      <span class="hint" id="encoder-hint">transitions (4 per quadrature cycle; the knob has no detents)</span></div>
   </section>
   <section>
     <h2>Display and LEDs (HT16K33 RAM)</h2>
@@ -161,7 +161,7 @@ function onMessage(e) {
   if (d[0] === 0x60) potEvent(d[1], d[2] << 7 | d[3]);
   else if (d[0] === 0x61) switchEvent(d[1], d[2]);
   else if (d[0] === 0x62) keyEvent(d[1], d[2] << 7 | d[3]);
-  else if (d[0] === 0x63) { encoder += d[1] - 64; document.getElementById("encoder").textContent = encoder; }
+  else if (d[0] === 0x63) { encoder += d[2] - 64; document.getElementById("encoder").textContent = encoder; }
   else if (d[0] === 0x64) document.getElementById("last-button").textContent =
     `last button: #${d[1]} ${d[2] ? "pressed" : "released"}`;
 }

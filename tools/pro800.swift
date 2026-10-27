@@ -650,7 +650,7 @@ func panel() {
             case 0x62 where b.count >= 4:
                 let v = Int(b[2]) << 7 | Int(b[3])
                 print("keys byte \(b[1]) = " + String(v, radix: 2).leftPad(8))
-            case 0x63 where b.count >= 2: print("encoder \(Int(b[1]) - 64 > 0 ? "+" : "-")")
+            case 0x63 where b.count >= 3: print("encoder \(Int(b[2]) - 64 > 0 ? "+" : "-")")
             case 0x64 where b.count >= 3: print("button #\(b[1]) \(b[2] == 1 ? "pressed" : "released")")
             default: print(hex(b))
             }

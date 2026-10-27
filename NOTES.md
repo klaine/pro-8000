@@ -329,8 +329,9 @@ firmware's names are in `src/controls.h` and `src/display.c`.
   PC8, → Filter `LFO_FILTER` PC13; LFO Shape `LFO_SHAP` PC12. Latching buttons read 1 when pressed in.
   Keyboard tracking is a 3-position switch (Full / Half / Off, top to bottom) on two active-low lines: Off = both
   1, Half = `HALF` (PB1) 0, Full = `FULL` (PB2) 0.
-- **No encoder**: the schematic's VALUE encoder (PE9/PE11) never produced a transition; turning "value" moves
-  pot #17 (LFO FREQ), so the LFO frequency knob doubles as the value knob (as p600fw's Speed pot does).
+- **VALUE encoder** (PE9 A, PE11 B via 74HC14): no detents; clockwise runs AB 11 → 01 → 00 → 10, four
+  transitions per cycle, some contact bounce that cancels in the decode. (An earlier run seemed to show no
+  encoder: that turn was the LFO FREQ knob, and the tools then misread the direction byte.)
 - Not seen changing yet: `MIDI_CH_0..3` (PD9-PD12), `BACKPANEL_PRESENCE` (PD13), `PEDAL_DT` (PA7), SYNC IN
   (PD14/PD15).
 

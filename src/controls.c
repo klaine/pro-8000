@@ -4,9 +4,9 @@
 // each VMUX another 100 nF at the MCU, so after an address change the output needs about 4 ms (a few times
 // 10 kΩ pot × 200 nF) to settle: the scan steps one address per 4 ms, 32 ms for all.
 //
-// Switches are plain inputs (pulled up here). The schematic's VALUE encoder (quadrature on PE9/PE11) never
-// produced a transition on this unit: it looks unfitted, with the LFO FREQ pot serving as the value knob. Buttons
-// come from the HT16K33's key scan.
+// Switches are plain inputs (pulled up here). The VALUE knob is an encoder without detents, quadrature on PE9 (A)
+// and PE11 (B) through 74HC14s: clockwise runs AB 11 → 01 → 00 → 10, four transitions per cycle, with some contact
+// bounce that cancels out in the decode. Buttons come from the HT16K33's key scan.
 #include "controls.h"
 #include "gpio.h"
 #include "panel.h"
@@ -128,7 +128,7 @@ static void pot_changed(int i, uint16_t value, control_event_t event)
 
 void controls_poll(uint32_t now_ms, control_event_t event)
 {
-    // encoder: quadrature transitions, reported raw (how many make a detent is still to be seen)
+    // encoder: quadrature transitions, +1 clockwise
     static const int8_t transitions[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
     uint8_t state = (uint8_t)(((GPIO_IDR(GPIOE_BASE) >> ENC_A_PIN) & 1) << 1 | ((GPIO_IDR(GPIOE_BASE) >> ENC_B_PIN) & 1));
     if (state != encoder_state) {

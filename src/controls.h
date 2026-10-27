@@ -13,7 +13,7 @@
 typedef enum {
     POT_AMP_REL, POT_AMP_SUS, POT_AMP_DEC, POT_AMP_ATT, POT_FIL_REL, POT_FIL_SUS, POT_FIL_DEC, POT_FIL_ATT, // U22
     POT_RESONANCE, POT_FIL_ENV_AMT, POT_FREQ_A, POT_FREQ_B, POT_FINE, POT_A_PW, POT_B_PW, POT_A_LEVEL,      // U21
-    POT_GLIDE, POT_LFO_FREQ /* also the value knob: no encoder is fitted */, POT_LFO_AMOUNT, POT_MASTER_TUNE, POT_MASTER_VOL, POT_B_LEVEL, POT_PMOD_OSC_B,
+    POT_GLIDE, POT_LFO_FREQ, POT_LFO_AMOUNT, POT_MASTER_TUNE, POT_MASTER_VOL, POT_B_LEVEL, POT_PMOD_OSC_B,
     POT_PMOD_FIL_ENV,                                                                                       // U42
     POT_CUTOFF, POT_NOISE,
 } pot_t;
