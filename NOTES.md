@@ -518,6 +518,21 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
 - Older patches: the same knob positions now give somewhat longer decays (0.5: 310 ms to −60 dB, was 100 ms to
   −34 dB, about 180 ms to −60 dB) and slightly shorter attacks in the lower half.
 
+## Step LFO shape and the VCA as a gain (0.6.3, 2026-10-27; built, not flashed)
+
+- Shape 8, `StEP`: a pattern of 1-16 on/off steps per LFO per layer (bit n = step n), played over one cycle, +1 / −1,
+  with an 8 ms slope at each change (3 ms was tried: the VCA opens over only the upper half of the swing, so it
+  opened within one 2.3 ms update; 8 ms spreads it over about two). Default `1 0 1 0 1 1 0 0` twice (the user's
+  "ta-ta-taa"). Patch bytes 234 (patterns, u16) and 242 (counts; 0 = not stored → default). SysEx 4E sets, 4D
+  reads; `pro800 set steps <layer> <lfo> x.x.xx..`; edited only on the web page (a step grid under the LFO when its
+  shape is Steps, with count, clear, invert, rotate, trance gate and "Route to VCA").
+- The VCA destination was additive (envelope + mod), so an LFO → VCA route opened idle voices: they would sound with
+  no note playing. Now it's a gain on the amp envelope, clamp(1 + mod, 0, 1), and 0..1 sources count down from full
+  (source − 1), so velocity → VCA at 99 is velocity sensitivity and a bipolar source at 99 gates fully.
+- Checked on the Mac (real `synth.c` and `lfo.c`, hardware stubbed): LFO 2 on `StEP` at 1 Hz routed to the VCA at
+  99 plays x.x.xx..x.x.xx.. sampled mid-step; no VCA opens before the note or after the release; velocity 32 →
+  0.252 gain (32/127).
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

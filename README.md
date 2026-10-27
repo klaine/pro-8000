@@ -7,7 +7,8 @@ firmware) as the reference for how the analog side behaves.
 **Features**
 
 - **Bitimbral:** two layers (split, stack, or by MIDI channel), selected with Seq 1 / Seq 2, with knob pickup.
-- **LFOs:** two per layer, with seven shapes (triangle, square, ramps, sine, sample & hold, drift).
+- **LFOs:** two per layer, with eight shapes (triangle, square, ramps, sine, sample & hold, drift, and a 1-16 step
+  pattern for trance gates, edited on the web page).
   - Sync to MIDI clock in 15 divisions.
   - Retrigger free, on the first key, on every key, or per voice (poly LFOs).
 - **Envelopes:** four per voice, with analog-style curves and times shown in ms / s on the display. Env 3 and
@@ -46,7 +47,7 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 ## Install
 
 ```bash
-build/pro800 install build/pro800-0.6.2.syx --yes
+build/pro800 install build/pro800-0.6.3.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`

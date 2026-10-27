@@ -13,7 +13,9 @@
 //   222 LFO 2 destinations per layer (LFO2_TO_* bits)
 //   224 extra[2][8..9] (u16) LFO 2 rate and amount per layer
 //   232 cycling envelopes per layer (ENV_CYCLE_* bits)
-//   234..251             reserved, zero (patches saved before 0.5.0 have zeros from 136: no routes)
+//   234 step patterns[2][2] (u16) [layer][LFO 1, LFO 2]
+//   242 step counts[2][2]  0 = not stored: the default pattern
+//   246..251             reserved, zero (patches saved before 0.5.0 have zeros from 136: no routes)
 //   252 checksum (u32)
 // Zeros in a newer field always mean what older firmware did.
 // Stock patches start with a5 16 61 00 and the format byte 0x6D or 0x6F; their fields are documented in
@@ -38,6 +40,8 @@
 #define OFF_LFO2_DESTS 222
 #define OFF_EXTRA2 224
 #define OFF_CYCLE 232
+#define OFF_STEPS 234
+#define OFF_STEP_COUNTS 242
 #define OFF_CHECKSUM 252
 #define EXTRA_FIRST 8 // extra params stored at OFF_EXTRA; the rest at OFF_EXTRA2
 #define FACTORY_ADDRESS 0x19000u
@@ -136,6 +140,10 @@ int store_load_patch(int n, patch_t *patch)
         }
         patch->lfo2_dests[l] = b[OFF_LFO2_DESTS + l];
         patch->env_cycle[l] = b[OFF_CYCLE + l];
+        for (int w = 0; w < 2; w++) {
+            patch->step_pattern[l][w] = get16(b + OFF_STEPS + 2 * (2 * l + w));
+            patch->step_count[l][w] = b[OFF_STEP_COUNTS + 2 * l + w];
+        }
     }
     return 1;
 }
@@ -171,11 +179,16 @@ int store_save_patch(int n, const patch_t *patch)
             b[OFF_SHAPES + 2 * l + w] = (uint8_t)(patch->lfo_shape[l][w] + 1);
         b[OFF_LFO2_DESTS + l] = patch->lfo2_dests[l];
         b[OFF_CYCLE + l] = patch->env_cycle[l];
+        for (int w = 0; w < 2; w++) {
+            put16(b + OFF_STEPS + 2 * (2 * l + w), patch->step_pattern[l][w]);
+            b[OFF_STEP_COUNTS + 2 * l + w] = patch->step_count[l][w];
+        }
     }
     _Static_assert(OFF_ROUTES + 3 * 2 * ROUTES <= OFF_LFO2, "routes overflow");
     _Static_assert(EXTRA_FIRST * 2 * 2 == OFF_ROUTES - OFF_EXTRA, "extra params overflow");
     _Static_assert(OFF_EXTRA2 + (EXTRA_PARAMS - EXTRA_FIRST) * 2 * 2 <= OFF_CYCLE, "extra params overflow");
-    _Static_assert(OFF_CYCLE + 2 <= OFF_CHECKSUM, "patch record overflow");
+    _Static_assert(OFF_CYCLE + 2 <= OFF_STEPS && OFF_STEPS + 8 <= OFF_STEP_COUNTS, "steps overflow");
+    _Static_assert(OFF_STEP_COUNTS + 4 <= OFF_CHECKSUM, "patch record overflow");
     put32(b + OFF_CHECKSUM, checksum(b, OFF_CHECKSUM));
     return eeprom_write((uint32_t)n * PATCH_SIZE, b, PATCH_SIZE);
 }

@@ -19,6 +19,10 @@
 
 lfo_sync_t lfo_sync[2];
 lfo_trigger_t lfo_trigger[2];
+uint16_t lfo_pattern[LFO_COUNT] = {LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN};
+uint8_t lfo_step_count[LFO_COUNT] = {LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS};
+
+#define STEP_SLOPE_S 0.008f // a gate (LFO → VCA) opens over half of it: about 2 updates
 
 static const struct {
     float quarters; // LFO period
@@ -30,7 +34,7 @@ static const struct {
 };
 #define DIVISION_COUNT ((int)(sizeof divisions / sizeof divisions[0]))
 
-static const char shape_names[LFO_SHAPE_COUNT][6] = {"trI", "PULS", "SA.UP", "SA.dn", "SInE", "S-H", "drFt"};
+static const char shape_names[LFO_SHAPE_COUNT][6] = {"trI", "PULS", "SA.UP", "SA.dn", "SInE", "S-H", "drFt", "StEP"};
 
 typedef struct {
     float phase;
@@ -177,6 +181,19 @@ float lfo_value(int lfo, int voice, lfo_shape_t shape)
     case LFO_DRIFT: {
         float s = x * x * (3 - 2 * x); // smoothstep
         return p->held + (p->next - p->held) * s;
+    }
+    case LFO_STEPS: {
+        int count = lfo_step_count[lfo] < 1 || lfo_step_count[lfo] > LFO_MAX_STEPS ? LFO_DEFAULT_STEPS
+                                                                                   : lfo_step_count[lfo];
+        float position = x * (float)count;
+        int step = (int)position;
+        if (step >= count)
+            step = count - 1;
+        float now = lfo_pattern[lfo] >> step & 1 ? 1.0f : -1.0f;
+        float before = lfo_pattern[lfo] >> (step ? step - 1 : count - 1) & 1 ? 1.0f : -1.0f;
+        float slope = STEP_SLOPE_S * lfos[lfo].rate * (float)count; // the slope's share of a step
+        float into = position - (float)step;
+        return into >= slope ? now : before + (now - before) * into / slope;
     }
     default: return x < 0.5f ? 4 * x - 1 : 3 - 4 * x;
     }

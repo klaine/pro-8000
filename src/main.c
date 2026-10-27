@@ -31,6 +31,9 @@
 //   52 <layer> <param> <v1> <v0>  set a parameter (0-16383; its knob goes into pickup); acknowledged
 //   59 <n1> <n0> <name>    rename patch n (up to 16 characters); acknowledged
 //   4F <n1> <n0>           clear patch n (it becomes an empty slot); acknowledged
+//   4E <layer> <lfo> <count> <p2> <p1> <p0>  set an LFO's step pattern (count 1-16, bits p2 << 14 | p1 << 7 | p0,
+//                          bit n = step n on); acknowledged
+//   4D <layer> <lfo>       its step pattern; replies 4D <layer> <lfo> <count> <p2> <p1> <p0>
 //   50 <f>                 factory patch f (0-99); replies 50 <f> <1 if it's there> <name>
 //   51 <f> <n1> <n0> [<1>] copy factory patch f into slot n, converted; only into an empty slot unless the last
 //                          byte is 1; replies 51 <0 done, 1 slot not empty, 2 no such factory patch, 3 write error>
@@ -846,6 +849,23 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = (uint8_t)(v >> 7 & 0x7F);
             reply[n++] = (uint8_t)(v & 0x7F);
         }
+    }
+    if (data_length == 7 && data[0] == 0x4E && data[1] < 2 && data[2] < 2 && data[3] >= 1 && data[3] <= LFO_MAX_STEPS) {
+        int lfo = LFO_ID(data[1], data[2]);
+        lfo_step_count[lfo] = data[3];
+        lfo_pattern[lfo] = (uint16_t)(data[4] << 14 | data[5] << 7 | data[6]);
+        reply[n++] = 0x7F;
+        reply[n++] = 0x4E;
+    }
+    if (data_length == 3 && data[0] == 0x4D && data[1] < 2 && data[2] < 2) {
+        int lfo = LFO_ID(data[1], data[2]);
+        reply[n++] = 0x4D;
+        reply[n++] = data[1];
+        reply[n++] = data[2];
+        reply[n++] = lfo_step_count[lfo];
+        reply[n++] = (uint8_t)(lfo_pattern[lfo] >> 14 & 0x7F);
+        reply[n++] = (uint8_t)(lfo_pattern[lfo] >> 7 & 0x7F);
+        reply[n++] = (uint8_t)(lfo_pattern[lfo] & 0x7F);
     }
     if (data_length == 2 && data[0] == 0x53 && data[1] < 2) {
         reply[n++] = 0x53;

@@ -52,7 +52,8 @@ Probe (our firmware 0.0.9+):
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
                                         shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
                                         lfo2-dests <layer> none|pitch,filter,pw,
-                                        cycle <layer> none|amp,filter,env3,env4 (cycling envelopes)
+                                        cycle <layer> none|amp,filter,env3,env4 (cycling envelopes),
+                                        steps <layer> <lfo> x.x.xx.. (the step shape's pattern, 1-16)
   pro800 settings                       print every setting
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
@@ -734,7 +735,7 @@ func state() {
     print("keyboard tracking: \(keytrack)")
 }
 
-let shapeNames = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift"]
+let shapeNames = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps"]
 let lfo2DestNames = ["pitch", "filter", "pw"]
 let layerModes = ["off", "split", "stack", "channel"], triggerModes = ["free", "first", "every", "voice"]
 let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo2-sync", "lfo2-trigger", "edit-layer",
@@ -756,7 +757,7 @@ func setSetting() {
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
         "layers off|split|stack|channel | split <note 0-127> | keytrack off|half|full | lfo 1|2 | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
-        "cycle <layer 1|2> none|amp,filter,env3,env4"
+        "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)>"
     var id: UInt8, v: Int
     if args.count == 2, args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
         (id, v) = (3, note)
@@ -772,6 +773,16 @@ func setSetting() {
             bits |= 1 << i
         }
         (id, v) = (UInt8(13 + layer - 1), bits)
+    } else if args.count == 4, args[0] == "steps", let layer = Int(args[1]), (1...2).contains(layer),
+              let lfo = Int(args[2]), (1...2).contains(lfo) {
+        // x / 1 = on, . / 0 / - = off; the length is the step count (1-16)
+        let steps = Array(args[3])
+        guard (1...16).contains(steps.count), steps.allSatisfy({ "x1.0-".contains($0) }) else { fail(usage) }
+        let bits = steps.indices.reduce(0) { $0 | ("x1".contains(steps[$1]) ? 1 << $1 : 0) }
+        probeAck(Midi(port: portName), [0x4E, UInt8(layer - 1), UInt8(lfo - 1), UInt8(steps.count),
+                                        UInt8(bits >> 14 & 0x7F), UInt8(bits >> 7 & 0x7F), UInt8(bits & 0x7F)])
+        print("layer \(layer) LFO \(lfo) steps: " + String(steps.indices.map { bits >> $0 & 1 != 0 ? "x" : "." }))
+        return
     } else if args.count == 3, args[0] == "cycle", let layer = Int(args[1]), (1...2).contains(layer) {
         var bits = 0
         for name in args[2].split(separator: ",") where name != "none" {
@@ -812,6 +823,16 @@ func settings() {
         default: break
         }
         print("\(settingNames[i].padding(toLength: 14, withPad: " ", startingAt: 0)) \(text)")
+    }
+    let midi = Midi(port: portName)
+    for layer in 0..<2 {
+        for lfo in 0..<2 {
+            guard let r = midi.request([0x4D, UInt8(layer), UInt8(lfo)], expect: [0x4D, UInt8(layer), UInt8(lfo)]) else { continue }
+            let d = Array(r[sysexHeader.count...])
+            let count = Int(d[3]), bits = Int(d[4]) << 14 | Int(d[5]) << 7 | Int(d[6])
+            print("steps \(layer + 1) \(lfo + 1)".padding(toLength: 15, withPad: " ", startingAt: 0) +
+                  String((0..<count).map { bits >> $0 & 1 != 0 ? "x" : "." }))
+        }
     }
 }
 

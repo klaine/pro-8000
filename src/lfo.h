@@ -13,8 +13,18 @@ typedef enum { LFO_TRIGGER_FREE, LFO_TRIGGER_FIRST_KEY, LFO_TRIGGER_EVERY_KEY, L
                LFO_TRIGGER_COUNT } lfo_trigger_t;
 // Every shape is bipolar (-1..1) and starts low, except square (high first) and ramp down (from the top).
 // Sample & hold takes a new random value every cycle; drift glides smoothly from one random value to the next.
+// Steps plays the LFO's step pattern over one cycle: +1 for a step that's on, -1 for one that's off, with an 8 ms
+// slope at each change so a gate doesn't click.
 typedef enum { LFO_TRIANGLE, LFO_SQUARE, LFO_RAMP_UP, LFO_RAMP_DOWN, LFO_SINE, LFO_SAMPLE_HOLD, LFO_DRIFT,
-               LFO_SHAPE_COUNT } lfo_shape_t;
+               LFO_STEPS, LFO_SHAPE_COUNT } lfo_shape_t;
+
+#define LFO_MAX_STEPS 16
+#define LFO_DEFAULT_STEPS   16
+#define LFO_DEFAULT_PATTERN 0x3535u // bit n = step n: 1 0 1 0 1 1 0 0, twice: the "ta-ta-taa" trance gate
+
+// Step patterns, per LFO (LFO_ID): bit n on = step n high; the count is 1..LFO_MAX_STEPS.
+extern uint16_t lfo_pattern[LFO_COUNT];
+extern uint8_t lfo_step_count[LFO_COUNT];
 
 extern lfo_sync_t lfo_sync[2];       // per LFO 1 / LFO 2
 extern lfo_trigger_t lfo_trigger[2];

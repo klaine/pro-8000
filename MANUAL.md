@@ -1,9 +1,10 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.6.2. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.6.3. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
-- two LFOs per layer with seven shapes, clock sync and per-voice retrigger;
+- two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
+  retrigger;
 - four envelopes per voice;
 - an 8-route mod matrix per layer;
 - autotune that keeps every oscillator within about a cent;
@@ -19,7 +20,7 @@ The internal sequencer and arpeggiator are gone; their buttons do other jobs now
 | FREQ A / FREQ B | ±36 semitones (6 octaves in all) in semitone steps; the display shows the interval, e.g. `-12`, ` 7`. |
 | FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
 | Keyboard-tracking switch | Picks what the filter ADSR knobs edit: bottom = filter envelope, middle = Env 3, top = Env 4. Keyboard tracking itself is a setting. |
-| LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`. |
+| LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`. |
 | VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. |
 | Seq 1 / Seq 2 | Choose the layer the knobs edit (LED). |
 | Arp Up-Dn | Choose LFO 1 or LFO 2 for the LFO knobs, the shape button and the LFO routing buttons (LED lit = LFO 2). |
@@ -120,6 +121,26 @@ ways. The button's up/down position no longer means anything.
 | `SInE` | Sine |
 | `S-H` | Sample & hold: a new random step every cycle |
 | `drFt` | Drift: smooth glides between random values |
+| `StEP` | Steps: a pattern of 1-16 on/off steps, edited on the web page |
+
+### Step patterns and trance gates
+
+The `StEP` shape plays a pattern of up to 16 steps over one LFO cycle: high for a step that's on, low for one
+that's off. Each LFO of each layer has its own pattern, stored in the patch. The default is the trance gate
+`1 0 1 0 1 1 0 0`, twice. Edit it on the web page's Sound tab: choose Steps as the LFO's shape and a row of step
+boxes appears. Click steps on or off, choose 2-16 steps, and use Clear, Invert, rotate ◀ ▶ or Trance gate. On the
+command line: `build/pro800 set steps <layer> <lfo> x.x.xx..`.
+
+For a gate on the volume:
+
+1. Give the LFO the `StEP` shape.
+2. Route it to the VCA at depth 99, with the web page's "Route to VCA" button or MOD ASSIGN (key 1, touch AMP SUS,
+   VALUE to 99). Lower depths only dip the volume instead of cutting it.
+3. Set the rate. With MIDI clock (Sync `CLoC`), one cycle is the whole pattern: 16 steps at `1bAr`, or 8 steps at
+   `1-2`, are 16th notes. With retrigger `EACH` the pattern starts with every chord.
+
+Every change is softened over 8 ms so the gate doesn't click. The pattern works on any destination too: steps to
+the filter, or to pitch for octave jumps (LFO → Freq at full depth is ±12 semitones).
 
 **Rate:** LFO FREQ, 0.05-51 Hz. **Depth:** LFO AMOUNT, on a squared curve so small values are fine. The mod wheel
 adds to LFO 1's depth.
@@ -219,7 +240,7 @@ Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn stil
 | CUTOFF | Cutoff | `CUt` | ±96 semitones |
 | FIL ENV AMT | Filter envelope amount | `F.EA` | full scale |
 | PMOD FIL ENV | Poly-mod envelope amount | `P.EA` | full scale |
-| AMP SUS | VCA level | `VCA` | full scale |
+| AMP SUS | VCA gain † | `VCA` | closed to full |
 | LFO AMOUNT | LFO 1 / 2 depth | `L.An` / `L2.An` | full scale |
 | LFO FREQ | LFO 1 / 2 rate | `L.rt` / `L2.rt` | ±4 octaves |
 | LFO → Freq button | LFO 1 / 2 → pitch depth | `L.Fr` / `L2.Fr` | full scale |
@@ -232,6 +253,11 @@ Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn stil
 
 \* Single wires for all voices: they follow the most recently played note of the layer. Everything else acts per
 voice.
+
+† The VCA destination is a gain on the amp envelope, so it never opens a voice that isn't playing. A swinging
+source (an LFO, random, note) at depth 99 goes from closed to fully open: tremolo, or a gate with the step shape.
+A 0-to-1 source (envelopes, velocity, mod wheel, aftertouch) turns the volume down where it's low: velocity → VCA at
+99 is plain velocity sensitivity, aftertouch → VCA at 99 is silent until you press.
 
 The LFO rate is per voice in `PoLY` retrigger mode. Otherwise it follows the most recently played note.
 
@@ -246,6 +272,7 @@ The LFO rate is per voice in `PoLY` retrigger mode. Otherwise it follows the mos
 - **Split bass and lead:** split at C3. Give layer 1 a short filter envelope, and layer 2 glide plus Env 4 →
   pitch A for a scoop.
 - **Pressure brightens:** route 6 (aftertouch) → CUTOFF.
+- **Trance gate:** an LFO on `StEP`, clock-synced, routed to the VCA at 99 (see Step patterns above).
 
 ## Settings menu
 
@@ -294,7 +321,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.6.2.syx --yes
+build/pro800 install build/pro800-0.6.3.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

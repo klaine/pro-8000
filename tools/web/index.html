@@ -113,6 +113,13 @@
           padding: 8px 12px; margin: 0 8px 8px 0; min-width: 120px; }
   .stat b { display: block; font-size: 18px; }
   .stat span { color: var(--muted); font-size: 12px; }
+  .steps { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; margin: 6px 0; }
+  .steps button { padding: 0; height: 26px; border-radius: 4px; font-size: 10px; color: var(--muted); }
+  .steps button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .steps button.beat { border-color: var(--muted); }
+  .steps button[disabled] { opacity: .25; }
+  .step-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; }
+  .step-tools button { padding: 2px 8px; font-size: 12px; }
   .depth { display: flex; gap: 6px; align-items: center; }
   .depth input[type=range] { width: 140px; accent-color: var(--accent); }
   .depth output { font: 12px ui-monospace, monospace; width: 30px; text-align: right; }
@@ -671,7 +678,9 @@ const DIVISIONS = ["8 bars", "4 bars", "2 bars", "1 bar", "1/2", "1/4.", "1/4", 
 const SHAPES = [["Triangle", "M1 14 9 2 17 14 25 2 33 14"], ["Square", "M1 2H9V14H17V2H25V14H33"],
   ["Ramp up", "M1 14 17 2V14L33 2"], ["Ramp down", "M1 2 17 14V2L33 14"],
   ["Sine", "M1 14C5 14 5 2 9 2S13 14 17 14 21 2 25 2 29 14 33 14"], ["S&H", "M1 10H7V3H13V12H19V6H25V13H33"],
-  ["Drift", "M1 10C6 10 6 3 11 3S16 12 21 12 25 6 33 6"]];
+  ["Drift", "M1 10C6 10 6 3 11 3S16 12 21 12 25 6 33 6"], ["Steps", "M1 14V3H5V14H9V3H13V14H17V3H21V3H25V14H33"]];
+const STEPS_SHAPE = 7;
+let steps = [null, null]; // [LFO 1, LFO 2] of the edit layer: {count, bits}
 const SYNC = ["Free", "MIDI clock"], TRIGGER = ["Free-running", "First key", "Every key", "Per voice (poly)"];
 
 function seconds(s) { return s < 0.9995 ? Math.round(s * 1000) + " ms" : s.toFixed(s < 9.995 ? 2 : 1) + " s"; }
@@ -737,6 +746,20 @@ function lfoControls(which) {
   const n = which + 1;
   box.innerHTML = `<div class="shapes" id="shapes${which}">${SHAPES.map(([name, d], s) =>
       `<button data-s="${s}" title="${name}"><svg viewBox="0 0 34 16"><path d="${d}"/></svg>${name}</button>`).join("")}</div>
+    <div class="step-edit" id="step-edit${which}" hidden>
+      <div class="steps" id="steps${which}">${Array.from({ length: 16 }, (_, i) =>
+        `<button data-i="${i}" class="${i % 4 ? "" : "beat"}" title="step ${i + 1}">${i + 1}</button>`).join("")}</div>
+      <div class="step-tools">
+        <select id="step-count${which}" title="steps per LFO cycle">${Array.from({ length: 15 }, (_, i) =>
+          `<option value="${i + 2}">${i + 2} steps</option>`).join("")}</select>
+        <button data-op="clear">Clear</button><button data-op="invert">Invert</button>
+        <button data-op="left" title="rotate left">◀</button><button data-op="right" title="rotate right">▶</button>
+        <button data-op="trance" title="1 0 1 0 1 1 0 0, twice">Trance gate</button>
+        <button data-op="gate" class="primary" title="adds a route: this LFO → VCA at 99">Route to VCA</button>
+      </div>
+      <div class="muted" style="font-size:12px">One LFO cycle plays all the steps: with MIDI clock sync, 16 steps at
+        1 bar (or 8 at 1/2) are 16th notes.</div>
+    </div>
     <div class="field"><span>Sync</span><select id="sync${which}">${SYNC.map((t, k) => `<option value="${k}">${t}</option>`).join("")}</select></div>
     <div class="field"><span>Retrigger</span><select id="trig${which}">${TRIGGER.map((t, k) => `<option value="${k}">${t}</option>`).join("")}</select></div>
     ${which ? `<div class="field"><span>Routing</span>
@@ -746,6 +769,31 @@ function lfoControls(which) {
     <div class="field"><span></span><span class="muted" id="lfo-sel${which}"></span></div>`;
   box.querySelectorAll(".shapes button").forEach(b => b.onclick = () =>
     setSetting(SET_ID["shape" + (paramsLayer + 1) + n], +b.dataset.s));
+  box.querySelectorAll(`#steps${which} button`).forEach(b => b.onclick = () => {
+    const st = steps[which];
+    if (!st) return;
+    sendSteps(which, st.count, st.bits ^ (1 << +b.dataset.i));
+  });
+  box.querySelector("#step-count" + which).onchange = e => {
+    const st = steps[which] || { bits: 0x3535 };
+    sendSteps(which, +e.target.value, st.bits);
+  };
+  box.querySelectorAll(".step-tools button[data-op]").forEach(b => b.onclick = async () => {
+    const st = steps[which] || { count: 16, bits: 0 }, all = (1 << st.count) - 1;
+    const op = b.dataset.op;
+    if (op === "gate") {
+      const src = which ? 11 : 1, d = 99 + 99; // LFO 1 / LFO 2 → VCA at 99
+      const ok = await ack([0x56, paramsLayer, src, 9, d >> 7, d & 0x7F]);
+      document.getElementById("status").textContent = ok ? `Layer ${paramsLayer + 1}: LFO ${n} → VCA at 99 (Mod matrix tab)` :
+        "All 8 mod routes of this layer are in use";
+      return;
+    }
+    const bits = op === "clear" ? 0 : op === "invert" ? ~st.bits & all
+      : op === "left" ? (st.bits >> 1 | (st.bits & 1) << (st.count - 1)) & all
+      : op === "right" ? (st.bits << 1 | st.bits >> (st.count - 1)) & all
+      : 0x3535 & all;
+    sendSteps(which, st.count, bits);
+  });
   box.querySelector("#sync" + which).onchange = e => setSetting(SET_ID[`lfo${n}Sync`], +e.target.value);
   box.querySelector("#trig" + which).onchange = e => setSetting(SET_ID[`lfo${n}Trigger`], +e.target.value);
   box.querySelectorAll("input[data-bit]").forEach(c => c.onchange = () => {
@@ -772,6 +820,33 @@ async function refreshSettings() {
   return true;
 }
 
+async function sendSteps(which, count, bits) {
+  steps[which] = { count, bits };
+  paintSteps();
+  if (!await ack([0x4E, paramsLayer, which, count, bits >> 14 & 0x7F, bits >> 7 & 0x7F, bits & 0x7F]))
+    document.getElementById("status").textContent = "The synth didn't take the step pattern (firmware 0.6.3 or later?)";
+}
+async function refreshSteps() {
+  for (const which of [0, 1]) {
+    const d = await ask([0x4D, paramsLayer, which], [0x4D, paramsLayer, which], 1000);
+    if (d) steps[which] = { count: d[3], bits: d[4] << 14 | d[5] << 7 | d[6] };
+  }
+  paintSteps();
+}
+function paintSteps() {
+  for (const which of [0, 1]) {
+    const st = steps[which], shape = settings ? settings[`shape${paramsLayer + 1}${which + 1}`] : -1;
+    document.getElementById("step-edit" + which).hidden = shape !== STEPS_SHAPE;
+    if (!st) continue;
+    document.querySelectorAll(`#steps${which} button`).forEach((b, i) => {
+      b.classList.toggle("on", i < st.count && !!(st.bits >> i & 1));
+      b.disabled = i >= st.count;
+    });
+    const sel = document.getElementById("step-count" + which);
+    if (document.activeElement !== sel) sel.value = String(st.count);
+  }
+}
+
 async function refreshParams() {
   if (!settings) return;
   const layer = settings.editLayer;
@@ -781,6 +856,7 @@ async function refreshParams() {
   params = [];
   for (let i = 0; i < d[2]; i++) params.push((d[3 + 2 * i] << 7 | d[4 + 2 * i]) / 16383);
   paintParams();
+  await refreshSteps();
 }
 
 function paintSettings() {
@@ -803,6 +879,7 @@ function paintSettings() {
     if (label) label.textContent = (cyc & bit ? CYCLE_LABELS : ADSR_LABELS)[stage];
   }
   if (params) paintParams();
+  paintSteps();
   const dests = s["lfo2Dests" + (s.editLayer + 1)];
   document.querySelectorAll("#shapes1 ~ .field input[data-bit]").forEach(c => c.checked = !!(dests & +c.dataset.bit));
   const env = ["filter envelope", "Env 3", "Env 4"][s.envSelect] || "";

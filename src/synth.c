@@ -4,7 +4,7 @@
 //   mixer: A, B and noise levels; filter: cutoff, resonance, envelope amount (bipolar), keyboard tracking
 //   poly-mod: filter envelope (software, added to oscillator A's pitch) and oscillator B (analog), routed to
 //   frequency A and/or the filter by the two poly-mod buttons
-//   LFO 1 (lfo.c): seven shapes (the shape button steps through them), to frequency, pulse width and/or filter,
+//   LFO 1 (lfo.c): eight shapes, steps included (the shape button steps through them), to frequency, pulse width and/or filter,
 //   free or synced to MIDI clock, with retrigger modes; glide, unison, master tune and volume
 //   LFO 2: the same, edited with the LFO knobs and buttons while Arp Up-Dn selects it (its routing lives here, the
 //   buttons keep showing LFO 1's)
@@ -387,6 +387,11 @@ void synth_apply_patch(const patch_t *patch)
             lfo_shape[l][w] = patch->lfo_shape[l][w] < LFO_SHAPE_COUNT ? patch->lfo_shape[l][w] : 0;
         lfo2_dests[l] = patch->lfo2_dests[l] & 7;
         env_cycle[l] = patch->env_cycle[l] & 15;
+        for (int w = 0; w < 2; w++) { // no steps stored (older patches): the default pattern
+            int count = patch->step_count[l][w];
+            lfo_step_count[LFO_ID(l, w)] = (uint8_t)(count >= 1 && count <= LFO_MAX_STEPS ? count : LFO_DEFAULT_STEPS);
+            lfo_pattern[LFO_ID(l, w)] = count ? patch->step_pattern[l][w] : LFO_DEFAULT_PATTERN;
+        }
     }
     for (int i = 0; i < PARAM_COUNT; i++) {
         latched[i] = i == POT_MASTER_VOL;
@@ -425,6 +430,10 @@ void synth_capture_patch(patch_t *patch)
             patch->lfo_shape[l][w] = lfo_shape[l][w];
         patch->lfo2_dests[l] = lfo2_dests[l];
         patch->env_cycle[l] = env_cycle[l];
+        for (int w = 0; w < 2; w++) {
+            patch->step_count[l][w] = lfo_step_count[LFO_ID(l, w)];
+            patch->step_pattern[l][w] = lfo_pattern[LFO_ID(l, w)];
+        }
     }
     patch->switches = 0;
     for (int s = 0; s < SWITCH_COUNT; s++)
@@ -779,14 +788,22 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
     }
 }
 
-// Adds every route of `layer` evaluated for `voice` into mod[] (DEST_COUNT entries).
+// Sources that swing both ways; the others run 0..1
+static int bipolar(int source) { return source == SRC_LFO || source == SRC_LFO2 || source == SRC_RANDOM || source == SRC_NOTE; }
+
+// Adds every route of `layer` evaluated for `voice` into mod[] (DEST_COUNT entries). The VCA is a gain on the amp
+// envelope (1 + mod, 0..1): a bipolar source at depth 99 swings it from closed to open (tremolo, gates), and a 0..1
+// source counts down from full (source - 1), so velocity → VCA at 99 is plain velocity sensitivity.
 static void evaluate_routes(int layer, int voice, float *mod)
 {
     for (int r = 0; r < ROUTES; r++) {
         const route_t *x = &routes[layer][r];
         if (x->source == SRC_NONE || x->dest >= DEST_COUNT)
             continue;
-        mod[x->dest] += source_value(&voices[voice], voice, layer, x->source) * (float)x->depth / 99.0f;
+        float value = source_value(&voices[voice], voice, layer, x->source);
+        if (x->dest == DEST_VCA && !bipolar(x->source))
+            value -= 1.0f;
+        mod[x->dest] += value * (float)x->depth / 99.0f;
     }
 }
 
@@ -912,6 +929,6 @@ void synth_update(float dt)
         sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
         sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));
         sh_set(CV_FIL1 + v, tuning_note_cv(TUNING_ROW_FILTER + v, filter));
-        sh_set(CV_AMP1 + v, cv_from(x->amp.level + mod[DEST_VCA]));
+        sh_set(CV_AMP1 + v, cv_from(x->amp.level * clamp01(1.0f + mod[DEST_VCA])));
     }
 }
