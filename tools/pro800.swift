@@ -53,6 +53,7 @@ Probe (our firmware 0.0.9+):
   pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
   pro800 patches [--all]                list the patch slots (ours, stock, empty)
   pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-399, A00-D99)
+  pro800 patch init                     load the basic sound (osc A saw), as PERF does
   pro800 clock <bpm> [seconds]          send MIDI clock (Start, then 24 per quarter note)
   pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
@@ -849,8 +850,13 @@ func importStock() {
 
 // pro800 patch load|save|clear <slot>  (slot 0-399 or A00-D99)
 func patchCommand() {
+    if args == ["init"] { // the basic sound PERF loads
+        guard Midi(port: portName).request([0x5F], expect: [0x7F, 0x5F], timeout: 3) != nil else { fail("no reply") }
+        print("loaded the init sound")
+        return
+    }
     guard args.count == 2, ["load", "save", "clear"].contains(args[0]), let n = slotNumber(args[1]) else {
-        fail("usage: pro800 patch load|save|clear <slot 0-399 or A00-D99>")
+        fail("usage: pro800 patch load|save|clear <slot 0-399 or A00-D99>  or  pro800 patch init")
     }
     if args[0] == "clear" { // an empty slot is 256 zero bytes
         let midi = Midi(port: portName)

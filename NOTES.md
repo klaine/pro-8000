@@ -418,6 +418,9 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   manual (panel live); two keypad digits pick a patch in the bank, VALUE steps through all 400 (display ` A.07`);
   REC (blinks), choose the slot, REC saves (`donE`); the loaded patch's name follows it to an empty slot. Boot
   restores the last patch and mode.
+- PERF loads an init sound (0.4.2): osc A saw at concert pitch, filter open, gate-like amp envelope, everything
+  else off, name "Init"; REC saves it anywhere. Measured over MIDI from the audio: −29 dBFS, C3/C4/C5 at
+  −0.3/−0.4/+0.5 cents (the cleanest end-to-end check of the tuning so far). `pro800 patch init` does the same.
 - Checked: load + play A00/A01/A02/B04; save A01 to an empty slot and compare records: identical apart from the
   low byte of a few knob values (1/65536 rounding) and M VOL (not applied); test slots cleared again.
 

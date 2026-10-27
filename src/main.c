@@ -26,6 +26,7 @@
 //   5B                     import: convert every stock patch in place, then mark the EEPROM as ours; replies
 //                          5B <converted, 2 × 7 bits> <errors>
 //   5C <n1> <n0>           load patch n; 5D <n1> <n0> save the current sound to patch n (both acknowledged)
+//   5F                     load the init sound (as PERF does; acknowledged)
 //   5E <n1> <n0>           patch info; replies 5E <n1> <n0> <kind: 0 empty, 1 ours, 2 stock, 3 corrupt> <name>
 //   79 <a2> <a1> <a0> <n>  read n (1-48) bytes of the patch EEPROM at a2 << 14 | a1 << 7 | a0; replies
 //                          79 <a2> <a1> <a0> <n> <status register, 2 nibbles> <each byte as 2 nibbles, high first>
@@ -115,7 +116,8 @@ static uint32_t display_until; // ms_ticks when a pot value on the display gives
 static int tune_requested;
 
 // Patches: PRESET toggles preset mode (a patch loaded) and manual mode (the panel live). In preset mode two keypad
-// digits pick a patch in the current bank and VALUE steps through all 400; REC, then the slot, then REC saves.
+// digits pick a patch in the current bank and VALUE steps through all 400; REC, then the slot, then REC saves;
+// PERF loads the init sound.
 static int current_patch, preset_mode, saving, typed_digits, typed_value, encoder_patch_steps;
 static char loaded_name[PATCH_NAME + 1]; // travels with the sound when it's saved to an empty slot
 static uint32_t typed_at;
@@ -155,6 +157,38 @@ static int load_patch(int n)
     show_patch(n);
     store_set_last(n, 1);
     return 1;
+}
+
+// PERF loads a basic sound: oscillator A saw at concert pitch, filter open, gate-like amp envelope, nothing else.
+static void init_patch(void)
+{
+    static const struct { uint8_t pot; uint16_t value; } values[] = {
+        {POT_FREQ_A, 0x8000}, {POT_FREQ_B, 0x8000}, {POT_FINE, 0x8000}, {POT_MASTER_TUNE, 0x8000},
+        {POT_A_LEVEL, 0xCCCC}, {POT_B_LEVEL, 0}, {POT_NOISE, 0}, {POT_A_PW, 0x8000}, {POT_B_PW, 0x8000},
+        {POT_CUTOFF, 0xFFFF}, {POT_RESONANCE, 0}, {POT_FIL_ENV_AMT, 0x8000},
+        {POT_FIL_ATT, 0}, {POT_FIL_DEC, 0x8000}, {POT_FIL_SUS, 0xFFFF}, {POT_FIL_REL, 0x4000},
+        {POT_AMP_ATT, 0}, {POT_AMP_DEC, 0x8000}, {POT_AMP_SUS, 0xFFFF}, {POT_AMP_REL, 0x4000},
+        {POT_GLIDE, 0}, {POT_LFO_FREQ, 0x8000}, {POT_LFO_AMOUNT, 0}, {POT_PMOD_OSC_B, 0}, {POT_PMOD_FIL_ENV, 0},
+        {POT_MASTER_VOL, 0x8000},
+    };
+    static const char name[] = "Init";
+    patch_t patch = {0};
+    for (int l = 0; l < 2; l++)
+        for (unsigned i = 0; i < sizeof values / sizeof values[0]; i++)
+            patch.pots[l][values[i].pot] = values[i].value;
+    patch.switches = 1u << SWITCH_A_SAW;
+    patch.keytrack = 2;
+    patch.layer_mode = LAYER_OFF;
+    patch.split = 60;
+    patch.lfo_sync = LFO_SYNC_FREE;
+    patch.lfo_trigger = LFO_TRIGGER_FREE;
+    synth_apply_patch(&patch);
+    for (int i = 0; i <= PATCH_NAME; i++)
+        loaded_name[i] = i < (int)sizeof name ? name[i] : 0;
+    preset_mode = 1; // the slot number stays; REC saves the init sound wherever you choose
+    display_led(LED_PRESET, 1);
+    display_text("InIt");
+    display_until = ms_ticks + 1500;
 }
 
 static void manual_mode(void)
@@ -302,6 +336,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         if (index != BUTTON_SETTINGS && index != BUTTON_SEQ1 && index != BUTTON_SEQ2 && index != BUTTON_PRESET
             && index != BUTTON_REC)
             display_led(button_led[index], (int)value);
+        if (index == BUTTON_PERF && value && !saving && !menu_open)
+            init_patch();
         if (index == BUTTON_PRESET && value) {
             typed_digits = 0;
             if (saving) { // cancels a save
@@ -520,6 +556,11 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = 0x7F;
             reply[n++] = data[0];
         }
+    }
+    if (data_length == 1 && data[0] == 0x5F) {
+        init_patch();
+        reply[n++] = 0x7F;
+        reply[n++] = 0x5F;
     }
     if (data_length == 3 && data[0] == 0x5E && (data[1] << 7 | data[2]) < PATCH_COUNT) {
         int slot = data[1] << 7 | data[2];
