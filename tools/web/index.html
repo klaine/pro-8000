@@ -3,149 +3,248 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pro 800 Panel</title>
+<title>PRO-800 Editor</title>
 <style>
+  /* A dark hardware panel (after the Crest editor): charcoal sections with silkscreen labels, black knobs with a
+     lit arc, white-capped faders, red LED buttons and a red LED screen like the PRO-800's display. */
   :root {
-    --bg: #f6f6f4; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #dddcd8;
-    --accent: #d2601a; --accent-soft: #fbe4d6; --on: #2f7d4f; --on-soft: #dcefe3; --warn: #b3261e;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #161617; --card: #212123; --ink: #ececee; --muted: #9a9aa0; --line: #343437;
-      --accent: #f08a4b; --accent-soft: #4a2c1b; --on: #6cc596; --on-soft: #1f3b2b; --warn: #ff8a80;
-    }
+    color-scheme: dark;
+    --bg: #161719; --panel: #232427; --panel-2: #2b2c30; --edge: #3a3b40; --well: #121315;
+    --text: #e9e7e2; --dim: #8c8e94; --label: #c9c7c1;
+    --accent: #ff4a36; --accent-soft: rgba(255, 74, 54, .18);
+    --trace: #f4f1ea; --trace-fill: rgba(255, 74, 54, .2);
+    --screen: #0d0605; --screen-fg: #ff5b3d; --knob: #0c0c0e;
+    --ok: #6cc596; --warn: #ff8a80;
+    --sans: "Inter", "Helvetica Neue", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    /* names the other tabs use */
+    --card: var(--panel); --ink: var(--text); --muted: var(--dim); --line: var(--edge); --on: var(--ok);
+    --on-soft: rgba(108, 197, 150, .15);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 -apple-system, system-ui, sans-serif; }
-  header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line);
-           padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
-  header h1 { font-size: 16px; margin: 0 8px 0 0; }
-  main { padding: 16px; max-width: 1200px; margin: 0 auto; }
-  section { margin-bottom: 28px; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
-  p.hint { color: var(--muted); margin: -4px 0 12px; max-width: 70ch; }
-  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
-           border-radius: 6px; padding: 5px 10px; cursor: pointer; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  #status { color: var(--muted); }
-  #status.ok { color: var(--on); }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 var(--sans); }
+  body { -webkit-font-smoothing: antialiased; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dim, .muted { color: var(--dim); }
+  .small { font-size: 11px; }
+
+  /* ---------------------------------------------------------------- header */
+  header {
+    position: sticky; top: 0; z-index: 10; display: grid; gap: 10px 18px; align-items: center;
+    grid-template-columns: auto minmax(260px, 1fr) auto auto; padding: 10px 18px;
+    background: linear-gradient(#1d1e21, #19191b); border-bottom: 1px solid #000; box-shadow: 0 1px 0 #2c2d31;
+  }
+  .brand { display: flex; flex-direction: column; line-height: 1; }
+  .logo { font: 800 22px/1 var(--sans); letter-spacing: .26em; }
+  .logo::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 4px; border-radius: 50%;
+                 background: var(--accent); box-shadow: 0 0 8px var(--accent); vertical-align: 3px; }
+  .tagline { margin-top: 5px; font-size: 10px; letter-spacing: .24em; text-transform: uppercase; color: var(--dim); }
+  .screen { min-width: 0; min-height: 58px; padding: 7px 12px 6px; border-radius: 8px; background: var(--screen);
+            border: 1px solid #000; box-shadow: inset 0 0 0 1px #2a1210, inset 0 6px 18px rgba(0, 0, 0, .8);
+            color: var(--screen-fg); font-family: var(--mono); text-shadow: 0 0 6px rgba(255, 80, 50, .55); }
+  .screen > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #scr-top { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; opacity: .7; }
+  #scr-big { font-size: 19px; font-weight: 600; letter-spacing: .03em; margin: 1px 0; }
+  #scr-sub { font-size: 10px; opacity: .55; }
+  .hdr-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #status { color: var(--dim); font-size: 12px; max-width: 280px; }
+  #status.ok { color: var(--ok); }
   #status.bad { color: var(--warn); }
+  nav.tabs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px; }
+  nav.tabs button { padding: 5px 12px; border-radius: 6px; border: 1px solid transparent; background: transparent;
+                    color: var(--dim); cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: .08em;
+                    text-transform: uppercase; }
+  nav.tabs button.active { background: var(--well); border-color: #000; color: #fff; box-shadow: inset 0 -2px 0 var(--accent); }
+  @media (max-width: 900px) { header { grid-template-columns: 1fr; position: static; } }
+
+  /* ---------------------------------------------------------------- generic */
+  main { padding: 14px 18px 28px; max-width: 1720px; margin: 0 auto; }
+  .panel > section { margin-bottom: 22px; }
+  .panel > section > h2, .sec > h2 { font: 700 10px/1 var(--sans); letter-spacing: .26em; text-transform: uppercase;
+                                      color: var(--label); margin: 0 0 12px; }
+  .panel > section > h2::before, .sec > h2::before { content: ""; display: inline-block; width: 14px; height: 2px;
+    background: var(--accent); margin-right: 8px; vertical-align: 3px; }
+  p.hint { color: var(--dim); margin: -4px 0 12px; max-width: 76ch; }
+  button { border: 1px solid var(--edge); background: var(--panel-2); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+  button:hover:not(:disabled) { background: #34353a; }
+  button.primary, .chip.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  #connect.nudge { outline: 3px solid var(--accent); outline-offset: 2px; }
+  select, input[type=number], input[type=text], textarea, td input.name {
+    background: var(--well); border: 1px solid #000; border-radius: 6px; padding: 5px 7px; color: var(--text); min-width: 0; max-width: 100%; }
+  select { cursor: pointer; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+  .panel > section > .row { margin-bottom: 10px; }
+  .msg { color: var(--dim); font-size: 12px; min-height: 1.4em; }
+  .msg.bad { color: var(--warn); }
+  .msg.ok { color: var(--ok); }
+  .tag { font-size: 10px; border: 1px solid var(--edge); border-radius: 4px; padding: 0 4px; color: var(--dim); }
+  body.offline #tab-sound .synth, body.offline #tab-matrix section, body.offline #tab-patches section,
+  body.offline #tab-system section { opacity: .45; }
+  .seg { display: inline-flex; flex-wrap: wrap; background: var(--well); border: 1px solid #000; border-radius: 7px; padding: 2px; gap: 2px; }
+  .seg button, .seg-b { min-width: 34px; padding: 4px 7px; border: 0; border-radius: 5px; background: transparent; color: var(--dim);
+                        font-size: 11px; font-weight: 600; }
+  .seg button.active, .seg-b[aria-pressed="true"] { background: #3a3b41; color: #fff; box-shadow: inset 0 -2px 0 var(--accent); }
+  .seg-b svg { width: 26px; height: 13px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+  .chip { padding: 4px 9px; font-size: 11px; }
+  .chip.small { padding: 3px 8px; }
+
+  /* ---------------------------------------------------------------- the synth panel */
+  .synth { display: grid; gap: 12px; grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-areas:
+      "osca osca osca oscb oscb oscb mix mix flt flt flt flt"
+      "env0 env0 env0 env1 env1 env1 env2 env2 env2 env3 env3 env3"
+      "lfo1 lfo1 lfo1 lfo1 lfo1 lfo2 lfo2 lfo2 lfo2 lfo2 pm pm"
+      "lfo1 lfo1 lfo1 lfo1 lfo1 lfo2 lfo2 lfo2 lfo2 lfo2 voice voice"; }
+  .sec-osca { grid-area: osca; } .sec-oscb { grid-area: oscb; } .sec-mix { grid-area: mix; } .sec-flt { grid-area: flt; }
+  .sec-env0 { grid-area: env1; } .sec-env1 { grid-area: env0; } .sec-env2 { grid-area: env2; } .sec-env3 { grid-area: env3; }
+  .sec-lfo1 { grid-area: lfo1; } .sec-lfo2 { grid-area: lfo2; } .sec-pm { grid-area: pm; } .sec-voice { grid-area: voice; }
+  @media (max-width: 1360px) {
+    .synth { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-areas:
+      "osca osca oscb oscb mix mix" "flt flt flt flt pm pm" "env0 env0 env0 env1 env1 env1" "env2 env2 env2 env3 env3 env3"
+      "lfo1 lfo1 lfo1 lfo2 lfo2 lfo2" "voice voice voice voice voice voice"; }
+  }
+  @media (max-width: 760px) {
+    .synth { grid-template-columns: 1fr; grid-template-areas: "osca" "oscb" "mix" "flt" "pm" "env1" "env0" "env2" "env3" "lfo1" "lfo2" "voice"; }
+    main { padding: 10px; }
+  }
+  .sec { position: relative; min-width: 0; padding: 12px 14px 14px; border-radius: 10px;
+         background: linear-gradient(180deg, var(--panel-2), var(--panel) 60px); border: 1px solid #0c0c0d;
+         box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); display: flex; flex-direction: column; gap: 10px; }
+  .sec > h2 { margin: 0; }
+  .sec .row { justify-content: space-between; }
+  .sec-tools { display: flex; gap: 6px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .sec-tools select { flex: 1; }
+  .lbl { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--label); white-space: nowrap; }
+  .val { font: 11px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
+  .sel { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  canvas.viz { width: 100%; height: 70px; display: block; background: var(--well); border-radius: 7px; border: 1px solid #000; }
+  canvas.viz.flt, canvas.viz.lfo { height: 80px; }
+
+  /* knobs */
+  .knob { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 62px; }
+  .knob .dial { width: 46px; height: 46px; cursor: ns-resize; touch-action: none; border-radius: 50%; }
+  .knob.k-l { width: 86px; } .knob.k-l .dial { width: 68px; height: 68px; }
+  .knob.k-l .val { color: var(--text); }
+  .knob svg { width: 100%; height: 100%; overflow: visible; }
+  .k-track { fill: none; stroke: #0a0a0b; stroke-width: 4; stroke-linecap: round; }
+  .k-arc { fill: none; stroke: var(--trace); stroke-width: 3; stroke-linecap: round; }
+  .knob.accent .k-arc { stroke: var(--accent); }
+  .k-cap { fill: var(--knob); stroke: #3d3e43; stroke-width: 1; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .6)); }
+  .k-ptr { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
+  .knob .dial:hover .k-cap, .knob .dial.active .k-cap { stroke: #66676d; }
+  .knob .lbl { margin-top: 1px; }
+  i.shared { display: inline-block; width: 5px; height: 5px; border-radius: 50%; border: 1px solid var(--dim); margin-left: 4px;
+             vertical-align: 1px; }
+
+  /* faders */
+  .faders { display: flex; gap: 8px; justify-content: space-between; padding: 0 2px; }
+  .fader { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; min-width: 40px; }
+  .f-slot { position: relative; width: 26px; height: 108px; cursor: ns-resize; touch-action: none;
+            background: linear-gradient(90deg, transparent 11px, #050506 11px, #050506 15px, transparent 15px); }
+  .f-fill { position: absolute; left: 11px; width: 4px; bottom: 0; background: var(--accent); border-radius: 2px; box-shadow: 0 0 6px var(--accent-soft); }
+  .f-thumb { position: absolute; left: 1px; width: 24px; height: 11px; border-radius: 2px;
+             background: linear-gradient(#fafafa, #c9c9c9); box-shadow: 0 2px 3px rgba(0, 0, 0, .6), inset 0 -2px 0 #9b9b9b; }
+  .f-thumb::after { content: ""; position: absolute; left: 3px; right: 3px; top: 5px; height: 1px; background: #333; }
+  .fader .val { min-height: 14px; }
+  .sec-mix .faders { flex: 1; align-items: stretch; }
+  .sec-mix .f-slot { flex: 1; height: auto; min-height: 120px; }
+
+  /* LED buttons */
+  .led { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; font-size: 11px; font-weight: 600; letter-spacing: .06em; }
+  .led .lamp { width: 8px; height: 8px; border-radius: 50%; background: #3b1612; box-shadow: inset 0 1px 1px rgba(0, 0, 0, .7); flex: none; }
+  .led[aria-pressed="true"] .lamp { background: var(--accent); box-shadow: 0 0 9px var(--accent), 0 0 2px #fff; }
+  .led[aria-pressed="true"] { border-color: #5a2a24; }
+  .routing { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .routing > .lbl { margin-right: 4px; }
+  .lfo-sel { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 140px; max-width: 220px; }
+
+  /* depth bars */
+  .depths { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid #1a1b1d; padding-top: 8px; }
+  .depth-row { display: grid; grid-template-columns: 62px 1fr 56px; gap: 8px; align-items: center; }
+  .depth { position: relative; height: 14px; background: var(--well); border: 1px solid #000; border-radius: 5px; cursor: ew-resize; touch-action: none; }
+  .d-mid { position: absolute; left: 50%; top: 2px; bottom: 2px; width: 1px; background: #44464d; }
+  .d-fill { position: absolute; top: 3px; bottom: 3px; background: var(--trace); border-radius: 2px; }
+  .depth.neg .d-fill { background: var(--accent); }
+  .depth-row .val { text-align: right; }
+
+  /* step pattern */
+  .step-edit { display: flex; flex-direction: column; gap: 6px; }
+  .steps { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; }
+  .step { height: 22px; padding: 0; border-radius: 4px; background: #1b1c1f; border: 1px solid #000; }
+  .step.beat { border-color: #4a4b50; }
+  .step.on { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent-soft); }
+  .step[disabled] { opacity: .2; }
+  .step-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
+  /* ---------------------------------------------------------------- other tabs */
   .grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px;
-          transition: border-color .4s, background .4s; }
+  .card { background: var(--panel); border: 1px solid #0c0c0d; border-radius: 8px; padding: 8px; transition: border-color .4s, background .4s; }
   .card.hot { border-color: var(--accent); background: var(--accent-soft); transition: none; }
-  .card .id { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
-  .card input { width: 100%; font: inherit; border: 1px solid transparent; border-radius: 4px; padding: 2px 4px;
-                background: transparent; color: var(--ink); margin: 2px 0 4px; }
-  .card input:focus, .card input:hover { border-color: var(--line); outline: none; }
-  .card input:placeholder-shown { color: var(--muted); }
-  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .card .id { font-size: 11px; color: var(--dim); display: flex; justify-content: space-between; }
+  .card input { width: 100%; border: 1px solid transparent; border-radius: 4px; padding: 2px 4px; background: transparent; margin: 2px 0 4px; }
+  .card input:focus, .card input:hover { border-color: var(--edge); outline: none; }
+  .bar { height: 6px; background: var(--well); border-radius: 3px; overflow: hidden; }
   .bar > div { height: 100%; width: 0; background: var(--accent); }
   .state { font-weight: 600; }
-  .state.on { color: var(--on); }
+  .state.on { color: var(--ok); }
   .keys { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
-  .key.pressed { border-color: var(--on); background: var(--on-soft); }
+  .key.pressed { border-color: var(--ok); background: var(--on-soft); }
   .disp { display: grid; gap: 4px; grid-template-columns: 70px repeat(8, minmax(0, 1fr)); align-items: stretch; }
-  .disp .addr { color: var(--muted); font-size: 12px; align-self: center; }
-  .bit { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 4px; min-width: 0; }
+  .disp .addr { color: var(--dim); font-size: 12px; align-self: center; }
+  .bit { border: 1px solid var(--edge); background: var(--panel); border-radius: 6px; padding: 4px; min-width: 0; }
   .bit.lit { border-color: var(--accent); background: var(--accent-soft); }
   .bit.current { outline: 2px solid var(--accent); }
   .bit button { width: 100%; padding: 2px; font-size: 11px; }
-  .bit input { width: 100%; font-size: 11px; border: 0; background: transparent; color: var(--ink); padding: 2px; }
-  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
-  textarea { width: 100%; min-height: 160px; font: 12px ui-monospace, monospace; background: var(--card);
-             color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  .bit input { width: 100%; font-size: 11px; border: 0; background: transparent; padding: 2px; }
+  textarea { width: 100%; min-height: 160px; font: 12px var(--mono); }
   #encoder { font-size: 20px; font-weight: 600; }
   .piano { position: relative; height: 150px; user-select: none; touch-action: none; overflow-x: auto; }
-  .piano .white, .piano .black { position: absolute; top: 0; border: 1px solid var(--line); border-radius: 0 0 5px 5px;
-    display: flex; align-items: flex-end; justify-content: center; font-size: 11px; color: var(--muted); padding-bottom: 6px; }
-  .piano .white { height: 150px; background: var(--card); z-index: 0; }
-  .piano .black { height: 92px; background: var(--ink); color: var(--bg); z-index: 1; }
+  .piano .white, .piano .black { position: absolute; top: 0; border: 1px solid #0008; border-radius: 0 0 6px 6px;
+    display: flex; align-items: flex-end; justify-content: center; font: 10px var(--mono); color: #555; padding-bottom: 6px; }
+  .piano .white { height: 150px; background: #e9ebe3; z-index: 0; }
+  .piano .black { height: 92px; background: #22251d; color: #888; z-index: 1; }
   .piano .down { background: var(--accent) !important; color: #fff; }
-  select { font: inherit; padding: 4px; border-radius: 6px; border: 1px solid var(--line); background: var(--card);
-           color: var(--ink); max-width: 100%; }
-  .muted { color: var(--muted); }
-  #route-log { font: 12px ui-monospace, monospace; color: var(--muted); }
-  body.offline #tab-sound section, body.offline #tab-matrix section, body.offline #tab-patches section,
-  body.offline #tab-system section { opacity: .5; }
-  #connect.nudge { outline: 3px solid var(--accent); outline-offset: 2px; }
-  nav.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
-  nav.tabs button { border-radius: 999px; padding: 4px 12px; }
-  nav.tabs button.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  .panel[hidden] { display: none; }
-  .groups { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: start; }
-  .group { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-  .group h3 { font-size: 13px; margin: 0 0 8px; display: flex; flex-direction: column; gap: 2px; }
-  .group h3 .muted { font-weight: 400; font-size: 12px; }
-  .group h3 .title-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .group h3 button.copy { font-size: 11px; font-weight: 400; padding: 2px 8px; }
-  .param { display: grid; grid-template-columns: 92px 1fr 66px; gap: 8px; align-items: center; margin: 4px 0; }
-  .param label { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .param label .tag { font-size: 9px; padding: 0 3px; margin-left: 2px; }
-  .param .val { font: 12px ui-monospace, monospace; text-align: right; }
-  .param input[type=range] { width: 100%; accent-color: var(--accent); }
-  .tag { font-size: 10px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--muted); }
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-  .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); }
-  .seg button:last-child { border-right: 0; }
-  .seg button.active { background: var(--accent); color: #fff; }
-  .shapes { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
-  .shapes button { padding: 3px 6px; display: flex; flex-direction: column; align-items: center; font-size: 11px; gap: 2px; }
-  .shapes button.active { border-color: var(--accent); background: var(--accent-soft); }
-  .shapes svg { width: 34px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; }
-  .field { display: flex; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
-  .field > span:first-child { width: 92px; color: var(--muted); }
-  table { border-collapse: collapse; width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
-  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
-  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  #route-log { font: 12px var(--mono); color: var(--dim); }
+  table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid #0c0c0d; border-radius: 8px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #1a1b1d; font-size: 13px; }
+  th { color: var(--dim); font-weight: 600; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
   tr.current td { background: var(--accent-soft); }
-  td.slot { font: 12px ui-monospace, monospace; white-space: nowrap; }
+  td.slot { font: 12px var(--mono); white-space: nowrap; }
   td.actions { white-space: nowrap; text-align: right; }
   td.actions button { padding: 2px 8px; font-size: 12px; }
-  td input.name { font: inherit; width: 100%; min-width: 120px; border: 1px solid transparent; background: transparent;
-                  color: var(--ink); border-radius: 4px; padding: 2px 4px; }
-  td input.name:hover, td input.name:focus { border-color: var(--line); outline: none; }
-  .kind { font-size: 11px; color: var(--muted); }
+  td input.name { width: 100%; min-width: 120px; border-color: transparent; background: transparent; }
+  td input.name:hover, td input.name:focus { border-color: var(--edge); background: var(--well); outline: none; }
+  .kind { font-size: 11px; color: var(--dim); }
   .kind.stock { color: var(--accent); }
   .kind.corrupt { color: var(--warn); }
   .table-wrap { overflow-x: auto; }
-  .msg { color: var(--muted); font-size: 12px; min-height: 1.4em; }
-  .msg.bad { color: var(--warn); }
-  .msg.ok { color: var(--on); }
-  pre.out { font: 12px ui-monospace, monospace; background: var(--card); border: 1px solid var(--line); border-radius: 6px;
-            padding: 8px; overflow-x: auto; margin: 0; }
-  .stat { display: inline-block; background: var(--card); border: 1px solid var(--line); border-radius: 8px;
-          padding: 8px 12px; margin: 0 8px 8px 0; min-width: 120px; }
+  pre.out { font: 12px var(--mono); background: var(--well); border: 1px solid #000; border-radius: 6px; padding: 8px; overflow-x: auto; margin: 0; }
+  .stat { display: inline-block; background: var(--panel); border: 1px solid #0c0c0d; border-radius: 8px; padding: 8px 12px; margin: 0 8px 8px 0; min-width: 120px; }
   .stat b { display: block; font-size: 18px; }
-  .stat span { color: var(--muted); font-size: 12px; }
-  .steps { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; margin: 6px 0; }
-  .steps button { padding: 0; height: 26px; border-radius: 4px; font-size: 10px; color: var(--muted); }
-  .steps button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .steps button.beat { border-color: var(--muted); }
-  .steps button[disabled] { opacity: .25; }
-  .step-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; }
-  .step-tools button { padding: 2px 8px; font-size: 12px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 16px; }
-  .chip-group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  .chip-group > span { font-size: 12px; color: var(--muted); margin-right: 2px; }
-  button[data-sw].on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .lfo-depths { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; }
-  .lfo-depths .title { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
-  .lfo-depths input[type=range] { background: linear-gradient(90deg, transparent 49.5%, var(--line) 49.5%, var(--line) 50.5%, transparent 50.5%); }
-  .depth { display: flex; gap: 6px; align-items: center; }
-  tr.new-head td { border-top: 2px dashed var(--line); color: var(--muted); font-size: 12px; padding-top: 10px;
-                   border-bottom: 0; }
+  .stat span { color: var(--dim); font-size: 12px; }
+  .depth-cell { display: flex; gap: 6px; align-items: center; }
+  .depth-cell input[type=range] { width: 140px; accent-color: var(--accent); }
+  .depth-cell output { font: 12px var(--mono); width: 30px; text-align: right; }
+  tr.new-head td { border-top: 2px dashed var(--edge); color: var(--dim); font-size: 12px; padding-top: 10px; border-bottom: 0; }
   tr.new-head td, tr.new-route td { background: var(--bg); }
-  .depth input[type=range] { width: 140px; accent-color: var(--accent); }
-  .depth output { font: 12px ui-monospace, monospace; width: 30px; text-align: right; }
-  @media (max-width: 600px) { .param { grid-template-columns: 76px 1fr 58px; } td.actions { white-space: normal; } }
+  @media (max-width: 600px) { td.actions { white-space: normal; } }
 </style>
 </head>
 <body class="offline">
 <header>
-  <h1>Pro 800 Panel</h1>
-  <button class="primary" id="connect">Connect</button>
-  <span id="status">Not connected. Needs Chrome or Edge (WebMIDI with SysEx).</span>
+  <div class="brand"><span class="logo">PRO·800</span><span class="tagline">custom firmware</span></div>
+  <div class="screen" aria-live="polite"><div id="scr-top">pro 800</div><div id="scr-big">not connected</div><div id="scr-sub"></div></div>
+  <div class="hdr-group" id="layers">
+    <button type="button" class="led" data-v="0" title="edit layer 1 (Seq 1 on the panel)"><i class="lamp"></i><span>Layer 1</span></button>
+    <button type="button" class="led" data-v="1" title="edit layer 2 (Seq 2 on the panel)"><i class="lamp"></i><span>Layer 2</span></button>
+  </div>
+  <div class="hdr-group">
+    <button class="primary" id="connect">Connect</button>
+    <span id="status">Not connected. Needs Chrome or Edge (WebMIDI with SysEx).</span>
+  </div>
   <nav class="tabs" id="tabs">
     <button data-tab="sound">Sound</button><button data-tab="matrix">Mod matrix</button>
     <button data-tab="patches">Patches</button><button data-tab="play">Play</button>
@@ -154,26 +253,12 @@
 </header>
 <main>
 <div class="panel" id="tab-sound">
-  <section>
-    <h2>Layers</h2>
-    <p class="hint">The page follows the synth: turn a knob, press Seq1 / Seq2 or Arp Up-Dn on the panel and it shows
-      here within a second. Moving a slider here puts that knob in pickup on the panel, just like loading a patch.
-      The oscillator, poly-mod, LFO 1 and unison buttons show the state the sound uses; clicking one holds it until
-      you press that button on the panel (as a loaded patch does).</p>
-    <div class="row">
-      <span>Editing <span class="seg" id="edit-layer"><button data-v="0">Layer 1</button><button data-v="1">Layer 2</button></span></span>
-      <span>Mode <select id="layer-mode"><option value="0">Off (one sound, 8 voices)</option><option value="1">Split</option>
-        <option value="2">Stack</option><option value="3">MIDI channel (ch 2 = layer 2)</option></select></span>
-      <span>Split at <select id="split"></select></span>
-      <span>Keyboard tracking <select id="keytrack"><option value="0">Off</option><option value="1">Half</option>
-        <option value="2">Full</option></select></span>
-      <span class="muted" id="panel-state"></span>
-    </div>
-  </section>
-  <section>
-    <h2>Parameters <span class="muted" id="params-layer"></span></h2>
-    <div class="groups" id="groups"></div>
-  </section>
+  <div class="synth" id="synth"></div>
+  <p class="hint" style="margin-top:14px">Drag a knob or fader up and down (shift: fine), scroll over it, or use the arrow
+    keys; double-click resets it. The page follows the synth about once a second, and moving a control here puts that
+    knob in pickup on the panel, as loading a patch does. LED buttons show the panel buttons as the sound uses them; a
+    click holds the state until you press that button on the panel. Depth bars are mod routes on the layer you're
+    editing. ○ marks a control shared by both layers.</p>
 </div>
 
 <div class="panel" id="tab-matrix">
@@ -191,7 +276,7 @@
       <tfoot><tr class="new-head"><td colspan="4">New route: pick a source, a destination and a depth, then
         Add route. It does nothing until it's added.</td></tr>
         <tr class="new-route"><td><select id="new-source"></select></td><td><select id="new-dest"></select></td>
-        <td><div class="depth"><input type="range" id="new-depth" min="-99" max="99" value="50"><output id="new-depth-out">50</output></div></td>
+        <td><div class="depth-cell"><input type="range" id="new-depth" min="-99" max="99" value="50"><output id="new-depth-out">50</output></div></td>
         <td class="actions"><button class="primary" id="add-route">Add route</button></td></tr></tfoot>
     </table></div>
   </section>
@@ -679,43 +764,51 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "cycleSync2_3", "envSelect",
   "presetMode", "patch"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
-let settings = null, params = null, paramsLayer = 0, dragging = null;
+let settings = null, params = null, paramsLayer = 0;
 
-// [label, per layer] in the firmware's order: the knobs by hardware position, then Env 3, Env 4, LFO 2
-const PARAMS = [["Release", 1], ["Sustain", 1], ["Decay", 1], ["Attack", 1], ["Release", 1], ["Sustain", 1], ["Decay", 1],
-  ["Attack", 1], ["Resonance", 0], ["Env amount", 1], ["Frequency", 1], ["Frequency", 1], ["Fine", 1], ["Pulse width", 0],
-  ["Pulse width", 0], ["Level", 0], ["Glide", 1], ["Rate", 1], ["Amount", 1], ["Master tune", 1], ["Master vol", 0],
-  ["Level", 0], ["Osc B amount", 0], ["Filter env", 1], ["Cutoff", 1], ["Level", 0],
-  ["Attack", 1], ["Decay", 1], ["Sustain", 1], ["Release", 1], ["Attack", 1], ["Decay", 1], ["Sustain", 1], ["Release", 1],
-  ["Rate", 1], ["Amount", 1]];
-const GROUPS = [["Oscillator A", [10, 13, 15]], ["Oscillator B", [11, 12, 14, 21]], ["Noise", [25]],
-  ["Filter", [24, 8, 9]], ["Filter envelope", [7, 6, 5, 4], "", 2], ["Amp envelope", [3, 2, 1, 0], "", 1],
-  ["Env 3", [26, 27, 28, 29], "filter ADSR knobs, keytrack switch in the middle", 4],
-  ["Env 4", [30, 31, 32, 33], "filter ADSR knobs, keytrack switch at the top", 8],
-  ["Poly-mod", [23, 22]], ["LFO 1", [17, 18], 0], ["LFO 2", [34, 35], 1], ["Glide and tune", [16, 19]]];
+// ---------------------------------------------------------------- the panel (Sound tab)
+// Built once, like a hardware front panel. Every widget registers a paint function; paintAll() (coalesced into
+// one animation frame) redraws them from the model: params (the edit layer's 0..1 values), settings, buttons,
+// steps and layerRoutes. Turning a control changes the model at once and sends it, throttled.
+
+// Parameter numbers (the firmware's order: knobs by hardware position, then Env 3, Env 4, LFO 2)
+const P = {
+  AMP_REL: 0, AMP_SUS: 1, AMP_DEC: 2, AMP_ATT: 3, FIL_REL: 4, FIL_SUS: 5, FIL_DEC: 6, FIL_ATT: 7, RES: 8, ENV_AMT: 9,
+  FREQ_A: 10, FREQ_B: 11, FINE: 12, PW_A: 13, PW_B: 14, LEVEL_A: 15, GLIDE: 16, LFO_RATE: 17, LFO_AMT: 18, TUNE: 19,
+  VOL: 20, LEVEL_B: 21, PMOD_B: 22, PMOD_ENV: 23, CUTOFF: 24, NOISE: 25, ENV3: 26, ENV4: 30, LFO2_RATE: 34, LFO2_AMT: 35,
+};
+const SHARED = new Set([P.RES, P.PW_A, P.PW_B, P.LEVEL_A, P.LEVEL_B, P.PMOD_B, P.NOISE, P.VOL]);
+const BIPOLAR = new Set([P.ENV_AMT, P.FREQ_A, P.FREQ_B, P.FINE, P.TUNE]);
+// what a double-click resets to: the init sound's values
+const DEFAULTS = { [P.FREQ_A]: .5, [P.FREQ_B]: .5, [P.FINE]: .5, [P.TUNE]: .5, [P.LEVEL_A]: .8, [P.LEVEL_B]: 0, [P.NOISE]: 0,
+  [P.PW_A]: .5, [P.PW_B]: .5, [P.CUTOFF]: 1, [P.RES]: 0, [P.ENV_AMT]: .5, [P.FIL_ATT]: 0, [P.FIL_DEC]: .5, [P.FIL_SUS]: 1,
+  [P.FIL_REL]: .25, [P.AMP_ATT]: 0, [P.AMP_DEC]: .5, [P.AMP_SUS]: 1, [P.AMP_REL]: .25, [P.GLIDE]: 0, [P.LFO_RATE]: .5,
+  [P.LFO_AMT]: 0, [P.PMOD_B]: 0, [P.PMOD_ENV]: 0, [P.LFO2_RATE]: .5, [P.LFO2_AMT]: 0 };
+const NAMES = { [P.FREQ_A]: "Osc A frequency", [P.PW_A]: "Osc A pulse width", [P.LEVEL_A]: "Osc A level",
+  [P.FREQ_B]: "Osc B frequency", [P.FINE]: "Osc B fine", [P.PW_B]: "Osc B pulse width", [P.LEVEL_B]: "Osc B level",
+  [P.NOISE]: "Noise", [P.CUTOFF]: "Cutoff", [P.RES]: "Resonance", [P.ENV_AMT]: "Filter env amount",
+  [P.PMOD_ENV]: "Poly-mod filter env", [P.PMOD_B]: "Poly-mod osc B", [P.GLIDE]: "Glide", [P.TUNE]: "Master tune",
+  [P.LFO_RATE]: "LFO 1 rate", [P.LFO_AMT]: "LFO 1 amount", [P.LFO2_RATE]: "LFO 2 rate", [P.LFO2_AMT]: "LFO 2 amount" };
+
+// Envelopes: [title, cycle bit, attack, decay, sustain, release parameter]
+const ENVS = [["Filter env", 2, P.FIL_ATT, P.FIL_DEC, P.FIL_SUS, P.FIL_REL], ["Amp env", 1, P.AMP_ATT, P.AMP_DEC, P.AMP_SUS, P.AMP_REL],
+  ["Env 3", 4, P.ENV3, P.ENV3 + 1, P.ENV3 + 2, P.ENV3 + 3], ["Env 4", 8, P.ENV4, P.ENV4 + 1, P.ENV4 + 2, P.ENV4 + 3]];
 // envelope knobs: [cycle bit, stage 0 attack / 1 decay / 2 sustain / 3 release]
-const ENV_KNOB = {3: [1, 0], 2: [1, 1], 1: [1, 2], 0: [1, 3], 7: [2, 0], 6: [2, 1], 5: [2, 2], 4: [2, 3],
-  26: [4, 0], 27: [4, 1], 28: [4, 2], 29: [4, 3], 30: [8, 0], 31: [8, 1], 32: [8, 2], 33: [8, 3]};
+const ENV_KNOB = {};
+for (const [, bit, ...knobs] of ENVS) knobs.forEach((i, stage) => { ENV_KNOB[i] = [bit, stage]; });
 const CYCLE_LABELS = ["Attack", "Fall", "Hold", "Rest"], ADSR_LABELS = ["Attack", "Decay", "Sustain", "Release"];
 function cycling(bit) { return !!(settings && (settings["cycle" + (paramsLayer + 1)] & bit)); }
 const envIndex = bit => Math.log2(bit); // ENV_CYCLE_* bit → 0 amp, 1 filter, 2 Env 3, 3 Env 4
 // synced cycling: 0 free, else the clock division + 1
 function cycleSync(bit) { return settings && cycling(bit) ? settings[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`] : 0; }
-// a synced cycle's share for a knob: the four knobs are weights (attack, hold = sustain, fall = decay, rest = release)
-function cycleShare(bit, stage) {
-  const knob = st => +Object.keys(ENV_KNOB).find(i => ENV_KNOB[i][0] === bit && ENV_KNOB[i][1] === st);
-  const w = [0, 1, 2, 3].map(st => params ? params[knob(st)] : 0.25), sum = w.reduce((a, b) => a + b, 0);
-  return sum < 0.001 ? 0.25 : w[stage] / sum;
+const envOf = bit => ENVS.find(e => e[1] === bit);
+// a synced cycle's shares: the four knobs are weights (attack, hold = sustain, fall = decay, rest = release)
+function cycleShares(bit) {
+  const [, , a, d, s, r] = envOf(bit), w = [a, s, d, r].map(i => params ? params[i] : .25);
+  const sum = w.reduce((x, y) => x + y, 0);
+  return w.map(x => sum < 0.001 ? .25 : x / sum); // attack, hold, fall, rest
 }
-const SYNCED_LABELS = CYCLE_LABELS; // the values show the shares in %
-// The panel's latching buttons (switch_t indices) shown in each card. They're shared by both layers and show the
-// state the sound uses (a loaded patch's, until the button is pressed on the panel); clicking one holds it the same way.
-const GROUP_BUTTONS = {"Oscillator A": [[0, "Saw"], [1, "Triangle"], [2, "Square"], [15, "Sync"]],
-  "Oscillator B": [[3, "Saw"], [4, "Triangle"], [5, "Square"]], "Poly-mod": [[8, "→ Freq A"], [11, "→ Filter"]],
-  "LFO 1": [[7, "Freq"], [10, "Filter"], [6, "PW"]], "Glide and tune": [[12, "Unison"]]};
-const buttonChips = list => `<div class="chip-group">${list.map(([i, name]) =>
-  `<button data-sw="${i}" title="a panel button: shared by both layers">${name}</button>`).join("")}</div>`;
-let buttons = null;
+function cycleShare(bit, stage) { return cycleShares(bit)[[0, 2, 1, 3][stage]]; }
 // the firmware's curve (synth.c knob_time): an exponential offset to start at the minimum
 const knobTime = (k, min, max) => min + (max - min) * (2 ** (k * 12) - 1) / 4095;
 function envTime(stage, k, cyc) {
@@ -730,10 +823,10 @@ const SHAPES = [["Triangle", "M1 14 9 2 17 14 25 2 33 14"], ["Square", "M1 2H9V1
   ["Sine", "M1 14C5 14 5 2 9 2S13 14 17 14 21 2 25 2 29 14 33 14"], ["S&H", "M1 10H7V3H13V12H19V6H25V13H33"],
   ["Drift", "M1 10C6 10 6 3 11 3S16 12 21 12 25 6 33 6"], ["Steps", "M1 14V3H5V14H9V3H13V14H17V3H21V3H25V14H33"]];
 const STEPS_SHAPE = 7;
-// LFO depth sliders: mod-matrix routes from LFO 1 / LFO 2 (sources 1 / 11) to these destinations
+// LFO depth bars: mod-matrix routes from LFO 1 / LFO 2 (sources 1 / 11) to these destinations
 const LFO_SOURCE = [1, 11];
-const LFO_TARGETS = [["VCA", [9]], ["Cutoff", [3]], ["Osc A pitch", [0]], ["Osc B pitch", [1]], ["PWM", [14, 15]]];
-let layerRoutes = null, depthDragging = null; // the edit layer's routes: [{source, dest, depth}]
+const LFO_TARGETS = [["VCA", [9]], ["Cutoff", [3]], ["Pitch A", [0]], ["Pitch B", [1]], ["PWM", [14, 15]]];
+let layerRoutes = null; // the edit layer's routes: [{source, dest, depth}]
 function depthText(dests, d) {
   const signed = x => (x > 0 ? "+" : "") + x;
   if (d === 0) return "off";
@@ -745,186 +838,490 @@ function depthText(dests, d) {
   if (dests[0] === 14) return signed(Math.round(d * 50 / 99)) + " %";          // pulse width: 99 = ±50 %
   return signed(d);                                                            // VCA: 99 = full gate
 }
+let steps = [null, null]; // [LFO 1, LFO 2] of the edit layer: {count, bits}
+let buttons = null;       // the latching buttons as the engine uses them (switch_t order)
+const SYNC = ["Free", "MIDI clock"], TRIGGER = ["Free-running", "First key", "Every key", "Per voice (poly)"];
+const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+
+function seconds(s) { return s < 0.9995 ? Math.round(s * 1000) + " ms" : s.toFixed(s < 9.995 ? 2 : 1) + " s"; }
+function lfoHz(v) { return 0.05 * 2 ** (v * 10); }
+function format(i, v) {
+  const signed = x => (x > 0 ? "+" : "") + x;
+  if (i === P.FREQ_A || i === P.FREQ_B) return signed(Math.floor((v - 0.5) * 72 + 36.5) - 36) + " st";
+  if (i === P.FINE || i === P.TUNE) return signed(Math.round((v - 0.5) * 200)) + " ct";
+  if (i === P.ENV_AMT) return signed(Math.round((v - 0.5) * 198));
+  if (ENV_KNOB[i] && cycleSync(ENV_KNOB[i][0])) return Math.round(cycleShare(ENV_KNOB[i][0], ENV_KNOB[i][1]) * 100) + " %";
+  if (ENV_KNOB[i]) {
+    const t = envTime(ENV_KNOB[i][1], v, cycling(ENV_KNOB[i][0]));
+    if (t >= 0) return t === 0 ? "0 ms" : seconds(t);
+  }
+  if (i === P.GLIDE) return v < 0.02 ? "off" : seconds(0.002 * 2 ** (v * 10));
+  if (i === P.LFO_RATE || i === P.LFO2_RATE) {
+    if (settings && settings[i === P.LFO2_RATE ? "lfo2Sync" : "lfo1Sync"]) return DIVISIONS[Math.round(v * 14)];
+    const hz = lfoHz(v);
+    return hz < 10 ? hz.toFixed(2) + " Hz" : hz.toFixed(1) + " Hz";
+  }
+  return String(Math.round(v * 99));
+}
+
+// --- painting ---
+const paints = [];
+let paintQueued = false;
+function paintAll() {
+  if (paintQueued) return;
+  paintQueued = true;
+  requestAnimationFrame(() => { paintQueued = false; for (const f of paints) f(); });
+}
+const h = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const k in attrs) {
+    const v = attrs[k];
+    if (v === undefined || v === null || v === false) continue;
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) e.append(kid.nodeType ? kid : String(kid));
+  return e;
+};
+const svgEl = (tag, attrs = {}) => {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+};
+
+// --- the screen: the last control touched, else the patch ---
+let touched = null, touchedAt = 0, patchName = "", patchNameFor = -1;
+function touch(label, value) { touched = { label, value }; touchedAt = Date.now(); paintAll(); }
+paints.push(() => {
+  const top = document.getElementById("scr-top"), big = document.getElementById("scr-big"), sub = document.getElementById("scr-sub");
+  const patch = settings ? (settings.presetMode ? `${slotLabel(settings.patch)}${patchName ? "  " + patchName : ""}` : "manual (panel live)") : "";
+  if (touched && Date.now() - touchedAt < 2500) {
+    top.textContent = `layer ${paramsLayer + 1}`;
+    big.textContent = `${touched.label}  ${touched.value}`;
+    sub.textContent = patch;
+  } else {
+    top.textContent = settings ? `layer ${paramsLayer + 1} · ${["one layer", "split", "stack", "by channel"][settings.layers]}` : "pro 800";
+    big.textContent = settings ? patch : "not connected";
+    sub.textContent = settings ? `filter ADSR knobs edit the ${["filter env", "Env 3", "Env 4"][settings.envSelect] || ""}` : "";
+  }
+});
+setInterval(() => { if (touched && Date.now() - touchedAt >= 2500 && Date.now() - touchedAt < 3500) paintAll(); }, 500);
+
+// --- sending a parameter: the model changes at once, the synth gets it throttled ---
+const editedAt = {}, sendTimers = {};
+function setParam(i, v) {
+  if (!params || offline()) return;
+  v = Math.min(1, Math.max(0, v));
+  params[i] = v;
+  editedAt[i] = Date.now();
+  touch(NAMES[i] || label(i), format(i, v));
+  clearTimeout(sendTimers[i]);
+  sendTimers[i] = setTimeout(() => { const q = Math.round(params[i] * 16383); send([0x52, paramsLayer, i, q >> 7, q & 0x7F]); }, 25);
+}
+function label(i) {
+  if (ENV_KNOB[i]) {
+    const [bit, stage] = ENV_KNOB[i], [title] = envOf(bit);
+    return `${title} ${(cycling(bit) ? CYCLE_LABELS : ADSR_LABELS)[stage].toLowerCase()}`;
+  }
+  return NAMES[i] || `#${i}`;
+}
+
+// Drag (shift: fine), wheel, arrow keys, double-click reset, on a 0..1 value.
+function adjustable(e, get, set, reset, { vertical = true, span = 200 } = {}) {
+  let start = null;
+  e.tabIndex = 0;
+  e.addEventListener("pointerdown", ev => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    e.focus({ preventScroll: true });
+    e.setPointerCapture(ev.pointerId);
+    start = { x: ev.clientX, y: ev.clientY, u: get() };
+    e.classList.add("active");
+  });
+  e.addEventListener("pointermove", ev => {
+    if (!start) return;
+    const d = vertical ? start.y - ev.clientY : ev.clientX - start.x;
+    set(start.u + d / (ev.shiftKey ? span * 6 : span));
+    if (ev.shiftKey) start = { x: ev.clientX, y: ev.clientY, u: get() };
+  });
+  const end = () => { start = null; e.classList.remove("active"); };
+  e.addEventListener("pointerup", end);
+  e.addEventListener("pointercancel", end);
+  e.addEventListener("wheel", ev => { ev.preventDefault(); set(get() + (ev.deltaY < 0 ? 1 : -1) * (ev.shiftKey ? .002 : .01)); }, { passive: false });
+  e.addEventListener("dblclick", reset);
+  e.addEventListener("keydown", ev => {
+    const step = { ArrowUp: .01, ArrowRight: .01, ArrowDown: -.01, ArrowLeft: -.01, PageUp: .1, PageDown: -.1 }[ev.key];
+    if (step) { ev.preventDefault(); set(get() + step * (ev.shiftKey ? .2 : 1)); }
+  });
+}
+
+const ARC = 270;
+function arcPath(cx, cy, r, a0, a1) {
+  const pt = a => [cx + r * Math.sin(a * Math.PI / 180), cy - r * Math.cos(a * Math.PI / 180)];
+  const [x0, y0] = pt(a0), [x1, y1] = pt(a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+
+// A rotary knob for parameter i. opts: { size: "s" | "m" | "l", accent }
+function knob(i, text, opts = {}) {
+  const s = svgEl("svg", { viewBox: "0 0 48 48", "aria-hidden": "true" });
+  const arc = svgEl("path", { class: "k-arc" }), ptr = svgEl("line", { class: "k-ptr", x1: 24, y1: 24, x2: 24, y2: 12 });
+  s.append(svgEl("path", { class: "k-track", d: arcPath(24, 24, 19, -135, 135) }), arc,
+    svgEl("circle", { class: "k-cap", cx: 24, cy: 24, r: 14 }), ptr);
+  const val = h("span", { class: "val" }, "–");
+  const dial = h("div", { class: "dial", role: "slider", "aria-label": NAMES[i] || text }, s);
+  const lbl = h("span", { class: "lbl" }, text);
+  const e = h("div", { class: `knob k-${opts.size || "m"}${opts.accent ? " accent" : ""}`, title: (NAMES[i] || text) +
+    (SHARED.has(i) ? " (shared by both layers)" : "") }, dial, lbl, val);
+  if (SHARED.has(i)) lbl.append(h("i", { class: "shared", title: "shared by both layers" }));
+  adjustable(dial, () => params ? params[i] : 0, v => { setParam(i, v); paintAll(); },
+    () => { if (i in DEFAULTS) { setParam(i, DEFAULTS[i]); paintAll(); } });
+  dial.addEventListener("focus", () => params && touch(label(i), format(i, params[i])));
+  paints.push(() => {
+    if (!params) return;
+    const u = params[i], a = -135 + u * ARC, a0 = BIPOLAR.has(i) ? 0 : -135;
+    arc.setAttribute("d", Math.abs(a - a0) < .5 ? "" : arcPath(24, 24, 19, Math.min(a0, a), Math.max(a0, a)));
+    ptr.setAttribute("transform", `rotate(${a} 24 24)`);
+    val.textContent = format(i, u);
+    dial.setAttribute("aria-valuetext", val.textContent);
+    if (ENV_KNOB[i]) { const [bit, stage] = ENV_KNOB[i]; lbl.firstChild.textContent = (cycling(bit) ? CYCLE_LABELS : ADSR_LABELS)[stage]; }
+  });
+  return e;
+}
+
+// A vertical fader for parameter i (levels, envelope stages)
+function fader(i, text) {
+  const fill = h("i", { class: "f-fill" }), thumb = h("b", { class: "f-thumb" });
+  const slot = h("div", { class: "f-slot", role: "slider", "aria-label": NAMES[i] || text, "aria-orientation": "vertical" }, fill, thumb);
+  const val = h("span", { class: "val" }, "–"), lbl = h("span", { class: "lbl" }, text);
+  const e = h("div", { class: "fader", title: label(i) }, val, slot, lbl);
+  adjustable(slot, () => params ? params[i] : 0, v => { setParam(i, v); paintAll(); },
+    () => { if (i in DEFAULTS) { setParam(i, DEFAULTS[i]); paintAll(); } }, { span: 130 });
+  slot.addEventListener("pointerdown", ev => { // a click on the track jumps there
+    if (ev.target === thumb) return;
+    const r = slot.getBoundingClientRect();
+    setParam(i, 1 - (ev.clientY - r.top) / r.height); paintAll();
+  }, true);
+  paints.push(() => {
+    if (!params) return;
+    const u = params[i];
+    fill.style.height = (u * 100).toFixed(1) + "%";
+    thumb.style.bottom = `calc(${(u * 100).toFixed(1)}% - 5px)`;
+    val.textContent = format(i, u);
+    if (ENV_KNOB[i]) { const [bit, stage] = ENV_KNOB[i]; lbl.textContent = (cycling(bit) ? CYCLE_LABELS : ADSR_LABELS)[stage]; }
+  });
+  return e;
+}
+
+// An LED push button for a latching panel button (switch_t index): it shows and holds the state the sound uses
+function ledSwitch(sw, text) {
+  const b = h("button", { type: "button", class: "led", title: "a panel button, shared by both layers: a click holds it " +
+    "until you press it on the panel" }, h("i", { class: "lamp" }), h("span", {}, text));
+  b.onclick = async () => {
+    if (offline() || !buttons) return;
+    const on = !buttons[sw];
+    buttons[sw] = on ? 1 : 0;
+    touch(text, on ? "on" : "off");
+    if (!await ack([0x4B, sw, on ? 1 : 0])) document.getElementById("status").textContent = "The synth didn't take that (firmware 0.6.6 or later?)";
+    await refreshButtons();
+  };
+  paints.push(() => b.setAttribute("aria-pressed", String(!!(buttons && buttons[sw]))));
+  return b;
+}
+// An LED button for an arbitrary on/off: get() → bool, set(bool)
+function led(text, get, set, title) {
+  const b = h("button", { type: "button", class: "led", title }, h("i", { class: "lamp" }), h("span", {}, text));
+  b.onclick = () => set(!get());
+  paints.push(() => b.setAttribute("aria-pressed", String(!!get())));
+  return b;
+}
+// A dropdown bound to a setting value
+function settingSelect(text, options, get, set, title) {
+  const sel = h("select", { title }, options.map((o, k) => h("option", { value: k }, o)));
+  sel.onchange = () => set(+sel.value);
+  paints.push(() => { const v = get(); if (v !== undefined && document.activeElement !== sel) sel.value = String(v); });
+  return text ? h("label", { class: "sel" }, h("span", { class: "lbl" }, text), sel) : sel;
+}
+
+// A horizontal bipolar depth bar for an LFO → destination route
+function depthBar(which, t) {
+  const [text, dests] = LFO_TARGETS[t], src = LFO_SOURCE[which];
+  const fill = h("i", { class: "d-fill" }), bar = h("div", { class: "depth", role: "slider", "aria-label": `LFO ${which + 1} → ${text}` },
+    h("i", { class: "d-mid" }), fill);
+  const val = h("span", { class: "val" }, "off");
+  let local = null, timer = 0, at = 0;
+  const get = () => local !== null && Date.now() - at < 1500 ? local
+    : (layerRoutes && (layerRoutes.find(x => x.source === src && x.dest === dests[0]) || {}).depth) || 0;
+  const set = u => {
+    if (offline()) return;
+    const depth = Math.round(Math.min(99, Math.max(-99, u * 198 - 99)));
+    local = depth; at = Date.now();
+    touch(`LFO ${which + 1} → ${text}`, depthText(dests, depth));
+    paintAll();
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      for (const dest of dests)
+        if (!await setRoute(paramsLayer, src, dest, depth)) {
+          document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use (Mod matrix tab)`;
+          local = null;
+          break;
+        }
+      await refreshLayerRoutes();
+    }, 60);
+  };
+  adjustable(bar, () => (get() + 99) / 198, set, () => set(.5), { vertical: false, span: 240 });
+  paints.push(() => {
+    const d = get(), u = (d + 99) / 198, l = Math.min(u, .5), r = Math.max(u, .5);
+    fill.style.left = (l * 100).toFixed(1) + "%";
+    fill.style.width = ((r - l) * 100).toFixed(1) + "%";
+    bar.classList.toggle("neg", d < 0);
+    val.textContent = depthText(dests, d);
+  });
+  return h("div", { class: "depth-row" }, h("span", { class: "lbl" }, text), bar, val);
+}
+
+// --- visuals: small canvases redrawn from the model ---
+function viz(cls, draw) {
+  const c = h("canvas", { class: "viz " + (cls || "") });
+  paints.push(() => {
+    const w = c.clientWidth, ht = c.clientHeight;
+    if (!w || !ht) return;
+    const dpr = window.devicePixelRatio || 1;
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(ht * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(ht * dpr); }
+    const g = c.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, ht);
+    g.strokeStyle = "#2e3036"; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, ht / 2 + .5); g.lineTo(w, ht / 2 + .5); g.stroke();
+    if (params && settings) draw(g, w, ht);
+  });
+  return c;
+}
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function trace(g, w, ht, f, n = 240, { fill = false, color } = {}) { // f(x 0..1) → -1..1
+  g.beginPath();
+  for (let k = 0; k <= n; k++) {
+    const x = k / n, y = ht / 2 - f(x) * (ht / 2 - 5);
+    k ? g.lineTo(x * w, y) : g.moveTo(x * w, y);
+  }
+  if (fill) { g.lineTo(w, ht / 2); g.lineTo(0, ht / 2); g.closePath(); g.fillStyle = css("--trace-fill"); g.fill(); }
+  g.strokeStyle = color || css("--trace"); g.lineWidth = 1.6; g.stroke();
+}
+// The waveform an oscillator puts out: its enabled waves summed, two cycles
+function oscWave(saw, tri, sq, pw, level) {
+  return x => {
+    const p = (x * 2) % 1;
+    let y = 0, n = 0;
+    if (buttons && buttons[saw]) { y += 2 * p - 1; n++; }
+    if (buttons && buttons[tri]) { y += p < .5 ? 4 * p - 1 : 3 - 4 * p; n++; }
+    if (buttons && buttons[sq]) { y += p < .05 + .9 * pw ? 1 : -1; n++; }
+    return n ? y / n * (.25 + .75 * level) : 0;
+  };
+}
+// A 4-pole low-pass with resonance: dB at f (Hz)
+function filterDb(f, fc, res) {
+  const w = f / fc, k = res * 3.9; // (1 + s)^4 + k, s = jw
+  let re = 1, im = 0;
+  for (let n = 0; n < 4; n++) { const r2 = re - im * w, i2 = re * w + im; re = r2; im = i2; }
+  re += k;
+  return 20 * Math.log10((1 + k) / Math.hypot(re, im));
+}
+function drawFilter(g, w, ht) {
+  const note = 12 + params[P.CUTOFF] * 120, fc = 440 * 2 ** ((note - 69) / 12), res = params[P.RES];
+  const fx = x => 20 * 1000 ** x, yOf = db => 8 + (12 - Math.max(-48, Math.min(12, db))) / 60 * (ht - 12);
+  g.beginPath();
+  for (let k = 0; k <= 200; k++) { const x = k / 200, y = yOf(filterDb(fx(x), fc, res)); k ? g.lineTo(x * w, y) : g.moveTo(x * w, y); }
+  g.lineTo(w, ht); g.lineTo(0, ht); g.closePath(); g.fillStyle = css("--trace-fill"); g.fill();
+  g.beginPath();
+  for (let k = 0; k <= 200; k++) { const x = k / 200, y = yOf(filterDb(fx(x), fc, res)); k ? g.lineTo(x * w, y) : g.moveTo(x * w, y); }
+  g.strokeStyle = css("--trace"); g.lineWidth = 1.6; g.stroke();
+  const cx = Math.log(fc / 20) / Math.log(1000) * w;
+  g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
+  g.fillText(fc < 1000 ? Math.round(fc) + " Hz" : (fc / 1000).toFixed(1) + " kHz", Math.min(w - 50, Math.max(2, cx + 4)), 12);
+}
+// An envelope: ADSR (sustain plateau in the middle), or two cycles when cycling
+function drawEnv(bit) {
+  return (g, w, ht) => {
+    const [, , a, d, s, r] = envOf(bit), base = ht - 4, top = 6, Y = v => base - v * (base - top);
+    const pts = [];
+    const seg = (n, f) => { for (let k = 1; k <= n; k++) pts.push(f(k / n)); };
+    const attack = (from, u) => from + (1 - from) * 1.5 * (1 - 3 ** -u);
+    if (!cycling(bit)) {
+      const ta = envTime(0, params[a]), td = envTime(1, params[d]), tr = envTime(3, params[r]), sus = params[s];
+      const scale = t => Math.log10(1 + t * 40); // compress long times so short ones stay visible
+      const wa = scale(ta), wd = scale(td), wr = scale(tr), hold = .6, total = wa + wd + wr + hold;
+      let x = 0;
+      pts.push([0, 0]);
+      seg(30, u => [x + u * wa / total, attack(0, u)]); x += wa / total;
+      seg(40, u => [x + u * wd / total, sus + (1 - sus) * 1000 ** -u]); x += wd / total;
+      pts.push([x + hold / total, sus]); x += hold / total;
+      seg(40, u => [x + u * wr / total, sus * 1000 ** -u]);
+    } else {
+      let sh;
+      if (cycleSync(bit)) sh = cycleShares(bit);
+      else { const t = [envTime(0, params[a], 1), envTime(2, params[s], 1), envTime(1, params[d], 1), envTime(3, params[r], 1)];
+        const sum = t.reduce((x, y) => x + y, 0) || 1; sh = t.map(x => x / sum); }
+      let x = 0;
+      pts.push([0, 0]);
+      for (let c = 0; c < 2; c++) {
+        seg(24, u => [x + u * sh[0] / 2, Math.min(1, attack(0, u))]); x += sh[0] / 2;
+        pts.push([x + sh[1] / 2, 1]); x += sh[1] / 2;
+        seg(30, u => [x + u * sh[2] / 2, 1000 ** -u]); x += sh[2] / 2;
+        pts.push([x, 0], [x + sh[3] / 2, 0]); x += sh[3] / 2;
+      }
+    }
+    g.beginPath();
+    pts.forEach(([x, v], k) => k ? g.lineTo(x * w, Y(v)) : g.moveTo(x * w, Y(v)));
+    g.lineTo(w, base); g.lineTo(0, base); g.closePath(); g.fillStyle = css("--trace-fill"); g.fill();
+    g.beginPath();
+    pts.forEach(([x, v], k) => k ? g.lineTo(x * w, Y(v)) : g.moveTo(x * w, Y(v)));
+    g.strokeStyle = css("--trace"); g.lineWidth = 1.6; g.stroke();
+    g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
+    const sync = cycleSync(bit);
+    g.fillText(!cycling(bit) ? "" : sync ? "cycle · " + DIVISIONS[sync - 1] : "cycle", 4, 12);
+  };
+}
+// An LFO: two cycles of its shape, scaled by its amount
+const RANDOM = [0.62, -0.35, 0.9, -0.8, 0.15, -0.55, 0.4, -0.1, 0.75, -0.95, 0.3, -0.4, 0.85, -0.2, 0.05, -0.7];
+function lfoValue(shape, x, st) {
+  const p = x % 1, cyc = Math.floor(x);
+  switch (shape) {
+    case 1: return p < .5 ? 1 : -1;
+    case 2: return 2 * p - 1;
+    case 3: return 1 - 2 * p;
+    case 4: return -Math.cos(2 * Math.PI * p);
+    case 5: return RANDOM[cyc % 16];
+    case 6: { const s = p * p * (3 - 2 * p); return RANDOM[cyc % 16] + (RANDOM[(cyc + 1) % 16] - RANDOM[cyc % 16]) * s; }
+    case 7: { if (!st) return 0; const n = st.count, k = Math.min(n - 1, Math.floor(p * n)); return st.bits >> k & 1 ? 1 : -1; }
+    default: return p < .5 ? 4 * p - 1 : 3 - 4 * p;
+  }
+}
+function drawLfo(which) {
+  return (g, w, ht) => {
+    const n = which + 1, shape = settings[`shape${paramsLayer + 1}${n}`], amt = params[which ? P.LFO2_AMT : P.LFO_AMT];
+    const scale = .2 + .8 * amt * amt;
+    trace(g, w, ht, x => lfoValue(shape, x * 2, steps[which]) * scale, shape === 7 ? 400 : 240, { fill: false });
+    g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
+    g.fillText(format(which ? P.LFO2_RATE : P.LFO_RATE, params[which ? P.LFO2_RATE : P.LFO_RATE]) + (amt < .01 ? " · amount 0" : ""), 4, 12);
+  };
+}
+
+// --- sections ---
+const sec = (id, title, ...body) => h("section", { class: `sec sec-${id}` }, h("h2", {}, title), ...body);
+const row = (...kids) => h("div", { class: "row" }, ...kids);
+function copyButton(title, onclick) {
+  const b = h("button", { type: "button", class: "chip copy", onclick, title }, "Copy from layer 2");
+  paints.push(() => { if (settings) b.textContent = `⇆ layer ${2 - settings.editLayer}`; });
+  return b;
+}
+function envSection(env) {
+  const [title, bit, a, d, s, r] = env;
+  const modes = ["ADSR", "Cycle (free)", ...DIVISIONS.map(x => "Cycle · " + x)];
+  const mode = settingSelect("", modes, () => {
+    if (!settings) return undefined;
+    const sync = settings[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`];
+    return !cycling(bit) ? 0 : sync ? sync + 1 : 1;
+  }, async v => {
+    const key = "cycle" + (paramsLayer + 1), bits = settings ? settings[key] : 0;
+    await setSetting(SET_ID[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`], v >= 2 ? v - 1 : 0);
+    await setSetting(SET_ID[key], v ? bits | bit : bits & ~bit);
+  }, "ADSR, or cycling while a key is held: attack, hold, fall, rest; synced cycles share a clock division");
+  const note = bit >= 4 ? h("span", { class: "dim small" }, `panel: keytrack switch ${bit === 4 ? "middle" : "top"}`) : null;
+  return sec(`env${envIndex(bit)}`, title,
+    h("div", { class: "sec-tools" }, mode, copyButton(`copy this envelope from the other layer`, () => copyEnvelope(bit, title))),
+    viz("env", drawEnv(bit)),
+    h("div", { class: "faders" }, fader(a, "Attack"), fader(d, "Decay"), fader(s, "Sustain"), fader(r, "Release")),
+    note);
+}
+function lfoSection(which) {
+  const n = which + 1, shapeKey = () => `shape${paramsLayer + 1}${n}`;
+  const shapes = h("div", { class: "seg shapes" }, SHAPES.map(([name, d], k) => {
+    const s = svgEl("svg", { viewBox: "0 0 34 16", "aria-hidden": "true" });
+    s.append(svgEl("path", { d }));
+    const b = h("button", { type: "button", class: "seg-b", title: name, "aria-label": `LFO ${n} shape: ${name}` }, s);
+    b.onclick = () => { touch(`LFO ${n} shape`, name); setSetting(SET_ID[shapeKey()], k); };
+    paints.push(() => b.setAttribute("aria-pressed", String(!!settings && settings[shapeKey()] === k)));
+    return b;
+  }));
+  // step pattern
+  const cells = Array.from({ length: 16 }, (_, k) => {
+    const b = h("button", { type: "button", class: "step" + (k % 4 ? "" : " beat"), title: `step ${k + 1}` });
+    b.onclick = () => { const st = steps[which]; if (st) sendSteps(which, st.count, st.bits ^ (1 << k)); };
+    paints.push(() => { const st = steps[which]; b.classList.toggle("on", !!st && k < st.count && !!(st.bits >> k & 1)); b.disabled = !st || k >= st.count; });
+    return b;
+  });
+  const op = (text, title, f) => h("button", { type: "button", class: "chip small", title, onclick: () => {
+    const st = steps[which] || { count: 16, bits: 0 };
+    sendSteps(which, st.count, f(st.bits, (1 << st.count) - 1, st.count));
+  } }, text);
+  const countSel = settingSelect("", Array.from({ length: 15 }, (_, k) => `${k + 2} steps`),
+    () => steps[which] ? steps[which].count - 2 : undefined,
+    v => sendSteps(which, v + 2, steps[which] ? steps[which].bits : 0x3535), "steps per LFO cycle");
+  const stepEdit = h("div", { class: "step-edit" }, h("div", { class: "steps" }, cells),
+    h("div", { class: "step-tools" }, countSel, op("Clear", "all steps off", () => 0), op("Invert", "", (b, all) => ~b & all),
+      op("◀", "rotate left", (b, all, c) => (b >> 1 | (b & 1) << (c - 1)) & all),
+      op("▶", "rotate right", (b, all, c) => (b << 1 | b >> (c - 1)) & all),
+      op("Trance", "1 0 1 0 1 1 0 0, twice", (b, all) => 0x3535 & all)));
+  paints.push(() => { stepEdit.hidden = !settings || settings[shapeKey()] !== STEPS_SHAPE; });
+  const routing = which
+    ? [["Pitch", 1], ["Filter", 2], ["PW", 4]].map(([t, bit]) => led(t, () => settings && settings[`lfo2Dests${paramsLayer + 1}`] & bit,
+        on => { const key = `lfo2Dests${paramsLayer + 1}`, v = settings[key]; touch(`LFO 2 → ${t}`, on ? "on" : "off");
+          setSetting(SET_ID[key], on ? v | bit : v & ~bit); }, t === "PW" ? "pulse width is one wire: layer 1's LFO 2" : ""))
+    : [ledSwitch(7, "Freq"), ledSwitch(10, "Filter"), ledSwitch(6, "PW")];
+  const selNote = h("span", { class: "dim small" });
+  paints.push(() => { selNote.textContent = !settings ? "" : settings.lfoSelect === which ? "panel LFO knobs: this LFO" : "Arp Up-Dn: select on the panel"; });
+  return sec(`lfo${n}`, `LFO ${n}`,
+    h("div", { class: "sec-tools" }, shapes, copyButton(`copy LFO ${n} from the other layer`, () => copyLfo(which))),
+    viz("lfo", drawLfo(which)),
+    stepEdit,
+    row(knob(which ? P.LFO2_RATE : P.LFO_RATE, "Rate", { accent: true }), knob(which ? P.LFO2_AMT : P.LFO_AMT, "Amount"),
+      h("div", { class: "lfo-sel" },
+        settingSelect("Sync", SYNC, () => settings && settings[`lfo${n}Sync`], v => setSetting(SET_ID[`lfo${n}Sync`], v)),
+        settingSelect("Retrigger", TRIGGER, () => settings && settings[`lfo${n}Trigger`], v => setSetting(SET_ID[`lfo${n}Trigger`], v)))),
+    h("div", { class: "routing" }, h("span", { class: "lbl" }, which ? "Routing" : "Routing (panel)"), ...routing, selNote),
+    h("div", { class: "depths" }, h("span", { class: "lbl" }, "Depth (mod routes)"), LFO_TARGETS.map((_, t) => depthBar(which, t))));
+}
+
+function buildPanel() {
+  const box = document.getElementById("synth");
+  box.append(
+    sec("osca", "Oscillator A", viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(0, 1, 2, params[P.PW_A], params[P.LEVEL_A]), 240, { fill: true })),
+      row(ledSwitch(0, "Saw"), ledSwitch(1, "Tri"), ledSwitch(2, "Square"), ledSwitch(15, "Sync")),
+      row(knob(P.FREQ_A, "Frequency", { accent: true }), knob(P.PW_A, "PW"))),
+    sec("oscb", "Oscillator B", viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(3, 4, 5, params[P.PW_B], params[P.LEVEL_B]), 240, { fill: true })),
+      row(ledSwitch(3, "Saw"), ledSwitch(4, "Tri"), ledSwitch(5, "Square")),
+      row(knob(P.FREQ_B, "Frequency", { accent: true }), knob(P.FINE, "Fine"), knob(P.PW_B, "PW"))),
+    sec("mix", "Mixer", h("div", { class: "faders" }, fader(P.LEVEL_A, "Osc A"), fader(P.LEVEL_B, "Osc B"), fader(P.NOISE, "Noise"))),
+    sec("flt", "Filter", viz("flt", drawFilter),
+      row(knob(P.CUTOFF, "Cutoff", { size: "l", accent: true }), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Env amt"),
+        settingSelect("Keytrack", ["Off", "Half", "Full"], () => settings && settings.keytrack, v => setSetting(SET_ID.keytrack, v)))),
+    ...ENVS.map(envSection),
+    lfoSection(0), lfoSection(1),
+    sec("pm", "Poly-mod", row(knob(P.PMOD_ENV, "Filter env"), knob(P.PMOD_B, "Osc B")),
+      row(ledSwitch(8, "→ Freq A"), ledSwitch(11, "→ Filter"))),
+    sec("voice", "Voice", row(knob(P.GLIDE, "Glide"), knob(P.TUNE, "Tune"), ledSwitch(12, "Unison")),
+      settingSelect("Layers", ["Off: one sound, 8 voices", "Split", "Stack", "By MIDI channel (ch 2 = layer 2)"],
+        () => settings && settings.layers, v => setSetting(SET_ID.layers, v)),
+      settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
+        () => settings && settings.split, v => setSetting(SET_ID.split, v))));
+  // layer buttons in the header
+  document.querySelectorAll("#layers .led").forEach(b => {
+    const v = +b.dataset.v;
+    b.onclick = async () => { await setSetting(SET_ID.editLayer, v); await refreshParams(); };
+    paints.push(() => b.setAttribute("aria-pressed", String(!!settings && settings.editLayer === v)));
+  });
+  window.addEventListener("resize", paintAll);
+}
+
+// --- talking to the synth ---
 async function refreshLayerRoutes() {
   const layer = paramsLayer, d = await ask([0x57, layer], [0x57, layer], 1000);
   if (!d) return;
   layerRoutes = [];
   for (let r = 0; r < 8; r++)
     if (d[2 + 4 * r]) layerRoutes.push({ source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
-  paintDepths();
-}
-function paintDepths() {
-  for (const which of [0, 1])
-    document.querySelectorAll(`#depths${which} input`).forEach(slider => {
-      if (slider === depthDragging || !layerRoutes) return;
-      const [, dests] = LFO_TARGETS[+slider.dataset.t];
-      const r = layerRoutes.find(x => x.source === LFO_SOURCE[which] && x.dest === dests[0]);
-      slider.value = r ? r.depth : 0;
-      slider.nextElementSibling.textContent = depthText(dests, +slider.value);
-    });
-}
-let steps = [null, null]; // [LFO 1, LFO 2] of the edit layer: {count, bits}
-const SYNC = ["Free", "MIDI clock"], TRIGGER = ["Free-running", "First key", "Every key", "Per voice (poly)"];
-
-function seconds(s) { return s < 0.9995 ? Math.round(s * 1000) + " ms" : s.toFixed(s < 9.995 ? 2 : 1) + " s"; }
-function format(i, v) {
-  const signed = x => (x > 0 ? "+" : "") + x;
-  if (i === 10 || i === 11) return signed(Math.floor((v - 0.5) * 72 + 36.5) - 36) + " st";
-  if (i === 12 || i === 19) return signed(Math.round((v - 0.5) * 200)) + " ct";
-  if (i === 9) return signed(Math.round((v - 0.5) * 198));
-  if (ENV_KNOB[i] && cycleSync(ENV_KNOB[i][0])) return Math.round(cycleShare(ENV_KNOB[i][0], ENV_KNOB[i][1]) * 100) + " %";
-  if (ENV_KNOB[i]) {
-    const t = envTime(ENV_KNOB[i][1], v, cycling(ENV_KNOB[i][0]));
-    if (t >= 0) return t === 0 ? "0 ms" : seconds(t);
-  }
-  if (i === 16) return v < 0.02 ? "off" : seconds(0.002 * 2 ** (v * 10));
-  if (i === 17 || i === 34) {
-    const which = i === 34 ? 1 : 0;
-    if (settings && settings[which ? "lfo2Sync" : "lfo1Sync"]) return DIVISIONS[Math.round(v * 14)];
-    const hz = 0.05 * 2 ** (v * 10);
-    return hz < 10 ? hz.toFixed(2) + " Hz" : hz.toFixed(1) + " Hz";
-  }
-  return String(Math.round(v * 99));
-}
-
-function buildGroups() {
-  const box = document.getElementById("groups");
-  for (const [title, list, extra, cycleBit] of GROUPS) {
-    const g = document.createElement("div");
-    g.className = "group";
-    const note = typeof extra === "string" && extra ? `<span class="muted">${extra}</span>` : "";
-    const copy = cycleBit ? `<button class="copy" data-env="${cycleBit}">Copy from layer 2</button>`
-      : extra === 0 || extra === 1 ? `<button class="copy" data-lfo="${extra}">Copy from layer 2</button>` : "";
-    g.innerHTML = `<h3><span class="title-row"><span>${title}</span>${copy}</span>${note}</h3>`;
-    const button = g.querySelector("button.copy");
-    if (button) button.onclick = () => cycleBit ? copyEnvelope(cycleBit, title) : copyLfo(extra);
-    if (GROUP_BUTTONS[title] && title !== "LFO 1")
-      g.insertAdjacentHTML("beforeend", `<div class="chips" style="margin-bottom:6px">${buttonChips(GROUP_BUTTONS[title])}</div>`);
-    if (cycleBit) {
-      g.insertAdjacentHTML("beforeend", `<div class="field"><span>Mode</span>
-        <select class="cycle" data-bit="${cycleBit}" title="cycling: attack, hold, fall, rest, again while the key is held">
-          <option value="0">ADSR</option><option value="1">Cycle while held</option>
-          ${DIVISIONS.map((d, k) => `<option value="${k + 2}">Cycle synced: ${d}</option>`).join("")}
-        </select></div>`);
-      g.querySelector(".cycle").onchange = async e => {
-        const v = +e.target.value, key = "cycle" + (paramsLayer + 1), bits = settings ? settings[key] : 0;
-        await setSetting(SET_ID[`cycleSync${paramsLayer + 1}_${envIndex(cycleBit)}`], v >= 2 ? v - 1 : 0);
-        await setSetting(SET_ID[key], v ? bits | cycleBit : bits & ~cycleBit);
-      };
-    }
-    for (const i of list) {
-      const row = document.createElement("div");
-      row.className = "param";
-      row.innerHTML = `<label for="p${i}">${PARAMS[i][0]}${PARAMS[i][1] ? "" : ' <span class="tag" title="shared: the same in both layers">S</span>'}</label>
-        <input type="range" id="p${i}" min="0" max="16383"><span class="val" id="pv${i}">–</span>`;
-      const slider = row.querySelector("input");
-      let timer = 0;
-      slider.addEventListener("pointerdown", () => dragging = i);
-      slider.addEventListener("pointerup", () => setTimeout(() => { if (dragging === i) dragging = null; }, 1200));
-      slider.oninput = () => {
-        const v = +slider.value;
-        if (params) params[i] = v / 16383;
-        document.getElementById("pv" + i).textContent = format(i, v / 16383);
-        if (ENV_KNOB[i] && cycleSync(ENV_KNOB[i][0])) paintParams(); // the other knobs' shares move too
-        clearTimeout(timer);
-        timer = setTimeout(() => send([0x52, paramsLayer, i, v >> 7, v & 0x7F]), 25);
-      };
-      g.appendChild(row);
-    }
-    if (extra === 0 || extra === 1) g.appendChild(lfoControls(extra));
-    box.appendChild(g);
-  }
-}
-
-function lfoControls(which) {
-  const box = document.createElement("div");
-  const n = which + 1;
-  box.innerHTML = `<div class="shapes" id="shapes${which}">${SHAPES.map(([name, d], s) =>
-      `<button data-s="${s}" title="${name}"><svg viewBox="0 0 34 16"><path d="${d}"/></svg>${name}</button>`).join("")}</div>
-    <div class="step-edit" id="step-edit${which}" hidden>
-      <div class="steps" id="steps${which}">${Array.from({ length: 16 }, (_, i) =>
-        `<button data-i="${i}" class="${i % 4 ? "" : "beat"}" title="step ${i + 1}">${i + 1}</button>`).join("")}</div>
-      <div class="step-tools">
-        <select id="step-count${which}" title="steps per LFO cycle">${Array.from({ length: 15 }, (_, i) =>
-          `<option value="${i + 2}">${i + 2} steps</option>`).join("")}</select>
-        <button data-op="clear">Clear</button><button data-op="invert">Invert</button>
-        <button data-op="left" title="rotate left">◀</button><button data-op="right" title="rotate right">▶</button>
-        <button data-op="trance" title="1 0 1 0 1 1 0 0, twice">Trance gate</button>
-        <button data-op="gate" class="primary" title="adds a route: this LFO → VCA at 99">Route to VCA</button>
-      </div>
-      <div class="muted" style="font-size:12px">One LFO cycle plays all the steps: with MIDI clock sync, 16 steps at
-        1 bar (or 8 at 1/2) are 16th notes.</div>
-    </div>
-    <div class="lfo-depths" id="depths${which}">
-      <div class="title" title="each slider is this LFO's mod-matrix route on the layer you're editing; double-click for 0">
-        Depth to (−99…+99; adds to the panel's LFO buttons)</div>
-      ${LFO_TARGETS.map(([label, dests], t) => `<div class="param"><label>${label}</label>
-        <input type="range" min="-99" max="99" value="0" data-t="${t}"><span class="val">0</span></div>`).join("")}
-    </div>
-    <div class="field"><span>Sync</span><select id="sync${which}">${SYNC.map((t, k) => `<option value="${k}">${t}</option>`).join("")}</select></div>
-    <div class="field"><span>Retrigger</span><select id="trig${which}">${TRIGGER.map((t, k) => `<option value="${k}">${t}</option>`).join("")}</select></div>
-    ${which ? `<div class="field"><span>Routing</span>
-      <label><input type="checkbox" data-bit="1"> pitch</label><label><input type="checkbox" data-bit="2"> filter</label>
-      <label title="pulse width is one wire: layer 1's LFO 2 only"><input type="checkbox" data-bit="4"> PW</label></div>` :
-      `<div class="field"><span>Routing</span>${buttonChips(GROUP_BUTTONS["LFO 1"])}</div>`}
-    <div class="field"><span></span><span class="muted" id="lfo-sel${which}"></span></div>`;
-  box.querySelectorAll(".shapes button").forEach(b => b.onclick = () =>
-    setSetting(SET_ID["shape" + (paramsLayer + 1) + n], +b.dataset.s));
-  box.querySelectorAll(`#steps${which} button`).forEach(b => b.onclick = () => {
-    const st = steps[which];
-    if (!st) return;
-    sendSteps(which, st.count, st.bits ^ (1 << +b.dataset.i));
-  });
-  box.querySelector("#step-count" + which).onchange = e => {
-    const st = steps[which] || { bits: 0x3535 };
-    sendSteps(which, +e.target.value, st.bits);
-  };
-  box.querySelectorAll(".step-tools button[data-op]").forEach(b => b.onclick = async () => {
-    const st = steps[which] || { count: 16, bits: 0 }, all = (1 << st.count) - 1;
-    const op = b.dataset.op;
-    if (op === "gate") {
-      const src = which ? 11 : 1, d = 99 + 99; // LFO 1 / LFO 2 → VCA at 99
-      const ok = await ack([0x56, paramsLayer, src, 9, d >> 7, d & 0x7F]);
-      document.getElementById("status").textContent = ok ? `Layer ${paramsLayer + 1}: LFO ${n} → VCA at 99 (Mod matrix tab)` :
-        "All 8 mod routes of this layer are in use";
-      return;
-    }
-    const bits = op === "clear" ? 0 : op === "invert" ? ~st.bits & all
-      : op === "left" ? (st.bits >> 1 | (st.bits & 1) << (st.count - 1)) & all
-      : op === "right" ? (st.bits << 1 | st.bits >> (st.count - 1)) & all
-      : 0x3535 & all;
-    sendSteps(which, st.count, bits);
-  });
-  box.querySelectorAll(`#depths${which} input`).forEach(slider => {
-    const [, dests] = LFO_TARGETS[+slider.dataset.t];
-    let timer = 0;
-    const apply = () => {
-      const depth = +slider.value;
-      slider.nextElementSibling.textContent = depthText(dests, depth);
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        for (const dest of dests)
-          if (!await setRoute(paramsLayer, LFO_SOURCE[which], dest, depth)) {
-            document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use (Mod matrix tab)`;
-            await refreshLayerRoutes();
-            return;
-          }
-        await refreshLayerRoutes();
-      }, 60);
-    };
-    slider.addEventListener("pointerdown", () => depthDragging = slider);
-    slider.addEventListener("pointerup", () => setTimeout(() => { if (depthDragging === slider) depthDragging = null; }, 800));
-    slider.oninput = apply;
-    slider.ondblclick = () => { slider.value = 0; apply(); };
-  });
-  box.querySelector("#sync" + which).onchange = e => setSetting(SET_ID[`lfo${n}Sync`], +e.target.value);
-  box.querySelector("#trig" + which).onchange = e => setSetting(SET_ID[`lfo${n}Trigger`], +e.target.value);
-  box.querySelectorAll("input[data-bit]").forEach(c => c.onchange = () => {
-    let bits = 0;
-    box.querySelectorAll("input[data-bit]").forEach(x => { if (x.checked) bits |= +x.dataset.bit; });
-    setSetting(SET_ID["lfo2Dests" + (paramsLayer + 1)], bits);
-  });
-  return box;
+  paintAll();
 }
 
 async function setSetting(id, value) {
@@ -939,13 +1336,18 @@ async function refreshSettings() {
   const s = {};
   for (let i = 0; i < Math.min(d[1], SETTINGS.length); i++) s[SETTINGS[i]] = d[2 + 2 * i] << 7 | d[3 + 2 * i];
   settings = s;
+  if (s.presetMode && s.patch !== patchNameFor) { // the patch's name for the screen
+    patchNameFor = s.patch;
+    const info = await slotInfo(s.patch);
+    patchName = info ? info.name : "";
+  }
   paintSettings();
   return true;
 }
 
 async function sendSteps(which, count, bits) {
   steps[which] = { count, bits };
-  paintSteps();
+  paintAll();
   if (!await ack([0x4E, paramsLayer, which, count, bits >> 14 & 0x7F, bits >> 7 & 0x7F, bits & 0x7F]))
     document.getElementById("status").textContent = "The synth didn't take the step pattern (firmware 0.6.3 or later?)";
 }
@@ -954,35 +1356,14 @@ async function refreshSteps() {
     const d = await ask([0x4D, paramsLayer, which], [0x4D, paramsLayer, which], 1000);
     if (d) steps[which] = { count: d[3], bits: d[4] << 14 | d[5] << 7 | d[6] };
   }
-  paintSteps();
-}
-function paintSteps() {
-  for (const which of [0, 1]) {
-    const st = steps[which], shape = settings ? settings[`shape${paramsLayer + 1}${which + 1}`] : -1;
-    document.getElementById("step-edit" + which).hidden = shape !== STEPS_SHAPE;
-    if (!st) continue;
-    document.querySelectorAll(`#steps${which} button`).forEach((b, i) => {
-      b.classList.toggle("on", i < st.count && !!(st.bits >> i & 1));
-      b.disabled = i >= st.count;
-    });
-    const sel = document.getElementById("step-count" + which);
-    if (document.activeElement !== sel) sel.value = String(st.count);
-  }
+  paintAll();
 }
 
-function buildButtons() {
-  document.querySelectorAll("button[data-sw]").forEach(b => b.onclick = async () => {
-    const i = +b.dataset.sw, on = buttons ? !buttons[i] : 1;
-    if (offline()) return;
-    if (await ack([0x4B, i, on ? 1 : 0])) await refreshButtons();
-    else document.getElementById("status").textContent = "The synth didn't take that (firmware 0.6.6 or later?)";
-  });
-}
 async function refreshButtons() {
   const d = await ask([0x4C], [0x4C], 1000);
   if (!d) return;
   buttons = d.slice(1);
-  document.querySelectorAll("button[data-sw]").forEach(b => b.classList.toggle("on", !!buttons[+b.dataset.sw]));
+  paintAll();
 }
 
 // --- copying an LFO or an envelope from the other layer ---
@@ -1002,7 +1383,7 @@ async function copyLfo(which) {
   const to = paramsLayer, from = 1 - to, n = which + 1, src = LFO_SOURCE[which];
   if (!confirm(`Replace layer ${to + 1}'s LFO ${n} with layer ${from + 1}'s? Rate, amount, shape, step pattern` +
                `${which ? ", routing" : ""} and the mod routes from LFO ${n} are copied.`)) return;
-  let ok = await copyParams(which ? [34, 35] : [17, 18], from, to);
+  let ok = await copyParams(which ? [P.LFO2_RATE, P.LFO2_AMT] : [P.LFO_RATE, P.LFO_AMT], from, to);
   ok = ok && await set7D(`shape${to + 1}${n}`, settings[`shape${from + 1}${n}`]);
   const st = ok && await ask([0x4D, from, which], [0x4D, from, which], 1000);
   ok = ok && !!st && await ack([0x4E, to, which, st[3], st[4], st[5], st[6]]);
@@ -1049,10 +1430,13 @@ async function refreshParams() {
   const layer = settings.editLayer;
   const d = await ask([0x53, layer], [0x53, layer], 1000);
   if (!d) return;
+  const fresh = [];
+  for (let i = 0; i < d[2]; i++) fresh.push((d[3 + 2 * i] << 7 | d[4 + 2 * i]) / 16383);
+  // a control moved here in the last moment keeps its value (the synth may not have it yet)
+  if (params && layer === paramsLayer) for (const i in editedAt) if (Date.now() - editedAt[i] < 1500) fresh[i] = params[i];
   paramsLayer = layer;
-  params = [];
-  for (let i = 0; i < d[2]; i++) params.push((d[3 + 2 * i] << 7 | d[4 + 2 * i]) / 16383);
-  paintParams();
+  params = fresh;
+  paintAll();
   await refreshButtons();
   await refreshSteps();
   await refreshLayerRoutes();
@@ -1060,57 +1444,10 @@ async function refreshParams() {
 
 function paintSettings() {
   const s = settings;
-  document.querySelectorAll("#edit-layer button").forEach(b => b.classList.toggle("active", +b.dataset.v === s.editLayer));
-  const set = (id, v) => { const el = document.getElementById(id); if (document.activeElement !== el) el.value = String(v); };
-  set("layer-mode", s.layers); set("split", s.split); set("keytrack", s.keytrack);
-  document.getElementById("split").disabled = s.layers !== 1;
-  for (const which of [0, 1]) {
-    const n = which + 1, shape = s[`shape${s.editLayer + 1}${n}`];
-    document.querySelectorAll(`#shapes${which} button`).forEach(b => b.classList.toggle("active", +b.dataset.s === shape));
-    set("sync" + which, s[`lfo${n}Sync`]); set("trig" + which, s[`lfo${n}Trigger`]);
-    document.querySelectorAll("button.copy").forEach(b => b.textContent = `Copy from layer ${2 - s.editLayer}`);
-    document.getElementById("lfo-sel" + which).textContent = s.lfoSelect === which ? "the panel's LFO knobs edit this LFO" :
-      `Arp Up-Dn on the panel switches the LFO knobs to LFO ${n}`;
-  }
-  const cyc = s["cycle" + (s.editLayer + 1)];
-  document.querySelectorAll("select.cycle").forEach(c => {
-    const bit = +c.dataset.bit, sync = s[`cycleSync${s.editLayer + 1}_${envIndex(bit)}`];
-    if (document.activeElement !== c) c.value = String(!(cyc & bit) ? 0 : sync ? sync + 1 : 1);
-  });
-  for (const [i, [bit, stage]] of Object.entries(ENV_KNOB)) {
-    const label = document.querySelector(`label[for="p${i}"]`);
-    const sync = s[`cycleSync${s.editLayer + 1}_${envIndex(bit)}`];
-    if (label) label.textContent = (!(cyc & bit) ? ADSR_LABELS : sync ? SYNCED_LABELS : CYCLE_LABELS)[stage];
-  }
-  if (params) paintParams();
-  paintSteps();
-  const dests = s["lfo2Dests" + (s.editLayer + 1)];
-  document.querySelectorAll("#shapes1 ~ .field input[data-bit]").forEach(c => c.checked = !!(dests & +c.dataset.bit));
-  const env = ["filter envelope", "Env 3", "Env 4"][s.envSelect] || "";
-  document.getElementById("panel-state").textContent =
-    `panel: filter ADSR knobs edit the ${env}; ${s.presetMode ? "patch " + slotLabel(s.patch) : "manual mode"}`;
-  document.getElementById("params-layer").textContent = `layer ${s.editLayer + 1}`;
   document.querySelectorAll("#slots tr").forEach(tr => tr.classList.toggle("current", s.presetMode && +tr.dataset.slot === s.patch));
+  paintAll();
 }
-
-function paintParams() {
-  for (let i = 0; i < params.length; i++) {
-    const slider = document.getElementById("p" + i);
-    if (!slider || dragging === i) continue;
-    slider.value = Math.round(params[i] * 16383);
-    document.getElementById("pv" + i).textContent = format(i, params[i]);
-  }
-}
-
-document.querySelectorAll("#edit-layer button").forEach(b => b.onclick = async () => {
-  await setSetting(SET_ID.editLayer, +b.dataset.v); await refreshParams();
-});
-document.getElementById("layer-mode").onchange = e => setSetting(SET_ID.layers, +e.target.value);
-document.getElementById("keytrack").onchange = e => setSetting(SET_ID.keytrack, +e.target.value);
-document.getElementById("split").onchange = e => setSetting(SET_ID.split, +e.target.value);
-const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
-for (let n = 0; n < 128; n++)
-  document.getElementById("split").insertAdjacentHTML("beforeend", `<option value="${n}">${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}</option>`);
+function paintParams() { paintAll(); }
 
 // keep in step with the panel
 let polling = false;
@@ -1154,7 +1491,7 @@ async function loadRoutes() {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td><select class="s">${options(SOURCES, 0)}</select></td>
       <td><select class="d">${options(DESTS, -1)}</select> ${WIRE.has(dest) ? '<span class="tag">wire</span>' : ""}</td>
-      <td><div class="depth"><input type="range" min="-99" max="99" value="${depth}"><output>${depth}</output></div></td>
+      <td><div class="depth-cell"><input type="range" min="-99" max="99" value="${depth}"><output>${depth}</output></div></td>
       <td class="actions"><button class="del">Remove</button></td>`;
     tr.querySelector(".s").value = src; tr.querySelector(".d").value = dest;
     const range = tr.querySelector("input"), out = tr.querySelector("output");
@@ -1402,8 +1739,7 @@ async function afterConnect() {
 }
 
 buildPiano(); relabel(); buildPots(); buildSwitches(); buildKeys(); buildDisplay(); paintDisplay(); save();
-buildGroups();
-buildButtons();
+buildPanel();
 try { tab = localStorage.getItem("pro800-tab") || "sound"; } catch (e) {}
 if (!document.getElementById("tab-" + tab)) tab = "sound";
 showTab(tab);
