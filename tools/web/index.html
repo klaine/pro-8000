@@ -66,6 +66,9 @@
            color: var(--ink); max-width: 100%; }
   .muted { color: var(--muted); }
   #route-log { font: 12px ui-monospace, monospace; color: var(--muted); }
+  body.offline #tab-sound section, body.offline #tab-matrix section, body.offline #tab-patches section,
+  body.offline #tab-system section { opacity: .5; }
+  #connect.nudge { outline: 3px solid var(--accent); outline-offset: 2px; }
   nav.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
   nav.tabs button { border-radius: 999px; padding: 4px 12px; }
   nav.tabs button.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
@@ -126,7 +129,7 @@
   @media (max-width: 600px) { .param { grid-template-columns: 76px 1fr 58px; } td.actions { white-space: normal; } }
 </style>
 </head>
-<body>
+<body class="offline">
 <header>
   <h1>Pro 800 Panel</h1>
   <button class="primary" id="connect">Connect</button>
@@ -337,7 +340,15 @@ function save() {
 }
 
 // --- MIDI ---
-function send(data) { if (output) output.send([...HEADER, ...data, 0xF7]); }
+// 1 (and says so, pointing at Connect) when there's no synth to talk to
+function offline() {
+  if (output) return 0;
+  const status = document.getElementById("status"), button = document.getElementById("connect");
+  status.textContent = "Not connected: click Connect"; status.className = "bad";
+  button.classList.add("nudge"); clearTimeout(button._t); button._t = setTimeout(() => button.classList.remove("nudge"), 1500);
+  return 1;
+}
+function send(data) { if (!offline()) output.send([...HEADER, ...data, 0xF7]); }
 function request(data, prefix, ms = 1500) {
   return new Promise(resolve => {
     const w = { prefix, resolve };
@@ -373,13 +384,17 @@ async function connect() {
     if (!v) throw new Error("the synth didn't answer the version request");
     status.textContent = `Connected: firmware ${v.slice(2).join(".")}`;
     status.className = "ok";
+    document.body.classList.remove("offline");
+    document.getElementById("connect").textContent = "Reconnect";
     midiAccess = access;
     fillRouteInputs();
     afterConnect();
     access.addEventListener("statechange", fillRouteInputs);
     access.onstatechange = () => { if (input && input.state === "disconnected") {
-      status.textContent = "Disconnected"; status.className = "bad"; } };
+      status.textContent = "Disconnected"; status.className = "bad";
+      input = output = null; document.body.classList.add("offline"); } };
   } catch (err) {
+    input = output = null;
     status.textContent = "Can't connect: " + err.message; status.className = "bad";
   }
 }
@@ -805,7 +820,7 @@ function lfoControls(which) {
 }
 
 async function setSetting(id, value) {
-  if (!output) return;
+  if (offline()) return;
   if (!await ack([0x7D, id, value])) { document.getElementById("status").textContent = "The synth didn't accept that setting"; return; }
   await refreshSettings();
 }
@@ -991,7 +1006,7 @@ async function slotInfo(n) {
   return { kind: d[3], name: String.fromCharCode(...d.slice(4)) };
 }
 async function scanSlots() {
-  if (!output) return;
+  if (offline()) return;
   slots = [];
   for (let n = 0; n < 400; n++) {
     const info = await slotInfo(n);
@@ -1202,6 +1217,9 @@ buildGroups();
 try { tab = localStorage.getItem("pro800-tab") || "sound"; } catch (e) {}
 if (!document.getElementById("tab-" + tab)) tab = "sound";
 showTab(tab);
+// connect by itself when Chrome already allows MIDI with SysEx for this page (after the first Connect)
+if (navigator.permissions) navigator.permissions.query({ name: "midi", sysex: true })
+  .then(p => { if (p.state === "granted") connect(); }).catch(() => {});
 </script>
 </body>
 </html>
