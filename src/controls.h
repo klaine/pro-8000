@@ -19,7 +19,7 @@ typedef enum {
 } pot_t;
 
 // Switch inputs (the order of switch_pins in controls.c), mapped on the panel 2026-10-27. The latching buttons
-// read 1 when pressed in. Keyboard tracking is a 3-position switch on two active-low lines: Off leaves both at 1,
+// read 1 when latched down, and down is OFF on this panel (use controls_on()). Keyboard tracking is a 3-position switch on two active-low lines: Off leaves both at 1,
 // Half pulls KEYTRACK_HALF to 0, Full pulls KEYTRACK_FULL to 0 (see controls_keytrack()).
 typedef enum {
     SWITCH_A_SAW, SWITCH_A_TRI, SWITCH_A_SQUARE, SWITCH_B_SAW, SWITCH_B_TRI, SWITCH_B_SQUARE,
@@ -55,5 +55,6 @@ uint16_t controls_pot(int index);
 int controls_switch(int index);
 int controls_button(button_t button);
 int controls_keytrack(void); // 0 off, 1 half, 2 full
+int controls_on(switch_t s); // a latching button is engaged (up); raw level for the other inputs
 
 #endif

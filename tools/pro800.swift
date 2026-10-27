@@ -696,8 +696,9 @@ func state() {
         let v = Int(b[2 * i]) << 7 | Int(b[2 * i + 1])
         print(potNames[i].padding(toLength: 14, withPad: " ", startingAt: 0) + String(format: "%3d", v * 99 / 4095))
     }
-    let on = (0..<16).filter { b[52 + $0] == 1 && $0 != 13 && $0 != 14 }.map { switchLabels[$0] }
-    print("pressed in: " + (on.isEmpty ? "none" : on.joined(separator: ", ")))
+    // latching buttons read 1 when latched down, which is off on this panel
+    let on = (0..<16).filter { b[52 + $0] == 0 && $0 != 13 && $0 != 14 }.map { switchLabels[$0] }
+    print("on: " + (on.isEmpty ? "none" : on.joined(separator: ", ")))
     let keytrack = b[52 + 14] == 0 ? "Full" : b[52 + 13] == 0 ? "Half" : "Off"
     print("keyboard tracking: \(keytrack)")
 }

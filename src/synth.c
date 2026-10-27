@@ -222,7 +222,7 @@ static void read_panel(float dt)
         pot[i] += ((float)controls_pot(i) / 4095.0f - pot[i]) * k;
     pots_primed = 1;
 
-    int now_unison = controls_switch(SWITCH_UNISON);
+    int now_unison = controls_on(SWITCH_UNISON);
     if (now_unison != unison) {
         synth_all_off();
         unison = now_unison;
@@ -238,13 +238,13 @@ void synth_update(float dt)
     // LFO: 0.05-50 Hz; triangle, or square with LFO Shape pressed
     lfo_phase += 0.05f * fast_exp2(pot[POT_LFO_FREQ] * 10.0f) * dt;
     lfo_phase -= (float)(int)lfo_phase;
-    float lfo = controls_switch(SWITCH_LFO_SHAPE) ? (lfo_phase < 0.5f ? 1.0f : -1.0f)
+    float lfo = controls_on(SWITCH_LFO_SHAPE) ? (lfo_phase < 0.5f ? 1.0f : -1.0f)
                                                   : (lfo_phase < 0.5f ? 4 * lfo_phase - 1 : 3 - 4 * lfo_phase);
     float depth = pot[POT_LFO_AMOUNT] * pot[POT_LFO_AMOUNT] + mod_wheel;
     lfo *= depth > 1 ? 1 : depth;
-    float lfo_pitch = controls_switch(SWITCH_LFO_FREQ) ? lfo * LFO_PITCH_SEMITONES : 0;
-    float lfo_filter = controls_switch(SWITCH_LFO_FILTER) ? lfo * LFO_FILTER_SEMITONES : 0;
-    float lfo_pw = controls_switch(SWITCH_LFO_PW) ? lfo * LFO_PW_DEPTH : 0;
+    float lfo_pitch = controls_on(SWITCH_LFO_FREQ) ? lfo * LFO_PITCH_SEMITONES : 0;
+    float lfo_filter = controls_on(SWITCH_LFO_FILTER) ? lfo * LFO_FILTER_SEMITONES : 0;
+    float lfo_pw = controls_on(SWITCH_LFO_PW) ? lfo * LFO_PW_DEPTH : 0;
 
     // global CVs and gates
     sh_set(CV_VOL_A, cv_from(pot[POT_A_LEVEL]));
@@ -255,16 +255,16 @@ void synth_update(float dt)
     sh_set(CV_MASTER_VOL, cv_from(pot[POT_MASTER_VOL]));
     sh_set(CV_EXT_FIL, 0);
     // square off: PW A at maximum, PW B at minimum (as p600fw), so no pulse bleeds through
-    sh_set(CV_PW_A, controls_switch(SWITCH_A_SQUARE) ? cv_from(0.05f + 0.9f * pot[POT_A_PW] + lfo_pw) : 0xFFFF);
-    sh_set(CV_PW_B, controls_switch(SWITCH_B_SQUARE) ? cv_from(0.05f + 0.9f * pot[POT_B_PW] + lfo_pw) : 0);
-    sh_gate(GATE_SAW_A, controls_switch(SWITCH_A_SAW));
-    sh_gate(GATE_TRI_A, controls_switch(SWITCH_A_TRI));
-    sh_gate(GATE_SAW_B, controls_switch(SWITCH_B_SAW));
-    sh_gate(GATE_TRI_B, controls_switch(SWITCH_B_TRI));
-    sh_gate(GATE_SYNC, controls_switch(SWITCH_SYNC));
-    int pmod_freq_a = controls_switch(SWITCH_PMOD_FREQ_A);
+    sh_set(CV_PW_A, controls_on(SWITCH_A_SQUARE) ? cv_from(0.05f + 0.9f * pot[POT_A_PW] + lfo_pw) : 0xFFFF);
+    sh_set(CV_PW_B, controls_on(SWITCH_B_SQUARE) ? cv_from(0.05f + 0.9f * pot[POT_B_PW] + lfo_pw) : 0);
+    sh_gate(GATE_SAW_A, controls_on(SWITCH_A_SAW));
+    sh_gate(GATE_TRI_A, controls_on(SWITCH_A_TRI));
+    sh_gate(GATE_SAW_B, controls_on(SWITCH_B_SAW));
+    sh_gate(GATE_TRI_B, controls_on(SWITCH_B_TRI));
+    sh_gate(GATE_SYNC, controls_on(SWITCH_SYNC));
+    int pmod_freq_a = controls_on(SWITCH_PMOD_FREQ_A);
     sh_gate(GATE_PMOD_FREQ_A, pmod_freq_a);
-    sh_gate(GATE_PMOD_FILTER, controls_switch(SWITCH_PMOD_FILTER));
+    sh_gate(GATE_PMOD_FILTER, controls_on(SWITCH_PMOD_FILTER));
 
     // per-voice
     float coarse_a = (float)(int)((pot[POT_FREQ_A] - 0.5f) * 2 * OSC_RANGE_SEMITONES + OSC_RANGE_SEMITONES + 0.5f)

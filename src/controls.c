@@ -193,4 +193,11 @@ int controls_keytrack(void)
     return switches[SWITCH_KEYTRACK_HALF] ? 0 : 1;
 }
 
+int controls_on(switch_t s)
+{
+    if (s <= SWITCH_UNISON || s == SWITCH_SYNC)
+        return !switches[s];
+    return switches[s];
+}
+
 int controls_button(button_t button) { return (keys[button_keys[button].byte] >> button_keys[button].bit) & 1; }
