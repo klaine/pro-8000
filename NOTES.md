@@ -533,6 +533,17 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   99 plays x.x.xx..x.x.xx.. sampled mid-step; no VCA opens before the note or after the release; velocity 32 →
   0.252 gain (32/127).
 
+## VCA response (measured on 0.6.3, 2026-10-27)
+
+- Direct mode, saw A into an open filter, one voice's AMP CV stepped, level from the Move input (noise floor
+  −52.5 dBFS). Linear in amplitude above a dead zone: amplitude = (CV − c) / (1 − c) with c = 0.089 on voice 1
+  (fit from −37 dB to full; −6.7 dB at half CV). Voices 2-8 at CV 0.125: c = 0.073-0.090; at half CV all within
+  0.3 dB of each other.
+- Consequence: every envelope tail and low sustain stopped at about −20 dB (a release went silent at about a third
+  of its time). 0.6.4 maps the amp envelope onto the VCA from 0.07 (just under the lowest voice) to full, and gives
+  an idle voice 0. Sustain stays linear in amplitude (50 = −6 dB).
+- Tuning check on 0.6.3: worst 1.1 cents (the top octave runs up to +1 cent sharp as the synth warms up).
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

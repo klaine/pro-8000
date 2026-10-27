@@ -64,6 +64,10 @@
 #define DECAY_MIN_S           0.003f
 #define DECAY_MAX_S           20.0f // decay and release, to -60 dB
 #define ATTACK_OVERSHOOT      1.5f
+// The voice VCAs are linear in amplitude above a dead zone: measured 2026-10-27, silent up to 7.3-9.0 % of the CV
+// range depending on the voice (8.9 % on voice 1, fit from -37 dB to full). The envelope starts just under the
+// lowest, so tails fade instead of stopping at about -20 dB; an idle voice still gets 0.
+#define VCA_THRESHOLD         0.07f
 #define ENV_FLOOR             0.0005f // -66 dB: a release ends here
 #define CYCLE_FLOOR           0.001f  // -60 dB: a cycle's fall ends here, on time
 
@@ -929,6 +933,7 @@ void synth_update(float dt)
         sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
         sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));
         sh_set(CV_FIL1 + v, tuning_note_cv(TUNING_ROW_FILTER + v, filter));
-        sh_set(CV_AMP1 + v, cv_from(x->amp.level * clamp01(1.0f + mod[DEST_VCA])));
+        float gain = x->amp.level * clamp01(1.0f + mod[DEST_VCA]);
+        sh_set(CV_AMP1 + v, gain > 0 ? cv_from(VCA_THRESHOLD + (1.0f - VCA_THRESHOLD) * gain) : 0);
     }
 }

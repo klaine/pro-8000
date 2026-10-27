@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.6.3. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.6.4. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -321,7 +321,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.6.3.syx --yes
+build/pro800 install build/pro800-0.6.4.syx --yes
 ```
 
 ## Updating, recovery and going back to stock
