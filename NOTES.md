@@ -197,6 +197,38 @@ Before the first flash we didn't know: how the bootloader answers (if at all), w
 "PRO 800" in update mode, and how long it needs to erase after the header. `pro800 flash` waits 3 s after the
 header (`--erase-wait`) and prints any reply.
 
+## DAC and S&H wiring (sheets 1-3, checked at 400 dpi)
+
+- DAC80501 (U46) in SPI mode (SPI2C tied low): SCLK PC10, SDIN PB0, SYNC PA15 (SPI3's pins; bit-banged for
+  now). It runs from 3.3 V, so `GAIN = 0x0101` (REF-DIV on, buffer gain 2): 0–2.5 V out, doubled by U47A.
+  Without REF-DIV the reference alarm forces 0 V.
+- On-chip DAC1 (PA4) and DAC2 (PA5), through U16A/B.
+
+| Mux | Enable | Source | Y0..Y7 |
+|---|---|---|---|
+| U25 | EN5 | DAC80501 | OSC_1A..OSC_8A |
+| U32 | EN6 | DAC80501 | OSC_1B..OSC_8B |
+| U43 | EN7 | DAC80501 | FIL_1..FIL_8 |
+| U24 | EN8 | DAC2 | AMP_1..AMP_8 |
+| U23 | EN9 (via U17B, non-inverting) | DAC1 | PMOD_OSC_B, VOL_A, VOL_B, M_VOL, NOISE, EXT_FIL, –, – |
+| U15 | EN4 | DAC1 | PW_A, PW_B, RES, – |
+
+Hold caps are 10 nF behind TL064 buffers. Pots: U22 (EN1 → VMUX1/PC0) amp and filter ADSR; U21 (EN2 → PC1) freq A/B,
+fine, filter env amount, resonance, PW A/B, level A; U42 (EN3 → PC2) master tune, master volume, LFO freq/amount,
+glide, level B, poly-mod osc B / filter env. Order within each pot mux not mapped yet. NOISE → PA2, CUTOFF → PC3.
+The VALUE encoder is quadrature on PE9/PE11. Sheet 4 also has the button-LED map (COM4-7 × K5-7).
+
+## Test firmware 0.0.2: first sound (2026-10-27)
+
+Voice 1, saw A, pitch CV stepped 0x2000..0xF000 in 0x1000 steps; recorded with `pro800 record`.
+Everything worked first time: DAC80501 setup, both on-chip DACs, the S&H mapping (OSC_1A, AMP_1, VOL_A, M_VOL,
+PW_A) and the SAW_A gate. The VCA closes fully in the gap (−53 dBFS, the noise floor); the note sits at −38 dBFS
+with master volume at 0x6000.
+
+Oscillator 1A, untrimmed: **6515 codes per octave** (the 16-bit range covers 10.06 octaves), exponential within
+±4 cents from 38 Hz to 3 kHz. 0x894D ≈ A440, 0x29DB ≈ C1. (The first recording showed 0xE000/0xF000 an octave low:
+that was the pitch estimator's 4 kHz limit, since raised to 10 kHz.)
+
 ## Plan
 
 1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 180 MHz,

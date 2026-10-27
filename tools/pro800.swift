@@ -8,6 +8,8 @@
 //   pro800 play <note> [options]          play a note, optionally recording and measuring it
 //       --channel N (1-16 or "all", default 6)  --hold S (default 2)  --velocity V (default 100)
 //       --record [audio device]  (default "Ableton Move Audio")  --wav <file>
+//   pro800 record [seconds] [--window S] [--device D] [--wav file]
+//                                         record the synth's audio, print level and pitch per window
 //
 // Changes the synth (only when you mean it):
 //   pro800 update-mode                    reboot into the bootloader's update mode
@@ -30,6 +32,8 @@ Read-only:
   pro800 play <note> [options]          play a note, optionally recording and measuring it
       --channel N (1-16 or "all", default 6)  --hold S (default 2)  --velocity V (default 100)
       --record [audio device]  (default "Ableton Move Audio")  --wav <file>
+  pro800 record [seconds] [--window S] [--device D] [--wav file]
+                                        record the synth's audio, print level and pitch per window
 
 Changes the synth (only when you mean it):
   pro800 update-mode                    reboot into the bootloader's update mode
@@ -304,7 +308,7 @@ func rmsDB(_ a: ArraySlice<Float>) -> Float {
 func estimatePitch(_ x: [Float], sampleRate: Float) -> Float? {
     let n = min(x.count, 16384)
     guard n > 4096 else { return nil }
-    let minLag = Int(sampleRate / 4000), maxLag = Int(sampleRate / 25)
+    let minLag = max(2, Int(sampleRate / 10000)), maxLag = Int(sampleRate / 25)
     var corr = [Float](repeating: 0, count: maxLag + 2)
     for lag in minLag...(maxLag + 1) {
         var s: Float = 0
@@ -320,6 +324,41 @@ func estimatePitch(_ x: [Float], sampleRate: Float) -> Float? {
     let denom = a - 2 * b + c
     let shift = denom == 0 ? 0 : 0.5 * (a - c) / denom
     return sampleRate / (Float(lag) + shift)
+}
+
+let defaultAudioDevice = "Ableton Move Audio"
+
+// Records the first input channel of an audio device, optionally also to a WAV file.
+final class Recorder {
+    private let engine = AVAudioEngine()
+    private let lock = NSLock()
+    private var samples = [Float]()
+    let sampleRate: Float
+
+    init(device name: String, wav: String?) {
+        guard var device = audioDevice(named: name) else { fail("audio device \"\(name)\" not found") }
+        let input = engine.inputNode
+        AudioUnitSetProperty(input.audioUnit!, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device,
+                             UInt32(MemoryLayout<AudioDeviceID>.size))
+        let format = input.outputFormat(forBus: 0)
+        sampleRate = Float(format.sampleRate)
+        let file = wav.map { try! AVAudioFile(forWriting: URL(fileURLWithPath: $0), settings: format.settings) }
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [unowned self] buf, _ in
+            try? file?.write(from: buf)
+            self.lock.lock()
+            self.samples.append(contentsOf: UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength)))
+            self.lock.unlock()
+        }
+    }
+
+    func start() { try! engine.start() }
+
+    func stop() -> [Float] {
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        lock.lock(); defer { lock.unlock() }
+        return samples
+    }
 }
 
 func play() {
@@ -341,44 +380,18 @@ func play() {
     }
 
     let midi = Midi(port: portName)
-    var engine: AVAudioEngine?
-    var left = [Float]()
-    var sampleRate: Float = 0
-    let lock = NSLock()
-
-    if let rec = record {
-        let deviceName = rec.isEmpty ? "Ableton Move Audio" : rec
-        guard var device = audioDevice(named: deviceName) else { fail("audio device \"\(deviceName)\" not found") }
-        let e = AVAudioEngine()
-        let input = e.inputNode
-        AudioUnitSetProperty(input.audioUnit!, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device,
-                             UInt32(MemoryLayout<AudioDeviceID>.size))
-        let format = input.outputFormat(forBus: 0)
-        sampleRate = Float(format.sampleRate)
-        let file = wav.map { try! AVAudioFile(forWriting: URL(fileURLWithPath: $0), settings: format.settings) }
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buf, _ in
-            try? file?.write(from: buf)
-            lock.lock()
-            left.append(contentsOf: UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength)))
-            lock.unlock()
-        }
-        try! e.start()
-        engine = e
-        Thread.sleep(forTimeInterval: 0.5)
-    }
+    let recorder = record.map { Recorder(device: $0.isEmpty ? defaultAudioDevice : $0, wav: wav) }
+    recorder?.start()
+    if recorder != nil { Thread.sleep(forTimeInterval: 0.5) }
 
     for c in channels { midi.send([0x90 | c, note, velocity]) }
     Thread.sleep(forTimeInterval: hold)
     for c in channels { midi.send([0x80 | c, note, 0]) }
 
-    guard let e = engine else { return }
+    guard let recorder else { return }
     Thread.sleep(forTimeInterval: 0.5)
-    e.stop()
-    e.inputNode.removeTap(onBus: 0)
-
-    lock.lock()
-    let x = left
-    lock.unlock()
+    let x = recorder.stop()
+    let sampleRate = recorder.sampleRate
     let sr = Int(sampleRate)
     let before = x[0..<min(x.count, sr * 4 / 10)]
     let heldStart = min(x.count, sr / 2 + sr / 4), heldEnd = min(x.count, sr / 2 + Int(hold * Double(sr)) - sr / 10)
@@ -390,6 +403,34 @@ func play() {
         print("no note detected (less than 10 dB above the noise floor)")
     } else if let f = estimatePitch(Array(held), sampleRate: sampleRate) {
         print(String(format: "pitch: %.2f Hz, expected %.2f Hz (A440), %+.1f cents", f, expected, 1200 * log2(f / expected)))
+    }
+}
+
+// Records for a while and prints level and pitch per window, to measure what the synth plays on its own.
+func record() {
+    let seconds = Double(args.first ?? "20") ?? 20
+    let window = Double(option("--window") ?? "0.5") ?? 0.5
+    let device = option("--device") ?? defaultAudioDevice
+    let wav = option("--wav")
+    guard window >= 0.1 else { fail("--window must be at least 0.1 s") }
+    let recorder = Recorder(device: device, wav: wav)
+    recorder.start()
+    print("recording \(Int(seconds)) s from \"\(device)\"")
+    Thread.sleep(forTimeInterval: seconds)
+    let x = recorder.stop()
+    let n = Int(window * Double(recorder.sampleRate))
+    print("  time    level     pitch")
+    var start = 0
+    while start + n <= x.count {
+        let w = Array(x[start..<(start + n)])
+        let db = rmsDB(w[...])
+        var pitch = ""
+        if db > -45, let f = estimatePitch(w, sampleRate: recorder.sampleRate) {
+            let midi = 69 + 12 * log2(f / 440)
+            pitch = String(format: "%8.2f Hz  (MIDI %.2f)", f, midi)
+        }
+        print(String(format: "%6.2f  %6.1f dB  %@", Double(start) / Double(recorder.sampleRate), db, pitch))
+        start += n
     }
 }
 
@@ -471,6 +512,7 @@ case "version": version()
 case "listen": listen()
 case "backup": backup()
 case "play": play()
+case "record": record()
 case "update-mode": updateMode()
 case "flash": flash()
 default:

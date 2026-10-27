@@ -1,71 +1,91 @@
-// First hardware test: puts the voice circuitry in a safe state, then blinks every panel LED and
-// display segment once a second. Holding any panel button keeps them lit, which also proves key scanning.
+// Second hardware test: voice 1 plays a sawtooth on oscillator A while its pitch CV steps through 14 values,
+// one second each, after a one-second gap. The panel lights during the steps and goes dark in the gap, so a
+// recording can be lined up with the steps. Holding any panel button mutes the voice.
 #include "panel.h"
 #include "regs.h"
+#include "sh.h"
 
-// S&H multiplexers (74HC4051): EN1-EN9 are active low, so high disables every channel.
-// EN1-3 = PD3-5, EN8 = PD6 (via U28), EN9 = PD7; EN4-7 = PB12-15 (via U28). SH0-2 = PB5, PB9, PB10.
-#define EN_PINS_B  (1u << 12 | 1u << 13 | 1u << 14 | 1u << 15)
-#define EN_PINS_D  (1u << 3 | 1u << 4 | 1u << 5 | 1u << 6 | 1u << 7)
-#define SH_PINS_B  (1u << 5 | 1u << 9 | 1u << 10)
+#define GAP_MS      1000
+#define STEP_MS     1000
+#define STEP_COUNT  14
+#define STEP_FIRST  0x2000u
+#define STEP_SIZE   0x1000u
+
+#define MASTER_VOLUME 0x6000u // about 37%, kept low on purpose
+#define MIXER_A_LEVEL 0xC000u
+#define FILTER_OPEN   0xE000u
 
 static volatile uint32_t ms_ticks;
 
 void SysTick_Handler(void) { ms_ticks++; }
 
-static void make_outputs(uint32_t port, uint32_t pins)
+static void voice_setup(void)
 {
-    uint32_t moder = GPIO_MODER(port);
-    for (int pin = 0; pin < 16; pin++)
-        if (pins & 1u << pin)
-            moder = (moder & ~(3u << 2 * pin)) | 1u << 2 * pin;
-    GPIO_OTYPER(port) &= ~pins;
-    GPIO_MODER(port) = moder;
-}
-
-static void voices_safe(void)
-{
-    RCC_AHB1ENR |= RCC_AHB1ENR_GPIOB | RCC_AHB1ENR_GPIOD;
-    GPIO_BSRR(GPIOB_BASE) = EN_PINS_B | SH_PINS_B << 16; // set the level before the pin starts driving
-    GPIO_BSRR(GPIOD_BASE) = EN_PINS_D;
-    make_outputs(GPIOB_BASE, EN_PINS_B | SH_PINS_B);
-    make_outputs(GPIOD_BASE, EN_PINS_D);
-}
-
-static void wait_ms(uint32_t ms)
-{
-    uint32_t start = ms_ticks;
-    while (ms_ticks - start < ms)
-        IWDG_KR = IWDG_KR_REFRESH;
+    for (int v = 0; v < VOICE_COUNT; v++) {
+        sh_set(CV_OSC_A1 + v, 0x8000u);
+        sh_set(CV_OSC_B1 + v, 0x8000u);
+        sh_set(CV_FIL1 + v, FILTER_OPEN);
+        sh_set(CV_AMP1 + v, 0);
+    }
+    sh_set(CV_PMOD_OSC_B, 0);
+    sh_set(CV_VOL_A, MIXER_A_LEVEL);
+    sh_set(CV_VOL_B, 0);
+    sh_set(CV_NOISE, 0);
+    sh_set(CV_EXT_FIL, 0);
+    sh_set(CV_RESONANCE, 0);
+    // as in p600fw with the square off: PW A at maximum, PW B at minimum, so no pulse bleeds through
+    sh_set(CV_PW_A, 0xFFFFu);
+    sh_set(CV_PW_B, 0);
+    sh_set(CV_MASTER_VOL, 0);
+    sh_gate(GATE_SAW_A, 1);
 }
 
 int main(void)
 {
-    voices_safe();
+    sh_init();
 
     SYST_RVR = HSI_HZ / 1000 - 1;
     SYST_CVR = 0;
     SYST_CSR = 7; // processor clock, interrupt, enable
 
-    panel_gpio_init();
-    wait_ms(10);
-    if (!panel_init())
-        for (;;)
-            IWDG_KR = IWDG_KR_REFRESH;
+    voice_setup();
+    for (int i = 0; i < 20; i++) // charge every S&H before the master volume comes up
+        sh_refresh();
+    sh_set(CV_MASTER_VOL, MASTER_VOLUME);
 
+    panel_gpio_init();
+    int have_panel = panel_init() != 0;
     uint8_t all_on[PANEL_RAM_BYTES], all_off[PANEL_RAM_BYTES] = {0};
     for (int i = 0; i < PANEL_RAM_BYTES; i++)
         all_on[i] = 0xFF;
 
-    int lit = 0;
+    int shown = -1;
+    uint32_t last_keys = 0;
+    int muted = 0;
     for (;;) {
-        uint8_t keys[PANEL_KEY_BYTES] = {0};
-        int held = 0;
-        if (panel_read_keys(keys))
-            for (int i = 0; i < PANEL_KEY_BYTES; i++)
-                held |= keys[i];
-        lit = held ? 1 : !lit;
-        panel_write(lit ? all_on : all_off);
-        wait_ms(held ? 50 : 500);
+        IWDG_KR = IWDG_KR_REFRESH;
+
+        uint32_t t = ms_ticks % (GAP_MS + STEP_COUNT * STEP_MS);
+        int step = t < GAP_MS ? -1 : (int)((t - GAP_MS) / STEP_MS);
+
+        if (have_panel && ms_ticks - last_keys >= 50) {
+            last_keys = ms_ticks;
+            uint8_t keys[PANEL_KEY_BYTES] = {0};
+            muted = 0;
+            if (panel_read_keys(keys))
+                for (int i = 0; i < PANEL_KEY_BYTES; i++)
+                    muted |= keys[i];
+        }
+
+        sh_set(CV_OSC_A1, (uint16_t)(STEP_FIRST + STEP_SIZE * (uint32_t)(step < 0 ? 0 : step)));
+        sh_set(CV_AMP1, step < 0 || muted ? 0 : 0xFFFFu);
+
+        int lit = step >= 0;
+        if (have_panel && lit != shown) {
+            panel_write(lit ? all_on : all_off);
+            shown = lit;
+        }
+
+        sh_refresh();
     }
 }
