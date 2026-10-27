@@ -394,6 +394,11 @@ into CVs through each voice's tuning tables. First-guess ranges, all constants i
   envelope per oscillator, a second filter envelope, or envelope → LFO amount; PW, mixer and resonance are
   shared wires (an envelope there could only follow the last note). UI idea: the keyboard-tracking switch picks
   which envelope the filter ADSR knobs edit (with pickup), keyboard tracking moves to the Settings menu.
+- **Per-destination LFO depths** (asked 2026-10-27): trivial in the engine (it already scales pitch, filter and
+  PW separately, by fixed ranges). The question is the UI, with one LFO AMOUNT knob. Options: (a) Settings pages
+  for each destination's depth (0–100 %, scaled by the knob as a master amount); (b) the knob edits the depth of
+  the destination button toggled last, with pickup; (c) hold a destination button and turn LFO AMOUNT. Per layer
+  like the other LFO settings.
 - Settings, layers and the panel sound are RAM only: patch storage (EEPROM, read-only analysis first).
 - Hardware SPI to the DAC80501 (fails above 0.33 MHz); tuning tables erased by every update.
 
