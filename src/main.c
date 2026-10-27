@@ -20,10 +20,12 @@
 //                          64 <button> <0|1>
 //   7B <address> <v1> <v0> write a byte of the HT16K33 display RAM (address 0-15)
 //   7C                     panel state; replies 7C <26 pots, 2 × 7 bits each> <24 switches, 0/1 each>
+//   7D <setting> <value>   set a menu setting (0 LFO sync, 1 LFO retrigger)
 // Each other command is acknowledged with 7F <command>.
 #include "clock.h"
 #include "controls.h"
 #include "display.h"
+#include "lfo.h"
 #include "panel.h"
 #include "regs.h"
 #include "sh.h"
@@ -102,6 +104,43 @@ static void show_version(void)
 static uint32_t display_until; // ms_ticks when a pot value on the display gives way; 0 = nothing shown
 static int tune_requested;
 
+// Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value.
+typedef struct {
+    char name[5];
+    int count;
+    const char *values[LFO_TRIGGER_COUNT];
+} setting_t;
+
+static const setting_t settings[] = {
+    {"SYnC", LFO_SYNC_COUNT, {"FrEE", "CLoC"}},                  // 1: LFO sync
+    {"trIG", LFO_TRIGGER_COUNT, {"FrEE", "1St", "EACH", "PoLY"}}, // 2: LFO retrigger
+};
+#define SETTING_COUNT ((int)(sizeof settings / sizeof settings[0]))
+
+static int menu_open, menu_page = -1, encoder_steps;
+static uint32_t show_value_at; // ms_ticks to replace the page name with its value; 0 = not pending
+
+static int setting_get(int page) { return page == 0 ? (int)lfo_sync : (int)lfo_trigger; }
+
+static void setting_set(int page, int value)
+{
+    if (page == 0)
+        lfo_sync = (lfo_sync_t)value;
+    else
+        lfo_trigger = (lfo_trigger_t)value;
+}
+
+// What the display shows when nothing transient is on it.
+static void idle_display(void)
+{
+    if (menu_open && menu_page >= 0)
+        display_text(settings[menu_page].values[setting_get(menu_page)]);
+    else if (menu_open)
+        display_text("SEt");
+    else
+        display_clear();
+}
+
 static void control_event(control_kind_t kind, int index, int32_t value)
 {
     static const led_t button_led[BUTTON_COUNT] = {
@@ -116,13 +155,46 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         return;
     }
     if (kind == CONTROL_POT) {
-        display_number((int)(value * 99 / 4095));
+        if (index == POT_LFO_FREQ && lfo_sync == LFO_SYNC_CLOCK)
+            display_text(lfo_division_name(lfo_division((float)value / 4095.0f)));
+        else
+            display_number((int)(value * 99 / 4095));
         display_until = ms_ticks + 1500;
     }
     if (kind == CONTROL_BUTTON && index > BUTTON_9) {
-        display_led(button_led[index], (int)value);
+        if (index != BUTTON_SETTINGS)
+            display_led(button_led[index], (int)value);
         if (index == BUTTON_TUNE && value)
             tune_requested = 1;
+        if (index == BUTTON_SETTINGS && value) {
+            menu_open = !menu_open;
+            menu_page = -1;
+            display_led(LED_SETTINGS, menu_open);
+            display_until = 0;
+            idle_display();
+        }
+    }
+    if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && menu_open) {
+        int page = index - BUTTON_1; // key 1 = first page
+        if (page >= 0 && page < SETTING_COUNT) {
+            menu_page = page;
+            encoder_steps = 0;
+            display_text(settings[page].name);
+            show_value_at = ms_ticks + 700;
+            display_until = 0;
+        }
+    }
+    if (kind == CONTROL_ENCODER && menu_open && menu_page >= 0) {
+        encoder_steps += (int)value;
+        if (encoder_steps >= 4 || encoder_steps <= -4) { // 4 transitions per quadrature cycle
+            int count = settings[menu_page].count;
+            int next = (setting_get(menu_page) + (encoder_steps > 0 ? 1 : count - 1)) % count;
+            encoder_steps = 0;
+            setting_set(menu_page, next);
+            show_value_at = 0;
+            display_until = 0;
+            idle_display();
+        }
     }
 }
 
@@ -210,6 +282,11 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = 0x7F;
         reply[n++] = 0x7B;
     }
+    if (data_length == 3 && data[0] == 0x7D && data[1] < SETTING_COUNT && data[2] < settings[data[1]].count) {
+        setting_set(data[1], data[2]);
+        reply[n++] = 0x7F;
+        reply[n++] = 0x7D;
+    }
     if (data_length == 1 && data[0] == 0x7C) {
         reply[n++] = 0x7C;
         for (int i = 0; i < POT_COUNT; i++) {
@@ -284,6 +361,14 @@ static void handle_midi(void)
             break;
         case 0xE:
             synth_pitch_bend(p[2] | p[3] << 7);
+            break;
+        case 0xF: // single-byte messages: realtime
+            if (p[1] == 0xF8)
+                lfo_clock_tick(DWT_CYCCNT);
+            else if (p[1] == 0xFA)
+                lfo_clock_start();
+            else if (p[1] == 0xFC)
+                lfo_clock_stop();
             break;
         case 0x4: case 0x5: case 0x6: case 0x7: {
             int n = cin == 0x4 ? 3 : cin - 0x4;
@@ -360,8 +445,12 @@ int main(void)
             synth_update(dt);
 
         if (display_until && (int32_t)(now - display_until) > 0) {
-            display_clear();
             display_until = 0;
+            idle_display();
+        }
+        if (show_value_at && (int32_t)(now - show_value_at) > 0) {
+            show_value_at = 0;
+            idle_display();
         }
         if (!report_mode)
             display_update();

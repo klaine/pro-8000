@@ -4,11 +4,13 @@
 //   mixer: A, B and noise levels; filter: cutoff, resonance, envelope amount (bipolar), keyboard tracking
 //   poly-mod: filter envelope (software, added to oscillator A's pitch) and oscillator B (analog), routed to
 //   frequency A and/or the filter by the two poly-mod buttons
-//   LFO: triangle or square, to frequency, pulse width and/or filter; glide, unison, master tune and volume
+//   LFO (lfo.c): triangle or square, to frequency, pulse width and/or filter, free or synced to MIDI clock, with
+//   retrigger modes; glide, unison, master tune and volume
 // Ranges and curves are first guesses, chosen to be playable; they're constants here.
 #include "synth.h"
 #include "controls.h"
 #include "fastmath.h"
+#include "lfo.h"
 #include "sh.h"
 #include "tuning.h"
 
@@ -45,7 +47,7 @@ typedef struct {
 static voice_t voices[VOICE_COUNT];
 static uint32_t allocations;
 static float pot[POT_COUNT]; // smoothed, 0..1
-static float lfo_phase, bend, mod_wheel;
+static float bend, mod_wheel;
 static int pots_primed;
 
 // unison: held notes, last one sounds
@@ -61,7 +63,6 @@ void synth_init(void)
         voices[v].pitch = 60;
     }
     held_count = 0;
-    lfo_phase = 0;
 }
 
 // --- notes ---
@@ -124,11 +125,16 @@ void synth_note_on(uint8_t note, uint8_t velocity)
             held_count--;
         }
         held[held_count++] = note;
-        for (int v = 0; v < VOICE_COUNT; v++)
+        for (int v = 0; v < VOICE_COUNT; v++) {
             gate_on(&voices[v], note, velocity, !was_held); // legato while a note is already held
+            lfo_note_on(v, !was_held);
+        }
         return;
     }
-    gate_on(&voices[allocate(note)], note, velocity, 1);
+    int first = !synth_any_gate();
+    int v = allocate(note);
+    gate_on(&voices[v], note, velocity, 1);
+    lfo_note_on(v, first);
 }
 
 void synth_note_off(uint8_t note)
@@ -235,16 +241,15 @@ void synth_update(float dt)
         dt = 0.05f; // after a long stall (tuning, flash writes), don't jump
     read_panel(dt);
 
-    // LFO: 0.05-50 Hz; triangle, or square with LFO Shape pressed
-    lfo_phase += 0.05f * fast_exp2(pot[POT_LFO_FREQ] * 10.0f) * dt;
-    lfo_phase -= (float)(int)lfo_phase;
-    float lfo = controls_on(SWITCH_LFO_SHAPE) ? (lfo_phase < 0.5f ? 1.0f : -1.0f)
-                                                  : (lfo_phase < 0.5f ? 4 * lfo_phase - 1 : 3 - 4 * lfo_phase);
+    // LFO (lfo.c): rate or clock division from LFO FREQ; triangle, or square with LFO Shape on
+    lfo_update(dt, pot[POT_LFO_FREQ]);
+    int square = controls_on(SWITCH_LFO_SHAPE);
     float depth = pot[POT_LFO_AMOUNT] * pot[POT_LFO_AMOUNT] + mod_wheel;
-    lfo *= depth > 1 ? 1 : depth;
-    float lfo_pitch = controls_on(SWITCH_LFO_FREQ) ? lfo * LFO_PITCH_SEMITONES : 0;
-    float lfo_filter = controls_on(SWITCH_LFO_FILTER) ? lfo * LFO_FILTER_SEMITONES : 0;
-    float lfo_pw = controls_on(SWITCH_LFO_PW) ? lfo * LFO_PW_DEPTH : 0;
+    if (depth > 1)
+        depth = 1;
+    float to_pitch = controls_on(SWITCH_LFO_FREQ) ? depth * LFO_PITCH_SEMITONES : 0;
+    float to_filter = controls_on(SWITCH_LFO_FILTER) ? depth * LFO_FILTER_SEMITONES : 0;
+    float lfo_pw = controls_on(SWITCH_LFO_PW) ? lfo_value(-1, square) * depth * LFO_PW_DEPTH : 0; // one PW CV
 
     // global CVs and gates
     sh_set(CV_VOL_A, cv_from(pot[POT_A_LEVEL]));
@@ -272,13 +277,13 @@ void synth_update(float dt)
     float coarse_b = (float)(int)((pot[POT_FREQ_B] - 0.5f) * 2 * OSC_RANGE_SEMITONES + OSC_RANGE_SEMITONES + 0.5f)
                    - OSC_RANGE_SEMITONES;
     float fine_b = (pot[POT_FINE] - 0.5f) * 2 * FINE_SEMITONES;
-    float common = bend + (pot[POT_MASTER_TUNE] - 0.5f) * 2 * MASTER_TUNE_SEMITONES + lfo_pitch;
+    float common = bend + (pot[POT_MASTER_TUNE] - 0.5f) * 2 * MASTER_TUNE_SEMITONES;
     float glide = pot[POT_GLIDE] < 0.02f ? 0 : 0.002f * fast_exp2(pot[POT_GLIDE] * 10.0f); // time constant, s
     float glide_k = glide > 0 ? 1.0f - fast_exp2(-dt / glide * 1.4427f) : 1.0f;
     float keytrack = 0.5f * (float)controls_keytrack(); // 0, 0.5, 1
     float env_amount = (pot[POT_FIL_ENV_AMT] - 0.5f) * 2 * FILTER_ENV_SEMITONES;
     float pmod_env = pmod_freq_a ? pot[POT_PMOD_FIL_ENV] * PMOD_ENV_SEMITONES : 0;
-    float cutoff = CUTOFF_LOW_NOTE + pot[POT_CUTOFF] * CUTOFF_SPAN + lfo_filter;
+    float cutoff = CUTOFF_LOW_NOTE + pot[POT_CUTOFF] * CUTOFF_SPAN;
 
     for (int v = 0; v < VOICE_COUNT; v++) {
         voice_t *x = &voices[v];
@@ -287,10 +292,11 @@ void synth_update(float dt)
         x->pitch += ((float)x->note - x->pitch) * glide_k;
 
         float spread = unison ? ((float)v - 3.5f) * UNISON_SPREAD : 0;
-        float pitch = x->pitch + common + spread;
+        float lfo = lfo_value(v, square);
+        float pitch = x->pitch + common + spread + lfo * to_pitch;
         float a = pitch + coarse_a + pmod_env * x->filter.level;
         float b = pitch + coarse_b + fine_b;
-        float filter = cutoff + keytrack * (x->pitch - 60.0f) + env_amount * x->filter.level;
+        float filter = cutoff + keytrack * (x->pitch - 60.0f) + env_amount * x->filter.level + lfo * to_filter;
 
         sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
         sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));

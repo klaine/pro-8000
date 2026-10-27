@@ -47,6 +47,8 @@ Probe (our firmware 0.0.9+):
   pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
   pro800 state                          print every pot (0-99) and switch as the firmware reads them
+  pro800 set lfo-sync free|clock        menu settings (also lfo-trigger free|first|every|voice)
+  pro800 clock <bpm> [seconds]          send MIDI clock (Start, then 24 per quarter note)
   pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
 Changes the synth (only when you mean it):
@@ -169,6 +171,14 @@ final class Midi {
         _ = MIDIPacketListAdd(list, size, packet, 0, bytes.count, bytes)
         let status = MIDISend(outPort, dest, list)
         if status != 0 { fail("MIDISend failed: \(status)") }
+    }
+
+    // Sends at a CoreMIDI timestamp (host time), so CoreMIDI schedules it.
+    func send(_ bytes: [UInt8], at time: MIDITimeStamp) {
+        var list = MIDIPacketList()
+        let packet = MIDIPacketListInit(&list)
+        _ = MIDIPacketListAdd(&list, MemoryLayout<MIDIPacketList>.size, packet, time, bytes.count, bytes)
+        MIDISend(outPort, dest, &list)
     }
 
     func takeSysex() -> [[UInt8]] {
@@ -703,6 +713,44 @@ func state() {
     print("keyboard tracking: \(keytrack)")
 }
 
+// Menu settings: pro800 set lfo-sync free|clock, pro800 set lfo-trigger free|first|every|voice
+func setSetting() {
+    let table: [String: (UInt8, [String])] = ["lfo-sync": (0, ["free", "clock"]),
+                                               "lfo-trigger": (1, ["free", "first", "every", "voice"])]
+    guard args.count == 2, let (id, values) = table[args[0]], let v = values.firstIndex(of: args[1]) else {
+        fail("usage: pro800 set lfo-sync free|clock  or  pro800 set lfo-trigger free|first|every|voice")
+    }
+    probeAck(Midi(port: portName), [0x7D, id, UInt8(v)])
+    print("\(args[0]) = \(args[1])")
+}
+
+// Sends MIDI clock: Start, then 24 timing clocks per quarter note, scheduled with CoreMIDI timestamps.
+func clockOut() {
+    guard let bpm = Double(args.first ?? ""), bpm >= 20, bpm <= 300 else { fail("usage: pro800 clock <bpm 20-300> [seconds]") }
+    let seconds = args.count > 1 ? Double(args[1]) ?? 10 : 10
+    let midi = Midi(port: portName)
+    var timebase = mach_timebase_info_data_t()
+    mach_timebase_info(&timebase)
+    func hostTime(_ s: Double) -> UInt64 { UInt64(s * 1e9 * Double(timebase.denom) / Double(timebase.numer)) }
+    let start = mach_absolute_time() + hostTime(0.05)
+    let tick = 60.0 / bpm / 24
+    midi.send([0xFA], at: start)
+    let total = Int(seconds / tick)
+    var sent = 0
+    print(String(format: "clock at %.1f BPM for %.0f s", bpm, seconds))
+    while sent < total {
+        let horizon = mach_absolute_time() + hostTime(0.1) // keep 100 ms scheduled ahead
+        while sent < total && start + hostTime(Double(sent) * tick) < horizon {
+            midi.send([0xF8], at: start + hostTime(Double(sent) * tick))
+            sent += 1
+        }
+        pump(0.02)
+    }
+    pump(0.15)
+    midi.send([0xFC], at: 0)
+    pump(0.05)
+}
+
 // MARK: - Bootloader
 
 func updateMode() {
@@ -829,6 +877,8 @@ case "tuning": tuning()
 case "check": check()
 case "panel": panel()
 case "state": state()
+case "set": setSetting()
+case "clock": clockOut()
 case "leds": leds()
 case "update-mode": updateMode()
 case "flash": flash()

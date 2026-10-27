@@ -15,7 +15,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     for the flash erase. `--dry-run` only checks the file.
   - The synth listens on MIDI channel 6; `play` defaults to it.
   - `install <file.syx> --yes`: update-mode + flash + wait until the new firmware answers (it autotunes first).
-  - Panel: `panel` (live control events), `leds` (raw display RAM). The WebMIDI page `scripts/web.sh` →
+  - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
+  - Engine: `set lfo-sync free|clock`, `set lfo-trigger free|first|every|voice`, `clock <bpm> [seconds]`. The WebMIDI page `scripts/web.sh` →
     http://localhost:8800 (Chrome/Edge) shows and maps the same, map in `tools/web/panel-map.json`.
   - Probe commands for our firmware: `direct on|off`, `cv`, `gate`, `measure` (the tuning comparator),
     `tune`, `tuning` (print the tables), `check` (cents error of every oscillator through the tables).

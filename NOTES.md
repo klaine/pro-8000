@@ -354,6 +354,22 @@ into CVs through each voice's tuning tables. First-guess ranges, all constants i
 - display shows a pot's value (0-99) while it moves; Tune runs autotune; `pro800 state` dumps the panel
 - Played by ear on 0.2.2: the basic patch sounds right and every button does what the panel says.
 
+## LFO sync and retrigger (0.2.3, 2026-10-27)
+
+- `src/lfo.c`: free (0.05–51 Hz) or locked to MIDI clock (USB realtime: F8 clock, FA start, FC stop). The
+  clock interval is averaged; a tick position advances continuously between ticks, snaps to the count on each
+  tick and isn't allowed more than a tick ahead while the clock runs, so the LFO is smooth and on the grid.
+  Start resets the bar; if the clock stops it carries on at the last tempo. In clock mode LFO FREQ picks one of
+  15 divisions (8 bars … 1/32, dotted and triplet), shown on the display while turning.
+- Retrigger: free / first key (`1St`) / every key (`EACH`) / per voice (`PoLY`, a phase per voice for pitch and
+  filter; PW has one CV so it stays on the shared LFO). With the clock and free retrigger the phase follows the
+  grid; with a retrigger the rate follows the clock and the phase starts at the key.
+- Settings menu: Settings (LED on, `SEt`), key 1 = Sync (`FrEE`/`CLoC`), key 2 = retrigger, VALUE knob changes
+  it. In RAM only for now. From the Mac: `pro800 set lfo-sync|lfo-trigger …`, `pro800 clock <bpm>`.
+- Measured: square LFO on pitch, 1/4T at 120 BPM from `pro800 clock`: 27 flips averaged 0.1667 s apart (expected
+  0.1667), every gap 0.1646–0.1696 s (5 ms analysis steps). Heard on the speakers too. Note: the audio pitch
+  check needs a plain patch: hard sync, or oscillators tuned apart, defeat it.
+
 ## Plan
 
 1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 180 MHz,
