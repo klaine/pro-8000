@@ -394,11 +394,17 @@ into CVs through each voice's tuning tables. First-guess ranges, all constants i
   envelope per oscillator, a second filter envelope, or envelope → LFO amount; PW, mixer and resonance are
   shared wires (an envelope there could only follow the last note). UI idea: the keyboard-tracking switch picks
   which envelope the filter ADSR knobs edit (with pickup), keyboard tracking moves to the Settings menu.
-- **Per-destination LFO depths** (asked 2026-10-27): trivial in the engine (it already scales pitch, filter and
-  PW separately, by fixed ranges). The question is the UI, with one LFO AMOUNT knob. Options: (a) Settings pages
-  for each destination's depth (0–100 %, scaled by the knob as a master amount); (b) the knob edits the depth of
-  the destination button toggled last, with pickup; (c) hold a destination button and turn LFO AMOUNT. Per layer
-  like the other LFO settings.
+- **MOD ASSIGN / mod matrix** (asked 2026-10-27; covers per-destination LFO depths). Arp Assign becomes MOD
+  ASSIGN (LED blinks while active): (1) a number key picks the source: 1 LFO (the layer's), 2 filter env, 3 amp
+  env, 4 velocity, 5 mod wheel, 6 aftertouch, 7/8 the extra envelopes, 9 random per note, 0 key position;
+  (2) touching a knob or destination button picks the destination (in assign mode it selects only: no parameter
+  change, no routing change; knobs pick up again afterwards); (3) the VALUE encoder sets a bipolar depth (-99..99,
+  no pickup; 0 removes the route); MOD ASSIGN again leaves. Per layer. The LFO routing buttons with source 1 give
+  per-destination LFO depths, LFO AMOUNT stays a master. Per-voice destinations: pitch A/B, cutoff, VCA and
+  software parameters (envelope times/levels, LFO rate/amount, glide); the shared wires (mixer, PW, resonance,
+  poly-mod amount) only take shared sources (shared LFO, mod wheel, last note's envelope), else the display shows
+  `noPE`. Browsing: touching a destination with a source picked shows its depth; turning VALUE with no source
+  steps through the active routes.
 - Settings, layers and the panel sound are RAM only: patch storage (EEPROM, read-only analysis first).
 - Hardware SPI to the DAC80501 (fails above 0.33 MHz); tuning tables erased by every update.
 
