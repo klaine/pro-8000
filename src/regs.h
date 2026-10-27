@@ -18,6 +18,7 @@
 #define RCC_AHB1ENR     REG(RCC_BASE + 0x30)
 #define RCC_AHB2ENR     REG(RCC_BASE + 0x34)
 #define RCC_APB1ENR     REG(RCC_BASE + 0x40)
+#define RCC_APB2ENR     REG(RCC_BASE + 0x44)
 
 #define RCC_PLLCFGR     REG(RCC_BASE + 0x04)
 
@@ -32,6 +33,19 @@
 #define RCC_CFGR_SWS_PLL (2u << 2)
 
 #define FLASH_ACR       REG(0x40023C00u)
+#define FLASH_KEYR      REG(0x40023C04u)
+#define FLASH_SR        REG(0x40023C0Cu)
+#define FLASH_CR        REG(0x40023C10u)
+#define FLASH_KEY1      0x45670123u
+#define FLASH_KEY2      0xCDEF89ABu
+#define FLASH_SR_ERRORS 0x1F0u // WRPERR, PGAERR, PGPERR, PGSERR, RDERR
+#define FLASH_SR_BSY    (1u << 16)
+#define FLASH_CR_PG     (1u << 0)
+#define FLASH_CR_SER    (1u << 1)
+#define FLASH_CR_SNB(n) ((uint32_t)(n) << 3)
+#define FLASH_CR_PSIZE_X32 (2u << 8)
+#define FLASH_CR_STRT   (1u << 16)
+#define FLASH_CR_LOCK   (1u << 31)
 
 // peripherals reset on entry, so nothing the bootloader left running stays active
 #define RCC_AHB1_RESET_MASK 0x006000FFu // GPIOA-H, DMA1, DMA2
@@ -47,6 +61,7 @@
 #define RCC_AHB2ENR_OTGFS (1u << 7)
 #define RCC_APB1ENR_SPI3  (1u << 15)
 #define RCC_APB1ENR_DAC   (1u << 29)
+#define RCC_APB2ENR_SYSCFG (1u << 14)
 
 // GPIO
 #define GPIOA_BASE      0x40020000u
@@ -77,6 +92,13 @@
 #define SPI_SR_TXE      (1u << 1)
 #define SPI_SR_BSY      (1u << 7)
 
+// external interrupts
+#define SYSCFG_EXTICR(n) REG(0x40013808u + 4u * (n)) // n = 0..3 covers EXTI0-15, 4 lines each
+#define EXTI_IMR        REG(0x40013C00u)
+#define EXTI_RTSR       REG(0x40013C08u)
+#define EXTI_FTSR       REG(0x40013C0Cu)
+#define EXTI_PR         REG(0x40013C14u)
+
 // on-chip 12-bit DAC: channel 1 on PA4, channel 2 on PA5
 #define DAC_BASE        0x40007400u
 #define DAC_CR          REG(DAC_BASE + 0x00)
@@ -98,6 +120,8 @@
 #define NVIC_ISER(n)    REG(0xE000E100u + 4u * (n))
 #define NVIC_ICER(n)    REG(0xE000E180u + 4u * (n))
 #define NVIC_ICPR(n)    REG(0xE000E280u + 4u * (n))
+#define NVIC_IPR(irq)   (*(volatile uint8_t *)(0xE000E400u + (irq)))
+#define SCB_SHPR3       REG(0xE000ED20u)
 #define SCB_AIRCR       REG(0xE000ED0Cu)
 #define SCB_AIRCR_SYSRESETREQ 0x05FA0004u
 #define DEMCR           REG(0xE000EDFCu)

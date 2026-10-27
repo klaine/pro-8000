@@ -35,10 +35,22 @@ Read-only:
   pro800 record [seconds] [--window S] [--device D] [--wav file]
                                         record the synth's audio, print level and pitch per window
 
+Probe (our firmware 0.0.9+):
+  pro800 direct on|off                  stop/start the voice engine so CVs and gates stay as set
+  pro800 cv <name> <value> ...          set CVs (osca1-8 oscb1-8 fil1-8 amp1-8 pmod vola volb master
+                                        noise extfil pwa pwb res), values 0-65535 or 0x...
+  pro800 gate <name> 0|1 ...            set gates (sawa tria sync sawb trib pmodfa pmodfil)
+  pro800 measure [periods] [--timeout ms] [--repeat n] [--rising]
+                                        time TUNE_CPR (the tuning comparator) in the synth
+  pro800 tune                           run autotune in the synth (about 25 s) and save it
+  pro800 tuning                         print the tuning tables (Hz per CV point)
+  pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
+
 Changes the synth (only when you mean it):
   pro800 update-mode                    reboot into the bootloader's update mode
   pro800 flash <file.syx> --yes [--rate B/s] [--erase-wait S] [--dry-run]
                                         stream a firmware update to the bootloader
+  pro800 install <file.syx> --yes       update-mode + flash + wait until the new firmware answers
 
 Options for every command: --port <name> (default "PRO 800").
 """
@@ -93,14 +105,27 @@ final class Midi {
     // non-SysEx messages, for `listen`; realtime bytes are dropped
     var onShortMessage: (([UInt8]) -> Void)?
 
-    init(port: String) {
-        var src: MIDIEndpointRef = 0
+    convenience init(port: String) {
+        guard let _ = Midi.endpoints(port) else { fail("MIDI port \"\(port)\" not found (see `pro800 ports`)") }
+        self.init(existing: port)!
+    }
+
+    static func endpoints(_ port: String) -> (MIDIEndpointRef, MIDIEndpointRef)? {
+        var src: MIDIEndpointRef = 0, dest: MIDIEndpointRef = 0
         for i in 0..<MIDIGetNumberOfSources() where endpointName(MIDIGetSource(i)) == port { src = MIDIGetSource(i) }
         for i in 0..<MIDIGetNumberOfDestinations() where endpointName(MIDIGetDestination(i)) == port { dest = MIDIGetDestination(i) }
-        guard src != 0, dest != 0 else { fail("MIDI port \"\(port)\" not found (see `pro800 ports`)") }
+        return src != 0 && dest != 0 ? (src, dest) : nil
+    }
+
+    // nil if the port isn't there (it can vanish while a device re-enumerates)
+    init?(existing port: String) {
+        guard let (src, dest) = Midi.endpoints(port) else { return nil }
+        self.dest = dest
         MIDIClientCreate("pro800" as CFString, nil, nil, &client)
         MIDIOutputPortCreate(client, "out" as CFString, &outPort)
-        MIDIInputPortCreateWithBlock(client, "in" as CFString, &inPort) { [unowned self] list, _ in
+        // weak: CoreMIDI can still deliver to a port after its Midi object is gone
+        MIDIInputPortCreateWithBlock(client, "in" as CFString, &inPort) { [weak self] list, _ in
+            guard let self else { return }
             var p = list.pointee.packet
             for _ in 0..<list.pointee.numPackets {
                 let bytes = withUnsafeBytes(of: p.data) { Array($0.prefix(Int(p.length))) }
@@ -110,6 +135,8 @@ final class Midi {
         }
         MIDIPortConnectSource(inPort, src, nil)
     }
+
+    deinit { MIDIClientDispose(client) }
 
     // One message can span several packets, so SysEx is assembled here.
     private func receive(_ bytes: [UInt8]) {
@@ -434,6 +461,159 @@ func record() {
     }
 }
 
+// MARK: - Probe (our firmware only)
+
+let cvNames: [String] = (1...8).map { "osca\($0)" } + (1...8).map { "oscb\($0)" } + (1...8).map { "fil\($0)" }
+    + (1...8).map { "amp\($0)" } + ["pmod", "vola", "volb", "master", "noise", "extfil", "pwa", "pwb", "res"]
+let gateNames = ["sawa", "tria", "sync", "sawb", "trib", "pmodfa", "pmodfil"]
+
+func parseValue(_ text: String) -> Int? {
+    text.lowercased().hasPrefix("0x") ? Int(text.dropFirst(2), radix: 16) : Int(text)
+}
+
+func probeAck(_ midi: Midi, _ data: [UInt8]) {
+    guard let reply = midi.request(data, expect: [0x7F, data[0]]), reply.count > sysexHeader.count,
+          reply[sysexHeader.count] == 0x7F else {
+        fail("no acknowledgement (is our firmware 0.0.9 or later running?)")
+    }
+}
+
+func direct() {
+    guard let mode = args.first, mode == "on" || mode == "off" else { fail("usage: pro800 direct on|off") }
+    probeAck(Midi(port: portName), [0x74, mode == "on" ? 1 : 0])
+    print("direct mode \(mode)")
+}
+
+// Sets CVs: pro800 cv <name> <value> [<name> <value> ...]
+func cv() {
+    guard args.count >= 2, args.count % 2 == 0 else {
+        fail("usage: pro800 cv <name> <value 0-65535 or 0x...> ...\nnames: \(cvNames.joined(separator: " "))")
+    }
+    let midi = Midi(port: portName)
+    for i in stride(from: 0, to: args.count, by: 2) {
+        guard let index = cvNames.firstIndex(of: args[i].lowercased()) else { fail("unknown CV \(args[i])") }
+        guard let value = parseValue(args[i + 1]), (0...0xFFFF).contains(value) else { fail("bad value \(args[i + 1])") }
+        probeAck(midi, [0x70, UInt8(index), UInt8(value >> 14), UInt8((value >> 7) & 0x7F), UInt8(value & 0x7F)])
+    }
+}
+
+// Sets gates: pro800 gate <name> 0|1 [...]
+func gate() {
+    guard args.count >= 2, args.count % 2 == 0 else {
+        fail("usage: pro800 gate <name> 0|1 ...\nnames: \(gateNames.joined(separator: " "))")
+    }
+    let midi = Midi(port: portName)
+    for i in stride(from: 0, to: args.count, by: 2) {
+        guard let index = gateNames.firstIndex(of: args[i].lowercased()) else { fail("unknown gate \(args[i])") }
+        probeAck(midi, [0x71, UInt8(index), args[i + 1] == "0" ? 0 : 1])
+    }
+}
+
+// One TUNE_CPR measurement in the synth: (Hz, periods counted), or nil without a usable signal.
+func measureOnce(_ midi: Midi, periods: Int, timeoutMs: Int, rising: Bool = false) -> (Double, Int)? {
+    let data: [UInt8] = [0x72, UInt8(periods >> 7), UInt8(periods & 0x7F), UInt8(timeoutMs >> 7), UInt8(timeoutMs & 0x7F),
+                         rising ? 1 : 0]
+    guard let reply = midi.request(data, expect: [0x73], timeout: Double(timeoutMs) / 1000 + 2) else {
+        fail("no reply (is our firmware 0.1.3 or later running?)")
+    }
+    let b = Array(reply[(sysexHeader.count + 1)...])
+    guard b.count >= 11, b[0] == 1 else { return nil }
+    let counted = Int(b[1]) << 7 | Int(b[2])
+    let cycles = b[3...7].reduce(0) { $0 << 7 | Int($1) }, khz = b[8...10].reduce(0) { $0 << 7 | Int($1) }
+    return (Double(counted) * Double(khz) * 1000 / Double(cycles), counted)
+}
+
+// Times TUNE_CPR in the synth: pro800 measure [periods] [--timeout ms] [--repeat n] [--rising]
+func measure() {
+    let timeout = Int(option("--timeout") ?? "1000") ?? 1000
+    let repeatCount = Int(option("--repeat") ?? "1") ?? 1
+    let rising = flag("--rising")
+    let periods = Int(args.first ?? "16") ?? 16
+    guard (1...255).contains(periods), (1...16383).contains(timeout) else { fail("periods 1-255, timeout 1-16383 ms") }
+    let midi = Midi(port: portName)
+    for _ in 0..<repeatCount {
+        if let (hz, counted) = measureOnce(midi, periods: periods, timeoutMs: timeout, rising: rising) {
+            print(String(format: "%.4f Hz  (%d periods)", hz, counted))
+        } else {
+            print("no signal on TUNE_CPR within \(timeout) ms")
+        }
+    }
+}
+
+// Runs autotune in the synth (about 25 s).
+func tune() {
+    let midi = Midi(port: portName)
+    print("tuning (about 25 s, silent)...")
+    guard let reply = midi.request([0x75], expect: [0x76], timeout: 120) else { fail("no reply (firmware 0.1.1 or later?)") }
+    print("done: \(reply[sysexHeader.count + 1]) of 24 rows measured")
+}
+
+func tuningRows(_ midi: Midi) -> [[Double]] {
+    (0..<24).map { row in
+        guard let reply = midi.request([0x77, UInt8(row)], expect: [0x77, UInt8(row)], timeout: 2) else { fail("no reply for row \(row)") }
+        let b = Array(reply[(sysexHeader.count + 3)..<(reply.count - 1)])
+        return stride(from: 0, to: b.count - 3, by: 4).map { i in Double(b[i...(i + 3)].reduce(0) { $0 << 7 | Int($1) }) / 100 }
+    }
+}
+
+// Prints the tuning tables: measured Hz per CV point (0x2000 ... 0xF000).
+func tuning() {
+    let rows = tuningRows(Midi(port: portName))
+    let names = (1...8).map { "osc A\($0)" } + (1...8).map { "osc B\($0)" } + (1...8).map { "filter\($0)" }
+    print("row       " + (0..<14).map { String(format: "%8@", String(format: "%04X", 0x2000 + 0x1000 * $0)) }.joined())
+    for (r, row) in rows.enumerated() {
+        print(names[r].padding(toLength: 10, withPad: " ", startingAt: 0) + row.map { $0 == 0 ? "       -" : String(format: "%8.1f", $0) }.joined())
+    }
+}
+
+// Plays notes through the tables on every oscillator and measures them with TUNE_CPR; prints the error in cents.
+func check() {
+    let notes = args.isEmpty ? [36, 48, 60, 72, 84, 96] : args.compactMap { Int($0) }
+    let midi = Midi(port: portName)
+    func ack(_ data: [UInt8]) { probeAck(midi, data) }
+    func setCV(_ name: String, _ value: Int) {
+        ack([0x70, UInt8(cvNames.firstIndex(of: name)!), UInt8(value >> 14), UInt8((value >> 7) & 0x7F), UInt8(value & 0x7F)])
+    }
+    ack([0x74, 1])
+    setCV("master", 0); setCV("res", 0); setCV("pwa", 0xFFFF); setCV("pwb", 0)
+    for v in 1...8 { setCV("amp\(v)", 0); setCV("fil\(v)", 0xFFFF) }
+    print("cents off per note: " + notes.map { String(format: "%6d", $0) }.joined())
+    var worst = 0.0
+    for osc in 0...1 {
+        ack([0x71, 0, osc == 0 ? 1 : 0]); ack([0x71, 3, osc == 1 ? 1 : 0])
+        setCV("vola", osc == 0 ? 0xFFFF : 0); setCV("volb", osc == 1 ? 0xFFFF : 0)
+        for v in 1...8 {
+            setCV("amp\(v)", 0xFFFF)
+            var line = "osc \(osc == 0 ? "A" : "B")\(v)             "
+            for note in notes {
+                ack([0x78, UInt8(v - 1), UInt8(osc), UInt8(note)])
+                let expected = 440 * pow(2, Double(note - 69) / 12)
+                let periods = min(255, max(6, Int(expected * 0.08)))
+                pump(0.03)
+                // the comparator now and then reads an octave high below ~50 Hz: retry big errors, keep the best
+                var best: Double?
+                for _ in 0..<3 {
+                    if let (hz, _) = measureOnce(midi, periods: periods, timeoutMs: 2047) {
+                        let c = 1200 * log2(hz / expected)
+                        if best == nil || abs(c) < abs(best!) { best = c }
+                        if abs(c) < 50 { break }
+                    }
+                }
+                if let cents = best {
+                    worst = max(worst, abs(cents))
+                    line += String(format: "%+6.1f", cents)
+                } else {
+                    line += "     -"
+                }
+            }
+            print(line)
+            setCV("amp\(v)", 0)
+        }
+    }
+    ack([0x74, 0])
+    print(String(format: "worst: %.1f cents", worst))
+}
+
 // MARK: - Bootloader
 
 func updateMode() {
@@ -503,6 +683,44 @@ func flash() {
     print("\ndone. If the synth doesn't restart by itself, power-cycle it.")
 }
 
+// Waits while letting CoreMIDI process its notifications: without the run loop, a process that keeps running across
+// a re-enumeration keeps sending to the old, dead endpoint.
+func pump(_ seconds: Double) {
+    RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+}
+
+// update-mode, flash, then wait until the new firmware answers the version request
+func install() {
+    guard flag("--yes") else { fail("usage: pro800 install <file.syx> --yes (switches to update mode, flashes, waits)") }
+    guard let path = args.first else { fail("usage: pro800 install <file.syx> --yes") }
+    let messages = updateMessages(path) // check the file before touching the synth
+    do {
+        let midi = Midi(port: portName)
+        midi.send(sysexHeader + [0x03, 0x30, 0xF7])
+    }
+    print("update mode requested; waiting for the bootloader")
+    pump(4)
+    args = [path, "--yes"]
+    _ = messages
+    flash()
+    // a first boot after an update also autotunes (about 30 s) before it answers
+    print("waiting for the new firmware (it tunes first, about 30 s)", terminator: "")
+    for _ in 0..<75 {
+        pump(1)
+        print(".", terminator: ""); fflush(stdout)
+        guard let midi = Midi(existing: portName) else { continue }
+        if midi.request([0x08, 0x00], expect: [0x09, 0x00], timeout: 1) != nil {
+            // macOS sets the port up once more shortly after it first appears: answer again after a pause
+            pump(3)
+            if let reply = Midi(existing: portName)?.request([0x08, 0x00], expect: [0x09, 0x00], timeout: 2) {
+                print("\nrunning firmware \(reply.dropFirst(sysexHeader.count + 2).dropLast().map(String.init).joined(separator: "."))")
+                return
+            }
+        }
+    }
+    fail("\nthe firmware didn't answer within 75 s")
+}
+
 // MARK: - Main
 
 let command = args.isEmpty ? "help" : args.removeFirst()
@@ -513,8 +731,16 @@ case "listen": listen()
 case "backup": backup()
 case "play": play()
 case "record": record()
+case "direct": direct()
+case "cv": cv()
+case "gate": gate()
+case "measure": measure()
+case "tune": tune()
+case "tuning": tuning()
+case "check": check()
 case "update-mode": updateMode()
 case "flash": flash()
+case "install": install()
 default:
     print(helpText)
     if command != "help" && command != "-h" && command != "--help" { exit(1) }

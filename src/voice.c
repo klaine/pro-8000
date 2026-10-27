@@ -1,9 +1,8 @@
 #include "voice.h"
 #include "sh.h"
+#include "tuning.h"
 
-#define CV_A440         0x894D // oscillator 1A, from the 0.0.2 sweep
-#define CODES_PER_OCTAVE 6515
-#define DETUNE_B        27     // about 5 cents
+#define DETUNE_B        0.05f  // semitones (5 cents)
 #define MIXER_LEVEL     0xA000u
 #define FILTER_CUTOFF   0xC000u
 #define LEVEL_MAX       0xFFFFu
@@ -20,18 +19,17 @@ typedef struct {
 static voice_t voices[VOICE_COUNT];
 static uint32_t allocations;
 
-static uint16_t note_cv(int note, int offset)
+static void set_pitch(int v, uint8_t note)
 {
-    int32_t cv = CV_A440 + (note - 69) * CODES_PER_OCTAVE / 12 + offset;
-    return (uint16_t)(cv < 0 ? 0 : cv > 0xFFFF ? 0xFFFF : cv);
+    sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, note));
+    sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, note + DETUNE_B));
 }
 
 void voice_init(void)
 {
     for (int v = 0; v < VOICE_COUNT; v++) {
         voices[v] = (voice_t){0};
-        sh_set(CV_OSC_A1 + v, note_cv(60, 0));
-        sh_set(CV_OSC_B1 + v, note_cv(60, DETUNE_B));
+        set_pitch(v, 60);
         sh_set(CV_FIL1 + v, FILTER_CUTOFF);
         sh_set(CV_AMP1 + v, 0);
     }
@@ -78,8 +76,7 @@ void voice_note_on(uint8_t note)
     voices[v].note = note;
     voices[v].gate = 1;
     voices[v].started = ++allocations;
-    sh_set(CV_OSC_A1 + v, note_cv(note, 0));
-    sh_set(CV_OSC_B1 + v, note_cv(note, DETUNE_B));
+    set_pitch(v, note);
 }
 
 void voice_note_off(uint8_t note)

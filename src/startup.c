@@ -6,6 +6,7 @@ extern uint32_t _estack, _sidata, _sdata, _edata, _sbss, _ebss;
 extern void Reset_Handler(void);
 extern void SysTick_Handler(void);
 extern void OTG_FS_IRQHandler(void);
+extern void EXTI9_5_IRQHandler(void);
 extern int main(void);
 
 static void Default_Handler(void)
@@ -14,14 +15,16 @@ static void Default_Handler(void)
         IWDG_KR = IWDG_KR_REFRESH;
 }
 
-// core exceptions plus the 97 STM32F446 interrupts; only SysTick and USB (IRQ 67) have handlers
+// core exceptions plus the 97 STM32F446 interrupts; SysTick, EXTI9_5 (IRQ 23, tuning) and USB (IRQ 67) have handlers
 __attribute__((section(".isr_vector"), used))
 static void (*const vectors[16 + 97])(void) = {
     [0] = (void (*)(void))&_estack,
     [1] = Reset_Handler,
     [2 ... 14] = Default_Handler,
     [15] = SysTick_Handler,
-    [16 ... 16 + 66] = Default_Handler,
+    [16 ... 16 + 22] = Default_Handler,
+    [16 + 23] = EXTI9_5_IRQHandler,
+    [16 + 24 ... 16 + 66] = Default_Handler,
     [16 + 67] = OTG_FS_IRQHandler,
     [16 + 68 ... 16 + 96] = Default_Handler,
 };

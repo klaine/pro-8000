@@ -1,5 +1,5 @@
 // A minimal 8-voice engine for testing over MIDI: saw A and B, open filter, linear attack and release.
-// Untuned: pitch comes from the measured response of oscillator 1A (6515 codes per octave).
+// Pitch comes from the autotune tables (tuning.c), or the nominal oscillator 1A curve until tuned.
 #ifndef VOICE_H
 #define VOICE_H
 

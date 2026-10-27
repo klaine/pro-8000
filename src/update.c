@@ -3,20 +3,6 @@
 #include "update.h"
 #include "regs.h"
 
-#define FLASH_KEYR REG(0x40023C04u)
-#define FLASH_SR   REG(0x40023C0Cu)
-#define FLASH_CR   REG(0x40023C10u)
-
-#define FLASH_KEY1 0x45670123u
-#define FLASH_KEY2 0xCDEF89ABu
-#define FLASH_SR_ERRORS (0x1F0u) // WRPERR, PGAERR, PGPERR, PGSERR, RDERR
-#define FLASH_SR_BSY    (1u << 16)
-#define FLASH_CR_SER    (1u << 1)
-#define FLASH_CR_SNB(n) ((uint32_t)(n) << 3)
-#define FLASH_CR_PSIZE_X32 (2u << 8)
-#define FLASH_CR_STRT   (1u << 16)
-#define FLASH_CR_LOCK   (1u << 31)
-
 #define APP_SECTOR 4
 
 // Only register accesses in here: nothing in flash may be called once the erase starts.

@@ -105,7 +105,24 @@ static const uint8_t config_descriptor[101] = {
     5, 0x25, 1, 1, 3,                               //   ← embedded OUT jack 3
 };
 
-static const char *const strings[] = {"AI & Klaine", "PRO 800", FW_VERSION_STRING};
+// The serial number stays the same across firmware versions, so the host (and macOS's accessory approval)
+// recognises the synth as the same device. Built like ST's USB library does from the 96-bit unique ID:
+// 8 hex digits of UID0 + UID2, then the top 4 of UID1. That gives 12 digits, the same format the stock
+// firmware reports.
+#define UID(n) REG(0x1FFF7A10u + 4u * (n))
+static char serial[13];
+static const char *const strings[] = {"AI & Klaine", "PRO 800", serial};
+
+static void make_serial(void)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    uint32_t a = UID(0) + UID(2), b = UID(1);
+    for (int i = 0; i < 8; i++)
+        serial[i] = hex[(a >> (28 - 4 * i)) & 0xF];
+    for (int i = 0; i < 4; i++)
+        serial[8 + i] = hex[(b >> (28 - 4 * i)) & 0xF];
+    serial[12] = 0;
+}
 
 // MIDI event packets from the host: written by the interrupt, read by the main loop
 #define RX_PACKETS 64
@@ -341,6 +358,7 @@ void OTG_FS_IRQHandler(void)
 
 void usb_init(void)
 {
+    make_serial();
     RCC_AHB1ENR |= RCC_AHB1ENR_GPIOA;
     RCC_AHB2ENR |= RCC_AHB2ENR_OTGFS;
     gpio_alternate(GPIOA_BASE, 1u << 11 | 1u << 12, 10);
@@ -370,6 +388,7 @@ void usb_init(void)
     GINTSTS = 0xFFFFFFFFu;
     GINTMSK = GINT_USBRST | GINT_ENUMDNE | GINT_RXFLVL | GINT_IEPINT | GINT_OEPINT;
     GAHBCFG = GAHBCFG_GINT;
+    NVIC_IPR(OTG_FS_IRQ) = 0x80; // below the tuning edge interrupt
     NVIC_ISER(OTG_FS_IRQ / 32) = 1u << (OTG_FS_IRQ % 32);
 
     DCTL &= ~DCTL_SDIS; // connect

@@ -272,6 +272,35 @@ that was the pitch estimator's 4 kHz limit, since raised to 10 kHz.)
   bootloader then stays in update mode (`1397:1260` within 2 s) and `pro800 flash` reinstalls. The buttons are
   only needed if a firmware doesn't run USB.
 
+## Autotune (0.1.0–0.1.5, 2026-10-27)
+
+- Tuning path (sheet 3): `CAL_HOOK` from the voice board → buffer → LM311 U34A with hysteresis (10 MΩ, 22 pF),
+  open collector pulled up by R111 → `TUNE_CPR` → PB8 (R32; R40 to PB3 not fitted). A second copy, buffered and
+  diode-clamped, is `TUNE_SIG` on PA6 (an ADC pin; unused).
+- `CAL_HOOK` carries the voice mix **after the per-voice VCAs and before the master VCA**: a closed VCA gives no
+  signal, master volume 0 still does. So tuning is silent.
+- Measuring (`src/tune.c`): each edge on PB8 is timestamped with the 168 MHz cycle counter in the EXTI9_5
+  interrupt (highest priority) while the main loop keeps refreshing the S&H. The comparator is noisy at low
+  frequencies: falling edges (the saw's reset) time single periods to about 1 cent, rising edges (slow ramp)
+  jitter by several cents, and both sometimes add a stray edge mid-period or a burst of chatter, so first-to-last
+  timing read 5/4 or 5/3 too high now and then. Fix: falling edges, median interval as the period, span between
+  the first and last edges that border a median-length interval, periods = span / median rounded.
+  Below about 30 Hz some oscillators get a stray edge every period and read an octave high.
+- Oscillators drift up about 1 cent over a few seconds after a large CV change (thermal); not compensated.
+- Tuner (`src/tuning.c`): each oscillator (saw on its own mixer channel) and filter (self-oscillating, both mixer
+  channels off) is measured at CVs 0x2000–0xF000 (filters to 0xD000), **sweeping down from the top**: each point
+  is expected 0.63 octave (filters 0.69) below the last good one, and readings more than a third of a step off
+  are dropped. Notes interpolate linearly in log frequency between the nearest good points. About 33 s.
+- Result: all 16 oscillators within **±0.7 cents from C1 to C8** (`pro800 check`, measured through `TUNE_CPR`);
+  untuned they were up to ±120 cents off. Over MIDI the audio reads +2.3 cents, the average of osc A and osc B
+  (detuned +5 cents on purpose).
+- Storage: flash sector 5 (0x08020000), magic + checksum. **The bootloader erases sectors 4 and 5 on every
+  update**, so the tables survive power cycles but not updates; the firmware tunes at boot when it finds none
+  (panel lit, about 33 s, silent, USB starts afterwards). The SPI EEPROM is the only storage that would survive
+  updates, but it holds the user's patches in an unknown layout.
+- USB: our firmware now reports the chip-ID serial (ST's formula: UID0 + UID2, then the top of UID1), which is
+  exactly the stock firmware's `203E30674E53`, so macOS treats it as the accessory it already approved.
+
 ## Plan
 
 1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 180 MHz,
