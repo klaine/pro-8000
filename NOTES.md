@@ -352,6 +352,7 @@ into CVs through each voice's tuning tables. First-guess ranges, all constants i
 - unison: all 8 voices, last-note priority, legato, 2-cent spread; glide 2 ms – 2 s time constant
 - pulse width: square off = PW A at maximum, PW B at minimum (as p600fw); on = 5–95 % of the CV range
 - display shows a pot's value (0-99) while it moves; Tune runs autotune; `pro800 state` dumps the panel
+- Played by ear on 0.2.2: the basic patch sounds right and every button does what the panel says.
 
 ## Plan
 
