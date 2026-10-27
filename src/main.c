@@ -27,6 +27,9 @@
 //                          5B <converted, 2 × 7 bits> <errors>
 //   5C <n1> <n0>           load patch n; 5D <n1> <n0> save the current sound to patch n (both acknowledged)
 //   5F                     load the init sound (as PERF does; acknowledged)
+//   56 <layer> <source> <dest> <d1> <d0>  set a route's depth (d1 << 7 | d0) - 99, 0 removes it; acknowledged
+//   58                     timing; replies 58 <engine, refresh, pass, longest pass: µs, 3 × 7 bits each>
+//   57 <layer>             the layer's routes; replies 57 <layer> then per route <source> <dest> <d1> <d0>
 //   5E <n1> <n0>           patch info; replies 5E <n1> <n0> <kind: 0 empty, 1 ours, 2 stock, 3 corrupt> <name>
 //   79 <a2> <a1> <a0> <n>  read n (1-48) bytes of the patch EEPROM at a2 << 14 | a1 << 7 | a0; replies
 //                          79 <a2> <a1> <a0> <n> <status register, 2 nibbles> <each byte as 2 nibbles, high first>
@@ -53,6 +56,7 @@ static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24,
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
+static uint32_t cycles_engine, cycles_refresh, cycles_pass, cycles_pass_max; // timing probe (58)
 static int report_mode;
 static uint8_t display_ram[PANEL_RAM_BYTES];
 
@@ -219,16 +223,16 @@ static int save_patch(int n)
 }
 
 // Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value.
-enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_COUNT };
+enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_COUNT };
 
-static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt"}; // keys 1-4
+static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC"}; // keys 1-5
 
 static int menu_open, menu_page = -1, encoder_steps;
 static uint32_t show_value_at; // ms_ticks to replace the page name with its value; 0 = not pending
 
 static int setting_count(int page)
 {
-    static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128};
+    static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3};
     return counts[page];
 }
 
@@ -238,6 +242,7 @@ static int setting_get(int page)
     case PAGE_LFO_SYNC: return (int)lfo_sync;
     case PAGE_LFO_TRIGGER: return (int)lfo_trigger;
     case PAGE_LAYERS: return (int)synth_layer_mode();
+    case PAGE_KEYTRACK: return synth_keytrack();
     default: return synth_split_note();
     }
 }
@@ -248,6 +253,7 @@ static void setting_set(int page, int value)
     case PAGE_LFO_SYNC: lfo_sync = (lfo_sync_t)value; break;
     case PAGE_LFO_TRIGGER: lfo_trigger = (lfo_trigger_t)value; break;
     case PAGE_LAYERS: synth_set_layer_mode((layer_mode_t)value); break;
+    case PAGE_KEYTRACK: synth_set_keytrack(value); break;
     default: synth_set_split_note(value); break;
     }
 }
@@ -255,7 +261,7 @@ static void setting_set(int page, int value)
 static void show_setting(int page)
 {
     static const char *const values[][LFO_TRIGGER_COUNT] = {
-        {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY"}, {"OFF", "SPLt", "StAC", "CHAn"},
+        {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY"}, {"OFF", "SPLt", "StAC", "CHAn"}, {0}, {"OFF", "HALF", "FULL"},
     };
     if (page == PAGE_SPLIT)
         display_number(synth_split_note());
@@ -269,10 +275,93 @@ static void show_edit_layer(void)
     display_led(LED_SEQ2, synth_edit_layer() == 1);
 }
 
+// MOD ASSIGN (the Arp Assign button): a number key picks the source, touching a knob or an LFO routing button
+// picks the destination (the knobs are in pickup meanwhile, and a toggled button keeps its routing), VALUE sets
+// the depth for the edit layer. Arp Assign again leaves.
+static int assigning, assign_source, assign_dest = DEST_NONE, assign_steps;
+
+static const char source_names[SRC_COUNT][5] = {
+    "", "LFO", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE",
+};
+static const char dest_names[DEST_COUNT][6] = {
+    "P.A", "P.b", "PIt", "CUt", "F.EA", "P.EA", "L.An", "L.Fr", "L.FL", "VCA",
+    "A.LE", "b.LE", "noIS", "rES", "A.PU", "b.PU", "P.ob", "L.PU",
+};
+
+static void show_route(void)
+{
+    display_number(synth_route(synth_edit_layer(), (mod_source_t)assign_source, (mod_dest_t)assign_dest));
+}
+
+static void assign_end(void)
+{
+    assigning = 0;
+    display_led(LED_ARP_ASSIGN, 0);
+    display_until = 0;
+}
+
+// Handles a control event while assigning. Returns 1 if it was used.
+static int assign_event(control_kind_t kind, int index, int32_t value)
+{
+    if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value) {
+        assign_source = index == BUTTON_0 ? SRC_NOTE : index - BUTTON_0;
+        assign_dest = DEST_NONE;
+        display_text(source_names[assign_source]);
+        display_until = 0;
+        return 1;
+    }
+    int dest = kind == CONTROL_POT ? synth_dest_for_pot(index)
+             : kind == CONTROL_SWITCH ? synth_dest_for_switch(index) : DEST_NONE - 1;
+    if (kind == CONTROL_SWITCH && dest != DEST_NONE)
+        synth_hold_switch(index); // selecting, not switching
+    if (dest != DEST_NONE - 1) {
+        if (kind == CONTROL_SWITCH && dest == DEST_NONE)
+            return 0; // other buttons work as usual
+        if (!assign_source) {
+            display_text("SrC");
+            return 1;
+        }
+        if (dest == DEST_NONE) {
+            display_text("no");
+            return 1;
+        }
+        if (dest != assign_dest) {
+            assign_dest = dest;
+            assign_steps = 0;
+            display_text(dest_names[dest]);
+            show_value_at = ms_ticks + 700;
+        }
+        return 1;
+    }
+    if (kind == CONTROL_ENCODER) {
+        if (!assign_source || assign_dest == DEST_NONE) {
+            display_text(assign_source ? "dESt" : "SrC");
+            return 1;
+        }
+        assign_steps += (int)value;
+        if (assign_steps >= 2 || assign_steps <= -2) { // a step per half cycle: -99..99 takes a few turns
+            int layer = synth_edit_layer();
+            int depth = synth_route(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest) + assign_steps / 2;
+            assign_steps = 0;
+            if (!synth_set_route(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest, depth))
+                display_text("FULL");
+            else
+                show_route();
+            show_value_at = 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 // What the display shows when nothing transient is on it.
 static void idle_display(void)
 {
-    if (menu_open && menu_page >= 0)
+    if (assigning && assign_source && assign_dest != DEST_NONE)
+        show_route();
+    else if (assigning)
+        display_text(assign_source ? source_names[assign_source] : "SrC");
+    else if (menu_open && menu_page >= 0)
         show_setting(menu_page);
     else if (menu_open)
         display_text("SEt");
@@ -294,6 +383,29 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     if (report_mode) {
         report_event(kind, index, value);
         return;
+    }
+    if (kind == CONTROL_BUTTON && index == BUTTON_ARP_ASSIGN && value && !menu_open && !saving) {
+        if (assigning)
+            assign_end();
+        else {
+            assigning = 1;
+            assign_source = 0;
+            assign_dest = DEST_NONE;
+            synth_freeze_knobs();
+            display_text("SrC");
+            display_until = 0;
+        }
+        return;
+    }
+    if (assigning && kind == CONTROL_BUTTON && value && (index == BUTTON_PRESET || index == BUTTON_REC
+                                                        || index == BUTTON_SETTINGS || index == BUTTON_PERF))
+        assign_end(); // and the button does its usual job
+    if (assigning && assign_event(kind, index, value))
+        return;
+    if (kind == CONTROL_SWITCH && (index == SWITCH_KEYTRACK_HALF || index == SWITCH_KEYTRACK_FULL)) {
+        static const char names[3][5] = {"FEnV", "EnV3", "EnV4"};
+        display_text(names[controls_keytrack()]); // the envelope the filter ADSR knobs now edit
+        display_until = ms_ticks + 1000;
     }
     if (kind == CONTROL_POT) {
         // a per-layer knob still in pickup shows the edit layer's value, with a dot
@@ -334,7 +446,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index > BUTTON_9) {
         if (index != BUTTON_SETTINGS && index != BUTTON_SEQ1 && index != BUTTON_SEQ2 && index != BUTTON_PRESET
-            && index != BUTTON_REC)
+            && index != BUTTON_REC && index != BUTTON_ARP_ASSIGN)
             display_led(button_led[index], (int)value);
         if (index == BUTTON_PERF && value && !saving && !menu_open)
             init_patch();
@@ -557,6 +669,36 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = data[0];
         }
     }
+    if (data_length == 6 && data[0] == 0x56 && data[1] < 2) {
+        int depth = (data[4] << 7 | data[5]) - 99;
+        if (synth_set_route(data[1], (mod_source_t)data[2], (mod_dest_t)data[3], depth)) {
+            reply[n++] = 0x7F;
+            reply[n++] = 0x56;
+        }
+    }
+    if (data_length == 2 && data[0] == 0x57 && data[1] < 2) {
+        const route_t *r = synth_routes(data[1]);
+        reply[n++] = 0x57;
+        reply[n++] = data[1];
+        for (int i = 0; i < ROUTES; i++) {
+            int d = r[i].depth + 99;
+            reply[n++] = r[i].source;
+            reply[n++] = r[i].dest;
+            reply[n++] = (uint8_t)(d >> 7);
+            reply[n++] = d & 0x7F;
+        }
+    }
+    if (data_length == 1 && data[0] == 0x58) {
+        uint32_t mhz = system_hz / 1000000u, values[] = {cycles_engine, cycles_refresh, cycles_pass, cycles_pass_max};
+        reply[n++] = 0x58;
+        for (int i = 0; i < 4; i++) {
+            uint32_t us = values[i] / mhz;
+            reply[n++] = (uint8_t)(us >> 14 & 0x7F);
+            reply[n++] = (uint8_t)(us >> 7 & 0x7F);
+            reply[n++] = (uint8_t)(us & 0x7F);
+        }
+        cycles_pass_max = 0;
+    }
     if (data_length == 1 && data[0] == 0x5F) {
         init_patch();
         reply[n++] = 0x7F;
@@ -672,6 +814,12 @@ static void handle_midi(void)
         case 0xE:
             synth_pitch_bend(p[2] | p[3] << 7);
             break;
+        case 0xD: // channel pressure
+            synth_aftertouch(p[2]);
+            break;
+        case 0xA: // poly pressure: used as channel pressure for now
+            synth_aftertouch(p[3]);
+            break;
         case 0xF: // single-byte messages: realtime
             if (p[1] == 0xF8)
                 lfo_clock_tick(DWT_CYCCNT);
@@ -761,8 +909,10 @@ int main(void)
             run_tuning();
             last = DWT_CYCCNT;
         }
+        uint32_t t0 = DWT_CYCCNT;
         if (!direct_mode)
             synth_update(dt);
+        cycles_engine = DWT_CYCCNT - t0;
 
         if (display_until && (int32_t)(now - display_until) > 0) {
             display_until = 0;
@@ -774,9 +924,16 @@ int main(void)
         }
         if (saving)
             display_led(LED_REC, (now / 250) & 1);
+        if (assigning)
+            display_led(LED_ARP_ASSIGN, (now / 250) & 1);
         if (!report_mode)
             display_update();
 
+        t0 = DWT_CYCCNT;
         sh_refresh();
+        cycles_refresh = DWT_CYCCNT - t0;
+        cycles_pass = DWT_CYCCNT - cycles;
+        if (cycles_pass > cycles_pass_max)
+            cycles_pass_max = cycles_pass;
     }
 }

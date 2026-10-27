@@ -53,6 +53,7 @@ static uint8_t glyph(char c)
     case 'S': return 0x6D;
     case 'T': return 0x78;
     case 'U': return 0x3E;
+    case 'V': return 0x1C; // a small u: the closest a 7-segment digit gets
     case 'Y': return 0x6E;
     case '-': return SEG_G;
     case '_': return SEG_D;

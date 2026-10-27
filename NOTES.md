@@ -424,6 +424,29 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
 - Checked: load + play A00/A01/A02/B04; save A01 to an empty slot and compare records: identical apart from the
   low byte of a few knob values (1/65536 rounding) and M VOL (not applied); test slots cleared again.
 
+## Env 3 / Env 4 and the mod matrix (0.5.0, 2026-10-27)
+
+- Each voice has two more ADSRs. The keyboard-tracking switch now picks what the filter ADSR knobs edit: bottom =
+  filter envelope, middle = Env 3, top = Env 4 (display `FEnV` / `EnV3` / `EnV4`, pickup on switching). Keyboard
+  tracking moved to Settings key 5 (`trAC`: OFF / HALF / FULL), stored per patch.
+- Mod matrix (`src/mod.h`), 8 routes per layer, stored in the patch (bytes 136–215; older patches read as no
+  routes). Sources (keypad in MOD ASSIGN): 1 LFO, 2 filter env, 3 amp env, 4 velocity, 5 mod wheel, 6 aftertouch
+  (channel and poly pressure), 7 Env 3, 8 Env 4, 9 random per note, 0 note position. Destinations (touch the
+  control): FREQ A → pitch A, FREQ B / FINE → pitch B, M TUNE → both, CUTOFF, FIL ENV AMT, PMOD FIL ENV, LFO AMOUNT,
+  AMP SUS → VCA level, the LFO → Freq / Filter / PW buttons → that LFO depth; single wires (taken from the layer's
+  most recently played voice): A/B LEVEL, NOISE, RESONANCE, A/B PW, PMOD OSC B. Depth 99 = ±24 semitones of pitch,
+  ±96 of cutoff, full scale of levels and depths, ±0.5 of PW.
+- MOD ASSIGN on Arp Assign (LED blinks): keypad = source (`LFO`, `FEnV`, `AEnV`, `VEL`, `nod`, `PrES`, `EnV3`,
+  `EnV4`, `rAnd`, `notE`), touch a destination (`P.A`, `P.b`, `PIt`, `CUt`, `F.EA`, `P.EA`, `L.An`, `L.Fr`,
+  `L.FL`, `VCA`, `A.LE`, `b.LE`, `noIS`, `rES`, `A.PU`, `b.PU`, `P.ob`, `L.PU`), VALUE sets the depth for the
+  edit layer. Knobs go into pickup while assigning; a toggled LFO button keeps its routing.
+- Measured (init sound, `pro800 route` / `cc`): mod wheel → pitch A at depth 50: wheel 64 → +610.6 cents
+  (expected 610.9), 127 → +1211.4 (1212.1); velocity → pitch A at 99: velocity 64 → +1208.9 (1209.4),
+  127 → +2400.6 (2400).
+- Timing (`pro800 timing`): engine 132 µs, CV refresh 2146 µs, a main-loop pass 4151 µs. Flash 28.5 kB of the
+  64 kB link limit (the packer allows 128 kB; flash sector 5 is free now the tables live in the EEPROM), RAM about
+  5.6 kB static of 128 kB.
+
 ## Backlog
 
 - **Two more envelopes per voice** (asked 2026-10-27): memory (128 B) and processing (microseconds per pass)
@@ -446,6 +469,12 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   (per voice, with `PoLY` retrigger): each voice scales its own LFO by its own envelope, e.g. delayed vibrato per
   note, an attack wobble that settles (negative depth), filter motion growing on held notes. LFO → PW only from
   shared sources. Best with the two extra envelopes, so the filter and amp envelopes stay free.
+- **2nd LFO** (asked 2026-10-27): toggle which LFO the LFO knobs and buttons edit with the Arp Up-On button
+  (pickup like layers); LFO 2 is another mod source. CPU and RAM are no issue.
+- **Main-loop pass**: 4.15 ms, of which only 2.15 ms is the CV refresh and 0.13 ms the engine: find the other
+  ~1.9 ms (panel bus?). It sets the envelope and LFO update rate (about 240 per second).
+- **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic
+  lines to the voice board. Workaround: put the second waveform on the other oscillator and use its level.
 - Hardware SPI to the DAC80501 (fails above 0.33 MHz).
 - Patch names: set from the Mac or the panel; import the factory bank into empty slots.
 

@@ -50,6 +50,9 @@ Probe (our firmware 0.0.9+):
   pro800 set lfo-sync free|clock        menu settings (also lfo-trigger free|first|every|voice,
                                         layers off|split|stack|channel, split <note>)
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
+  pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, 0 removes); pro800 routes lists them
+  pro800 timing                         engine, CV refresh and main-loop pass times
+  pro800 cc <controller> <value>        send a control change (e.g. 1 = mod wheel)
   pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
   pro800 patches [--all]                list the patch slots (ours, stock, empty)
   pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-399, A00-D99)
@@ -893,6 +896,65 @@ func patches() {
     print("\(counts[1]) ours, \(counts[2]) stock, \(counts[0]) empty, \(counts[3]) corrupt")
 }
 
+let sourceNames = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note"]
+let destNames = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
+                 "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw"]
+
+// pro800 route <layer 1|2> <source> <dest> <depth -99..99>  (0 removes)
+func route() {
+    guard args.count == 4, let layer = Int(args[0]), layer == 1 || layer == 2,
+          let src = sourceNames.firstIndex(of: args[1]), src > 0, let dest = destNames.firstIndex(of: args[2]),
+          let depth = Int(args[3]), (-99...99).contains(depth) else {
+        fail("usage: pro800 route <layer 1|2> <source> <destination> <depth -99..99>\nsources: " +
+             sourceNames.dropFirst().joined(separator: " ") + "\ndestinations: " + destNames.joined(separator: " "))
+    }
+    let d = depth + 99
+    probeAck(Midi(port: portName), [0x56, UInt8(layer - 1), UInt8(src), UInt8(dest), UInt8(d >> 7), UInt8(d & 0x7F)])
+    print("layer \(layer): \(args[1]) → \(args[2]) = \(depth)")
+}
+
+// pro800 routes: both layers' mod routes
+func routes() {
+    let midi = Midi(port: portName)
+    for layer in 0..<2 {
+        guard let reply = midi.request([0x57, UInt8(layer)], expect: [0x57, UInt8(layer)], timeout: 2) else {
+            fail("no reply (firmware 0.5.0 or later?)")
+        }
+        let b = Array(reply[(sysexHeader.count + 2)..<(reply.count - 1)])
+        var lines = [String]()
+        for i in stride(from: 0, to: b.count - 3, by: 4) where b[i] != 0 && Int(b[i]) < sourceNames.count && Int(b[i + 1]) < destNames.count {
+            lines.append("  \(sourceNames[Int(b[i])]) → \(destNames[Int(b[i + 1])]): \((Int(b[i + 2]) << 7 | Int(b[i + 3])) - 99)")
+        }
+        print("layer \(layer + 1): " + (lines.isEmpty ? "no routes" : "\n" + lines.joined(separator: "\n")))
+    }
+}
+
+// pro800 timing: how long the engine, the CV refresh and a main-loop pass take
+func timing() {
+    let midi = Midi(port: portName)
+    _ = midi.request([0x58], expect: [0x58], timeout: 2) // resets the longest pass
+    pump(2)
+    guard let reply = midi.request([0x58], expect: [0x58], timeout: 2) else { fail("no reply (firmware 0.5.0 or later?)") }
+    let b = Array(reply[(sysexHeader.count + 1)...])
+    func value(_ i: Int) -> Int {
+        let high = Int(b[3 * i]) << 14, mid = Int(b[3 * i + 1]) << 7
+        return high | mid | Int(b[3 * i + 2])
+    }
+    let v = (0..<4).map(value)
+    print("engine \(v[0]) µs, CV refresh \(v[1]) µs, main-loop pass \(v[2]) µs (longest in 2 s: \(v[3]) µs)")
+}
+
+// pro800 cc <controller> <value> [--channel N]
+func cc() {
+    let channel = UInt8((Int(option("--channel") ?? "1") ?? 1) - 1) & 0x0F
+    guard args.count == 2, let num = Int(args[0]), let value = Int(args[1]), (0...127).contains(num), (0...127).contains(value) else {
+        fail("usage: pro800 cc <controller 0-127> <value 0-127> [--channel N]")
+    }
+    let midi = Midi(port: portName)
+    midi.send([0xB0 | channel, UInt8(num), UInt8(value)])
+    pump(0.05)
+}
+
 // MARK: - Bootloader
 
 func updateMode() {
@@ -1022,6 +1084,10 @@ case "state": state()
 case "set": setSetting()
 case "layer": layer()
 case "eeprom": eeprom()
+case "route": route()
+case "routes": routes()
+case "timing": timing()
+case "cc": cc()
 case "eeprom-write": eepromWrite()
 case "import": importStock()
 case "patch": patchCommand()

@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include "controls.h"
+#include "mod.h"
 
 #define PATCH_COUNT 400
 #define PATCH_NAME  16
@@ -20,6 +21,8 @@ typedef struct {
     uint32_t switches; // bit s: switch s engaged (controls_on() sense), for the latching buttons
     uint8_t keytrack;  // 0 off, 1 half, 2 full
     uint16_t pots[2][POT_COUNT]; // per layer, 0..65535; shared pots are the same in both
+    uint16_t extra[2][EXTRA_PARAMS]; // Env 3 and Env 4 per layer
+    route_t routes[2][ROUTES];
 } patch_t;
 
 typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t;

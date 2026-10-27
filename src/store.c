@@ -5,7 +5,9 @@
 //   24 switches (u32)    bit s = switch s engaged
 //   28 keyboard tracking 0 off, 1 half, 2 full
 //   32 pots[2][26] (u16) layer 1, then layer 2
-//   136..251             reserved (mod routes), zero
+//   136 extra[2][8] (u16) Env 3 and Env 4 ADSR per layer
+//   168 routes[2][8]     source, destination, depth (int8) per layer
+//   216..251             reserved, zero (patches saved before 0.5.0 have zeros from 136: no routes)
 //   252 checksum (u32)
 // Stock patches start with a5 16 61 00 and the format byte 0x6D or 0x6F; their fields are documented in
 // samstaton/pro800 (pro800syx.md) and converted here field for field. The value curves of our engine differ from
@@ -22,6 +24,8 @@
 #define OFF_SWITCHES 24
 #define OFF_KEYTRACK 28
 #define OFF_POTS 32
+#define OFF_EXTRA 136
+#define OFF_ROUTES 168
 #define OFF_CHECKSUM 252
 
 static struct {
@@ -87,9 +91,16 @@ int store_load_patch(int n, patch_t *patch)
     patch->lfo_trigger = b[OFF_SETTINGS + 3];
     patch->switches = get32(b + OFF_SWITCHES);
     patch->keytrack = b[OFF_KEYTRACK];
-    for (int l = 0; l < 2; l++)
+    for (int l = 0; l < 2; l++) {
         for (int i = 0; i < POT_COUNT; i++)
             patch->pots[l][i] = get16(b + OFF_POTS + 2 * (l * POT_COUNT + i));
+        for (int i = 0; i < EXTRA_PARAMS; i++)
+            patch->extra[l][i] = get16(b + OFF_EXTRA + 2 * (l * EXTRA_PARAMS + i));
+        for (int r = 0; r < ROUTES; r++) {
+            const uint8_t *x = b + OFF_ROUTES + 3 * (l * ROUTES + r);
+            patch->routes[l][r] = (route_t){x[0], x[1], (int8_t)x[2]};
+        }
+    }
     return 1;
 }
 
@@ -107,9 +118,19 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_SETTINGS + 3] = patch->lfo_trigger;
     put32(b + OFF_SWITCHES, patch->switches);
     b[OFF_KEYTRACK] = patch->keytrack;
-    for (int l = 0; l < 2; l++)
+    for (int l = 0; l < 2; l++) {
         for (int i = 0; i < POT_COUNT; i++)
             put16(b + OFF_POTS + 2 * (l * POT_COUNT + i), patch->pots[l][i]);
+        for (int i = 0; i < EXTRA_PARAMS; i++)
+            put16(b + OFF_EXTRA + 2 * (l * EXTRA_PARAMS + i), patch->extra[l][i]);
+        for (int r = 0; r < ROUTES; r++) {
+            uint8_t *x = b + OFF_ROUTES + 3 * (l * ROUTES + r);
+            x[0] = patch->routes[l][r].source;
+            x[1] = patch->routes[l][r].dest;
+            x[2] = (uint8_t)patch->routes[l][r].depth;
+        }
+    }
+    _Static_assert(OFF_ROUTES + 3 * 2 * ROUTES <= OFF_CHECKSUM, "patch record overflow");
     put32(b + OFF_CHECKSUM, checksum(b, OFF_CHECKSUM));
     return eeprom_write((uint32_t)n * PATCH_SIZE, b, PATCH_SIZE);
 }

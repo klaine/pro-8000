@@ -5,6 +5,7 @@
 #define SYNTH_H
 
 #include <stdint.h>
+#include "mod.h"
 #include "store.h"
 
 typedef enum {
@@ -20,7 +21,8 @@ void synth_note_on(uint8_t note, uint8_t velocity, int channel); // channel 0-15
 void synth_note_off(uint8_t note);
 void synth_all_off(void);
 void synth_pitch_bend(int value);   // 14-bit, centre 8192
-void synth_mod_wheel(uint8_t value); // 0-127, adds LFO depth
+void synth_mod_wheel(uint8_t value); // 0-127, adds LFO depth (and is a mod source)
+void synth_aftertouch(uint8_t value); // channel pressure 0-127 (a mod source)
 // Reads the panel, advances envelopes, LFOs and glide by dt seconds, and sets every CV and gate.
 void synth_update(float dt);
 int synth_any_gate(void);
@@ -32,6 +34,25 @@ void synth_set_split_note(int note);
 // The layer the per-layer knobs edit (0 or 1). Switching it puts those knobs in pickup.
 int synth_edit_layer(void);
 void synth_set_edit_layer(int layer);
+// Keyboard tracking (0 off, 1 half, 2 full) is a setting now: the keyboard-tracking switch picks which envelope
+// the filter ADSR knobs edit (0 = bottom: filter envelope, 1 = middle: Env 3, 2 = top: Env 4).
+int synth_keytrack(void);
+void synth_set_keytrack(int amount);
+int synth_env_select(void);
+
+// Mod matrix, per layer: the depth (-99..99, 0 = no route) of source → destination; setting 0 removes a route.
+// Setting returns 0 when the layer's ROUTES are all used.
+int synth_route(int layer, mod_source_t source, mod_dest_t dest);
+int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth);
+const route_t *synth_routes(int layer); // ROUTES entries; source SRC_NONE = unused
+// What touching a control means in MOD ASSIGN (DEST_NONE if it isn't a destination).
+int synth_dest_for_pot(int pot);
+int synth_dest_for_switch(int s);
+// MOD ASSIGN: every knob goes into pickup (so touching one doesn't change it); a button toggled while assigning
+// keeps its routing.
+void synth_freeze_knobs(void);
+void synth_hold_switch(int s);
+
 // For the display: the edit layer's value of a pot (0..1), and whether the knob is still waiting to pick it up.
 float synth_pot_value(int pot);
 int synth_pot_pending(int pot);
