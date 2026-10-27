@@ -131,6 +131,9 @@
   .lfo-depths .title { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
   .lfo-depths input[type=range] { background: linear-gradient(90deg, transparent 49.5%, var(--line) 49.5%, var(--line) 50.5%, transparent 50.5%); }
   .depth { display: flex; gap: 6px; align-items: center; }
+  tr.new-head td { border-top: 2px dashed var(--line); color: var(--muted); font-size: 12px; padding-top: 10px;
+                   border-bottom: 0; }
+  tr.new-head td, tr.new-route td { background: var(--bg); }
   .depth input[type=range] { width: 140px; accent-color: var(--accent); }
   .depth output { font: 12px ui-monospace, monospace; width: 30px; text-align: right; }
   @media (max-width: 600px) { .param { grid-template-columns: 76px 1fr 58px; } td.actions { white-space: normal; } }
@@ -183,7 +186,9 @@
     <div class="table-wrap"><table>
       <thead><tr><th>Source</th><th>Destination</th><th>Depth</th><th></th></tr></thead>
       <tbody id="routes"></tbody>
-      <tfoot><tr><td><select id="new-source"></select></td><td><select id="new-dest"></select></td>
+      <tfoot><tr class="new-head"><td colspan="4">New route: pick a source, a destination and a depth, then
+        Add route. It does nothing until it's added.</td></tr>
+        <tr class="new-route"><td><select id="new-source"></select></td><td><select id="new-dest"></select></td>
         <td><div class="depth"><input type="range" id="new-depth" min="-99" max="99" value="50"><output id="new-depth-out">50</output></div></td>
         <td class="actions"><button class="primary" id="add-route">Add route</button></td></tr></tfoot>
     </table></div>
