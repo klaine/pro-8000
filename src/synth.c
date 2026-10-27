@@ -4,14 +4,17 @@
 //   mixer: A, B and noise levels; filter: cutoff, resonance, envelope amount (bipolar), keyboard tracking
 //   poly-mod: filter envelope (software, added to oscillator A's pitch) and oscillator B (analog), routed to
 //   frequency A and/or the filter by the two poly-mod buttons
-//   LFO (lfo.c): triangle or square, to frequency, pulse width and/or filter, free or synced to MIDI clock, with
-//   retrigger modes; glide, unison, master tune and volume
+//   LFO 1 (lfo.c): seven shapes (the shape button steps through them), to frequency, pulse width and/or filter,
+//   free or synced to MIDI clock, with retrigger modes; glide, unison, master tune and volume
+//   LFO 2: the same, edited with the LFO knobs and buttons while Arp Up-Dn selects it (its routing lives here, the
+//   buttons keep showing LFO 1's)
 //
 // Layers: two sets of the knobs that act per voice (frequencies, fine, cutoff, envelope amount, both ADSRs,
-// glide, LFO rate and amount, poly-mod envelope amount, master tune) and an LFO each. Layer 1 plays on voices 1-4
+// glide, LFO rates and amounts, poly-mod envelope amount, master tune) and two LFOs each, with their own shapes and
+// LFO 2 routing. Layer 1 plays on voices 1-4
 // and layer 2 on voices 5-8, except with layers off, when layer 1 has all 8. Everything else is one set of
 // wires for all voices on the hardware, so it's shared: mixer, resonance, pulse widths, poly-mod osc B amount
-// and routing, master volume, every button, and LFO → PW (from layer 1's LFO). After switching the edit layer,
+// and routing, master volume, every button, and LFO → PW (from layer 1's LFOs). After switching the edit layer,
 // a per-layer knob waits until it's turned past (or onto) that layer's value before it takes over. Loading a
 // patch puts every stored knob (all but M VOL) in pickup the same way.
 //
@@ -46,6 +49,7 @@
 #define MOD_PITCH_SEMITONES   24.0f
 #define MOD_CUTOFF_SEMITONES  96.0f
 #define MOD_PW                0.5f
+#define MOD_LFO_OCTAVES       4.0f  // LFO rate
 
 #define LAYERS 2
 
@@ -73,12 +77,15 @@ static int last_voice[2] = {-1, -1}; // per layer: the most recently played voic
 
 // the panel's pots, smoothed (0..1), and each layer's parameters (the knobs, then Env 3 and Env 4)
 static float panel[POT_COUNT];
-static float layer_param[LAYERS][PARAM_COUNT];
+static float layer_param[LAYERS][PARAM_COUNT] = {[0][PARAM_LFO2_RATE] = 0.5f, [1][PARAM_LFO2_RATE] = 0.5f};
 static int pots_primed;
 static int edit_layer;
 static uint8_t latched[PARAM_COUNT]; // its knob controls the value (per-layer parameters: the edit layer's)
 static int8_t pickup_side[PARAM_COUNT]; // which side of the stored value the knob started on: -1, +1 (0 = unknown)
 static int env_select = -1; // which envelope the filter ADSR knobs edit: 0 filter, 1 Env 3, 2 Env 4
+static int lfo_select;      // which LFO the LFO knobs, the shape button and the routing buttons edit: 0 or 1
+static uint8_t lfo_shape[LAYERS][2]; // lfo_shape_t, per layer and LFO
+static uint8_t lfo2_dests[LAYERS];   // LFO2_TO_* bits
 
 static const uint8_t per_layer[PARAM_COUNT] = {
     [POT_FREQ_A] = 1, [POT_FREQ_B] = 1, [POT_FINE] = 1, [POT_CUTOFF] = 1, [POT_FIL_ENV_AMT] = 1,
@@ -87,6 +94,7 @@ static const uint8_t per_layer[PARAM_COUNT] = {
     [POT_GLIDE] = 1, [POT_LFO_FREQ] = 1, [POT_LFO_AMOUNT] = 1, [POT_PMOD_FIL_ENV] = 1, [POT_MASTER_TUNE] = 1,
     [PARAM_ENV3_ATT] = 1, [PARAM_ENV3_DEC] = 1, [PARAM_ENV3_SUS] = 1, [PARAM_ENV3_REL] = 1,
     [PARAM_ENV4_ATT] = 1, [PARAM_ENV4_DEC] = 1, [PARAM_ENV4_SUS] = 1, [PARAM_ENV4_REL] = 1,
+    [PARAM_LFO2_RATE] = 1, [PARAM_LFO2_AMOUNT] = 1,
 };
 
 // buttons: a loaded patch's state holds until the button is toggled
@@ -143,26 +151,84 @@ void synth_set_split_note(int note) { split_note = note < 0 ? 0 : note > 127 ? 1
 
 int synth_edit_layer(void) { return edit_layer; }
 
+static void unlatch(int param)
+{
+    latched[param] = 0;
+    pickup_side[param] = 0;
+}
+
 void synth_set_edit_layer(int layer)
 {
     if (layer == edit_layer)
         return;
     edit_layer = layer;
     for (int i = 0; i < PARAM_COUNT; i++)
-        if (per_layer[i]) {
-            latched[i] = 0;
-            pickup_side[i] = 0;
-        }
+        if (per_layer[i])
+            unlatch(i);
 }
 
-// The parameter a knob edits: the filter ADSR knobs edit Env 3 / Env 4 when the switch says so.
+// The parameter a knob edits: the filter ADSR knobs edit Env 3 / Env 4 when the switch says so, the LFO knobs
+// LFO 2 while it's selected.
 static int param_of_pot(int pot)
 {
     if (env_select > 0 && pot >= POT_FIL_REL && pot <= POT_FIL_ATT) { // FIL REL, SUS, DEC, ATT
         static const uint8_t stage[] = {[POT_FIL_REL] = 3, [POT_FIL_SUS] = 2, [POT_FIL_DEC] = 1, [POT_FIL_ATT] = 0};
         return (env_select == 1 ? PARAM_ENV3_ATT : PARAM_ENV4_ATT) + stage[pot];
     }
+    if (lfo_select && pot == POT_LFO_FREQ)
+        return PARAM_LFO2_RATE;
+    if (lfo_select && pot == POT_LFO_AMOUNT)
+        return PARAM_LFO2_AMOUNT;
     return pot;
+}
+
+int synth_lfo_select(void) { return lfo_select; }
+
+void synth_set_lfo_select(int which)
+{
+    if (which == lfo_select)
+        return;
+    lfo_select = which;
+    unlatch(param_of_pot(POT_LFO_FREQ)); // the knobs pick up the other LFO's values
+    unlatch(param_of_pot(POT_LFO_AMOUNT));
+}
+
+int synth_lfo_shape(int layer, int which) { return lfo_shape[layer][which]; }
+
+void synth_set_lfo_shape(int layer, int which, int shape)
+{
+    if (shape >= 0 && shape < LFO_SHAPE_COUNT)
+        lfo_shape[layer][which] = (uint8_t)shape;
+}
+
+int synth_lfo2_dests(int layer) { return lfo2_dests[layer]; }
+
+void synth_set_lfo2_dests(int layer, int bits) { lfo2_dests[layer] = (uint8_t)(bits & 7); }
+
+int synth_lfo2_toggle(int s)
+{
+    unsigned bit = s == SWITCH_LFO_FREQ ? LFO2_TO_PITCH : s == SWITCH_LFO_FILTER ? LFO2_TO_FILTER
+                 : s == SWITCH_LFO_PW ? LFO2_TO_PW : 0;
+    if (!bit)
+        return -1;
+    synth_hold_switch(s); // LFO 1 keeps its routing
+    lfo2_dests[edit_layer] ^= (uint8_t)bit;
+    return (lfo2_dests[edit_layer] & bit) != 0;
+}
+
+float synth_param(int layer, int param) { return layer_param[per_layer[param] ? layer : 0][param]; }
+
+void synth_set_param(int layer, int param, float value)
+{
+    if (param < 0 || param >= PARAM_COUNT || param == POT_MASTER_VOL)
+        return;
+    value = value < 0 ? 0 : value > 1 ? 1 : value;
+    if (per_layer[param])
+        layer_param[layer][param] = value;
+    else
+        layer_param[0][param] = layer_param[1][param] = value;
+    if (!per_layer[param] || layer == edit_layer)
+        unlatch(param); // its knob picks it up from here
 }
 
 float synth_pot_value(int pot) { return layer_param[edit_layer][param_of_pot(pot)]; }
@@ -224,7 +290,8 @@ int synth_dest_for_pot(int pot)
     case POT_CUTOFF: return DEST_CUTOFF;
     case POT_FIL_ENV_AMT: return DEST_FIL_ENV_AMT;
     case POT_PMOD_FIL_ENV: return DEST_PMOD_ENV;
-    case POT_LFO_AMOUNT: return DEST_LFO_AMOUNT;
+    case POT_LFO_AMOUNT: return lfo_select ? DEST_LFO2_AMOUNT : DEST_LFO_AMOUNT;
+    case POT_LFO_FREQ: return lfo_select ? DEST_LFO2_RATE : DEST_LFO_RATE;
     case POT_AMP_SUS: return DEST_VCA;
     case POT_A_LEVEL: return DEST_A_LEVEL;
     case POT_B_LEVEL: return DEST_B_LEVEL;
@@ -240,9 +307,9 @@ int synth_dest_for_pot(int pot)
 int synth_dest_for_switch(int s)
 {
     switch (s) {
-    case SWITCH_LFO_FREQ: return DEST_LFO_TO_PITCH;
-    case SWITCH_LFO_FILTER: return DEST_LFO_TO_FILTER;
-    case SWITCH_LFO_PW: return DEST_LFO_TO_PW;
+    case SWITCH_LFO_FREQ: return lfo_select ? DEST_LFO2_TO_PITCH : DEST_LFO_TO_PITCH;
+    case SWITCH_LFO_FILTER: return lfo_select ? DEST_LFO2_TO_FILTER : DEST_LFO_TO_FILTER;
+    case SWITCH_LFO_PW: return lfo_select ? DEST_LFO2_TO_PW : DEST_LFO_TO_PW;
     default: return DEST_NONE;
     }
 }
@@ -250,10 +317,8 @@ int synth_dest_for_switch(int s)
 void synth_freeze_knobs(void)
 {
     for (int i = 0; i < PARAM_COUNT; i++)
-        if (i != POT_MASTER_VOL) {
-            latched[i] = 0;
-            pickup_side[i] = 0;
-        }
+        if (i != POT_MASTER_VOL)
+            unlatch(i);
 }
 
 static int sw(switch_t s)
@@ -266,9 +331,12 @@ static int sw(switch_t s)
 
 void synth_hold_switch(int s)
 {
-    // the button was just toggled: keep the state it had, until it's toggled again
-    switch_value[s] = (uint8_t)!controls_on((switch_t)s);
-    switch_at_load[s] = (uint8_t)controls_on((switch_t)s);
+    // the button was just toggled: keep the state it had (the held one, if it was already holding a patch's or an
+    // earlier hold's state), until it's toggled again
+    int now = controls_on((switch_t)s);
+    if (!switch_override[s])
+        switch_value[s] = (uint8_t)!now;
+    switch_at_load[s] = (uint8_t)now;
     switch_override[s] = 1;
 }
 
@@ -285,6 +353,9 @@ void synth_apply_patch(const patch_t *patch)
             route_t x = patch->routes[l][r];
             routes[l][r] = x.source < SRC_COUNT && x.dest < DEST_COUNT ? x : (route_t){0};
         }
+        for (int w = 0; w < 2; w++)
+            lfo_shape[l][w] = patch->lfo_shape[l][w] < LFO_SHAPE_COUNT ? patch->lfo_shape[l][w] : 0;
+        lfo2_dests[l] = patch->lfo2_dests[l] & 7;
     }
     for (int i = 0; i < PARAM_COUNT; i++) {
         latched[i] = i == POT_MASTER_VOL;
@@ -298,8 +369,11 @@ void synth_apply_patch(const patch_t *patch)
     keytrack_setting = patch->keytrack <= 2 ? patch->keytrack : 0;
     layer_mode = patch->layer_mode < LAYER_MODE_COUNT ? (layer_mode_t)patch->layer_mode : LAYER_OFF;
     synth_set_split_note(patch->split);
-    lfo_sync = patch->lfo_sync < LFO_SYNC_COUNT ? (lfo_sync_t)patch->lfo_sync : LFO_SYNC_FREE;
-    lfo_trigger = patch->lfo_trigger < LFO_TRIGGER_COUNT ? (lfo_trigger_t)patch->lfo_trigger : LFO_TRIGGER_FREE;
+    for (int w = 0; w < 2; w++) {
+        lfo_sync[w] = patch->lfo_sync[w] < LFO_SYNC_COUNT ? (lfo_sync_t)patch->lfo_sync[w] : LFO_SYNC_FREE;
+        lfo_trigger[w] = patch->lfo_trigger[w] < LFO_TRIGGER_COUNT ? (lfo_trigger_t)patch->lfo_trigger[w]
+                                                                     : LFO_TRIGGER_FREE;
+    }
     unison = sw(SWITCH_UNISON);
 }
 
@@ -316,6 +390,9 @@ void synth_capture_patch(patch_t *patch)
         }
         for (int r = 0; r < ROUTES; r++)
             patch->routes[l][r] = routes[l][r];
+        for (int w = 0; w < 2; w++)
+            patch->lfo_shape[l][w] = lfo_shape[l][w];
+        patch->lfo2_dests[l] = lfo2_dests[l];
     }
     patch->switches = 0;
     for (int s = 0; s < SWITCH_COUNT; s++)
@@ -324,8 +401,10 @@ void synth_capture_patch(patch_t *patch)
     patch->keytrack = (uint8_t)keytrack_setting;
     patch->layer_mode = (uint8_t)layer_mode;
     patch->split = (uint8_t)split_note;
-    patch->lfo_sync = (uint8_t)lfo_sync;
-    patch->lfo_trigger = (uint8_t)lfo_trigger;
+    for (int w = 0; w < 2; w++) {
+        patch->lfo_sync[w] = (uint8_t)lfo_sync[w];
+        patch->lfo_trigger[w] = (uint8_t)lfo_trigger[w];
+    }
 }
 
 void synth_manual(void)
@@ -421,7 +500,8 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
         held[layer][held_count[layer]++] = note;
         for (int v = first; v < end; v++) {
             gate_on(&voices[v], note, velocity, !was_held); // legato while a note is already held
-            lfo_note_on(layer, v, !was_held);
+            lfo_note_on(LFO_ID(layer, 0), v, !was_held);
+            lfo_note_on(LFO_ID(layer, 1), v, !was_held);
         }
         last_voice[layer] = first;
         return;
@@ -429,7 +509,8 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
     int was_gated = layer_gated(layer);
     int v = allocate(layer, note);
     gate_on(&voices[v], note, velocity, 1);
-    lfo_note_on(layer, v, !was_gated);
+    lfo_note_on(LFO_ID(layer, 0), v, !was_gated);
+    lfo_note_on(LFO_ID(layer, 1), v, !was_gated);
     last_voice[layer] = v;
 }
 
@@ -591,10 +672,11 @@ static void read_panel(float dt)
     }
 }
 
-static float source_value(const voice_t *x, int voice, int layer, int source, int square)
+static float source_value(const voice_t *x, int voice, int layer, int source)
 {
     switch (source) {
-    case SRC_LFO: return lfo_value(layer, voice, square);
+    case SRC_LFO: return lfo_value(LFO_ID(layer, 0), voice, (lfo_shape_t)lfo_shape[layer][0]);
+    case SRC_LFO2: return lfo_value(LFO_ID(layer, 1), voice, (lfo_shape_t)lfo_shape[layer][1]);
     case SRC_FILTER_ENV: return x->filter.level;
     case SRC_AMP_ENV: return x->amp.level;
     case SRC_VELOCITY: return (float)x->velocity / 127.0f;
@@ -608,21 +690,21 @@ static float source_value(const voice_t *x, int voice, int layer, int source, in
     }
 }
 
-// Adds every route of `layer` evaluated for `voice` into mod[], for destinations from `first` to `end`.
-static void evaluate_routes(int layer, int voice, int square, float *mod, int first, int end)
+// Adds every route of `layer` evaluated for `voice` into mod[] (DEST_COUNT entries).
+static void evaluate_routes(int layer, int voice, float *mod)
 {
     for (int r = 0; r < ROUTES; r++) {
         const route_t *x = &routes[layer][r];
-        if (x->source == SRC_NONE || x->dest < first || x->dest >= end)
+        if (x->source == SRC_NONE || x->dest >= DEST_COUNT)
             continue;
-        mod[x->dest] += source_value(&voices[voice], voice, layer, x->source, square) * (float)x->depth / 99.0f;
+        mod[x->dest] += source_value(&voices[voice], voice, layer, x->source) * (float)x->depth / 99.0f;
     }
 }
 
 static float clamp01(float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
 typedef struct {
-    float coarse_a, coarse_b, fine_b, tune, glide_k, env_amount, pmod_env, cutoff, depth;
+    float coarse_a, coarse_b, fine_b, tune, glide_k, env_amount, pmod_env, cutoff, depth, depth2;
 } layer_params_t;
 
 void synth_update(float dt)
@@ -631,14 +713,22 @@ void synth_update(float dt)
         dt = 0.05f; // after a long stall (tuning, flash writes), don't jump
     read_panel(dt);
 
-    int square = sw(SWITCH_LFO_SHAPE);
     int pmod_freq_a = sw(SWITCH_PMOD_FREQ_A);
     int lfo_to_pitch = sw(SWITCH_LFO_FREQ), lfo_to_filter = sw(SWITCH_LFO_FILTER);
+
+    // routes evaluated for each layer's most recently played voice: the single-wire destinations, and the rate of
+    // each LFO's shared phase
+    float last_mod[LAYERS][DEST_COUNT] = {{0}};
+    for (int l = 0; l < LAYERS; l++)
+        if (last_voice[l] >= 0 && (layer_mode != LAYER_OFF || l == 0))
+            evaluate_routes(l, last_voice[l], last_mod[l]);
+
     layer_params_t lp[LAYERS];
     for (int l = 0; l < LAYERS; l++) {
         const float *p = layer_param[l];
-        // LFO (lfo.c): rate or clock division from this layer's LFO FREQ
-        lfo_update(l, dt, p[POT_LFO_FREQ]);
+        // LFOs (lfo.c): rate or clock division from the rate knobs; LFO_ID(0, 0) goes first
+        lfo_update(LFO_ID(l, 0), dt, p[POT_LFO_FREQ], last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES);
+        lfo_update(LFO_ID(l, 1), dt, p[PARAM_LFO2_RATE], last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES);
         float glide = p[POT_GLIDE] < 0.02f ? 0 : 0.002f * fast_exp2(p[POT_GLIDE] * 10.0f); // time constant, s
         lp[l] = (layer_params_t){
             .coarse_a = semitone_steps(p[POT_FREQ_A]),
@@ -650,19 +740,19 @@ void synth_update(float dt)
             .pmod_env = pmod_freq_a ? p[POT_PMOD_FIL_ENV] : 0,
             .cutoff = CUTOFF_LOW_NOTE + p[POT_CUTOFF] * CUTOFF_SPAN,
             .depth = p[POT_LFO_AMOUNT] * p[POT_LFO_AMOUNT] + mod_wheel,
+            .depth2 = p[PARAM_LFO2_AMOUNT] * p[PARAM_LFO2_AMOUNT],
         };
     }
 
-    // single-wire destinations: routes evaluated for each layer's most recently played voice
-    float shared_mod[DEST_COUNT] = {0};
-    for (int l = 0; l < LAYERS; l++)
-        if (last_voice[l] >= 0 && (layer_mode != LAYER_OFF || l == 0))
-            evaluate_routes(l, last_voice[l], square, shared_mod, DEST_A_LEVEL, DEST_COUNT);
-
-    // shared CVs and gates
+    // shared CVs and gates (LFO → PW from layer 1's LFOs)
+    float shared_mod[DEST_COUNT];
+    for (int d = 0; d < DEST_COUNT; d++)
+        shared_mod[d] = last_mod[0][d] + last_mod[1][d];
     const float *shared = layer_param[0];
     float pw_depth = clamp01(clamp01(lp[0].depth) * sw(SWITCH_LFO_PW) + shared_mod[DEST_LFO_TO_PW]);
-    float lfo_pw = lfo_value(0, -1, square) * pw_depth * LFO_PW_DEPTH;
+    float pw2_depth = clamp01(lp[0].depth2 * (float)((lfo2_dests[0] & LFO2_TO_PW) != 0) + shared_mod[DEST_LFO2_TO_PW]);
+    float lfo_pw = (lfo_value(LFO_ID(0, 0), -1, (lfo_shape_t)lfo_shape[0][0]) * pw_depth
+                    + lfo_value(LFO_ID(0, 1), -1, (lfo_shape_t)lfo_shape[0][1]) * pw2_depth) * LFO_PW_DEPTH;
     sh_set(CV_VOL_A, cv_from(shared[POT_A_LEVEL] + shared_mod[DEST_A_LEVEL]));
     sh_set(CV_VOL_B, cv_from(shared[POT_B_LEVEL] + shared_mod[DEST_B_LEVEL]));
     sh_set(CV_NOISE, cv_from(shared[POT_NOISE] + shared_mod[DEST_NOISE]));
@@ -696,23 +786,32 @@ void synth_update(float dt)
         x->pitch += ((float)x->note - x->pitch) * q->glide_k;
 
         float mod[DEST_COUNT] = {0};
-        evaluate_routes(l, v, square, mod, 0, DEST_A_LEVEL);
+        evaluate_routes(l, v, mod);
+        lfo_update_voice(LFO_ID(l, 0), v, dt, mod[DEST_LFO_RATE] * MOD_LFO_OCTAVES);
+        lfo_update_voice(LFO_ID(l, 1), v, dt, mod[DEST_LFO2_RATE] * MOD_LFO_OCTAVES);
 
         int first, end;
         layer_voices(l, &first, &end);
         float spread = unison ? ((float)(v - first) - (float)(end - first - 1) / 2) * UNISON_SPREAD : 0;
-        float lfo = lfo_value(l, v, square);
+        float lfo = lfo_value(LFO_ID(l, 0), v, (lfo_shape_t)lfo_shape[l][0]);
+        float lfo2 = lfo_value(LFO_ID(l, 1), v, (lfo_shape_t)lfo_shape[l][1]);
         float depth = clamp01(q->depth + mod[DEST_LFO_AMOUNT]);
+        float depth2 = clamp01(q->depth2 + mod[DEST_LFO2_AMOUNT]);
         float to_pitch = clamp01(depth * lfo_to_pitch + mod[DEST_LFO_TO_PITCH]) * LFO_PITCH_SEMITONES;
         float to_filter = clamp01(depth * lfo_to_filter + mod[DEST_LFO_TO_FILTER]) * LFO_FILTER_SEMITONES;
+        float to_pitch2 = clamp01(depth2 * (float)((lfo2_dests[l] & LFO2_TO_PITCH) != 0) + mod[DEST_LFO2_TO_PITCH])
+                        * LFO_PITCH_SEMITONES;
+        float to_filter2 = clamp01(depth2 * (float)((lfo2_dests[l] & LFO2_TO_FILTER) != 0)
+                                   + mod[DEST_LFO2_TO_FILTER]) * LFO_FILTER_SEMITONES;
         float env_amount = (q->env_amount + mod[DEST_FIL_ENV_AMT]) * FILTER_ENV_SEMITONES;
         float pmod_env = (q->pmod_env + mod[DEST_PMOD_ENV]) * PMOD_ENV_SEMITONES;
 
-        float pitch = x->pitch + bend + q->tune + spread + lfo * to_pitch + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
+        float pitch = x->pitch + bend + q->tune + spread + lfo * to_pitch + lfo2 * to_pitch2
+                    + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
         float a = pitch + q->coarse_a + pmod_env * x->filter.level + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
         float b = pitch + q->coarse_b + q->fine_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
         float filter = q->cutoff + keytrack_amount * (x->pitch - 60.0f) + env_amount * x->filter.level
-                     + lfo * to_filter + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES;
+                     + lfo * to_filter + lfo2 * to_filter2 + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES;
 
         sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
         sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));

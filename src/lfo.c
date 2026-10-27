@@ -6,6 +6,9 @@
 // Retrigger: the shared phase resets on the first key after all were released, or on every key; in per-voice
 // mode each voice runs its own phase from its note-on. With the clock and no retrigger, the phase follows the
 // grid; with a retrigger, the rate follows the clock but the phase starts at the key.
+//
+// Every phase carries two random values for the random shapes: the one it holds (sample & hold) and the next one
+// (drift glides towards it); both move on when the phase wraps or is retriggered.
 #include "lfo.h"
 #include "clock.h"
 #include "fastmath.h"
@@ -14,8 +17,8 @@
 
 #define TICKS_PER_QUARTER 24
 
-lfo_sync_t lfo_sync = LFO_SYNC_FREE;
-lfo_trigger_t lfo_trigger = LFO_TRIGGER_FREE;
+lfo_sync_t lfo_sync[2];
+lfo_trigger_t lfo_trigger[2];
 
 static const struct {
     float quarters; // LFO period
@@ -27,12 +30,51 @@ static const struct {
 };
 #define DIVISION_COUNT ((int)(sizeof divisions / sizeof divisions[0]))
 
+static const char shape_names[LFO_SHAPE_COUNT][6] = {"trI", "PULS", "SA.UP", "SA.dn", "SInE", "S-H", "drFt"};
+
+typedef struct {
+    float phase;
+    float held, next; // random values, -1..1
+} phase_t;
+
 static struct {
-    float shared_phase, voice_phase[VOICE_COUNT];
+    phase_t shared, voice[VOICE_COUNT];
+    float rate; // Hz, from the last lfo_update()
 } lfos[LFO_COUNT];
 static uint32_t ticks, last_tick;
 static float tick_interval; // seconds; 0 until two ticks have arrived
 static float position;       // in ticks, continuous
+static uint32_t random_state = 0x9E3779B9u;
+
+static float random_value(void) // xorshift32, -1..1
+{
+    random_state ^= random_state << 13;
+    random_state ^= random_state >> 17;
+    random_state ^= random_state << 5;
+    return (float)(int32_t)random_state / 2147483648.0f;
+}
+
+static void new_cycle(phase_t *p)
+{
+    p->held = p->next;
+    p->next = random_value();
+}
+
+static void restart(phase_t *p)
+{
+    p->phase = 0;
+    new_cycle(p);
+}
+
+// Adds `step` cycles; a wrap starts a new random cycle.
+static void advance(phase_t *p, float step)
+{
+    p->phase += step;
+    if (p->phase >= 1.0f) {
+        p->phase -= (float)(int)p->phase;
+        new_cycle(p);
+    }
+}
 
 void lfo_clock_tick(uint32_t cycles)
 {
@@ -53,7 +95,7 @@ void lfo_clock_start(void)
     ticks = 0;
     position = 0;
     for (int i = 0; i < LFO_COUNT; i++)
-        lfos[i].shared_phase = 0;
+        lfos[i].shared.phase = 0;
 }
 
 void lfo_clock_stop(void) {}
@@ -66,21 +108,23 @@ int lfo_division(float knob)
 
 const char *lfo_division_name(int division) { return divisions[division].name; }
 
+const char *lfo_shape_name(lfo_shape_t shape) { return shape_names[shape < LFO_SHAPE_COUNT ? shape : 0]; }
+
 void lfo_note_on(int lfo, int voice, int first)
 {
-    if (lfo_trigger == LFO_TRIGGER_EVERY_KEY || (lfo_trigger == LFO_TRIGGER_FIRST_KEY && first))
-        lfos[lfo].shared_phase = 0;
-    lfos[lfo].voice_phase[voice] = 0;
+    lfo_trigger_t trigger = lfo_trigger[lfo / 2];
+    if (trigger == LFO_TRIGGER_EVERY_KEY || (trigger == LFO_TRIGGER_FIRST_KEY && first))
+        restart(&lfos[lfo].shared);
+    restart(&lfos[lfo].voice[voice]);
 }
 
-static float wrap(float phase) { return phase - (float)(int)phase; }
-
-void lfo_update(int lfo, float dt, float knob)
+void lfo_update(int lfo, float dt, float knob, float octaves)
 {
-    int synced = lfo_sync == LFO_SYNC_CLOCK && tick_interval > 0;
+    int which = lfo / 2;
+    int synced = lfo_sync[which] == LFO_SYNC_CLOCK && tick_interval > 0;
+    float quarters = divisions[lfo_division(knob)].quarters;
     float rate;
     if (synced) {
-        float quarters = divisions[lfo_division(knob)].quarters;
         rate = 1.0f / (tick_interval * TICKS_PER_QUARTER * quarters);
         if (lfo == 0) { // the clock position advances once per update
             float since_tick = (float)(DWT_CYCCNT - last_tick) / (float)system_hz;
@@ -91,20 +135,49 @@ void lfo_update(int lfo, float dt, float knob)
     } else {
         rate = 0.05f * fast_exp2(knob * 10.0f); // 0.05-51 Hz
     }
+    lfos[lfo].rate = rate;
 
-    if (synced && lfo_trigger == LFO_TRIGGER_FREE)
-        lfos[lfo].shared_phase = wrap(position / (TICKS_PER_QUARTER * divisions[lfo_division(knob)].quarters));
-    else
-        lfos[lfo].shared_phase = wrap(lfos[lfo].shared_phase + rate * dt);
-    for (int v = 0; v < VOICE_COUNT; v++)
-        lfos[lfo].voice_phase[v] = wrap(lfos[lfo].voice_phase[v] + rate * dt);
+    phase_t *p = &lfos[lfo].shared;
+    if (synced && lfo_trigger[which] == LFO_TRIGGER_FREE) { // on the grid
+        float cycles = position / (TICKS_PER_QUARTER * quarters);
+        float phase = cycles - (float)(int)cycles;
+        if (phase < p->phase - 0.5f)
+            new_cycle(p);
+        p->phase = phase;
+    } else {
+        advance(p, rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f));
+    }
 }
 
-float lfo_value(int lfo, int voice, int square)
+void lfo_update_voice(int lfo, int voice, float dt, float octaves)
 {
-    float phase = voice >= 0 && lfo_trigger == LFO_TRIGGER_PER_VOICE ? lfos[lfo].voice_phase[voice]
-                                                                     : lfos[lfo].shared_phase;
-    if (square)
-        return phase < 0.5f ? 1.0f : -1.0f;
-    return phase < 0.5f ? 4 * phase - 1 : 3 - 4 * phase;
+    advance(&lfos[lfo].voice[voice], lfos[lfo].rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f));
+}
+
+// sin(2π x) for x in [0, 1), within about 0.1%
+static float sine(float x)
+{
+    float t = 2 * x - 1; // sin(2π x) = -sin(π t)
+    float y = 4 * t * (1 - (t < 0 ? -t : t));
+    y = 0.225f * (y * (y < 0 ? -y : y) - y) + y;
+    return -y;
+}
+
+float lfo_value(int lfo, int voice, lfo_shape_t shape)
+{
+    const phase_t *p = voice >= 0 && lfo_trigger[lfo / 2] == LFO_TRIGGER_PER_VOICE ? &lfos[lfo].voice[voice]
+                                                                                    : &lfos[lfo].shared;
+    float x = p->phase;
+    switch (shape) {
+    case LFO_SQUARE: return x < 0.5f ? 1.0f : -1.0f;
+    case LFO_RAMP_UP: return 2 * x - 1;
+    case LFO_RAMP_DOWN: return 1 - 2 * x;
+    case LFO_SINE: return -sine(x < 0.75f ? x + 0.25f : x - 0.75f); // -cos: starts low, like the triangle
+    case LFO_SAMPLE_HOLD: return p->held;
+    case LFO_DRIFT: {
+        float s = x * x * (3 - 2 * x); // smoothstep
+        return p->held + (p->next - p->held) * s;
+    }
+    default: return x < 0.5f ? 4 * x - 1 : 3 - 4 * x;
+    }
 }

@@ -47,8 +47,14 @@ Probe (our firmware 0.0.9+):
   pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
   pro800 state                          print every pot (0-99) and switch as the firmware reads them
-  pro800 set lfo-sync free|clock        menu settings (also lfo-trigger free|first|every|voice,
-                                        layers off|split|stack|channel, split <note>)
+  pro800 set <setting> <value>          lfo-sync / lfo2-sync free|clock, lfo-trigger / lfo2-trigger
+                                        free|first|every|voice, layers off|split|stack|channel, split <note>,
+                                        keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
+                                        shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
+                                        lfo2-dests <layer> none|pitch,filter,pw
+  pro800 settings                       print every setting
+  pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
+  pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
   pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, 0 removes); pro800 routes lists them
   pro800 timing                         engine, CV refresh and main-loop pass times
@@ -57,6 +63,9 @@ Probe (our firmware 0.0.9+):
   pro800 patches [--all]                list the patch slots (ours, stock, empty)
   pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-399, A00-D99)
   pro800 patch init                     load the basic sound (osc A saw), as PERF does
+  pro800 patch rename <slot> <name>     rename a patch (up to 16 characters)
+  pro800 factory                        list the stock factory bank (100 patches, kept in the EEPROM)
+  pro800 factory import <f> <slot> [--force]  copy factory patch f (0-99) into a slot (empty unless --force)
   pro800 clock <bpm> [seconds]          send MIDI clock (Start, then 24 per quarter note)
   pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
@@ -724,25 +733,140 @@ func state() {
     print("keyboard tracking: \(keytrack)")
 }
 
-// Menu settings: pro800 set lfo-sync free|clock, lfo-trigger free|first|every|voice,
-// layers off|split|stack|channel, split <note 0-127>
+let shapeNames = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift"]
+let lfo2DestNames = ["pitch", "filter", "pw"]
+let layerModes = ["off", "split", "stack", "channel"], triggerModes = ["free", "first", "every", "voice"]
+let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo2-sync", "lfo2-trigger", "edit-layer",
+                    "lfo", "shape 1 1", "shape 1 2", "shape 2 1", "shape 2 2", "lfo2-dests 1", "lfo2-dests 2",
+                    "env-select", "preset-mode", "patch"]
+
+func lfo2DestText(_ bits: Int) -> String {
+    let on = lfo2DestNames.indices.filter { bits >> $0 & 1 != 0 }.map { lfo2DestNames[$0] }
+    return on.isEmpty ? "none" : on.joined(separator: ",")
+}
+
+// Settings: pro800 set <setting> <value> (see the help)
 func setSetting() {
-    let table: [String: (UInt8, [String])] = ["lfo-sync": (0, ["free", "clock"]),
-                                               "lfo-trigger": (1, ["free", "first", "every", "voice"]),
-                                               "layers": (2, ["off", "split", "stack", "channel"])]
-    let usage = "usage: pro800 set lfo-sync free|clock | lfo-trigger free|first|every|voice | " +
-        "layers off|split|stack|channel | split <note 0-127>"
-    guard args.count == 2 else { fail(usage) }
+    let table: [String: (UInt8, [String])] = ["lfo-sync": (0, ["free", "clock"]), "lfo-trigger": (1, triggerModes),
+                                               "layers": (2, layerModes), "keytrack": (4, ["off", "half", "full"]),
+                                               "lfo2-sync": (5, ["free", "clock"]), "lfo2-trigger": (6, triggerModes),
+                                               "lfo": (8, ["1", "2"])]
+    let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
+        "layers off|split|stack|channel | split <note 0-127> | keytrack off|half|full | lfo 1|2 | " +
+        "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw"
     var id: UInt8, v: Int
-    if args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
+    if args.count == 2, args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
         (id, v) = (3, note)
-    } else if let (i, values) = table[args[0]], let index = values.firstIndex(of: args[1]) {
+    } else if args.count == 2, let (i, values) = table[args[0]], let index = values.firstIndex(of: args[1]) {
         (id, v) = (i, index)
+    } else if args.count == 4, args[0] == "shape", let layer = Int(args[1]), (1...2).contains(layer),
+              let lfo = Int(args[2]), (1...2).contains(lfo), let shape = shapeNames.firstIndex(of: args[3]) {
+        (id, v) = (UInt8(9 + (layer - 1) * 2 + lfo - 1), shape)
+    } else if args.count == 3, args[0] == "lfo2-dests", let layer = Int(args[1]), (1...2).contains(layer) {
+        var bits = 0
+        for name in args[2].split(separator: ",") where name != "none" {
+            guard let i = lfo2DestNames.firstIndex(of: String(name)) else { fail(usage) }
+            bits |= 1 << i
+        }
+        (id, v) = (UInt8(13 + layer - 1), bits)
     } else {
         fail(usage)
     }
     probeAck(Midi(port: portName), [0x7D, id, UInt8(v)])
-    print("\(args[0]) = \(args[1])")
+    print("\(args.joined(separator: " "))")
+}
+
+// pro800 settings: every setting, as the firmware has them now
+func settings() {
+    guard let reply = Midi(port: portName).request([0x54], expect: [0x54], timeout: 2) else {
+        fail("no reply (firmware 0.6.0 or later?)")
+    }
+    let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)])
+    let count = Int(b[0])
+    for i in 0..<min(count, settingNames.count) {
+        let v = Int(b[1 + 2 * i]) << 7 | Int(b[2 + 2 * i])
+        var text = "\(v)"
+        switch i {
+        case 0, 5: text = ["free", "clock"][safe: v] ?? text
+        case 1, 6: text = triggerModes[safe: v] ?? text
+        case 2: text = layerModes[safe: v] ?? text
+        case 4: text = ["off", "half", "full"][safe: v] ?? text
+        case 7, 8: text = "\(v + 1)"
+        case 9...12: text = shapeNames[safe: v] ?? text
+        case 13, 14: text = lfo2DestText(v)
+        case 15: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
+        case 17: text = slotName(v)
+        default: break
+        }
+        print("\(settingNames[i].padding(toLength: 14, withPad: " ", startingAt: 0)) \(text)")
+    }
+}
+
+extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+}
+
+// Parameter names, in the firmware's order (the knobs by hardware position, then Env 3, Env 4, LFO 2)
+let paramNames = ["amp-rel", "amp-sus", "amp-dec", "amp-att", "fil-rel", "fil-sus", "fil-dec", "fil-att",
+                  "resonance", "fil-env-amt", "freq-a", "freq-b", "fine", "a-pw", "b-pw", "a-level",
+                  "glide", "lfo-freq", "lfo-amount", "master-tune", "master-vol", "b-level", "pmod-osc-b", "pmod-fil-env",
+                  "cutoff", "noise",
+                  "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
+                  "lfo2-rate", "lfo2-amount"]
+
+// pro800 params [layer]: a layer's parameters, 0-99
+func params() {
+    let layers = args.isEmpty ? [1, 2] : args.compactMap { Int($0) }.filter { $0 == 1 || $0 == 2 }
+    let midi = Midi(port: portName)
+    for layer in layers {
+        guard let reply = midi.request([0x53, UInt8(layer - 1)], expect: [0x53, UInt8(layer - 1)], timeout: 2) else {
+            fail("no reply (firmware 0.6.0 or later?)")
+        }
+        let b = Array(reply[(sysexHeader.count + 2)..<(reply.count - 1)])
+        print("layer \(layer):")
+        var line = ""
+        for i in 0..<min(Int(b[0]), paramNames.count) {
+            let v = Int(b[1 + 2 * i]) << 7 | Int(b[2 + 2 * i])
+            line += "\(paramNames[i].padding(toLength: 13, withPad: " ", startingAt: 0))\(String(format: "%3d", (v * 99 + 8191) / 16383))   "
+            if i % 4 == 3 { print("  " + line); line = "" }
+        }
+        if !line.isEmpty { print("  " + line) }
+    }
+}
+
+// pro800 param <layer> <name> <0-99>
+func param() {
+    guard args.count == 3, let layer = Int(args[0]), layer == 1 || layer == 2,
+          let index = paramNames.firstIndex(of: args[1]), let value = Double(args[2]), (0...99).contains(value) else {
+        fail("usage: pro800 param <layer 1|2> <name> <0-99>\nnames: " + paramNames.joined(separator: " "))
+    }
+    let v = Int(value / 99 * 16383 + 0.5)
+    probeAck(Midi(port: portName), [0x52, UInt8(layer - 1), UInt8(index), UInt8(v >> 7), UInt8(v & 0x7F)])
+    print("layer \(layer) \(args[1]) = \(args[2])")
+}
+
+// pro800 factory [import <f> <slot> [--force]]
+func factory() {
+    let midi = Midi(port: portName)
+    if args.first == "import" {
+        guard args.count >= 3, let f = Int(args[1]), (0..<100).contains(f), let n = slotNumber(args[2]) else {
+            fail("usage: pro800 factory import <0-99> <slot> [--force]")
+        }
+        var data: [UInt8] = [0x51, UInt8(f), UInt8(n >> 7), UInt8(n & 0x7F)]
+        if flag("--force") { data.append(1) }
+        guard let reply = midi.request(data, expect: [0x51], timeout: 3) else { fail("no reply (firmware 0.6.0 or later?)") }
+        let status = Int(reply[sysexHeader.count + 1])
+        print(["copied factory \(f) to \(slotName(n))", "\(slotName(n)) isn't empty (--force to replace it)",
+               "factory patch \(f) isn't there", "write error"][safe: status] ?? "status \(status)")
+        return
+    }
+    for f in 0..<100 {
+        guard let reply = midi.request([0x50, UInt8(f)], expect: [0x50, UInt8(f)], timeout: 2) else {
+            fail("no reply (firmware 0.6.0 or later?)")
+        }
+        let b = Array(reply[(sysexHeader.count + 2)..<(reply.count - 1)])
+        print(String(format: "%2d  ", f) + (b.first == 1 ? String(decoding: b.dropFirst(), as: UTF8.self) : "(none)"))
+    }
 }
 
 // The layer the per-layer knobs edit: pro800 layer 1|2
@@ -853,6 +977,12 @@ func importStock() {
 
 // pro800 patch load|save|clear <slot>  (slot 0-399 or A00-D99)
 func patchCommand() {
+    if args.count >= 3, args[0] == "rename", let n = slotNumber(args[1]) {
+        let name = Array(args[2...].joined(separator: " ").utf8.filter { $0 >= 0x20 && $0 < 0x7F }.prefix(16))
+        probeAck(Midi(port: portName), [0x59, UInt8(n >> 7), UInt8(n & 0x7F)] + name)
+        print("renamed \(slotName(n)) to \(String(decoding: name, as: UTF8.self))")
+        return
+    }
     if args == ["init"] { // the basic sound PERF loads
         guard Midi(port: portName).request([0x5F], expect: [0x7F, 0x5F], timeout: 3) != nil else { fail("no reply") }
         print("loaded the init sound")
@@ -862,13 +992,7 @@ func patchCommand() {
         fail("usage: pro800 patch load|save|clear <slot 0-399 or A00-D99>  or  pro800 patch init")
     }
     if args[0] == "clear" { // an empty slot is 256 zero bytes
-        let midi = Midi(port: portName)
-        for offset in stride(from: 0, to: 256, by: 32) {
-            let address = n * 256 + offset
-            let data: [UInt8] = [0x5A, UInt8(address >> 14 & 0x7F), UInt8(address >> 7 & 0x7F), UInt8(address & 0x7F), 32]
-                + [UInt8](repeating: 0, count: 64)
-            guard midi.request(data, expect: [0x7F, 0x5A], timeout: 2) != nil else { fail("clear failed") }
-        }
+        probeAck(Midi(port: portName), [0x4F, UInt8(n >> 7), UInt8(n & 0x7F)])
         print("cleared \(slotName(n))")
         return
     }
@@ -896,9 +1020,11 @@ func patches() {
     print("\(counts[1]) ours, \(counts[2]) stock, \(counts[0]) empty, \(counts[3]) corrupt")
 }
 
-let sourceNames = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note"]
+let sourceNames = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
+                   "lfo2"]
 let destNames = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
-                 "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw"]
+                 "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
+                 "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw"]
 
 // pro800 route <layer 1|2> <source> <dest> <depth -99..99>  (0 removes)
 func route() {
@@ -1086,6 +1212,10 @@ case "check": check()
 case "panel": panel()
 case "state": state()
 case "set": setSetting()
+case "settings": settings()
+case "params": params()
+case "param": param()
+case "factory": factory()
 case "layer": layer()
 case "eeprom": eeprom()
 case "route": route()

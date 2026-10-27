@@ -12,16 +12,20 @@
 
 #define PATCH_COUNT 400
 #define PATCH_NAME  16
+#define FACTORY_COUNT 100
 #define STORE_TUNING_ADDRESS 0x1F500u
 #define STORE_TUNING_SIZE    0x700u
 
 typedef struct {
     char name[PATCH_NAME + 1];
-    uint8_t layer_mode, split, lfo_sync, lfo_trigger;
+    uint8_t layer_mode, split;
+    uint8_t lfo_sync[2], lfo_trigger[2]; // LFO 1, LFO 2
+    uint8_t lfo_shape[2][2];             // [layer][LFO 1, LFO 2], lfo_shape_t
+    uint8_t lfo2_dests[2];               // per layer, LFO2_TO_* bits
     uint32_t switches; // bit s: switch s engaged (controls_on() sense), for the latching buttons
     uint8_t keytrack;  // 0 off, 1 half, 2 full
     uint16_t pots[2][POT_COUNT]; // per layer, 0..65535; shared pots are the same in both
-    uint16_t extra[2][EXTRA_PARAMS]; // Env 3 and Env 4 per layer
+    uint16_t extra[2][EXTRA_PARAMS]; // Env 3, Env 4, LFO 2 rate and amount per layer
     route_t routes[2][ROUTES];
 } patch_t;
 
@@ -35,6 +39,13 @@ int store_load_patch(int n, patch_t *patch); // 1 if slot n holds one of our pat
 int store_save_patch(int n, const patch_t *patch);
 // Converts slot n from the stock format in place. 1 converted, 0 nothing to do (empty or already ours), -1 error.
 int store_import_stock(int n);
+// The stock factory bank (100 patches, left in place at 0x19000): its name, or 0 if that slot isn't a stock patch.
+int store_factory_name(int f, char name[PATCH_NAME + 1]);
+// Converts factory patch f into slot n. Returns 0 if f isn't a stock patch, -1 on a write error, else 1.
+int store_import_factory(int f, int n);
+// Sets the name of slot n (one of ours). Returns 0 if the slot isn't ours or the write failed.
+int store_rename(int n, const char *name);
+int store_clear(int n); // the slot becomes empty (all zeros)
 // Writes the global block, marking the EEPROM as ours.
 int store_finish_import(void);
 int store_last_patch(void);

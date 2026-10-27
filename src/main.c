@@ -20,8 +20,19 @@
 //                          64 <button> <0|1>
 //   7B <address> <v1> <v0> write a byte of the HT16K33 display RAM (address 0-15)
 //   7C                     panel state; replies 7C <26 pots, 2 × 7 bits each> <24 switches, 0/1 each>
-//   7D <setting> <value>   set a menu setting (0 LFO sync, 1 LFO retrigger, 2 layer mode, 3 split note)
+//   7D <setting> <value>   set a setting (host_setting_t: 0 LFO 1 sync, 1 LFO 1 retrigger, 2 layer mode, 3 split
+//                          note, 4 keyboard tracking, 5 LFO 2 sync, 6 LFO 2 retrigger, 7 edit layer, 8 selected LFO,
+//                          9-12 LFO shapes (layer 1 LFO 1, LFO 2, layer 2 LFO 1, LFO 2), 13-14 LFO 2 routing per layer)
+//   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
+//                          then env select, preset mode, current patch)
 //   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
+//   53 <layer>             the layer's parameters; replies 53 <layer> <count> <value 0-16383, 2 × 7 bits, each>
+//   52 <layer> <param> <v1> <v0>  set a parameter (0-16383; its knob goes into pickup); acknowledged
+//   59 <n1> <n0> <name>    rename patch n (up to 16 characters); acknowledged
+//   4F <n1> <n0>           clear patch n (it becomes an empty slot); acknowledged
+//   50 <f>                 factory patch f (0-99); replies 50 <f> <1 if it's there> <name>
+//   51 <f> <n1> <n0> [<1>] copy factory patch f into slot n, converted; only into an empty slot unless the last
+//                          byte is 1; replies 51 <0 done, 1 slot not empty, 2 no such factory patch, 3 write error>
 //   5A <a2> <a1> <a0> <n> <2n nibbles>  write n (1-48) bytes to the patch EEPROM; acknowledged when written
 //   5B                     import: convert every stock patch in place, then mark the EEPROM as ours; replies
 //                          5B <converted, 2 × 7 bits> <errors>
@@ -183,11 +194,11 @@ static void init_patch(void)
         for (unsigned i = 0; i < sizeof values / sizeof values[0]; i++)
             patch.pots[l][values[i].pot] = values[i].value;
     patch.switches = 1u << SWITCH_A_SAW;
+    for (int l = 0; l < 2; l++)
+        patch.extra[l][PARAM_LFO2_RATE - POT_COUNT] = 0x8000;
     patch.keytrack = 2;
     patch.layer_mode = LAYER_OFF;
-    patch.split = 60;
-    patch.lfo_sync = LFO_SYNC_FREE;
-    patch.lfo_trigger = LFO_TRIGGER_FREE;
+    patch.split = 60; // LFOs free-running triangles, LFO 2 with no routing
     synth_apply_patch(&patch);
     for (int i = 0; i <= PATCH_NAME; i++)
         loaded_name[i] = i < (int)sizeof name ? name[i] : 0;
@@ -224,10 +235,20 @@ static int save_patch(int n)
     return 1;
 }
 
-// Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value.
+// Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value. The
+// LFO pages set the LFO that Arp Up-Dn selects ("SYn2" / "trI2" for LFO 2).
 enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_COUNT };
 
 static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC"}; // keys 1-5
+
+static const char *page_name(int page)
+{
+    if (synth_lfo_select() && page == PAGE_LFO_SYNC)
+        return "SYn2";
+    if (synth_lfo_select() && page == PAGE_LFO_TRIGGER)
+        return "trI2";
+    return page_names[page];
+}
 
 static int menu_open, menu_page = -1, encoder_steps;
 static uint32_t show_value_at; // ms_ticks to replace the page name with its value; 0 = not pending
@@ -241,8 +262,8 @@ static int setting_count(int page)
 static int setting_get(int page)
 {
     switch (page) {
-    case PAGE_LFO_SYNC: return (int)lfo_sync;
-    case PAGE_LFO_TRIGGER: return (int)lfo_trigger;
+    case PAGE_LFO_SYNC: return (int)lfo_sync[synth_lfo_select()];
+    case PAGE_LFO_TRIGGER: return (int)lfo_trigger[synth_lfo_select()];
     case PAGE_LAYERS: return (int)synth_layer_mode();
     case PAGE_KEYTRACK: return synth_keytrack();
     default: return synth_split_note();
@@ -252,8 +273,8 @@ static int setting_get(int page)
 static void setting_set(int page, int value)
 {
     switch (page) {
-    case PAGE_LFO_SYNC: lfo_sync = (lfo_sync_t)value; break;
-    case PAGE_LFO_TRIGGER: lfo_trigger = (lfo_trigger_t)value; break;
+    case PAGE_LFO_SYNC: lfo_sync[synth_lfo_select()] = (lfo_sync_t)value; break;
+    case PAGE_LFO_TRIGGER: lfo_trigger[synth_lfo_select()] = (lfo_trigger_t)value; break;
     case PAGE_LAYERS: synth_set_layer_mode((layer_mode_t)value); break;
     case PAGE_KEYTRACK: synth_set_keytrack(value); break;
     default: synth_set_split_note(value); break;
@@ -275,6 +296,23 @@ static void show_edit_layer(void)
 {
     display_led(LED_SEQ1, synth_edit_layer() == 0);
     display_led(LED_SEQ2, synth_edit_layer() == 1);
+    display_led(LED_ARP_UP, synth_lfo_select());
+}
+
+// LFO shape: every toggle of the shape button steps to the next shape of the selected LFO (on the edit layer), and
+// for a moment after it VALUE steps through them both ways.
+static uint32_t shape_until; // ms_ticks until which VALUE picks the shape; 0 = not
+static int shape_steps;
+
+static void step_lfo_shape(int step)
+{
+    int layer = synth_edit_layer(), which = synth_lfo_select();
+    int shape = (synth_lfo_shape(layer, which) + step + LFO_SHAPE_COUNT) % LFO_SHAPE_COUNT;
+    synth_set_lfo_shape(layer, which, shape);
+    display_text(lfo_shape_name((lfo_shape_t)shape));
+    display_until = ms_ticks + 2000;
+    shape_until = display_until;
+    shape_steps = 0;
 }
 
 // MOD ASSIGN (the Arp Assign button): a number key picks the source, touching a knob or an LFO routing button
@@ -283,11 +321,12 @@ static void show_edit_layer(void)
 static int assigning, assign_source, assign_dest = DEST_NONE, assign_steps;
 
 static const char source_names[SRC_COUNT][5] = {
-    "", "LFO", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE",
+    "", "LFO1", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE", "LFO2",
 };
 static const char dest_names[DEST_COUNT][6] = {
     "P.A", "P.b", "PIt", "CUt", "F.EA", "P.EA", "L.An", "L.Fr", "L.FL", "VCA",
     "A.LE", "b.LE", "noIS", "rES", "A.PU", "b.PU", "P.ob", "L.PU",
+    "L.rt", "L2.An", "L2.rt", "L2.Fr", "L2.FL", "L2.PU",
 };
 
 static void show_route(void)
@@ -306,7 +345,11 @@ static void assign_end(void)
 static int assign_event(control_kind_t kind, int index, int32_t value)
 {
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value) {
-        assign_source = index == BUTTON_0 ? SRC_NOTE : index - BUTTON_0;
+        int source = index == BUTTON_0 ? SRC_NOTE : index - BUTTON_0;
+        if (source == SRC_LFO) // key 1: the selected LFO; pressed again, the other one
+            source = assign_source == SRC_LFO ? SRC_LFO2 : assign_source == SRC_LFO2 ? SRC_LFO
+                   : synth_lfo_select() ? SRC_LFO2 : SRC_LFO;
+        assign_source = source;
         assign_dest = DEST_NONE;
         display_text(source_names[assign_source]);
         display_until = 0;
@@ -404,6 +447,38 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         assign_end(); // and the button does its usual job
     if (assigning && assign_event(kind, index, value))
         return;
+    if (kind == CONTROL_SWITCH && index == SWITCH_LFO_SHAPE)
+        step_lfo_shape(1);
+    if (kind == CONTROL_ENCODER && shape_until && (int32_t)(ms_ticks - shape_until) < 0) {
+        shape_steps += (int)value;
+        if (shape_steps >= 4 || shape_steps <= -4)
+            step_lfo_shape(shape_steps > 0 ? 1 : -1);
+        return;
+    }
+    if (kind == CONTROL_BUTTON && index == BUTTON_ARP_UP && value) {
+        synth_set_lfo_select(!synth_lfo_select());
+        show_edit_layer();
+        display_text(synth_lfo_select() ? "LFO2" : "LFO1");
+        display_until = ms_ticks + 1000;
+        if (menu_open && (menu_page == PAGE_LFO_SYNC || menu_page == PAGE_LFO_TRIGGER)) {
+            display_until = 0;
+            show_value_at = ms_ticks + 700; // then the page's value for this LFO
+        }
+    }
+    if (kind == CONTROL_SWITCH && synth_lfo_select()
+        && (index == SWITCH_LFO_FREQ || index == SWITCH_LFO_FILTER || index == SWITCH_LFO_PW)) {
+        char text[] = "Fr.on";
+        if (index == SWITCH_LFO_FILTER)
+            text[1] = 'L';
+        if (index == SWITCH_LFO_PW) {
+            text[0] = 'P';
+            text[1] = 'U';
+        }
+        if (!synth_lfo2_toggle(index))
+            text[4] = 'F'; // "oF"
+        display_text(text);
+        display_until = ms_ticks + 1000;
+    }
     if (kind == CONTROL_SWITCH && (index == SWITCH_KEYTRACK_HALF || index == SWITCH_KEYTRACK_FULL)) {
         static const char names[3][5] = {"FEnV", "EnV3", "EnV4"};
         display_text(names[controls_keytrack()]); // the envelope the filter ADSR knobs now edit
@@ -414,7 +489,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         int pending = synth_pot_pending(index);
         float knob = pending ? synth_pot_value(index) : (float)value / 4095.0f;
         char text[6];
-        if (index == POT_LFO_FREQ && lfo_sync == LFO_SYNC_CLOCK) {
+        if (index == POT_LFO_FREQ && lfo_sync[synth_lfo_select()] == LFO_SYNC_CLOCK) {
             const char *name = lfo_division_name(lfo_division(knob));
             int n = 0;
             while (name[n] && n < 4) {
@@ -448,7 +523,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index > BUTTON_9) {
         if (index != BUTTON_SETTINGS && index != BUTTON_SEQ1 && index != BUTTON_SEQ2 && index != BUTTON_PRESET
-            && index != BUTTON_REC && index != BUTTON_ARP_ASSIGN)
+            && index != BUTTON_REC && index != BUTTON_ARP_ASSIGN && index != BUTTON_ARP_UP)
             display_led(button_led[index], (int)value);
         if (index == BUTTON_PERF && value && !saving && !menu_open)
             init_patch();
@@ -491,7 +566,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         if (page >= 0 && page < PAGE_COUNT) {
             menu_page = page;
             encoder_steps = 0;
-            display_text(page_names[page]);
+            display_text(page_name(page));
             show_value_at = ms_ticks + 700;
             display_until = 0;
         }
@@ -545,6 +620,60 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             idle_display();
         }
     }
+}
+
+// Settings as the host sees them (7D sets one, 54 reads them all).
+typedef enum {
+    SET_LFO1_SYNC, SET_LFO1_TRIGGER, SET_LAYERS, SET_SPLIT, SET_KEYTRACK, SET_LFO2_SYNC, SET_LFO2_TRIGGER,
+    SET_EDIT_LAYER, SET_LFO_SELECT, SET_SHAPE_L1_LFO1, SET_SHAPE_L1_LFO2, SET_SHAPE_L2_LFO1, SET_SHAPE_L2_LFO2,
+    SET_LFO2_DESTS_L1, SET_LFO2_DESTS_L2,
+    SET_WRITABLE,                                        // read-only from here
+    SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_COUNT
+} host_setting_t;
+
+static int host_setting_get(int id)
+{
+    switch (id) {
+    case SET_LFO1_SYNC: case SET_LFO2_SYNC: return (int)lfo_sync[id == SET_LFO2_SYNC];
+    case SET_LFO1_TRIGGER: case SET_LFO2_TRIGGER: return (int)lfo_trigger[id == SET_LFO2_TRIGGER];
+    case SET_LAYERS: return (int)synth_layer_mode();
+    case SET_SPLIT: return synth_split_note();
+    case SET_KEYTRACK: return synth_keytrack();
+    case SET_EDIT_LAYER: return synth_edit_layer();
+    case SET_LFO_SELECT: return synth_lfo_select();
+    case SET_SHAPE_L1_LFO1: case SET_SHAPE_L1_LFO2: case SET_SHAPE_L2_LFO1: case SET_SHAPE_L2_LFO2:
+        return synth_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2);
+    case SET_LFO2_DESTS_L1: case SET_LFO2_DESTS_L2: return synth_lfo2_dests(id - SET_LFO2_DESTS_L1);
+    case SET_ENV_SELECT: return synth_env_select();
+    case SET_PRESET_MODE: return preset_mode;
+    case SET_CURRENT_PATCH: return current_patch;
+    default: return 0;
+    }
+}
+
+static int host_setting_set(int id, int value)
+{
+    static const uint8_t counts[SET_WRITABLE] = {
+        LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, 2, 2,
+        LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8,
+    };
+    if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
+        return 0;
+    switch (id) {
+    case SET_LFO1_SYNC: case SET_LFO2_SYNC: lfo_sync[id == SET_LFO2_SYNC] = (lfo_sync_t)value; break;
+    case SET_LFO1_TRIGGER: case SET_LFO2_TRIGGER: lfo_trigger[id == SET_LFO2_TRIGGER] = (lfo_trigger_t)value; break;
+    case SET_LAYERS: synth_set_layer_mode((layer_mode_t)value); break;
+    case SET_SPLIT: synth_set_split_note(value); break;
+    case SET_KEYTRACK: synth_set_keytrack(value); break;
+    case SET_EDIT_LAYER: synth_set_edit_layer(value); break;
+    case SET_LFO_SELECT: synth_set_lfo_select(value); break;
+    case SET_LFO2_DESTS_L1: case SET_LFO2_DESTS_L2: synth_set_lfo2_dests(id - SET_LFO2_DESTS_L1, value); break;
+    default:
+        synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
+        break;
+    }
+    show_edit_layer();
+    return 1;
 }
 
 static void run_tuning(void)
@@ -631,10 +760,72 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = 0x7F;
         reply[n++] = 0x7B;
     }
-    if (data_length == 3 && data[0] == 0x7D && data[1] < PAGE_COUNT && data[2] < setting_count(data[1])) {
-        setting_set(data[1], data[2]);
+    if (data_length == 3 && data[0] == 0x7D && host_setting_set(data[1], data[2])) {
         reply[n++] = 0x7F;
         reply[n++] = 0x7D;
+    }
+    if (data_length == 1 && data[0] == 0x54) {
+        reply[n++] = 0x54;
+        reply[n++] = SET_COUNT;
+        for (int i = 0; i < SET_COUNT; i++) {
+            int v = host_setting_get(i);
+            reply[n++] = (uint8_t)(v >> 7 & 0x7F);
+            reply[n++] = (uint8_t)(v & 0x7F);
+        }
+    }
+    if (data_length == 2 && data[0] == 0x53 && data[1] < 2) {
+        reply[n++] = 0x53;
+        reply[n++] = data[1];
+        reply[n++] = PARAM_COUNT;
+        for (int i = 0; i < PARAM_COUNT; i++) {
+            int v = (int)(synth_param(data[1], i) * 16383.0f + 0.5f);
+            reply[n++] = (uint8_t)(v >> 7);
+            reply[n++] = (uint8_t)(v & 0x7F);
+        }
+    }
+    if (data_length == 5 && data[0] == 0x52 && data[1] < 2 && data[2] < PARAM_COUNT) {
+        synth_set_param(data[1], data[2], (float)(data[3] << 7 | data[4]) / 16383.0f);
+        reply[n++] = 0x7F;
+        reply[n++] = 0x52;
+    }
+    if (data_length >= 3 && data_length <= 3 + PATCH_NAME && data[0] == 0x59) {
+        int slot = data[1] << 7 | data[2];
+        char name[PATCH_NAME + 1] = {0};
+        for (int i = 0; i < data_length - 3; i++)
+            name[i] = data[3 + i] >= 0x20 ? (char)data[3 + i] : ' ';
+        if (slot < PATCH_COUNT && store_rename(slot, name)) {
+            if (slot == current_patch && preset_mode)
+                for (int i = 0; i <= PATCH_NAME; i++)
+                    loaded_name[i] = name[i];
+            reply[n++] = 0x7F;
+            reply[n++] = 0x59;
+        }
+    }
+    if (data_length == 3 && data[0] == 0x4F && (data[1] << 7 | data[2]) < PATCH_COUNT) {
+        if (store_clear(data[1] << 7 | data[2])) {
+            reply[n++] = 0x7F;
+            reply[n++] = 0x4F;
+        }
+    }
+    if (data_length == 2 && data[0] == 0x50 && data[1] < FACTORY_COUNT) {
+        char name[PATCH_NAME + 1];
+        int ok = store_factory_name(data[1], name);
+        reply[n++] = 0x50;
+        reply[n++] = data[1];
+        reply[n++] = (uint8_t)ok;
+        for (int i = 0; ok && name[i]; i++)
+            reply[n++] = (uint8_t)name[i] & 0x7F;
+    }
+    if ((data_length == 4 || data_length == 5) && data[0] == 0x51 && data[1] < FACTORY_COUNT
+        && (data[2] << 7 | data[3]) < PATCH_COUNT) {
+        int slot = data[2] << 7 | data[3], force = data_length == 5 && data[4] == 1;
+        int status = !force && store_slot_kind(slot) != SLOT_EMPTY ? 1 : 0;
+        if (!status) {
+            int r = store_import_factory(data[1], slot);
+            status = r > 0 ? 0 : r == 0 ? 2 : 3;
+        }
+        reply[n++] = 0x51;
+        reply[n++] = (uint8_t)status;
     }
     if (data_length >= 5 && data[0] == 0x5A && data[4] >= 1 && data[4] <= 48 && data_length == 5 + 2 * data[4]) {
         uint32_t address = (uint32_t)data[1] << 14 | (uint32_t)data[2] << 7 | data[3];

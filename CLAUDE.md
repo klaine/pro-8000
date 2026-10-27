@@ -18,14 +18,19 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
   - Patches: `patches`, `patch load|save|clear <slot>`, `import --yes`, `eeprom <file>` (read),
     `eeprom-write <image> --yes` (write and verify, e.g. back to stock).
-  - Engine: `set lfo-sync free|clock`, `set lfo-trigger free|first|every|voice`, `set layers
-    off|split|stack|channel`, `set split <note>`, `layer 1|2`, `clock <bpm> [seconds]`. The WebMIDI page `scripts/web.sh` →
-    http://localhost:8800 (Chrome/Edge) shows and maps the same, map in `tools/web/panel-map.json`.
+  - Engine: `set lfo-sync|lfo2-sync free|clock`, `set lfo-trigger|lfo2-trigger free|first|every|voice`, `set layers
+    off|split|stack|channel`, `set split <note>`, `set keytrack`, `set lfo 1|2`, `set shape <layer> <lfo> <shape>`,
+    `set lfo2-dests <layer> …`, `settings`, `params`, `param <layer> <name> <0-99>`, `layer 1|2`, `route`, `routes`,
+    `clock <bpm> [seconds]`, `timing`.
+  - Patches also: `patch rename <slot> <name>`, `factory` (list), `factory import <f> <slot> [--force]`.
+  - The WebMIDI page `scripts/web.sh` → http://localhost:8800 (Chrome/Edge; the desktop app's built-in browser
+    has no MIDI): tabs Sound, Mod matrix, Patches, Play, System, Panel mapping (map in `tools/web/panel-map.json`).
   - Probe commands for our firmware: `direct on|off`, `cv`, `gate`, `measure` (the tuning comparator),
     `tune`, `tuning` (print the tables), `check` (cents error of every oscillator through the tables).
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
 - `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, because the bootloader takes it as XYZ.
+- `MANUAL.md` is the user manual (panel operation, the web page, recovery); keep it in step with panel changes.
 
 ## Layout
 

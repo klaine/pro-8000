@@ -66,6 +66,57 @@
            color: var(--ink); max-width: 100%; }
   .muted { color: var(--muted); }
   #route-log { font: 12px ui-monospace, monospace; color: var(--muted); }
+  nav.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+  nav.tabs button { border-radius: 999px; padding: 4px 12px; }
+  nav.tabs button.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .panel[hidden] { display: none; }
+  .groups { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: start; }
+  .group { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .group h3 { font-size: 13px; margin: 0 0 8px; display: flex; flex-direction: column; gap: 2px; }
+  .group h3 .muted { font-weight: 400; font-size: 12px; }
+  .param { display: grid; grid-template-columns: 92px 1fr 66px; gap: 8px; align-items: center; margin: 4px 0; }
+  .param label { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .param label .tag { font-size: 9px; padding: 0 3px; margin-left: 2px; }
+  .param .val { font: 12px ui-monospace, monospace; text-align: right; }
+  .param input[type=range] { width: 100%; accent-color: var(--accent); }
+  .tag { font-size: 10px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--muted); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); }
+  .seg button:last-child { border-right: 0; }
+  .seg button.active { background: var(--accent); color: #fff; }
+  .shapes { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+  .shapes button { padding: 3px 6px; display: flex; flex-direction: column; align-items: center; font-size: 11px; gap: 2px; }
+  .shapes button.active { border-color: var(--accent); background: var(--accent-soft); }
+  .shapes svg { width: 34px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+  .field { display: flex; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
+  .field > span:first-child { width: 92px; color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tr.current td { background: var(--accent-soft); }
+  td.slot { font: 12px ui-monospace, monospace; white-space: nowrap; }
+  td.actions { white-space: nowrap; text-align: right; }
+  td.actions button { padding: 2px 8px; font-size: 12px; }
+  td input.name { font: inherit; width: 100%; min-width: 120px; border: 1px solid transparent; background: transparent;
+                  color: var(--ink); border-radius: 4px; padding: 2px 4px; }
+  td input.name:hover, td input.name:focus { border-color: var(--line); outline: none; }
+  .kind { font-size: 11px; color: var(--muted); }
+  .kind.stock { color: var(--accent); }
+  .kind.corrupt { color: var(--warn); }
+  .table-wrap { overflow-x: auto; }
+  .msg { color: var(--muted); font-size: 12px; min-height: 1.4em; }
+  .msg.bad { color: var(--warn); }
+  .msg.ok { color: var(--on); }
+  pre.out { font: 12px ui-monospace, monospace; background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+            padding: 8px; overflow-x: auto; margin: 0; }
+  .stat { display: inline-block; background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+          padding: 8px 12px; margin: 0 8px 8px 0; min-width: 120px; }
+  .stat b { display: block; font-size: 18px; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .depth { display: flex; gap: 6px; align-items: center; }
+  .depth input[type=range] { width: 140px; accent-color: var(--accent); }
+  .depth output { font: 12px ui-monospace, monospace; width: 30px; text-align: right; }
+  @media (max-width: 600px) { .param { grid-template-columns: 76px 1fr 58px; } td.actions { white-space: normal; } }
 </style>
 </head>
 <body>
@@ -73,8 +124,88 @@
   <h1>Pro 800 Panel</h1>
   <button class="primary" id="connect">Connect</button>
   <span id="status">Not connected. Needs Chrome or Edge (WebMIDI with SysEx).</span>
+  <nav class="tabs" id="tabs">
+    <button data-tab="sound">Sound</button><button data-tab="matrix">Mod matrix</button>
+    <button data-tab="patches">Patches</button><button data-tab="play">Play</button>
+    <button data-tab="system">System</button><button data-tab="mapping">Panel mapping</button>
+  </nav>
 </header>
 <main>
+<div class="panel" id="tab-sound">
+  <section>
+    <h2>Layers</h2>
+    <p class="hint">The page follows the synth: turn a knob, press Seq1 / Seq2 or Arp Up-Dn on the panel and it shows
+      here within a second. Moving a slider here puts that knob in pickup on the panel, just like loading a patch.
+      The oscillator and routing buttons stay on the panel.</p>
+    <div class="row">
+      <span>Editing <span class="seg" id="edit-layer"><button data-v="0">Layer 1</button><button data-v="1">Layer 2</button></span></span>
+      <span>Mode <select id="layer-mode"><option value="0">Off (one sound, 8 voices)</option><option value="1">Split</option>
+        <option value="2">Stack</option><option value="3">MIDI channel (ch 2 = layer 2)</option></select></span>
+      <span>Split at <select id="split"></select></span>
+      <span>Keyboard tracking <select id="keytrack"><option value="0">Off</option><option value="1">Half</option>
+        <option value="2">Full</option></select></span>
+      <span class="muted" id="panel-state"></span>
+    </div>
+  </section>
+  <section>
+    <h2>Parameters <span class="muted" id="params-layer"></span></h2>
+    <div class="groups" id="groups"></div>
+  </section>
+</div>
+
+<div class="panel" id="tab-matrix">
+  <section>
+    <h2>Mod matrix</h2>
+    <p class="hint">Eight routes per layer. Each route adds source × depth to its destination, per voice. The ones
+      marked <span class="tag">wire</span> are a single wire for all voices, so they follow the most recently played
+      note. On the panel: Arp Assign, a number key for the source (1 again swaps LFO 1 / LFO 2), touch a knob or LFO
+      button for the destination, VALUE for the depth.</p>
+    <div class="row"><span class="seg" id="matrix-layer"><button data-v="0">Layer 1</button><button data-v="1">Layer 2</button></span>
+      <button id="matrix-refresh">Refresh</button><span class="msg" id="matrix-msg"></span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Source</th><th>Destination</th><th>Depth</th><th></th></tr></thead>
+      <tbody id="routes"></tbody>
+      <tfoot><tr><td><select id="new-source"></select></td><td><select id="new-dest"></select></td>
+        <td><div class="depth"><input type="range" id="new-depth" min="-99" max="99" value="50"><output id="new-depth-out">50</output></div></td>
+        <td class="actions"><button class="primary" id="add-route">Add route</button></td></tr></tfoot>
+    </table></div>
+  </section>
+</div>
+
+<div class="panel" id="tab-patches">
+  <section>
+    <h2>Patches</h2>
+    <p class="hint">400 slots in four banks (A-D, as on the panel). Saving takes the sound as it is now on the synth.
+      Names travel with the sound; rename by typing in the name and pressing Enter. Export saves one patch as a
+      256-byte .p8p file, which Import writes back into any slot.</p>
+    <div class="row">
+      <span class="seg" id="bank"><button data-v="0">A</button><button data-v="1">b</button><button data-v="2">C</button><button data-v="3">d</button></span>
+      <button id="scan">Rescan</button>
+      <button id="init-sound">Load the init sound</button>
+      <label><input type="checkbox" id="show-empty" checked> show empty slots</label>
+      <button id="backup-all">Back up all 400 (.bin)</button>
+      <input type="file" id="import-file" accept=".p8p,application/octet-stream" hidden>
+      <span class="msg" id="patch-msg"></span>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Slot</th><th>Name</th><th>Kind</th><th></th></tr></thead>
+      <tbody id="slots"></tbody>
+    </table></div>
+  </section>
+  <section>
+    <h2>Factory bank</h2>
+    <p class="hint">The 100 sounds the PRO-800 shipped with are still in the EEPROM, untouched. Copy any of them
+      into an empty slot. The conversion is close rather than identical, because our engine's curves differ from
+      the stock firmware's.</p>
+    <div class="row"><button id="factory-load">List the factory bank</button><span class="msg" id="factory-msg"></span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Name</th><th>Into slot</th><th></th></tr></thead>
+      <tbody id="factory"></tbody>
+    </table></div>
+  </section>
+</div>
+
+<div class="panel" id="tab-play">
   <section>
     <h2>Play</h2>
     <p class="hint">Click the keys, or play from the computer keyboard: A W S E D F T G Y H U J K O L P ; ' (two
@@ -99,6 +230,26 @@
       <span id="route-log"></span>
     </div>
   </section>
+</div>
+
+<div class="panel" id="tab-system">
+  <section>
+    <h2>Firmware</h2>
+    <div id="stats"></div>
+    <div class="row"><button id="timing">Measure timing</button><span class="msg" id="timing-msg"></span></div>
+  </section>
+  <section>
+    <h2>Tuning</h2>
+    <p class="hint">Autotune measures every oscillator and filter through the tuning comparator and stores the
+      tables in the EEPROM. It takes about 25 seconds, during which the synth is silent and doesn't answer. The
+      Tune button on the panel does the same.</p>
+    <div class="row"><button id="autotune">Run autotune</button><button id="tables">Show the tables</button>
+      <span class="msg" id="tune-msg"></span></div>
+    <pre class="out" id="tables-out" hidden></pre>
+  </section>
+</div>
+
+<div class="panel" id="tab-mapping">
   <section>
     <h2>Pots</h2>
     <div class="row"><label><input type="checkbox" id="report"> Report panel events</label>
@@ -145,6 +296,7 @@
     </div>
     <textarea id="json" spellcheck="false"></textarea>
   </section>
+</div>
 </main>
 <script>
 const HEADER = [0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00];
@@ -216,6 +368,7 @@ async function connect() {
     status.className = "ok";
     midiAccess = access;
     fillRouteInputs();
+    afterConnect();
     access.addEventListener("statechange", fillRouteInputs);
     access.onstatechange = () => { if (input && input.state === "disconnected") {
       status.textContent = "Disconnected"; status.className = "bad"; } };
@@ -456,7 +609,492 @@ document.getElementById("route-from").onchange = e => {
   };
 };
 
+// ===================== synth editor (firmware 0.6.0+) =====================
+// Requests go one at a time, so replies can't be mixed up.
+let queue = Promise.resolve();
+function ask(data, prefix, ms = 1500) {
+  const p = queue.then(() => request(data, prefix, ms));
+  queue = p.catch(() => null);
+  return p;
+}
+const ack = (data, ms) => ask(data, [0x7F, data[0]], ms);
+const msg = (id, text, kind = "") => { const el = document.getElementById(id); el.textContent = text; el.className = "msg " + kind; };
+const result = (id, ok, done, failed) => msg(id, ok ? done : failed, ok ? "ok" : "bad");
+
+// --- tabs ---
+let tab = "sound";
+function showTab(name) {
+  tab = name;
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".panel").forEach(p => p.hidden = p.id !== "tab-" + name);
+  try { localStorage.setItem("pro800-tab", name); } catch (e) {}
+  if (!output) return;
+  if (name === "matrix") loadRoutes();
+  if (name === "patches" && !slots.length) scanSlots();
+  if (name === "system") showStats();
+}
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
+// --- model ---
+const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo2Sync", "lfo2Trigger", "editLayer",
+  "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "envSelect", "presetMode", "patch"];
+const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
+let settings = null, params = null, paramsLayer = 0, dragging = null;
+
+// [label, per layer] in the firmware's order: the knobs by hardware position, then Env 3, Env 4, LFO 2
+const PARAMS = [["Release", 1], ["Sustain", 1], ["Decay", 1], ["Attack", 1], ["Release", 1], ["Sustain", 1], ["Decay", 1],
+  ["Attack", 1], ["Resonance", 0], ["Env amount", 1], ["Frequency", 1], ["Frequency", 1], ["Fine", 1], ["Pulse width", 0],
+  ["Pulse width", 0], ["Osc A", 0], ["Glide", 1], ["Rate", 1], ["Amount", 1], ["Master tune", 1], ["Master vol", 0],
+  ["Osc B", 0], ["Osc B amount", 0], ["Filter env", 1], ["Cutoff", 1], ["Noise", 0],
+  ["Attack", 1], ["Decay", 1], ["Sustain", 1], ["Release", 1], ["Attack", 1], ["Decay", 1], ["Sustain", 1], ["Release", 1],
+  ["Rate", 1], ["Amount", 1]];
+const GROUPS = [["Oscillator A", [10, 13]], ["Oscillator B", [11, 12, 14]], ["Mixer", [15, 21, 25]],
+  ["Filter", [24, 8, 9]], ["Filter envelope", [7, 6, 5, 4]], ["Amp envelope", [3, 2, 1, 0]],
+  ["Env 3", [26, 27, 28, 29], "filter ADSR knobs, keytrack switch in the middle"],
+  ["Env 4", [30, 31, 32, 33], "filter ADSR knobs, keytrack switch at the top"],
+  ["Poly-mod", [23, 22]], ["LFO 1", [17, 18], 0], ["LFO 2", [34, 35], 1], ["Glide and tune", [16, 19]]];
+const ENV_TIME = new Set([0, 2, 3, 4, 6, 7, 26, 27, 29, 30, 31, 33]);
+const DIVISIONS = ["8 bars", "4 bars", "2 bars", "1 bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
+  "1/16T", "1/32"];
+const SHAPES = [["Triangle", "M1 14 9 2 17 14 25 2 33 14"], ["Square", "M1 2H9V14H17V2H25V14H33"],
+  ["Ramp up", "M1 14 17 2V14L33 2"], ["Ramp down", "M1 2 17 14V2L33 14"],
+  ["Sine", "M1 14C5 14 5 2 9 2S13 14 17 14 21 2 25 2 29 14 33 14"], ["S&H", "M1 10H7V3H13V12H19V6H25V13H33"],
+  ["Drift", "M1 10C6 10 6 3 11 3S16 12 21 12 25 6 33 6"]];
+const SYNC = ["Free", "MIDI clock"], TRIGGER = ["Free-running", "First key", "Every key", "Per voice (poly)"];
+
+function seconds(s) { return s < 1 ? Math.round(s * 1000) + " ms" : s.toFixed(s < 10 ? 2 : 1) + " s"; }
+function format(i, v) {
+  const signed = x => (x > 0 ? "+" : "") + x;
+  if (i === 10 || i === 11) return signed(Math.floor((v - 0.5) * 48 + 24.5) - 24) + " st";
+  if (i === 12 || i === 19) return signed(Math.round((v - 0.5) * 200)) + " ct";
+  if (i === 9) return signed(Math.round((v - 0.5) * 198));
+  if (ENV_TIME.has(i)) return seconds(0.001 * 2 ** (v * 13.2877));
+  if (i === 16) return v < 0.02 ? "off" : seconds(0.002 * 2 ** (v * 10));
+  if (i === 17 || i === 34) {
+    const which = i === 34 ? 1 : 0;
+    if (settings && settings[which ? "lfo2Sync" : "lfo1Sync"]) return DIVISIONS[Math.round(v * 14)];
+    const hz = 0.05 * 2 ** (v * 10);
+    return hz < 10 ? hz.toFixed(2) + " Hz" : hz.toFixed(1) + " Hz";
+  }
+  return String(Math.round(v * 99));
+}
+
+function buildGroups() {
+  const box = document.getElementById("groups");
+  for (const [title, list, extra] of GROUPS) {
+    const g = document.createElement("div");
+    g.className = "group";
+    const note = typeof extra === "string" ? `<span class="muted">${extra}</span>` : "";
+    g.innerHTML = `<h3><span>${title}</span>${note}</h3>`;
+    for (const i of list) {
+      const row = document.createElement("div");
+      row.className = "param";
+      row.innerHTML = `<label for="p${i}">${PARAMS[i][0]}${PARAMS[i][1] ? "" : ' <span class="tag" title="shared: the same in both layers">S</span>'}</label>
+        <input type="range" id="p${i}" min="0" max="16383"><span class="val" id="pv${i}">–</span>`;
+      const slider = row.querySelector("input");
+      let timer = 0;
+      slider.addEventListener("pointerdown", () => dragging = i);
+      slider.addEventListener("pointerup", () => setTimeout(() => { if (dragging === i) dragging = null; }, 1200));
+      slider.oninput = () => {
+        const v = +slider.value;
+        if (params) params[i] = v / 16383;
+        document.getElementById("pv" + i).textContent = format(i, v / 16383);
+        clearTimeout(timer);
+        timer = setTimeout(() => send([0x52, paramsLayer, i, v >> 7, v & 0x7F]), 25);
+      };
+      g.appendChild(row);
+    }
+    if (extra === 0 || extra === 1) g.appendChild(lfoControls(extra));
+    box.appendChild(g);
+  }
+}
+
+function lfoControls(which) {
+  const box = document.createElement("div");
+  const n = which + 1;
+  box.innerHTML = `<div class="shapes" id="shapes${which}">${SHAPES.map(([name, d], s) =>
+      `<button data-s="${s}" title="${name}"><svg viewBox="0 0 34 16"><path d="${d}"/></svg>${name}</button>`).join("")}</div>
+    <div class="field"><span>Sync</span><select id="sync${which}">${SYNC.map((t, k) => `<option value="${k}">${t}</option>`).join("")}</select></div>
+    <div class="field"><span>Retrigger</span><select id="trig${which}">${TRIGGER.map((t, k) => `<option value="${k}">${t}</option>`).join("")}</select></div>
+    ${which ? `<div class="field"><span>Routing</span>
+      <label><input type="checkbox" data-bit="1"> pitch</label><label><input type="checkbox" data-bit="2"> filter</label>
+      <label title="pulse width is one wire: layer 1's LFO 2 only"><input type="checkbox" data-bit="4"> PW</label></div>` :
+      `<div class="field"><span>Routing</span><span class="muted">LFO → Freq / Filter / PW buttons on the panel</span></div>`}
+    <div class="field"><span></span><span class="muted" id="lfo-sel${which}"></span></div>`;
+  box.querySelectorAll(".shapes button").forEach(b => b.onclick = () =>
+    setSetting(SET_ID["shape" + (paramsLayer + 1) + n], +b.dataset.s));
+  box.querySelector("#sync" + which).onchange = e => setSetting(SET_ID[`lfo${n}Sync`], +e.target.value);
+  box.querySelector("#trig" + which).onchange = e => setSetting(SET_ID[`lfo${n}Trigger`], +e.target.value);
+  box.querySelectorAll("input[data-bit]").forEach(c => c.onchange = () => {
+    let bits = 0;
+    box.querySelectorAll("input[data-bit]").forEach(x => { if (x.checked) bits |= +x.dataset.bit; });
+    setSetting(SET_ID["lfo2Dests" + (paramsLayer + 1)], bits);
+  });
+  return box;
+}
+
+async function setSetting(id, value) {
+  if (!output) return;
+  if (!await ack([0x7D, id, value])) { document.getElementById("status").textContent = "The synth didn't accept that setting"; return; }
+  await refreshSettings();
+}
+
+async function refreshSettings() {
+  const d = await ask([0x54], [0x54], 1000);
+  if (!d) return false;
+  const s = {};
+  for (let i = 0; i < Math.min(d[1], SETTINGS.length); i++) s[SETTINGS[i]] = d[2 + 2 * i] << 7 | d[3 + 2 * i];
+  settings = s;
+  paintSettings();
+  return true;
+}
+
+async function refreshParams() {
+  if (!settings) return;
+  const layer = settings.editLayer;
+  const d = await ask([0x53, layer], [0x53, layer], 1000);
+  if (!d) return;
+  paramsLayer = layer;
+  params = [];
+  for (let i = 0; i < d[2]; i++) params.push((d[3 + 2 * i] << 7 | d[4 + 2 * i]) / 16383);
+  paintParams();
+}
+
+function paintSettings() {
+  const s = settings;
+  document.querySelectorAll("#edit-layer button").forEach(b => b.classList.toggle("active", +b.dataset.v === s.editLayer));
+  const set = (id, v) => { const el = document.getElementById(id); if (document.activeElement !== el) el.value = String(v); };
+  set("layer-mode", s.layers); set("split", s.split); set("keytrack", s.keytrack);
+  document.getElementById("split").disabled = s.layers !== 1;
+  for (const which of [0, 1]) {
+    const n = which + 1, shape = s[`shape${s.editLayer + 1}${n}`];
+    document.querySelectorAll(`#shapes${which} button`).forEach(b => b.classList.toggle("active", +b.dataset.s === shape));
+    set("sync" + which, s[`lfo${n}Sync`]); set("trig" + which, s[`lfo${n}Trigger`]);
+    document.getElementById("lfo-sel" + which).textContent = s.lfoSelect === which ? "the panel's LFO knobs edit this LFO" :
+      `Arp Up-Dn on the panel switches the LFO knobs to LFO ${n}`;
+  }
+  const dests = s["lfo2Dests" + (s.editLayer + 1)];
+  document.querySelectorAll("#shapes1 ~ .field input[data-bit]").forEach(c => c.checked = !!(dests & +c.dataset.bit));
+  const env = ["filter envelope", "Env 3", "Env 4"][s.envSelect] || "";
+  document.getElementById("panel-state").textContent =
+    `panel: filter ADSR knobs edit the ${env}; ${s.presetMode ? "patch " + slotLabel(s.patch) : "manual mode"}`;
+  document.getElementById("params-layer").textContent = `layer ${s.editLayer + 1}`;
+  document.querySelectorAll("#slots tr").forEach(tr => tr.classList.toggle("current", s.presetMode && +tr.dataset.slot === s.patch));
+}
+
+function paintParams() {
+  for (let i = 0; i < params.length; i++) {
+    const slider = document.getElementById("p" + i);
+    if (!slider || dragging === i) continue;
+    slider.value = Math.round(params[i] * 16383);
+    document.getElementById("pv" + i).textContent = format(i, params[i]);
+  }
+}
+
+document.querySelectorAll("#edit-layer button").forEach(b => b.onclick = async () => {
+  await setSetting(SET_ID.editLayer, +b.dataset.v); await refreshParams();
+});
+document.getElementById("layer-mode").onchange = e => setSetting(SET_ID.layers, +e.target.value);
+document.getElementById("keytrack").onchange = e => setSetting(SET_ID.keytrack, +e.target.value);
+document.getElementById("split").onchange = e => setSetting(SET_ID.split, +e.target.value);
+const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+for (let n = 0; n < 128; n++)
+  document.getElementById("split").insertAdjacentHTML("beforeend", `<option value="${n}">${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}</option>`);
+
+// keep in step with the panel
+let polling = false;
+setInterval(async () => {
+  if (!output || polling || document.hidden || (tab !== "sound" && tab !== "patches")) return;
+  polling = true;
+  try { if (await refreshSettings() && tab === "sound") await refreshParams(); } finally { polling = false; }
+}, 900);
+
+// --- mod matrix ---
+const SOURCES = ["", "LFO 1", "Filter envelope", "Amp envelope", "Velocity", "Mod wheel", "Aftertouch", "Env 3", "Env 4",
+  "Random (per note)", "Note number", "LFO 2"];
+const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount", "Poly-mod env amount", "LFO 1 amount",
+  "LFO 1 → pitch", "LFO 1 → filter", "VCA", "Osc A level", "Osc B level", "Noise", "Resonance", "A pulse width",
+  "B pulse width", "Poly-mod osc B", "LFO 1 → PW", "LFO 1 rate", "LFO 2 amount", "LFO 2 rate", "LFO 2 → pitch",
+  "LFO 2 → filter", "LFO 2 → PW"];
+const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23]);
+let matrixLayer = 0;
+const options = (list, skip) => list.map((t, i) => i === skip ? "" :
+  `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");
+document.getElementById("new-source").innerHTML = options(SOURCES, 0);
+document.getElementById("new-dest").innerHTML = options(DESTS, -1);
+document.getElementById("new-depth").oninput = e => document.getElementById("new-depth-out").textContent = e.target.value;
+
+async function setRoute(layer, src, dest, depth) {
+  const d = depth + 99;
+  return ack([0x56, layer, src, dest, d >> 7, d & 0x7F]);
+}
+async function loadRoutes() {
+  document.querySelectorAll("#matrix-layer button").forEach(b => b.classList.toggle("active", +b.dataset.v === matrixLayer));
+  const d = await ask([0x57, matrixLayer], [0x57, matrixLayer], 1500);
+  const body = document.getElementById("routes");
+  if (!d) { msg("matrix-msg", "No answer (firmware 0.5.0 or later?)", "bad"); return; }
+  msg("matrix-msg", "");
+  body.innerHTML = "";
+  let used = 0;
+  for (let r = 0; r < 8; r++) {
+    const src = d[2 + 4 * r], dest = d[3 + 4 * r], depth = (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99;
+    if (!src || src >= SOURCES.length || dest >= DESTS.length) continue;
+    used++;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><select class="s">${options(SOURCES, 0)}</select></td>
+      <td><select class="d">${options(DESTS, -1)}</select> ${WIRE.has(dest) ? '<span class="tag">wire</span>' : ""}</td>
+      <td><div class="depth"><input type="range" min="-99" max="99" value="${depth}"><output>${depth}</output></div></td>
+      <td class="actions"><button class="del">Remove</button></td>`;
+    tr.querySelector(".s").value = src; tr.querySelector(".d").value = dest;
+    const range = tr.querySelector("input"), out = tr.querySelector("output");
+    let timer = 0;
+    range.oninput = () => { out.textContent = range.value; clearTimeout(timer);
+      timer = setTimeout(() => setRoute(matrixLayer, src, dest, +range.value || 0), 40); };
+    range.onchange = () => { if (+range.value === 0) loadRoutes(); };
+    const move = async () => {
+      const s2 = +tr.querySelector(".s").value, d2 = +tr.querySelector(".d").value;
+      await setRoute(matrixLayer, src, dest, 0);
+      if (!await setRoute(matrixLayer, s2, d2, depth || 50)) msg("matrix-msg", "Couldn't set that route", "bad");
+      loadRoutes();
+    };
+    tr.querySelector(".s").onchange = move; tr.querySelector(".d").onchange = move;
+    tr.querySelector(".del").onclick = async () => { await setRoute(matrixLayer, src, dest, 0); loadRoutes(); };
+    body.appendChild(tr);
+  }
+  if (!used) body.innerHTML = `<tr><td colspan="4" class="muted">No routes on layer ${matrixLayer + 1} yet.</td></tr>`;
+  document.getElementById("add-route").disabled = used >= 8;
+}
+document.querySelectorAll("#matrix-layer button").forEach(b => b.onclick = () => { matrixLayer = +b.dataset.v; loadRoutes(); });
+document.getElementById("matrix-refresh").onclick = loadRoutes;
+document.getElementById("add-route").onclick = async () => {
+  const src = +document.getElementById("new-source").value, dest = +document.getElementById("new-dest").value;
+  const depth = +document.getElementById("new-depth").value;
+  if (!depth) { msg("matrix-msg", "A depth of 0 is no route", "bad"); return; }
+  if (!await setRoute(matrixLayer, src, dest, depth)) msg("matrix-msg", "All 8 routes are in use", "bad");
+  loadRoutes();
+};
+
+// --- patches ---
+const KINDS = ["empty", "ours", "stock", "corrupt"];
+let slots = [], bank = 0;
+function slotLabel(n) { return "AbCd"[Math.floor(n / 100)] + "." + String(n % 100).padStart(2, "0"); }
+async function slotInfo(n) {
+  const d = await ask([0x5E, n >> 7, n & 0x7F], [0x5E, n >> 7, n & 0x7F], 2000);
+  if (!d) return null;
+  return { kind: d[3], name: String.fromCharCode(...d.slice(4)) };
+}
+async function scanSlots() {
+  if (!output) return;
+  slots = [];
+  for (let n = 0; n < 400; n++) {
+    const info = await slotInfo(n);
+    if (!info) { msg("patch-msg", "No answer (firmware 0.4.0 or later?)", "bad"); return; }
+    slots[n] = info;
+    if (n % 25 === 24) { msg("patch-msg", `reading slots… ${n + 1} / 400`); paintSlots(); }
+  }
+  const count = k => slots.filter(x => x.kind === k).length;
+  msg("patch-msg", `${count(1)} patches, ${count(0)} empty${count(2) ? `, ${count(2)} still in the stock format` : ""}`);
+  paintSlots();
+}
+function paintSlots() {
+  document.querySelectorAll("#bank button").forEach(b => b.classList.toggle("active", +b.dataset.v === bank));
+  const body = document.getElementById("slots"), showEmpty = document.getElementById("show-empty").checked;
+  body.innerHTML = "";
+  for (let n = bank * 100; n < bank * 100 + 100; n++) {
+    const info = slots[n];
+    if (!info || (!showEmpty && info.kind === 0)) continue;
+    const tr = document.createElement("tr");
+    tr.dataset.slot = n;
+    if (settings && settings.presetMode && settings.patch === n) tr.className = "current";
+    const ours = info.kind === 1;
+    tr.innerHTML = `<td class="slot">${slotLabel(n)}</td>
+      <td>${ours ? `<input class="name" maxlength="16" placeholder="(no name)">` : '<span class="muted">–</span>'}</td>
+      <td><span class="kind ${KINDS[info.kind]}">${KINDS[info.kind]}</span></td>
+      <td class="actions">${ours ? '<button data-a="load">Load</button> ' : ""}<button data-a="save">Save here</button>
+        ${ours ? '<button data-a="export">Export</button> ' : ""}<button data-a="import">Import…</button>
+        ${info.kind ? '<button data-a="clear">Clear</button>' : ""}</td>`;
+    if (ours) {
+      const inp = tr.querySelector("input.name");
+      inp.value = info.name;
+      inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); };
+      inp.onchange = () => renameSlot(n, inp.value);
+    }
+    tr.querySelectorAll("button").forEach(b => b.onclick = () => slotAction(b.dataset.a, n));
+    body.appendChild(tr);
+  }
+}
+async function refreshSlot(n) { const info = await slotInfo(n); if (info) slots[n] = info; paintSlots(); }
+async function renameSlot(n, name) {
+  const bytes = Array.from(name.slice(0, 16)).map(c => c.charCodeAt(0)).filter(c => c >= 0x20 && c < 0x7F);
+  result("patch-msg", await ack([0x59, n >> 7, n & 0x7F, ...bytes], 3000), `renamed ${slotLabel(n)}`, "rename failed");
+  refreshSlot(n);
+}
+async function readBytes(address, count) {
+  const out = [];
+  for (let at = address; at < address + count; at += 48) {
+    const n = Math.min(48, address + count - at), a = [at >> 14 & 0x7F, at >> 7 & 0x7F, at & 0x7F];
+    const d = await ask([0x79, ...a, n], [0x79, ...a, n], 2000);
+    if (!d) return null;
+    for (let i = 0; i < n; i++) out.push(d[7 + 2 * i] << 4 | d[8 + 2 * i]);
+  }
+  return out;
+}
+async function writeBytes(address, bytes) {
+  for (let off = 0; off < bytes.length; off += 48) {
+    const chunk = bytes.slice(off, off + 48), at = address + off;
+    const nibbles = chunk.flatMap(b => [b >> 4, b & 15]);
+    if (!await ack([0x5A, at >> 14 & 0x7F, at >> 7 & 0x7F, at & 0x7F, chunk.length, ...nibbles], 3000)) return false;
+  }
+  return true;
+}
+function download(name, bytes) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/octet-stream" }));
+  a.download = name; a.click();
+}
+let importSlot = -1;
+async function slotAction(action, n) {
+  const info = slots[n], label = slotLabel(n), named = info && info.name ? ` "${info.name}"` : "";
+  if (action === "load") {
+    result("patch-msg", await ack([0x5C, n >> 7, n & 0x7F], 3000), `loaded ${label}${named}`, "load failed");
+    refreshSettings();
+  } else if (action === "save") {
+    if (info && info.kind !== 0 && !confirm(`Replace ${label}${named} with the sound as it is now?`)) return;
+    result("patch-msg", await ack([0x5D, n >> 7, n & 0x7F], 3000), `saved to ${label}`, "save failed");
+    refreshSlot(n); refreshSettings();
+  } else if (action === "clear") {
+    if (!confirm(`Clear ${label}${named}? It can't be undone (export it first if you want to keep it).`)) return;
+    result("patch-msg", await ack([0x4F, n >> 7, n & 0x7F], 3000), `cleared ${label}`, "clear failed");
+    refreshSlot(n);
+  } else if (action === "export") {
+    const bytes = await readBytes(n * 256, 256);
+    if (!bytes) { msg("patch-msg", "read failed", "bad"); return; }
+    download(`${label.replace(".", "")}-${(info.name || "patch").replace(/[^\w-]+/g, "_")}.p8p`, bytes);
+  } else if (action === "import") {
+    importSlot = n;
+    document.getElementById("import-file").click();
+  }
+}
+document.getElementById("import-file").onchange = async e => {
+  const file = e.target.files[0], n = importSlot;
+  e.target.value = "";
+  if (!file || n < 0) return;
+  const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+  if (bytes.length !== 256 || String.fromCharCode(...bytes.slice(0, 4)) !== "P8P1") {
+    msg("patch-msg", "That isn't an exported patch (.p8p, 256 bytes starting with P8P1)", "bad"); return;
+  }
+  const info = slots[n];
+  if (info && info.kind !== 0 && !confirm(`Replace ${slotLabel(n)}${info.name ? ` "${info.name}"` : ""} with ${file.name}?`)) return;
+  result("patch-msg", await writeBytes(n * 256, bytes), `imported ${file.name} into ${slotLabel(n)}`, "write failed");
+  refreshSlot(n);
+};
+document.querySelectorAll("#bank button").forEach(b => b.onclick = () => { bank = +b.dataset.v; paintSlots(); });
+document.getElementById("show-empty").onchange = paintSlots;
+document.getElementById("scan").onclick = scanSlots;
+document.getElementById("init-sound").onclick = async () => {
+  result("patch-msg", await ack([0x5F], 3000), "loaded the init sound (not saved anywhere yet)", "no answer");
+};
+document.getElementById("backup-all").onclick = async () => {
+  const all = [];
+  for (let n = 0; n < 400; n++) {
+    const bytes = await readBytes(n * 256, 256);
+    if (!bytes) { msg("patch-msg", "read failed", "bad"); return; }
+    all.push(...bytes);
+    if (n % 10 === 9) msg("patch-msg", `backing up… ${n + 1} / 400`);
+  }
+  download(`pro800-patches-${new Date().toISOString().slice(0, 10)}.bin`, all);
+  msg("patch-msg", "backup downloaded (all 400 slots, 102400 bytes)", "ok");
+};
+
+// factory bank
+document.getElementById("factory-load").onclick = async () => {
+  if (!slots.length) await scanSlots();
+  const body = document.getElementById("factory");
+  body.innerHTML = "";
+  for (let f = 0; f < 100; f++) {
+    const d = await ask([0x50, f], [0x50, f], 2000);
+    if (!d) { msg("factory-msg", "No answer (firmware 0.6.0 or later?)", "bad"); return; }
+    if (!d[2]) continue;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="slot">${f}</td><td>${String.fromCharCode(...d.slice(3))}</td>
+      <td><select></select></td><td class="actions"><button>Copy</button></td>`;
+    body.appendChild(tr);
+    tr.querySelector("button").onclick = async () => {
+      const n = +tr.querySelector("select").value;
+      const r = await ask([0x51, f, n >> 7, n & 0x7F], [0x51], 3000);
+      const status = r ? r[1] : -1;
+      msg("factory-msg", ["copied into " + slotLabel(n), slotLabel(n) + " isn't empty", "not in the factory bank",
+        "write error"][status] || "no answer", status === 0 ? "ok" : "bad");
+      await refreshSlot(n); fillFactorySlots();
+    };
+  }
+  fillFactorySlots();
+  msg("factory-msg", "");
+};
+function fillFactorySlots() {
+  const empty = slots.map((x, n) => x && x.kind === 0 ? n : -1).filter(n => n >= 0);
+  const opts = empty.map(n => `<option value="${n}">${slotLabel(n)}</option>`).join("");
+  document.querySelectorAll("#factory select").forEach((sel, i) => {
+    const keep = sel.value;
+    sel.innerHTML = opts || "<option disabled>no empty slot</option>";
+    sel.value = empty.includes(+keep) ? keep : String(empty[Math.min(i, empty.length - 1)] ?? "");
+  });
+}
+
+// --- system ---
+async function showStats() {
+  const v = await ask([0x08, 0x00], [0x09, 0x00]);
+  document.getElementById("stats").innerHTML = v ? `<div class="stat"><b>${v.slice(2).join(".")}</b><span>firmware</span></div>` : "";
+}
+document.getElementById("timing").onclick = async () => {
+  await ask([0x58], [0x58]); // resets the longest pass
+  await new Promise(r => setTimeout(r, 2000));
+  const d = await ask([0x58], [0x58]);
+  if (!d) { msg("timing-msg", "no answer", "bad"); return; }
+  const v = i => d[1 + 3 * i] << 14 | d[2 + 3 * i] << 7 | d[3 + 3 * i];
+  const labels = ["engine", "CV refresh", "main-loop pass", "longest pass (2 s)", "panel poll", "display"];
+  document.getElementById("stats").innerHTML = (await (async () => {
+    const ver = await ask([0x08, 0x00], [0x09, 0x00]);
+    return ver ? `<div class="stat"><b>${ver.slice(2).join(".")}</b><span>firmware</span></div>` : "";
+  })()) + labels.map((l, i) => `<div class="stat"><b>${v(i)} µs</b><span>${l}</span></div>`).join("") +
+    `<div class="stat"><b>${v(6)}</b><span>updates per second</span></div>`;
+  msg("timing-msg", "");
+};
+document.getElementById("autotune").onclick = async () => {
+  if (!confirm("Run autotune now? It takes about 25 seconds and the synth is silent meanwhile.")) return;
+  msg("tune-msg", "tuning… (about 25 s)");
+  const d = await ask([0x75], [0x76], 90000);
+  msg("tune-msg", d ? `done: ${d[1]} of 24 oscillators and filters measured` : "no answer", d && d[1] === 24 ? "ok" : "bad");
+};
+document.getElementById("tables").onclick = async () => {
+  const names = r => r < 8 ? `osc A ${r + 1}` : r < 16 ? `osc B ${r - 7}` : `filter ${r - 15}`;
+  const lines = [];
+  for (let r = 0; r < 24; r++) {
+    const d = await ask([0x77, r], [0x77, r], 2000);
+    if (!d) { msg("tune-msg", "no answer", "bad"); return; }
+    const hz = [];
+    for (let p = 0; p < d[2]; p++) {
+      const o = 3 + 4 * p, c = d[o] << 21 | d[o + 1] << 14 | d[o + 2] << 7 | d[o + 3];
+      hz.push(c ? (c / 100).toFixed(1).padStart(8) : "       –");
+    }
+    lines.push(names(r).padEnd(10) + hz.join(""));
+  }
+  const out = document.getElementById("tables-out");
+  out.textContent = "Hz at each calibration point (low CV to high)\n" + lines.join("\n");
+  out.hidden = false;
+};
+
+async function afterConnect() {
+  await refreshSettings();
+  await refreshParams();
+  showTab(tab);
+}
+
 buildPiano(); relabel(); buildPots(); buildSwitches(); buildKeys(); buildDisplay(); paintDisplay(); save();
+buildGroups();
+try { tab = localStorage.getItem("pro800-tab") || "sound"; } catch (e) {}
+if (!document.getElementById("tab-" + tab)) tab = "sound";
+showTab(tab);
 </script>
 </body>
 </html>

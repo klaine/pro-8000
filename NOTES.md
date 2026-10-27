@@ -447,36 +447,61 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   64 kB link limit (the packer allows 128 kB; flash sector 5 is free now the tables live in the EEPROM), RAM about
   5.6 kB static of 128 kB.
 
+## Main-loop timing (0.5.1–0.5.6, 2026-10-27)
+
+- `pro800 timing` (SysEx 58) reports the engine, CV refresh, a main-loop pass, the longest pass, the panel poll,
+  the display update and passes per second.
+- The stray ~1.9 ms was the HT16K33 key scan: reading all six key bytes over the bit-banged I2C every 40 ms. Now
+  each scan reads only the key-interrupt flag (one byte); the key RAM is read when the flag says a key is down, while
+  any key is held, and on every 8th scan as a fallback (so a missed flag costs at most 320 ms).
+- Faster DAC clock tried and reverted: bit-banging at 1 MHz garbles the DAC80501 just like hardware SPI did above
+  0.33 MHz, so it stays at about 500 kHz (`HALF_BIT_CYCLES` 168). The limit looks like the board, not the code.
+- 0.5.6: engine 131 µs, CV refresh 2122 µs, average pass 2331 µs (429 updates per second), longest pass
+  3.2–4.1 ms. Tuning worst error 0.9 cents.
+
+## LFO 2, LFO shapes, host editing (0.6.0, 2026-10-27; built, not yet flashed)
+
+- Seven LFO shapes, chosen per LFO and per layer: triangle, square (`PULS`), ramp up (`SA.UP`), ramp down
+  (`SA.dn`), sine (`SInE`), sample & hold (`S-H`, a new random value every cycle) and drift (`drFt`, smooth
+  glides between random values). Every toggle of the LFO Shape button steps to the next shape; for 2 s after it
+  VALUE steps through them both ways. The button's own position no longer means anything. Old patches: LFO 1
+  square if the shape bit was set, else triangle.
+- LFO 2 per layer: Arp Up-Dn (LED = LFO 2) switches what the LFO FREQ / AMOUNT knobs (with pickup), the shape
+  button, the LFO routing buttons and the Settings SYnC / trIG pages (shown as `SYn2` / `trI2`) edit. LFO 2's
+  routing buttons are virtual: toggling one with LFO 2 selected flips LFO 2's routing (display `Fr.on`, `FL.oF`,
+  `PU.on`…) and holds LFO 1's (the button's position keeps showing LFO 1's). Sync and retrigger are per LFO
+  (LFO 1 / LFO 2), shared by both layers. LFO 2 has no mod wheel depth; LFO → PW uses layer 1's LFOs.
+- Mod matrix: source LFO 2 (key 1 in MOD ASSIGN picks the selected LFO, pressing it again swaps); destinations
+  LFO 1 rate, LFO 2 amount, LFO 2 rate, LFO 2 → pitch / filter / PW (touch the LFO knobs or buttons with LFO 2
+  selected). Rate depth 99 = ±4 octaves; in per-voice (`PoLY`) retrigger the rate is modulated per voice (e.g.
+  velocity → vibrato speed per note), otherwise from the most recently played voice.
+- `synth_hold_switch()` now keeps a patch's held state when a button is toggled during MOD ASSIGN (it used to
+  take the inverse of the button's position).
+- Patch format: LFO 2 sync and retrigger at 216, shapes + 1 at 218 (0 = not stored), LFO 2 routing at 222, LFO 2
+  rate and amount at 224; all zero in older patches, which means what older firmware did.
+- Host commands: settings readback (54) and more settable settings (7D: LFO 2 sync / retrigger, edit layer,
+  selected LFO, shapes, LFO 2 routing), parameter readback / set (53 / 52, every knob, Env 3 / 4, LFO 2), patch
+  rename (59), clear (4F), factory bank names (50) and import into a slot (51; the factory bank holds 100 stock
+  patches, "Organ I" … "Alien"). The tool has `settings`, `params`, `param`, `set shape|lfo2-dests|lfo|keytrack`,
+  `patch rename`, `factory`.
+- Web page reorganised into tabs: Sound (every parameter of the edit layer, LFO shapes, sync, retrigger, LFO 2
+  routing, layers; follows the panel every 0.9 s), Mod matrix, Patches (load, save, rename, clear, export / import
+  .p8p, back up all 400, the factory bank), Play, System (timing, autotune, tables) and Panel mapping.
+- Checked on the Mac with the real `lfo.c`: every shape spans −1..1 with the right form (sine within 0.12 % of
+  −cos), +1 octave of rate halves the period, per-voice phases advance on their own. Build 33.5 kB, `-Werror`
+  clean. Not flashed yet (needs the user's go-ahead).
+
 ## Backlog
 
-- **Two more envelopes per voice** (asked 2026-10-27): memory (128 B) and processing (microseconds per pass)
-  are no problem. Per-voice destinations are only pitch A, pitch B, cutoff and VCA level, so e.g. a pitch
-  envelope per oscillator, a second filter envelope, or envelope → LFO amount; PW, mixer and resonance are
-  shared wires (an envelope there could only follow the last note). UI idea: the keyboard-tracking switch picks
-  which envelope the filter ADSR knobs edit (with pickup), keyboard tracking moves to the Settings menu.
-- **MOD ASSIGN / mod matrix** (asked 2026-10-27; covers per-destination LFO depths). Arp Assign becomes MOD
-  ASSIGN (LED blinks while active): (1) a number key picks the source: 1 LFO (the layer's), 2 filter env, 3 amp
-  env, 4 velocity, 5 mod wheel, 6 aftertouch, 7/8 the extra envelopes, 9 random per note, 0 key position;
-  (2) touching a knob or destination button picks the destination (in assign mode it selects only: no parameter
-  change, no routing change; knobs pick up again afterwards); (3) the VALUE encoder sets a bipolar depth (-99..99,
-  no pickup; 0 removes the route); MOD ASSIGN again leaves. Per layer. The LFO routing buttons with source 1 give
-  per-destination LFO depths, LFO AMOUNT stays a master. Per-voice destinations: pitch A/B, cutoff, VCA and
-  software parameters (envelope times/levels, LFO rate/amount, glide); the shared wires (mixer, PW, resonance,
-  poly-mod amount) only take shared sources (shared LFO, mod wheel, last note's envelope), else the display shows
-  `noPE`. Browsing: touching a destination with a source picked shows its depth; turning VALUE with no source
-  steps through the active routes.
-  Envelopes → LFO depth (touch LFO AMOUNT for all destinations, or one LFO button for that one) and → LFO rate
-  (per voice, with `PoLY` retrigger): each voice scales its own LFO by its own envelope, e.g. delayed vibrato per
-  note, an attack wobble that settles (negative depth), filter motion growing on held notes. LFO → PW only from
-  shared sources. Best with the two extra envelopes, so the filter and amp envelopes stay free.
-- **2nd LFO** (asked 2026-10-27): toggle which LFO the LFO knobs and buttons edit with the Arp Up-On button
-  (pickup like layers); LFO 2 is another mod source. CPU and RAM are no issue.
-- **Main-loop pass**: 4.15 ms, of which only 2.15 ms is the CV refresh and 0.13 ms the engine: find the other
-  ~1.9 ms (panel bus?). It sets the envelope and LFO update rate (about 240 per second).
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic
   lines to the voice board. Workaround: put the second waveform on the other oscillator and use its level.
-- Hardware SPI to the DAC80501 (fails above 0.33 MHz).
-- Patch names: set from the Mac or the panel; import the factory bank into empty slots.
+- Hardware SPI to the DAC80501 (fails above 0.33 MHz; so does 1 MHz bit-banging: probably the board).
+- Patch names from the panel (the keypad as a multi-tap keyboard?); today: the web page or `pro800 patch rename`.
+- LFO fade-in / delay per LFO (today: Env 3 → LFO amount in the matrix does it per voice).
+- MIDI CC map for the parameters (so a DAW or the Move can automate them), and program change → patch.
+- MPE / 8-channel mono mode on top of the mod matrix (per-voice pitch bend and pressure).
+- Arpeggiator? (Arp Up-Dn is LFO select now; Arp Assign is MOD ASSIGN.)
+- More matrix sources: LFO 1 / LFO 2 unipolar, key-down gate, poly pressure per voice.
 
 ## Plan
 

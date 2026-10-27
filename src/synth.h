@@ -1,4 +1,5 @@
-// The synth engine: 8 voices, one or two layers, two ADSRs per voice, an LFO per layer, glide and poly-mod, all set
+// The synth engine: 8 voices, one or two layers, four ADSRs per voice, two LFOs per layer, a mod matrix, glide and
+// poly-mod, all set
 // from the front panel. Pitch and filter modulation are worked out in semitones and turned into CVs through the
 // autotune tables, so every voice's oscillators and filter track in tune.
 #ifndef SYNTH_H
@@ -39,6 +40,23 @@ void synth_set_edit_layer(int layer);
 int synth_keytrack(void);
 void synth_set_keytrack(int amount);
 int synth_env_select(void);
+
+// LFO 1 / LFO 2 (0 / 1): which one the LFO knobs, the shape button and the LFO routing buttons edit. Switching
+// puts the LFO knobs in pickup.
+int synth_lfo_select(void);
+void synth_set_lfo_select(int which);
+int synth_lfo_shape(int layer, int which); // lfo_shape_t
+void synth_set_lfo_shape(int layer, int which, int shape);
+// LFO 2's routing (LFO2_TO_* bits) per layer. Toggle: a routing button was toggled while LFO 2 is selected; flips
+// that routing on the edit layer and keeps LFO 1's. Returns the new state, or -1 if it isn't a routing button.
+int synth_lfo2_dests(int layer);
+void synth_set_lfo2_dests(int layer, int bits);
+int synth_lfo2_toggle(int s);
+
+// A layer's parameter (0..1, PARAM_COUNT of them: the knobs, Env 3 / 4, LFO 2) for the host; setting one puts its
+// knob in pickup.
+float synth_param(int layer, int param);
+void synth_set_param(int layer, int param, float value);
 
 // Mod matrix, per layer: the depth (-99..99, 0 = no route) of source → destination; setting 0 removes a route.
 // Setting returns 0 when the layer's ROUTES are all used.
