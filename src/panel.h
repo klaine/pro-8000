@@ -13,5 +13,8 @@ uint8_t panel_init(void);
 void panel_write(const uint8_t ram[PANEL_RAM_BYTES]);
 // Key RAM: one bit per key, set while held. Returns 0 if the driver didn't answer.
 int panel_read_keys(uint8_t keys[PANEL_KEY_BYTES]);
+// The key-interrupt flag: 1 while the latest key scan saw a key down (it clears when the key RAM is read),
+// 0 if not, -1 if the driver didn't answer. One byte instead of six.
+int panel_key_flag(void);
 
 #endif

@@ -28,7 +28,8 @@
 //   5C <n1> <n0>           load patch n; 5D <n1> <n0> save the current sound to patch n (both acknowledged)
 //   5F                     load the init sound (as PERF does; acknowledged)
 //   56 <layer> <source> <dest> <d1> <d0>  set a route's depth (d1 << 7 | d0) - 99, 0 removes it; acknowledged
-//   58                     timing; replies 58 <engine, refresh, pass, longest pass: µs, 3 × 7 bits each>
+//   58                     timing; replies 58 <engine, refresh, pass, longest pass, panel poll, display: µs,
+//                          passes in the last second: 3 × 7 bits each>
 //   57 <layer>             the layer's routes; replies 57 <layer> then per route <source> <dest> <d1> <d0>
 //   5E <n1> <n0>           patch info; replies 5E <n1> <n0> <kind: 0 empty, 1 ours, 2 stock, 3 corrupt> <name>
 //   79 <a2> <a1> <a0> <n>  read n (1-48) bytes of the patch EEPROM at a2 << 14 | a1 << 7 | a0; replies
@@ -56,7 +57,8 @@ static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24,
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
-static uint32_t cycles_engine, cycles_refresh, cycles_pass, cycles_pass_max; // timing probe (58)
+static uint32_t cycles_engine, cycles_refresh, cycles_pass, cycles_pass_max, cycles_controls, cycles_display; // probe (58)
+static uint32_t passes, passes_per_second, passes_second;
 static int report_mode;
 static uint8_t display_ram[PANEL_RAM_BYTES];
 
@@ -689,9 +691,10 @@ static void handle_sysex(const uint8_t *message, int length)
         }
     }
     if (data_length == 1 && data[0] == 0x58) {
-        uint32_t mhz = system_hz / 1000000u, values[] = {cycles_engine, cycles_refresh, cycles_pass, cycles_pass_max};
+        uint32_t mhz = system_hz / 1000000u, values[] = {cycles_engine, cycles_refresh, cycles_pass, cycles_pass_max,
+                                                         cycles_controls, cycles_display, passes_per_second * mhz};
         reply[n++] = 0x58;
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 7; i++) {
             uint32_t us = values[i] / mhz;
             reply[n++] = (uint8_t)(us >> 14 & 0x7F);
             reply[n++] = (uint8_t)(us >> 7 & 0x7F);
@@ -903,7 +906,9 @@ int main(void)
         last = cycles;
 
         uint32_t now = ms_ticks;
+        uint32_t tc = DWT_CYCCNT;
         controls_poll(now, control_event);
+        cycles_controls = DWT_CYCCNT - tc;
         if (tune_requested) {
             tune_requested = 0;
             run_tuning();
@@ -926,8 +931,10 @@ int main(void)
             display_led(LED_REC, (now / 250) & 1);
         if (assigning)
             display_led(LED_ARP_ASSIGN, (now / 250) & 1);
+        tc = DWT_CYCCNT;
         if (!report_mode)
             display_update();
+        cycles_display = DWT_CYCCNT - tc;
 
         t0 = DWT_CYCCNT;
         sh_refresh();
@@ -935,5 +942,11 @@ int main(void)
         cycles_pass = DWT_CYCCNT - cycles;
         if (cycles_pass > cycles_pass_max)
             cycles_pass_max = cycles_pass;
+        passes++;
+        if (now / 1000 != passes_second) {
+            passes_second = now / 1000;
+            passes_per_second = passes;
+            passes = 0;
+        }
     }
 }

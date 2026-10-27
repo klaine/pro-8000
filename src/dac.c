@@ -1,4 +1,6 @@
-// DAC80501 in SPI mode (SPI2C tied low): SCLK = PC10, SDIN = PB0, SYNC = PA15, bit-banged at about 250 kHz.
+// DAC80501 in SPI mode (SPI2C tied low): SCLK = PC10, SDIN = PB0, SYNC = PA15, bit-banged at about 500 kHz.
+// 1 MHz (tried in 0.5.2) garbles the data just like hardware SPI did from 0.66 MHz up, so the limit is probably
+// the board (a filter or slow edges on these lines), around 0.3-0.5 MHz.
 // These are SPI3's pins, but hardware SPI3 only worked at its slowest clock (APB1 / 128): diagnostics 0.0.5 and
 // 0.0.6 got wrong output at 0.66-10.5 MHz while bit-banging at the same core clock worked. Cause unknown so far.
 #include "dac.h"
@@ -18,6 +20,7 @@
 #define DAC80501_DATA    0x08
 
 #define DAC80501_SOFT_RESET 0x000Au
+#define HALF_BIT_CYCLES 168 // 1 µs at 168 MHz: about 500 kHz, the speed every build up to 0.5.1 used
 // Its supply is 3.3 V, too low for the undivided 2.5 V reference (that raises the reference alarm and forces
 // 0 V out), so: reference / 2, buffer gain 2, giving 0-2.5 V; U47A doubles that.
 #define DAC80501_REF_DIV_GAIN2 0x0101u
@@ -32,9 +35,9 @@ static void dac80501_write(uint8_t command, uint16_t data)
     for (int bit = 23; bit >= 0; bit--) {
         gpio_write(SCLK_PORT, SCLK_PIN, 1);
         gpio_write(SDIN_PORT, SDIN_PIN, (frame >> bit) & 1);
-        delay_us(1);
+        delay_cycles(HALF_BIT_CYCLES);
         gpio_write(SCLK_PORT, SCLK_PIN, 0);
-        delay_us(1);
+        delay_cycles(HALF_BIT_CYCLES);
     }
     gpio_write(SYNC_PORT, SYNC_PIN, 1);
     delay_us(1);

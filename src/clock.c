@@ -31,6 +31,13 @@ void delay_us(uint32_t us)
         ;
 }
 
+void delay_cycles(uint32_t cycles)
+{
+    uint32_t start = DWT_CYCCNT;
+    while (DWT_CYCCNT - start < cycles)
+        ;
+}
+
 int clock_init(void)
 {
     DEMCR |= DEMCR_TRCENA;

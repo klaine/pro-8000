@@ -12,10 +12,12 @@
 #define HT_CMD_DIM_MAX    0xEF
 #define HT_ADDR_RAM       0x00
 #define HT_ADDR_KEYS      0x40
+#define HT_ADDR_INT_FLAG  0x60
 
 static uint8_t ht_addr;
 
-// The bus runs near 50 kHz: slow, but safe through the level shifters.
+// The bus runs near 50 kHz: slow, but safe through the BSS138 level shifters. (Faster can't be checked from
+// here: the HT16K33's display RAM doesn't read back in write order, so there's no loop-back test.)
 static void bit_delay(void) { delay_us(10); }
 
 static void scl(int high) { GPIO_BSRR(GPIOB_BASE) = high ? 1u << SCL_PIN : 1u << (SCL_PIN + 16); }
@@ -138,4 +140,21 @@ int panel_read_keys(uint8_t keys[PANEL_KEY_BYTES])
             keys[i] = i2c_read(i < PANEL_KEY_BYTES - 1);
     i2c_stop();
     return ok;
+}
+
+int panel_key_flag(void)
+{
+    if (!ht_addr)
+        return -1;
+    i2c_start();
+    int ok = i2c_write((uint8_t)(ht_addr << 1)) && i2c_write(HT_ADDR_INT_FLAG);
+    uint8_t flag = 0;
+    if (ok) {
+        i2c_start(); // repeated start
+        ok = i2c_write((uint8_t)(ht_addr << 1 | 1));
+    }
+    if (ok)
+        flag = i2c_read(0);
+    i2c_stop();
+    return ok ? flag != 0 : -1;
 }

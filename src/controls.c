@@ -163,11 +163,16 @@ void controls_poll(uint32_t now_ms, control_event_t event)
         switch_candidate[i] = level;
     }
 
-    // buttons
+    // buttons: the one-byte key flag first; the six key bytes only when a key is down now or was last time (so
+    // releases are seen), and every 8th scan regardless, in case the flag ever doesn't set
     if (now_ms - last_key_scan >= KEY_SCAN_MS) {
+        static unsigned scans;
         last_key_scan = now_ms;
+        int any_down = 0;
+        for (int i = 0; i < KEY_BYTES; i++)
+            any_down |= keys[i];
         uint8_t now[KEY_BYTES];
-        if (panel_read_keys(now))
+        if ((any_down || ++scans % 8 == 0 || panel_key_flag() != 0) && panel_read_keys(now))
             for (int i = 0; i < KEY_BYTES; i++)
                 if (now[i] != keys[i]) {
                     uint8_t changed = now[i] ^ keys[i];

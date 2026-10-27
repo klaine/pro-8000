@@ -11,5 +11,6 @@ extern uint32_t system_hz;
 // Starts the crystal and PLL, and the cycle counter delay_us() uses. Returns 1 if the PLL is running.
 int clock_init(void);
 void delay_us(uint32_t us);
+void delay_cycles(uint32_t cycles);
 
 #endif
