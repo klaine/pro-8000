@@ -665,7 +665,7 @@ const SYNC = ["Free", "MIDI clock"], TRIGGER = ["Free-running", "First key", "Ev
 function seconds(s) { return s < 1 ? Math.round(s * 1000) + " ms" : s.toFixed(s < 10 ? 2 : 1) + " s"; }
 function format(i, v) {
   const signed = x => (x > 0 ? "+" : "") + x;
-  if (i === 10 || i === 11) return signed(Math.floor((v - 0.5) * 96 + 48.5) - 48) + " st";
+  if (i === 10 || i === 11) return signed(Math.floor((v - 0.5) * 72 + 36.5) - 36) + " st";
   if (i === 12 || i === 19) return signed(Math.round((v - 0.5) * 200)) + " ct";
   if (i === 9) return signed(Math.round((v - 0.5) * 198));
   if (ENV_TIME.has(i)) return seconds(0.001 * 2 ** (v * 13.2877));

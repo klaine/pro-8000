@@ -31,7 +31,7 @@
 #include "sh.h"
 #include "tuning.h"
 
-#define OSC_RANGE_SEMITONES   48.0f // frequency knobs: ± this, in semitone steps
+#define OSC_RANGE_SEMITONES   36.0f // frequency knobs: ± this, in semitone steps
 #define FINE_SEMITONES        1.0f  // oscillator B fine: ± (100 cents)
 #define MASTER_TUNE_SEMITONES 1.0f  // ±
 #define BEND_SEMITONES        2.0f  // ±

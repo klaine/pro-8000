@@ -73,7 +73,7 @@ void synth_hold_switch(int s);
 
 // For the display: the edit layer's value of a pot (0..1), and whether the knob is still waiting to pick it up.
 float synth_pot_value(int pot);
-// What a knob position means for FREQ A / B (whole semitones, ±48) and FINE (cents, ±100).
+// What a knob position means for FREQ A / B (whole semitones, ±36) and FINE (cents, ±100).
 int synth_knob_semitones(float knob);
 int synth_knob_cents(float knob);
 int synth_pot_pending(int pot);

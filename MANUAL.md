@@ -16,7 +16,7 @@ The internal sequencer and arpeggiator are gone; their buttons do other jobs now
 | Control | What it does now |
 |---|---|
 | Knobs | As printed, with a few changes. LFO FREQ / LFO AMOUNT edit LFO 1 or LFO 2. The filter ADSR knobs can edit Env 3 / Env 4. |
-| FREQ A / FREQ B | ±48 semitones (8 octaves in all) in semitone steps; the display shows the interval, e.g. `-12`, ` 7`. |
+| FREQ A / FREQ B | ±36 semitones (6 octaves in all) in semitone steps; the display shows the interval, e.g. `-12`, ` 7`. |
 | FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
 | Keyboard-tracking switch | Picks what the filter ADSR knobs edit: bottom = filter envelope, middle = Env 3, top = Env 4. Keyboard tracking itself is a setting. |
 | LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`. |
