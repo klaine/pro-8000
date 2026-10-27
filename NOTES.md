@@ -367,7 +367,8 @@ into CVs through each voice's tuning tables. First-guess ranges, all constants i
 - Settings menu: Settings (LED on, `SEt`), key 1 = Sync (`FrEE`/`CLoC`), key 2 = retrigger, VALUE knob changes
   it. In RAM only for now. From the Mac: `pro800 set lfo-sync|lfo-trigger …`, `pro800 clock <bpm>`.
 - Measured: square LFO on pitch, 1/4T at 120 BPM from `pro800 clock`: 27 flips averaged 0.1667 s apart (expected
-  0.1667), every gap 0.1646–0.1696 s (5 ms analysis steps). Heard on the speakers too. Note: the audio pitch
+  0.1667), every gap 0.1646–0.1696 s (5 ms analysis steps). Heard on the speakers too. Tried by hand: the
+  menu, all four retrigger modes, and clock (with start) from the Ableton Move through the web router. Note: the audio pitch
   check needs a plain patch: hard sync, or oscillators tuned apart, defeat it.
 
 ## Plan
