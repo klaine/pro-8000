@@ -843,20 +843,20 @@ func settings() {
         case 27: text = slotName(v)
         default: break
         }
-        print("\(settingNames[i].padding(toLength: 14, withPad: " ", startingAt: 0)) \(text)")
+        print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
     }
     let midi = Midi(port: portName)
     if let r = midi.request([0x4C], expect: [0x4C]) {
         let d = Array(r[(sysexHeader.count + 1)..<(r.count - 1)])
         let on = buttonNames.keys.sorted().filter { $0 < d.count && d[$0] != 0 }.map { buttonNames[$0]! }
-        print("buttons".padding(toLength: 15, withPad: " ", startingAt: 0) + (on.isEmpty ? "none" : on.joined(separator: " ")))
+        print("buttons".padding(toLength: 21, withPad: " ", startingAt: 0) + (on.isEmpty ? "none" : on.joined(separator: " ")))
     }
     for layer in 0..<2 {
         for lfo in 0..<2 {
             guard let r = midi.request([0x4D, UInt8(layer), UInt8(lfo)], expect: [0x4D, UInt8(layer), UInt8(lfo)]) else { continue }
             let d = Array(r[sysexHeader.count...])
             let count = Int(d[3]), bits = Int(d[4]) << 14 | Int(d[5]) << 7 | Int(d[6])
-            print("steps \(layer + 1) \(lfo + 1)".padding(toLength: 15, withPad: " ", startingAt: 0) +
+            print("steps \(layer + 1) \(lfo + 1)".padding(toLength: 21, withPad: " ", startingAt: 0) +
                   String((0..<count).map { bits >> $0 & 1 != 0 ? "x" : "." }))
         }
     }
