@@ -568,6 +568,15 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   Noise), poly-mod, LFO 1 routing and unison buttons sit in their cards; envelopes have a Mode menu (ADSR, cycle,
   synced cycle at a division) and show shares while synced.
 
+## Rate modulation on a grid-locked LFO (0.6.7, 2026-10-28)
+
+- Before, a clock-synced LFO with free retrigger took its phase straight from the clock position, so LFO rate
+  routes did nothing. Now, while the rate modulation is over 0.01 octave, the phase runs freely at the modulated
+  rate (smooth sweeps, off the grid); below it, the LFO runs up to 2 × its phase error faster or slower until it's
+  within 0.002 of a cycle, then follows the grid again. Checked on the Mac with a simulated 120 BPM clock: 1/8
+  swept ±2 octaves by a 2 s triangle gives cycles of 0.065 s (1/32: 0.0625) up to 0.53 s; released 0.23 of a cycle
+  off the grid, back on it within a second. The user wanted smooth sweeps, not octave steps.
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

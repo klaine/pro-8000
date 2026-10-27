@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.6.6. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.6.7. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -276,6 +276,10 @@ A 0-to-1 source (envelopes, velocity, mod wheel, aftertouch) turns the volume do
 
 The LFO rate is per voice in `PoLY` retrigger mode. Otherwise it follows the most recently played note.
 
+Rate modulation sweeps smoothly, also on a clock-synced LFO: depth 99 is ±4 octaves, so LFO 2 (triangle) → LFO 1
+rate at depth 50, with LFO 1 synced at `1-8`, sweeps it between 1/2 and 1/32. While it's swept the LFO leaves the
+beat; with retrigger `FrEE` it slides back onto the bar within a cycle or two once the modulation stops.
+
 ### Ideas to try
 
 - **Delayed vibrato:** set LFO 1 to pitch with AMOUNT at 0. Route 7 (Env 3) → LFO AMOUNT at depth 30, and give
@@ -336,7 +340,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.6.6.syx --yes
+build/pro800 install build/pro800-0.6.7.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

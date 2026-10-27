@@ -5,7 +5,8 @@
 //
 // Retrigger: the shared phase resets on the first key after all were released, or on every key; in per-voice
 // mode each voice runs its own phase from its note-on. With the clock and no retrigger, the phase follows the
-// grid; with a retrigger, the rate follows the clock but the phase starts at the key.
+// grid; with a retrigger, the rate follows the clock but the phase starts at the key. Rate modulation sweeps the
+// rate smoothly in every mode; a grid-locked LFO slides back onto the grid once the modulation stops.
 //
 // Every phase carries two random values for the random shapes: the one it holds (sample & hold) and the next one
 // (drift glides towards it); both move on when the phase wraps or is retriggered.
@@ -16,6 +17,10 @@
 #include "sh.h"
 
 #define TICKS_PER_QUARTER 24
+// Rate modulation on a grid-locked LFO (clock sync, free retrigger) lets it run off the grid; when the modulation is
+// back under this (octaves), the LFO runs up to REGRID_PULL × its phase error faster or slower until it's back.
+#define RATE_MOD_THRESHOLD 0.01f
+#define REGRID_PULL        2.0f
 
 lfo_sync_t lfo_sync[2];
 lfo_trigger_t lfo_trigger[2];
@@ -150,10 +155,18 @@ void lfo_update(int lfo, float dt, float knob, float octaves)
     phase_t *p = &lfos[lfo].shared;
     if (synced && lfo_trigger[which] == LFO_TRIGGER_FREE) { // on the grid
         float cycles = position / (TICKS_PER_QUARTER * quarters);
-        float phase = cycles - (float)(int)cycles;
-        if (phase < p->phase - 0.5f)
-            new_cycle(p);
-        p->phase = phase;
+        float grid = cycles - (float)(int)cycles;
+        float error = grid - p->phase; // -0.5..0.5 of a cycle
+        error -= error > 0.5f ? 1.0f : error < -0.5f ? -1.0f : 0.0f;
+        if (octaves > RATE_MOD_THRESHOLD || octaves < -RATE_MOD_THRESHOLD) {
+            advance(p, rate * dt * fast_exp2(octaves)); // swept: smoothly off the grid
+        } else if (error < 0.002f && error > -0.002f) {
+            if (grid < p->phase - 0.5f)
+                new_cycle(p);
+            p->phase = grid;
+        } else {
+            advance(p, rate * dt * (1.0f + REGRID_PULL * error)); // back onto the grid, about a cycle
+        }
     } else {
         advance(p, rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f));
     }
