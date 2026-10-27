@@ -13,17 +13,26 @@
 typedef enum {
     POT_AMP_REL, POT_AMP_SUS, POT_AMP_DEC, POT_AMP_ATT, POT_FIL_REL, POT_FIL_SUS, POT_FIL_DEC, POT_FIL_ATT, // U22
     POT_RESONANCE, POT_FIL_ENV_AMT, POT_FREQ_A, POT_FREQ_B, POT_FINE, POT_A_PW, POT_B_PW, POT_A_LEVEL,      // U21
-    POT_GLIDE, POT_LFO_FREQ, POT_LFO_AMOUNT, POT_MASTER_TUNE, POT_MASTER_VOL, POT_B_LEVEL, POT_PMOD_OSC_B,
+    POT_GLIDE, POT_LFO_FREQ /* also the value knob: no encoder is fitted */, POT_LFO_AMOUNT, POT_MASTER_TUNE, POT_MASTER_VOL, POT_B_LEVEL, POT_PMOD_OSC_B,
     POT_PMOD_FIL_ENV,                                                                                       // U42
     POT_CUTOFF, POT_NOISE,
 } pot_t;
 
-// Switch inputs, named after their schematic nets (the order of switch_pins in controls.c).
+// Switch inputs (the order of switch_pins in controls.c), mapped on the panel 2026-10-27. The latching buttons
+// read 1 when pressed in. Keyboard tracking is a 3-position switch on two active-low lines: Off leaves both at 1,
+// Half pulls KEYTRACK_HALF to 0, Full pulls KEYTRACK_FULL to 0 (see controls_keytrack()).
 typedef enum {
-    SWITCH_OSC1_SAW, SWITCH_OSC1_TRI, SWITCH_OSC1_SQ, SWITCH_OSC2_SAW, SWITCH_OSC2_TRI, SWITCH_OSC2_SQ,
-    SWITCH_PW_A_B, SWITCH_F_A_B, SWITCH_FREQ_A, SWITCH_LFO_SHAPE, SWITCH_LFO_FILTER, SWITCH_FILTER, SWITCH_UNISON,
-    SWITCH_KEYTRACK_HALF, SWITCH_KEYTRACK_FULL, SWITCH_SYNC, SWITCH_MIDI_CH_0, SWITCH_MIDI_CH_1, SWITCH_MIDI_CH_2,
-    SWITCH_MIDI_CH_3, SWITCH_BACKPANEL_PRESENCE, SWITCH_PEDAL_DETECT, SWITCH_SYNC_IN_A, SWITCH_SYNC_IN_B,
+    SWITCH_A_SAW, SWITCH_A_TRI, SWITCH_A_SQUARE, SWITCH_B_SAW, SWITCH_B_TRI, SWITCH_B_SQUARE,
+    SWITCH_LFO_PW,      // net PW_A_B
+    SWITCH_LFO_FREQ,    // net F_A_B
+    SWITCH_PMOD_FREQ_A, // net FREQ_A
+    SWITCH_LFO_SHAPE, SWITCH_LFO_FILTER,
+    SWITCH_PMOD_FILTER, // net FILTER
+    SWITCH_UNISON, SWITCH_KEYTRACK_HALF, SWITCH_KEYTRACK_FULL,
+    SWITCH_SYNC,        // net SYNC_SEL: oscillator A sync
+    // not on the panel's buttons, and not seen changing yet:
+    SWITCH_MIDI_CH_0, SWITCH_MIDI_CH_1, SWITCH_MIDI_CH_2, SWITCH_MIDI_CH_3, SWITCH_BACKPANEL_PRESENCE,
+    SWITCH_PEDAL_DETECT, SWITCH_SYNC_IN_A, SWITCH_SYNC_IN_B,
 } switch_t;
 
 // Buttons on the HT16K33 key scan, as mapped on the panel.
@@ -45,5 +54,6 @@ void controls_poll(uint32_t now_ms, control_event_t event);
 uint16_t controls_pot(int index);
 int controls_switch(int index);
 int controls_button(button_t button);
+int controls_keytrack(void); // 0 off, 1 half, 2 full
 
 #endif

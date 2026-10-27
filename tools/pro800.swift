@@ -637,11 +637,12 @@ func panel() {
     probeAck(midi, [0x7A, 1])
     signal(SIGINT) { _ in panelOff(); exit(0) }
     print("panel report on for \(Int(seconds)) s: move knobs, press buttons (Ctrl-C to stop)")
-    let end = Date().addingTimeInterval(seconds)
+    let start = Date(), end = start.addingTimeInterval(seconds)
     while Date() < end {
         pump(0.05)
         for m in midi.takeSysex() where m.count > sysexHeader.count + 2 && m.starts(with: sysexHeader) {
             let b = Array(m[sysexHeader.count..<(m.count - 1)])
+            print(String(format: "%6.1f  ", Date().timeIntervalSince(start)), terminator: "")
             switch b[0] {
             case 0x60 where b.count >= 4: print("\(potLabel(Int(b[1])))  \(Int(b[2]) << 7 | Int(b[3]))")
             case 0x61 where b.count >= 3:
@@ -650,7 +651,8 @@ func panel() {
                 let v = Int(b[2]) << 7 | Int(b[3])
                 print("keys byte \(b[1]) = " + String(v, radix: 2).leftPad(8))
             case 0x63 where b.count >= 2: print("encoder \(Int(b[1]) - 64 > 0 ? "+" : "-")")
-            default: break
+            case 0x64 where b.count >= 3: print("button #\(b[1]) \(b[2] == 1 ? "pressed" : "released")")
+            default: print(hex(b))
             }
             fflush(stdout)
         }

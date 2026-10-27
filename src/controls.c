@@ -4,8 +4,9 @@
 // each VMUX another 100 nF at the MCU, so after an address change the output needs about 4 ms (a few times
 // 10 kΩ pot × 200 nF) to settle: the scan steps one address per 4 ms, 32 ms for all.
 //
-// Switches are plain inputs (pulled up here; the panel switches pull to ground). The VALUE encoder is quadrature
-// on PE9 (A) and PE11 (B). Buttons come from the HT16K33's key scan.
+// Switches are plain inputs (pulled up here). The schematic's VALUE encoder (quadrature on PE9/PE11) never
+// produced a transition on this unit: it looks unfitted, with the LFO FREQ pot serving as the value knob. Buttons
+// come from the HT16K33's key scan.
 #include "controls.h"
 #include "gpio.h"
 #include "panel.h"
@@ -29,16 +30,16 @@ static const pin_t switch_pins[SWITCH_COUNT] = {
     {GPIOC_BASE, 5, 1},  // 3 OSC2_SAW
     {GPIOC_BASE, 6, 1},  // 4 OSC2_TRI
     {GPIOC_BASE, 7, 1},  // 5 OSC2_SQ
-    {GPIOC_BASE, 8, 1},  // 6 PW_A_B
-    {GPIOC_BASE, 9, 1},  // 7 F_A_B
-    {GPIOC_BASE, 11, 1}, // 8 FREQ_A
+    {GPIOC_BASE, 8, 1},  // 6 PW_A_B (LFO → PW)
+    {GPIOC_BASE, 9, 1},  // 7 F_A_B (LFO → frequency)
+    {GPIOC_BASE, 11, 1}, // 8 FREQ_A (poly-mod → frequency A)
     {GPIOC_BASE, 12, 1}, // 9 LFO_SHAP
     {GPIOC_BASE, 13, 1}, // 10 LFO_FILTER
-    {GPIOC_BASE, 14, 1}, // 11 FILTER
+    {GPIOC_BASE, 14, 1}, // 11 FILTER (poly-mod → filter)
     {GPIOC_BASE, 15, 1}, // 12 UNISON
     {GPIOB_BASE, 1, 1},  // 13 HALF (keyboard tracking)
     {GPIOB_BASE, 2, 1},  // 14 FULL
-    {GPIOD_BASE, 8, 1},  // 15 SYNC_SEL
+    {GPIOD_BASE, 8, 1},  // 15 SYNC_SEL (oscillator A sync)
     {GPIOD_BASE, 9, 1},  // 16 MIDI_CH_0
     {GPIOD_BASE, 10, 1}, // 17 MIDI_CH_1
     {GPIOD_BASE, 11, 1}, // 18 MIDI_CH_2
@@ -184,5 +185,12 @@ void controls_poll(uint32_t now_ms, control_event_t event)
 uint16_t controls_pot(int index) { return pots[index]; }
 
 int controls_switch(int index) { return switches[index]; }
+
+int controls_keytrack(void)
+{
+    if (!switches[SWITCH_KEYTRACK_FULL])
+        return 2;
+    return switches[SWITCH_KEYTRACK_HALF] ? 0 : 1;
+}
 
 int controls_button(button_t button) { return (keys[button_keys[button].byte] >> button_keys[button].bit) & 1; }

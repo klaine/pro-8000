@@ -323,8 +323,16 @@ firmware's names are in `src/controls.h` and `src/display.c`.
   swapped compared with the panel.)
 - **Verified on the panel (0.1.7)**: digits (played note numbers, keypad typing), every button's LED while held,
   the power LED.
-- **Not checked yet**: the 24 GPIO "switch" inputs (named after their schematic nets; which panel controls they
-  are, and their polarity) and the VALUE encoder (transitions per detent).
+- **Switches** (GPIO, mapped with `pro800 panel` logs): Sync `SYNC_SEL` PD8; osc A Saw/Tri/Square
+  `OSC1_SAW` PE0 / `OSC1_TRI` PA8 / `OSC1_SQ` PC4; osc B `OSC2_SAW` PC5 / `OSC2_TRI` PC6 / `OSC2_SQ` PC7;
+  poly-mod → Freq A `FREQ_A` PC11, → Filter `FILTER` PC14; Unison PC15; LFO → Freq `F_A_B` PC9, → PW `PW_A_B`
+  PC8, → Filter `LFO_FILTER` PC13; LFO Shape `LFO_SHAP` PC12. Latching buttons read 1 when pressed in.
+  Keyboard tracking is a 3-position switch (Full / Half / Off, top to bottom) on two active-low lines: Off = both
+  1, Half = `HALF` (PB1) 0, Full = `FULL` (PB2) 0.
+- **No encoder**: the schematic's VALUE encoder (PE9/PE11) never produced a transition; turning "value" moves
+  pot #17 (LFO FREQ), so the LFO frequency knob doubles as the value knob (as p600fw's Speed pot does).
+- Not seen changing yet: `MIDI_CH_0..3` (PD9-PD12), `BACKPANEL_PRESENCE` (PD13), `PEDAL_DT` (PA7), SYNC IN
+  (PD14/PD15).
 
 ## Plan
 
