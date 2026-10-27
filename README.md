@@ -10,7 +10,8 @@ firmware) as the reference for how the analog side behaves.
 - **LFOs:** two per layer, with seven shapes (triangle, square, ramps, sine, sample & hold, drift).
   - Sync to MIDI clock in 15 divisions.
   - Retrigger free, on the first key, on every key, or per voice (poly LFOs).
-- **Envelopes:** four per voice. Env 3 and Env 4 are edited with the filter ADSR knobs.
+- **Envelopes:** four per voice, with analog-style curves and times shown in ms / s on the display. Env 3 and
+  Env 4 are edited with the filter ADSR knobs. Any of them can cycle while a key is held (attack, hold, fall, rest).
 - **Mod matrix:** 8 routes per layer, assigned from the panel (MOD ASSIGN on Arp Assign).
   - 11 sources: LFOs, envelopes, velocity, mod wheel, aftertouch, random, note.
   - 24 destinations, including the LFO rates and depths.
@@ -45,7 +46,7 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 ## Install
 
 ```bash
-build/pro800 install build/pro800-0.6.1.syx --yes
+build/pro800 install build/pro800-0.6.2.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`

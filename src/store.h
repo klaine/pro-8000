@@ -22,6 +22,7 @@ typedef struct {
     uint8_t lfo_sync[2], lfo_trigger[2]; // LFO 1, LFO 2
     uint8_t lfo_shape[2][2];             // [layer][LFO 1, LFO 2], lfo_shape_t
     uint8_t lfo2_dests[2];               // per layer, LFO2_TO_* bits
+    uint8_t env_cycle[2];                // per layer, ENV_CYCLE_* bits
     uint32_t switches; // bit s: switch s engaged (controls_on() sense), for the latching buttons
     uint8_t keytrack;  // 0 off, 1 half, 2 full
     uint16_t pots[2][POT_COUNT]; // per layer, 0..65535; shared pots are the same in both

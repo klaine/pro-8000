@@ -51,7 +51,8 @@ Probe (our firmware 0.0.9+):
                                         free|first|every|voice, layers off|split|stack|channel, split <note>,
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
                                         shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
-                                        lfo2-dests <layer> none|pitch,filter,pw
+                                        lfo2-dests <layer> none|pitch,filter,pw,
+                                        cycle <layer> none|amp,filter,env3,env4 (cycling envelopes)
   pro800 settings                       print every setting
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
@@ -738,7 +739,8 @@ let lfo2DestNames = ["pitch", "filter", "pw"]
 let layerModes = ["off", "split", "stack", "channel"], triggerModes = ["free", "first", "every", "voice"]
 let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo2-sync", "lfo2-trigger", "edit-layer",
                     "lfo", "shape 1 1", "shape 1 2", "shape 2 1", "shape 2 2", "lfo2-dests 1", "lfo2-dests 2",
-                    "env-select", "preset-mode", "patch"]
+                    "cycle 1", "cycle 2", "env-select", "preset-mode", "patch"]
+let cycleNames = ["amp", "filter", "env3", "env4"]
 
 func lfo2DestText(_ bits: Int) -> String {
     let on = lfo2DestNames.indices.filter { bits >> $0 & 1 != 0 }.map { lfo2DestNames[$0] }
@@ -753,7 +755,8 @@ func setSetting() {
                                                "lfo": (8, ["1", "2"])]
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
         "layers off|split|stack|channel | split <note 0-127> | keytrack off|half|full | lfo 1|2 | " +
-        "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw"
+        "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
+        "cycle <layer 1|2> none|amp,filter,env3,env4"
     var id: UInt8, v: Int
     if args.count == 2, args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
         (id, v) = (3, note)
@@ -769,6 +772,13 @@ func setSetting() {
             bits |= 1 << i
         }
         (id, v) = (UInt8(13 + layer - 1), bits)
+    } else if args.count == 3, args[0] == "cycle", let layer = Int(args[1]), (1...2).contains(layer) {
+        var bits = 0
+        for name in args[2].split(separator: ",") where name != "none" {
+            guard let i = cycleNames.firstIndex(of: String(name)) else { fail(usage) }
+            bits |= 1 << i
+        }
+        (id, v) = (UInt8(15 + layer - 1), bits)
     } else {
         fail(usage)
     }
@@ -794,8 +804,11 @@ func settings() {
         case 7, 8: text = "\(v + 1)"
         case 9...12: text = shapeNames[safe: v] ?? text
         case 13, 14: text = lfo2DestText(v)
-        case 15: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
-        case 17: text = slotName(v)
+        case 15, 16:
+            let on = cycleNames.indices.filter { v >> $0 & 1 != 0 }.map { cycleNames[$0] }
+            text = on.isEmpty ? "none" : on.joined(separator: ",")
+        case 17: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
+        case 19: text = slotName(v)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 14, withPad: " ", startingAt: 0)) \(text)")

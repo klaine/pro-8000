@@ -637,7 +637,8 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab
 
 // --- model ---
 const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo2Sync", "lfo2Trigger", "editLayer",
-  "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "envSelect", "presetMode", "patch"];
+  "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2", "envSelect",
+  "presetMode", "patch"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 let settings = null, params = null, paramsLayer = 0, dragging = null;
 
@@ -649,11 +650,22 @@ const PARAMS = [["Release", 1], ["Sustain", 1], ["Decay", 1], ["Attack", 1], ["R
   ["Attack", 1], ["Decay", 1], ["Sustain", 1], ["Release", 1], ["Attack", 1], ["Decay", 1], ["Sustain", 1], ["Release", 1],
   ["Rate", 1], ["Amount", 1]];
 const GROUPS = [["Oscillator A", [10, 13]], ["Oscillator B", [11, 12, 14]], ["Mixer", [15, 21, 25]],
-  ["Filter", [24, 8, 9]], ["Filter envelope", [7, 6, 5, 4]], ["Amp envelope", [3, 2, 1, 0]],
-  ["Env 3", [26, 27, 28, 29], "filter ADSR knobs, keytrack switch in the middle"],
-  ["Env 4", [30, 31, 32, 33], "filter ADSR knobs, keytrack switch at the top"],
+  ["Filter", [24, 8, 9]], ["Filter envelope", [7, 6, 5, 4], "", 2], ["Amp envelope", [3, 2, 1, 0], "", 1],
+  ["Env 3", [26, 27, 28, 29], "filter ADSR knobs, keytrack switch in the middle", 4],
+  ["Env 4", [30, 31, 32, 33], "filter ADSR knobs, keytrack switch at the top", 8],
   ["Poly-mod", [23, 22]], ["LFO 1", [17, 18], 0], ["LFO 2", [34, 35], 1], ["Glide and tune", [16, 19]]];
-const ENV_TIME = new Set([0, 2, 3, 4, 6, 7, 26, 27, 29, 30, 31, 33]);
+// envelope knobs: [cycle bit, stage 0 attack / 1 decay / 2 sustain / 3 release]
+const ENV_KNOB = {3: [1, 0], 2: [1, 1], 1: [1, 2], 0: [1, 3], 7: [2, 0], 6: [2, 1], 5: [2, 2], 4: [2, 3],
+  26: [4, 0], 27: [4, 1], 28: [4, 2], 29: [4, 3], 30: [8, 0], 31: [8, 1], 32: [8, 2], 33: [8, 3]};
+const CYCLE_LABELS = ["Attack", "Fall", "Hold", "Rest"], ADSR_LABELS = ["Attack", "Decay", "Sustain", "Release"];
+function cycling(bit) { return !!(settings && (settings["cycle" + (paramsLayer + 1)] & bit)); }
+// the firmware's curve (synth.c knob_time): an exponential offset to start at the minimum
+const knobTime = (k, min, max) => min + (max - min) * (2 ** (k * 12) - 1) / 4095;
+function envTime(stage, k, cyc) {
+  if (stage === 0 || (cyc && stage >= 2)) return knobTime(k, 0, 10); // attack, hold, rest
+  if (stage === 2) return -1;                                          // sustain: a level
+  return knobTime(k, 0.003, 20);                                       // decay, release (to -60 dB)
+}
 const DIVISIONS = ["8 bars", "4 bars", "2 bars", "1 bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
   "1/16T", "1/32"];
 const SHAPES = [["Triangle", "M1 14 9 2 17 14 25 2 33 14"], ["Square", "M1 2H9V14H17V2H25V14H33"],
@@ -662,13 +674,16 @@ const SHAPES = [["Triangle", "M1 14 9 2 17 14 25 2 33 14"], ["Square", "M1 2H9V1
   ["Drift", "M1 10C6 10 6 3 11 3S16 12 21 12 25 6 33 6"]];
 const SYNC = ["Free", "MIDI clock"], TRIGGER = ["Free-running", "First key", "Every key", "Per voice (poly)"];
 
-function seconds(s) { return s < 1 ? Math.round(s * 1000) + " ms" : s.toFixed(s < 10 ? 2 : 1) + " s"; }
+function seconds(s) { return s < 0.9995 ? Math.round(s * 1000) + " ms" : s.toFixed(s < 9.995 ? 2 : 1) + " s"; }
 function format(i, v) {
   const signed = x => (x > 0 ? "+" : "") + x;
   if (i === 10 || i === 11) return signed(Math.floor((v - 0.5) * 72 + 36.5) - 36) + " st";
   if (i === 12 || i === 19) return signed(Math.round((v - 0.5) * 200)) + " ct";
   if (i === 9) return signed(Math.round((v - 0.5) * 198));
-  if (ENV_TIME.has(i)) return seconds(0.001 * 2 ** (v * 13.2877));
+  if (ENV_KNOB[i]) {
+    const t = envTime(ENV_KNOB[i][1], v, cycling(ENV_KNOB[i][0]));
+    if (t >= 0) return t === 0 ? "0 ms" : seconds(t);
+  }
   if (i === 16) return v < 0.02 ? "off" : seconds(0.002 * 2 ** (v * 10));
   if (i === 17 || i === 34) {
     const which = i === 34 ? 1 : 0;
@@ -681,11 +696,19 @@ function format(i, v) {
 
 function buildGroups() {
   const box = document.getElementById("groups");
-  for (const [title, list, extra] of GROUPS) {
+  for (const [title, list, extra, cycleBit] of GROUPS) {
     const g = document.createElement("div");
     g.className = "group";
-    const note = typeof extra === "string" ? `<span class="muted">${extra}</span>` : "";
+    const note = typeof extra === "string" && extra ? `<span class="muted">${extra}</span>` : "";
     g.innerHTML = `<h3><span>${title}</span>${note}</h3>`;
+    if (cycleBit) {
+      g.insertAdjacentHTML("beforeend", `<div class="field"><span>Mode</span><label title="attack, hold, fall, rest, again while the key is held">
+        <input type="checkbox" class="cycle" data-bit="${cycleBit}"> cycle while held</label></div>`);
+      g.querySelector(".cycle").onchange = e => {
+        const key = "cycle" + (paramsLayer + 1), bits = settings ? settings[key] : 0;
+        setSetting(SET_ID[key], e.target.checked ? bits | cycleBit : bits & ~cycleBit);
+      };
+    }
     for (const i of list) {
       const row = document.createElement("div");
       row.className = "param";
@@ -773,6 +796,13 @@ function paintSettings() {
     document.getElementById("lfo-sel" + which).textContent = s.lfoSelect === which ? "the panel's LFO knobs edit this LFO" :
       `Arp Up-Dn on the panel switches the LFO knobs to LFO ${n}`;
   }
+  const cyc = s["cycle" + (s.editLayer + 1)];
+  document.querySelectorAll("input.cycle").forEach(c => c.checked = !!(cyc & +c.dataset.bit));
+  for (const [i, [bit, stage]] of Object.entries(ENV_KNOB)) {
+    const label = document.querySelector(`label[for="p${i}"]`);
+    if (label) label.textContent = (cyc & bit ? CYCLE_LABELS : ADSR_LABELS)[stage];
+  }
+  if (params) paintParams();
   const dests = s["lfo2Dests" + (s.editLayer + 1)];
   document.querySelectorAll("#shapes1 ~ .field input[data-bit]").forEach(c => c.checked = !!(dests & +c.dataset.bit));
   const env = ["filter envelope", "Env 3", "Env 4"][s.envSelect] || "";

@@ -53,6 +53,13 @@ int synth_lfo2_dests(int layer);
 void synth_set_lfo2_dests(int layer, int bits);
 int synth_lfo2_toggle(int s);
 
+// Cycling envelopes per layer (ENV_CYCLE_* bits): attack, hold, fall, rest, again while the key is held.
+int synth_env_cycle(int layer);
+void synth_set_env_cycle(int layer, int bits);
+// An envelope time knob in seconds: stage 0 attack, 1 decay, 2 sustain (a time only when cycling: hold, else -1),
+// 3 release (rest when cycling).
+float synth_env_time(int stage, float knob, int cycling);
+
 // A layer's parameter (0..1, PARAM_COUNT of them: the knobs, Env 3 / 4, LFO 2) for the host; setting one puts its
 // knob in pickup.
 float synth_param(int layer, int param);

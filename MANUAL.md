@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.6.1. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.6.2. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with seven shapes, clock sync and per-voice retrigger;
@@ -146,10 +146,44 @@ Sync and retrigger are set per LFO (LFO 1, LFO 2) and apply to both layers.
 
 ## Envelopes
 
-Every voice has four ADSRs: filter, amp, Env 3 and Env 4. Times run 1 ms to 10 s. The keyboard-tracking switch
-picks which envelope the four filter ADSR knobs edit (`FEnV`, `EnV3` or `EnV4` on the display, with pickup).
-Env 3 and Env 4 do nothing until a mod route uses them. Keyboard tracking (`OFF` / `HALF` / `FULL`) is
-Settings → key 5 (`trAC`).
+Every voice has four ADSRs: filter, amp, Env 3 and Env 4. The keyboard-tracking switch picks which envelope the
+four filter ADSR knobs edit (`FEnV`, `EnV3` or `EnV4` on the display, with pickup). Env 3 and Env 4 do nothing
+until a mod route uses them. Keyboard tracking (`OFF` / `HALF` / `FULL`) is Settings → key 5 (`trAC`).
+
+While you turn a time knob the display shows the time: milliseconds as a whole number (` 150`), seconds with a
+point (` 1.25`, ` 12.5`).
+
+| Knob position | 0 | 10 % | 25 % | 50 % | 75 % | 100 % |
+|---|---|---|---|---|---|---|
+| Attack | instant | 3 ms | 17 ms | 150 ms | 1.25 s | 10 s |
+| Decay, release | 3 ms | 9 ms | 37 ms | 310 ms | 2.5 s | 20 s |
+
+Decay and release times are how long the fall takes to reach −60 dB, so a release showing 2 s is gone at 2 s.
+The attack has the concave shape of an analog envelope: it shoots up first and eases into the top. Decay and
+release fall exponentially. Sustain is a level, 0-99. The engine updates every 2.3 ms, so attacks below about
+3 ms all sound like an instant attack.
+
+### Cycling envelopes
+
+Any envelope can cycle while the key is held, like a one-shot LFO per note that restarts itself. Turn it on in
+Settings → key 6, which shows `CY.A` (amp), `CY.F` (filter), `CY.3` or `CY.4`. It opens on the envelope the filter
+ADSR knobs edit, or amp; press 6 again for the next one. VALUE sets `OFF` / `on`. This is per layer and stored in
+the patch. On the web page, each envelope has a "cycle while held" box.
+
+While it cycles, the knobs mean:
+
+| Knob | In a cycle |
+|---|---|
+| ATT | Attack: the rise to the top (0-10 s) |
+| SUS | Hold: time at the top (0-10 s) |
+| DEC | Fall: the drop to zero (3 ms-20 s) |
+| REL | Rest: time at zero before the next attack (0-10 s) |
+
+On key up the envelope falls to zero with the DEC time. One cycle lasts attack + hold + fall + rest. Some ideas:
+
+- A cycling amp envelope with short attack and fall makes rhythmic gating that restarts with every note.
+- A cycling Env 3 → CUTOFF gives each note its own filter "wah" pattern.
+- Cycling Env 4 → pitch A with a long rest gives a recurring blip.
 
 ## Mod matrix (MOD ASSIGN)
 
@@ -224,6 +258,7 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 | 3 | `LAYr`: layer mode | `OFF`, `SPLt`, `StAC`, `CHAn` |
 | 4 | `SPLt`: split note | 0-127, or play a note |
 | 5 | `trAC`: keyboard tracking | `OFF`, `HALF`, `FULL` |
+| 6 | `CY.A` / `CY.F` / `CY.3` / `CY.4`: cycling envelope (6 again: next one) | `OFF`, `on` |
 
 Settings live in the patch, so save the patch to keep them.
 
@@ -259,7 +294,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.6.1.syx --yes
+build/pro800 install build/pro800-0.6.2.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

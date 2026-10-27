@@ -41,6 +41,12 @@ typedef enum {
 #define LFO2_TO_FILTER 2u
 #define LFO2_TO_PW     4u
 
+// Cycling envelopes, as bits of a layer's setting
+#define ENV_CYCLE_AMP    1u
+#define ENV_CYCLE_FILTER 2u
+#define ENV_CYCLE_ENV3   4u
+#define ENV_CYCLE_ENV4   8u
+
 #define ROUTES 8 // per layer
 
 typedef struct {

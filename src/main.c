@@ -22,7 +22,8 @@
 //   7C                     panel state; replies 7C <26 pots, 2 × 7 bits each> <24 switches, 0/1 each>
 //   7D <setting> <value>   set a setting (host_setting_t: 0 LFO 1 sync, 1 LFO 1 retrigger, 2 layer mode, 3 split
 //                          note, 4 keyboard tracking, 5 LFO 2 sync, 6 LFO 2 retrigger, 7 edit layer, 8 selected LFO,
-//                          9-12 LFO shapes (layer 1 LFO 1, LFO 2, layer 2 LFO 1, LFO 2), 13-14 LFO 2 routing per layer)
+//                          9-12 LFO shapes (layer 1 LFO 1, LFO 2, layer 2 LFO 1, LFO 2), 13-14 LFO 2 routing per layer,
+//                          15-16 cycling envelopes per layer)
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
 //   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
@@ -237,12 +238,17 @@ static int save_patch(int n)
 
 // Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value. The
 // LFO pages set the LFO that Arp Up-Dn selects ("SYn2" / "trI2" for LFO 2).
-enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_COUNT };
+// Key 6 sets cycling for one envelope of the edit layer: pressing 6 again moves to the next envelope.
+enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_CYCLE, PAGE_COUNT };
 
-static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC"}; // keys 1-5
+static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC", ""}; // keys 1-6
+static const char cycle_names[4][6] = {"CY.A", "CY.F", "CY.3", "CY.4"}; // amp, filter, Env 3, Env 4
+static int cycle_env; // the envelope page 6 shows
 
 static const char *page_name(int page)
 {
+    if (page == PAGE_CYCLE)
+        return cycle_names[cycle_env];
     if (synth_lfo_select() && page == PAGE_LFO_SYNC)
         return "SYn2";
     if (synth_lfo_select() && page == PAGE_LFO_TRIGGER)
@@ -255,7 +261,7 @@ static uint32_t show_value_at; // ms_ticks to replace the page name with its val
 
 static int setting_count(int page)
 {
-    static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3};
+    static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, 2};
     return counts[page];
 }
 
@@ -266,6 +272,7 @@ static int setting_get(int page)
     case PAGE_LFO_TRIGGER: return (int)lfo_trigger[synth_lfo_select()];
     case PAGE_LAYERS: return (int)synth_layer_mode();
     case PAGE_KEYTRACK: return synth_keytrack();
+    case PAGE_CYCLE: return (synth_env_cycle(synth_edit_layer()) >> cycle_env) & 1;
     default: return synth_split_note();
     }
 }
@@ -277,6 +284,11 @@ static void setting_set(int page, int value)
     case PAGE_LFO_TRIGGER: lfo_trigger[synth_lfo_select()] = (lfo_trigger_t)value; break;
     case PAGE_LAYERS: synth_set_layer_mode((layer_mode_t)value); break;
     case PAGE_KEYTRACK: synth_set_keytrack(value); break;
+    case PAGE_CYCLE: {
+        int bits = synth_env_cycle(synth_edit_layer());
+        synth_set_env_cycle(synth_edit_layer(), value ? bits | 1 << cycle_env : bits & ~(1 << cycle_env));
+        break;
+    }
     default: synth_set_split_note(value); break;
     }
 }
@@ -285,6 +297,7 @@ static void show_setting(int page)
 {
     static const char *const values[][LFO_TRIGGER_COUNT] = {
         {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY"}, {"OFF", "SPLt", "StAC", "CHAn"}, {0}, {"OFF", "HALF", "FULL"},
+        {"OFF", "on"},
     };
     if (page == PAGE_SPLIT)
         display_number(synth_split_note());
@@ -416,6 +429,48 @@ static void idle_display(void)
         display_clear();
 }
 
+// An envelope knob's time in seconds (attack, decay, release; hold and rest when cycling), or -1 for the others.
+static float env_knob_time(int pot, float knob)
+{
+    static const int8_t stage[POT_COUNT] = {
+        [POT_AMP_ATT] = 1, [POT_AMP_DEC] = 2, [POT_AMP_SUS] = 3, [POT_AMP_REL] = 4,
+        [POT_FIL_ATT] = 1, [POT_FIL_DEC] = 2, [POT_FIL_SUS] = 3, [POT_FIL_REL] = 4,
+    };
+    if (!stage[pot])
+        return -1;
+    int amp = pot <= POT_AMP_ATT; // POT_AMP_REL..POT_AMP_ATT come first
+    int env = amp ? 0 : synth_env_select() + 1; // amp, filter, Env 3, Env 4: the ENV_CYCLE_* bit order
+    return synth_env_time(stage[pot] - 1, knob, (synth_env_cycle(synth_edit_layer()) >> env) & 1);
+}
+
+// 4 digits: milliseconds as a whole number ("  15", " 150"), seconds with a point (" 1.25", " 12.5")
+static void format_time(float s, char *text)
+{
+    int n = 0;
+    if (s < 0.9995f) {
+        int ms = (int)(s * 1000.0f + 0.5f);
+        text[n++] = ' ';
+        text[n++] = ms >= 100 ? (char)('0' + ms / 100) : ' ';
+        text[n++] = ms >= 10 ? (char)('0' + ms / 10 % 10) : ' ';
+        text[n++] = (char)('0' + ms % 10);
+    } else if (s < 9.995f) {
+        int c = (int)(s * 100.0f + 0.5f);
+        text[n++] = ' ';
+        text[n++] = (char)('0' + c / 100);
+        text[n++] = '.';
+        text[n++] = (char)('0' + c / 10 % 10);
+        text[n++] = (char)('0' + c % 10);
+    } else {
+        int d = (int)(s * 10.0f + 0.5f);
+        text[n++] = ' ';
+        text[n++] = (char)('0' + d / 100);
+        text[n++] = (char)('0' + d / 10 % 10);
+        text[n++] = '.';
+        text[n++] = (char)('0' + d % 10);
+    }
+    text[n] = 0;
+}
+
 static void control_event(control_kind_t kind, int index, int32_t value)
 {
     static const led_t button_led[BUTTON_COUNT] = {
@@ -488,7 +543,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         // a per-layer knob still in pickup shows the edit layer's value, with a dot
         int pending = synth_pot_pending(index);
         float knob = pending ? synth_pot_value(index) : (float)value / 4095.0f;
-        char text[6];
+        char text[8];
         if (index == POT_LFO_FREQ && lfo_sync[synth_lfo_select()] == LFO_SYNC_CLOCK) {
             const char *name = lfo_division_name(lfo_division(knob));
             int n = 0;
@@ -497,6 +552,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
                 n++;
             }
             text[n] = 0;
+        } else if (env_knob_time(index, knob) >= 0) {
+            format_time(env_knob_time(index, knob), text);
         } else if (index == POT_FREQ_A || index == POT_FREQ_B || index == POT_FINE) {
             // signed, right-aligned: semitones for the frequencies, cents for fine
             int v = index == POT_FINE ? synth_knob_cents(knob) : synth_knob_semitones(knob);
@@ -576,6 +633,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && menu_open) {
         int page = index - BUTTON_1; // key 1 = first page
+        if (page == PAGE_CYCLE)
+            cycle_env = menu_page == PAGE_CYCLE ? (cycle_env + 1) % 4 : synth_env_select() ? synth_env_select() + 1 : 0;
         if (page >= 0 && page < PAGE_COUNT) {
             menu_page = page;
             encoder_steps = 0;
@@ -639,7 +698,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
 typedef enum {
     SET_LFO1_SYNC, SET_LFO1_TRIGGER, SET_LAYERS, SET_SPLIT, SET_KEYTRACK, SET_LFO2_SYNC, SET_LFO2_TRIGGER,
     SET_EDIT_LAYER, SET_LFO_SELECT, SET_SHAPE_L1_LFO1, SET_SHAPE_L1_LFO2, SET_SHAPE_L2_LFO1, SET_SHAPE_L2_LFO2,
-    SET_LFO2_DESTS_L1, SET_LFO2_DESTS_L2,
+    SET_LFO2_DESTS_L1, SET_LFO2_DESTS_L2, SET_CYCLE_L1, SET_CYCLE_L2,
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_COUNT
 } host_setting_t;
@@ -657,6 +716,7 @@ static int host_setting_get(int id)
     case SET_SHAPE_L1_LFO1: case SET_SHAPE_L1_LFO2: case SET_SHAPE_L2_LFO1: case SET_SHAPE_L2_LFO2:
         return synth_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2);
     case SET_LFO2_DESTS_L1: case SET_LFO2_DESTS_L2: return synth_lfo2_dests(id - SET_LFO2_DESTS_L1);
+    case SET_CYCLE_L1: case SET_CYCLE_L2: return synth_env_cycle(id - SET_CYCLE_L1);
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
     case SET_CURRENT_PATCH: return current_patch;
@@ -668,7 +728,7 @@ static int host_setting_set(int id, int value)
 {
     static const uint8_t counts[SET_WRITABLE] = {
         LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, 2, 2,
-        LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8,
+        LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8, 16, 16,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -681,6 +741,7 @@ static int host_setting_set(int id, int value)
     case SET_EDIT_LAYER: synth_set_edit_layer(value); break;
     case SET_LFO_SELECT: synth_set_lfo_select(value); break;
     case SET_LFO2_DESTS_L1: case SET_LFO2_DESTS_L2: synth_set_lfo2_dests(id - SET_LFO2_DESTS_L1, value); break;
+    case SET_CYCLE_L1: case SET_CYCLE_L2: synth_set_env_cycle(id - SET_CYCLE_L1, value); break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;

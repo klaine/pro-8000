@@ -495,6 +495,29 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   shows semitones (`-12`, ` 7`) or cents (`-100`) instead of 0-99. Stored patches keep their knob positions, so a
   patch saved with an interval comes back with 1.5 times that interval: re-set FREQ A / B on older patches.
 
+## Envelope ranges, curves and cycling (0.6.2, 2026-10-27; built, not flashed)
+
+- Ranges came from what the engine can resolve: it updates every ~2.3 ms, so the old 1 ms minimum wasted the bottom
+  ~12 % of each time knob (1-2.5 ms all sound the same), and the old decay/release "time" was to −34 dB, so tails
+  lasted about twice what the number suggested.
+- Every time knob now follows t = min + (max − min) · (2^(12k) − 1) / 4095: no dead zone at the bottom, the middle
+  where most sounds live. Attack 0-10 s (17 ms at ¼, 150 ms at ½, 1.25 s at ¾); decay and release 3 ms-20 s
+  (310 ms at ½) to −60 dB. The longest release tail is about what it was (old max: −34 dB at 10 s).
+- Attack charges towards 1.5 and stops at 1 (the CEM3310 / SSM2056 shape, as p600fw's "exp" attack): 0.39 of the
+  way at a quarter of the time instead of 0.25. Decay and release exponential. Sustain stays linear: this assumes
+  the voice VCA is linear in amplitude (p600fw drives it straight from its envelope). Not measured yet (the probe
+  run was blocked); if the VCA turns out exponential, sustain and the release shape need a curve.
+- Per-update factors are worked out once per layer and envelope (8 × 3 exp2) instead of per voice.
+- Cycling (per envelope and layer, Settings key 6 `CY.A` / `CY.F` / `CY.3` / `CY.4`, patch byte 232): attack,
+  hold (SUS knob as a time), fall to −60 dB (DEC), rest (REL), again while the key is held; key up falls with the
+  DEC time. Host setting ids 15-16; `pro800 set cycle <layer> amp,filter,env3,env4`; a checkbox per envelope on the
+  web page, which also relabels the knobs.
+- The display shows envelope times while turning: ` 150` (ms), ` 1.25` / ` 12.5` (s).
+- Checked on the Mac with the real `synth.c` (hardware stubbed, 2.33 ms updates): the attack peaks at 0.151 s for
+  0.154; release reaches −60 dB at 0.308 s for 0.311; a cycle of 17 + 154 + 311 + 17 ms repeats every 0.503 s.
+- Older patches: the same knob positions now give somewhat longer decays (0.5: 310 ms to −60 dB, was 100 ms to
+  −34 dB, about 180 ms to −60 dB) and slightly shorter attacks in the lower half.
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

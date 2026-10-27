@@ -23,7 +23,15 @@
 // route's source × depth to its destination; destinations that are single wires on the hardware (mixer, PW,
 // resonance, poly-mod amount) take per-note sources from the layer's most recently played voice.
 //
-// Ranges and curves are first guesses, chosen to be playable; they're constants here.
+// Envelopes: every time knob follows the same curve, an exponential offset so that the bottom of the knob is the
+// minimum with no dead zone (the engine updates about every 2.3 ms, so shorter times are one step anyway).
+// Attack 0 / 3 ms / 17 ms / 150 ms / 1.25 s / 10 s at 0 / 10 / 25 / 50 / 75 / 100 %; decay and release 3 ms .. 20 s
+// (310 ms in the middle), measured to -60 dB so the number is how long it lasts. The attack charges towards 1.5 and
+// stops at 1, the concave curve of an analog envelope; decay and release are exponential. Sustain is linear.
+// Cycling (per envelope and layer): attack, hold at the top (SUS knob), fall to zero (DEC), rest (REL), again,
+// for as long as the key is held; on key up it falls with the DEC time. Hold and rest use the attack's range.
+//
+// Other ranges and curves are first guesses, chosen to be playable; they're constants here.
 #include "synth.h"
 #include "controls.h"
 #include "fastmath.h"
@@ -51,14 +59,31 @@
 #define MOD_PW                0.5f
 #define MOD_LFO_OCTAVES       4.0f  // LFO rate
 
+#define ENV_CURVE_OCTAVES     12.0f // the time knobs' curve: 2^12 from the bottom to the top
+#define ATTACK_MAX_S          10.0f // also hold and rest, all from 0
+#define DECAY_MIN_S           0.003f
+#define DECAY_MAX_S           20.0f // decay and release, to -60 dB
+#define ATTACK_OVERSHOOT      1.5f
+#define ENV_FLOOR             0.0005f // -66 dB: a release ends here
+#define CYCLE_FLOOR           0.001f  // -60 dB: a cycle's fall ends here, on time
+
 #define LAYERS 2
 
-typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_RELEASE } env_stage_t;
+typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_RELEASE, ENV_HOLD, ENV_REST } env_stage_t;
 
 typedef struct {
     env_stage_t stage;
     float level; // 0..1
+    float timer; // seconds in ENV_HOLD / ENV_REST
 } env_t;
+
+// One envelope's settings as per-update factors, worked out once per layer and update
+typedef struct {
+    float attack, decay, release; // multipliers on the distance left to go
+    float sustain;
+    float hold, rest;             // seconds (cycling)
+    int cycle;
+} env_rates_t;
 
 typedef struct {
     uint8_t note;
@@ -86,6 +111,7 @@ static int env_select = -1; // which envelope the filter ADSR knobs edit: 0 filt
 static int lfo_select;      // which LFO the LFO knobs, the shape button and the routing buttons edit: 0 or 1
 static uint8_t lfo_shape[LAYERS][2]; // lfo_shape_t, per layer and LFO
 static uint8_t lfo2_dests[LAYERS];   // LFO2_TO_* bits
+static uint8_t env_cycle[LAYERS];    // ENV_CYCLE_* bits
 
 static const uint8_t per_layer[PARAM_COUNT] = {
     [POT_FREQ_A] = 1, [POT_FREQ_B] = 1, [POT_FINE] = 1, [POT_CUTOFF] = 1, [POT_FIL_ENV_AMT] = 1,
@@ -200,6 +226,10 @@ void synth_set_lfo_shape(int layer, int which, int shape)
     if (shape >= 0 && shape < LFO_SHAPE_COUNT)
         lfo_shape[layer][which] = (uint8_t)shape;
 }
+
+int synth_env_cycle(int layer) { return env_cycle[layer]; }
+
+void synth_set_env_cycle(int layer, int bits) { env_cycle[layer] = (uint8_t)(bits & 15); }
 
 int synth_lfo2_dests(int layer) { return lfo2_dests[layer]; }
 
@@ -356,6 +386,7 @@ void synth_apply_patch(const patch_t *patch)
         for (int w = 0; w < 2; w++)
             lfo_shape[l][w] = patch->lfo_shape[l][w] < LFO_SHAPE_COUNT ? patch->lfo_shape[l][w] : 0;
         lfo2_dests[l] = patch->lfo2_dests[l] & 7;
+        env_cycle[l] = patch->env_cycle[l] & 15;
     }
     for (int i = 0; i < PARAM_COUNT; i++) {
         latched[i] = i == POT_MASTER_VOL;
@@ -393,6 +424,7 @@ void synth_capture_patch(patch_t *patch)
         for (int w = 0; w < 2; w++)
             patch->lfo_shape[l][w] = lfo_shape[l][w];
         patch->lfo2_dests[l] = lfo2_dests[l];
+        patch->env_cycle[l] = env_cycle[l];
     }
     patch->switches = 0;
     for (int s = 0; s < SWITCH_COUNT; s++)
@@ -580,33 +612,82 @@ int synth_any_gate(void)
 
 // --- modulation ---
 
-// 1 ms .. 10 s, exponentially over the knob
-static float env_time(float knob) { return 0.001f * fast_exp2(knob * 13.2877f); }
-
-static float decay_factor(float dt, float time) // reaches about 2% of the way in `time`
+// A time knob (0..1) → seconds, from `min` to `max` along the curve described at the top
+static float knob_time(float knob, float min, float max)
 {
-    return fast_exp2(-dt / time * 5.64f);
+    static const float span = 4095.0f; // 2^ENV_CURVE_OCTAVES - 1
+    return min + (max - min) * (fast_exp2(knob * ENV_CURVE_OCTAVES) - 1.0f) / span;
 }
 
-static void env_update(env_t *e, float dt, float attack, float decay, float sustain, float release)
+float synth_env_time(int stage, float knob, int cycling)
+{
+    switch (stage) {
+    case 0: return knob_time(knob, 0, ATTACK_MAX_S);                                // attack
+    case 1: return knob_time(knob, DECAY_MIN_S, DECAY_MAX_S);                       // decay
+    case 2: return cycling ? knob_time(knob, 0, ATTACK_MAX_S) : -1;                 // sustain, or hold
+    default: return cycling ? knob_time(knob, 0, ATTACK_MAX_S) : knob_time(knob, DECAY_MIN_S, DECAY_MAX_S);
+    }
+}
+
+// The multiplier per update that covers a stage of `time` seconds: an attack (from 0 to 1 on its way to 1.5:
+// 1/3 of the distance left at the end) or a fall (to -60 dB: 1/1000 left).
+static float step_factor(float dt, float time, float log2_left)
+{
+    return time <= 0 ? 0 : fast_exp2(-dt / time * log2_left);
+}
+
+static void env_rates(env_rates_t *r, float dt, const float *p, int att, int dec, int sus, int rel, int cycle)
+{
+    r->cycle = cycle;
+    r->attack = step_factor(dt, synth_env_time(0, p[att], cycle), 1.585f); // log2(3)
+    r->decay = step_factor(dt, synth_env_time(1, p[dec], cycle), 9.966f);  // log2(1000)
+    r->release = cycle ? r->decay : step_factor(dt, synth_env_time(3, p[rel], 0), 9.966f);
+    r->sustain = p[sus];
+    r->hold = cycle ? synth_env_time(2, p[sus], 1) : 0;
+    r->rest = cycle ? synth_env_time(3, p[rel], 1) : 0;
+}
+
+static void env_update(env_t *e, float dt, const env_rates_t *r)
 {
     switch (e->stage) {
     case ENV_IDLE:
         e->level = 0;
         break;
     case ENV_ATTACK:
-        e->level += dt / env_time(attack);
+        e->level = ATTACK_OVERSHOOT - (ATTACK_OVERSHOOT - e->level) * r->attack;
         if (e->level >= 1.0f) {
             e->level = 1.0f;
-            e->stage = ENV_DECAY;
+            e->stage = r->cycle ? ENV_HOLD : ENV_DECAY;
+            e->timer = 0;
         }
         break;
-    case ENV_DECAY: // then follows the sustain knob while held
-        e->level = sustain + (e->level - sustain) * decay_factor(dt, env_time(decay));
+    case ENV_HOLD:
+        e->timer += dt;
+        if (e->timer >= r->hold || !r->cycle)
+            e->stage = ENV_DECAY;
+        break;
+    case ENV_DECAY:
+        if (!r->cycle) { // then follows the sustain knob while held
+            e->level = r->sustain + (e->level - r->sustain) * r->decay;
+            break;
+        }
+        e->level *= r->decay;
+        if (e->level < CYCLE_FLOOR) {
+            e->level = 0;
+            e->stage = ENV_REST;
+            e->timer = 0;
+        }
+        break;
+    case ENV_REST:
+        e->timer += dt;
+        if (!r->cycle)
+            e->stage = ENV_DECAY; // cycling switched off: settle on the sustain level
+        else if (e->timer >= r->rest)
+            e->stage = ENV_ATTACK;
         break;
     case ENV_RELEASE:
-        e->level *= decay_factor(dt, env_time(release));
-        if (e->level < 0.0005f) {
+        e->level *= r->release;
+        if (e->level < ENV_FLOOR) {
             e->level = 0;
             e->stage = ENV_IDLE;
         }
@@ -732,8 +813,16 @@ void synth_update(float dt)
             evaluate_routes(l, last_voice[l], last_mod[l]);
 
     layer_params_t lp[LAYERS];
+    env_rates_t rates[LAYERS][4]; // amp, filter, Env 3, Env 4
     for (int l = 0; l < LAYERS; l++) {
         const float *p = layer_param[l];
+        int c = env_cycle[l];
+        env_rates(&rates[l][0], dt, p, POT_AMP_ATT, POT_AMP_DEC, POT_AMP_SUS, POT_AMP_REL, c & ENV_CYCLE_AMP);
+        env_rates(&rates[l][1], dt, p, POT_FIL_ATT, POT_FIL_DEC, POT_FIL_SUS, POT_FIL_REL, c & ENV_CYCLE_FILTER);
+        env_rates(&rates[l][2], dt, p, PARAM_ENV3_ATT, PARAM_ENV3_DEC, PARAM_ENV3_SUS, PARAM_ENV3_REL,
+                  c & ENV_CYCLE_ENV3);
+        env_rates(&rates[l][3], dt, p, PARAM_ENV4_ATT, PARAM_ENV4_DEC, PARAM_ENV4_SUS, PARAM_ENV4_REL,
+                  c & ENV_CYCLE_ENV4);
         // LFOs (lfo.c): rate or clock division from the rate knobs; LFO_ID(0, 0) goes first
         lfo_update(LFO_ID(l, 0), dt, p[POT_LFO_FREQ], last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES);
         lfo_update(LFO_ID(l, 1), dt, p[PARAM_LFO2_RATE], last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES);
@@ -785,12 +874,11 @@ void synth_update(float dt)
     for (int v = 0; v < VOICE_COUNT; v++) {
         voice_t *x = &voices[v];
         int l = layer_of(v);
-        const float *p = layer_param[l];
         const layer_params_t *q = &lp[l];
-        env_update(&x->amp, dt, p[POT_AMP_ATT], p[POT_AMP_DEC], p[POT_AMP_SUS], p[POT_AMP_REL]);
-        env_update(&x->filter, dt, p[POT_FIL_ATT], p[POT_FIL_DEC], p[POT_FIL_SUS], p[POT_FIL_REL]);
-        env_update(&x->env3, dt, p[PARAM_ENV3_ATT], p[PARAM_ENV3_DEC], p[PARAM_ENV3_SUS], p[PARAM_ENV3_REL]);
-        env_update(&x->env4, dt, p[PARAM_ENV4_ATT], p[PARAM_ENV4_DEC], p[PARAM_ENV4_SUS], p[PARAM_ENV4_REL]);
+        env_update(&x->amp, dt, &rates[l][0]);
+        env_update(&x->filter, dt, &rates[l][1]);
+        env_update(&x->env3, dt, &rates[l][2]);
+        env_update(&x->env4, dt, &rates[l][3]);
         x->pitch += ((float)x->note - x->pitch) * q->glide_k;
 
         float mod[DEST_COUNT] = {0};
