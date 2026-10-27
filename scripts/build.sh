@@ -29,10 +29,14 @@ case "$version" in
     *) echo "VERSION must be x.y.z with single digits, got '$version'" >&2; exit 1 ;;
 esac
 
+major=${version%%.*}; rest=${version#*.}; minor=${rest%%.*}; patch=${rest#*.}
+
 cd "$build"
 "$ZIG" cc -target thumb-freestanding-eabihf -mcpu=cortex_m4 \
     -Os -std=c11 -Wall -Wextra -Werror -ffreestanding -nostdlib \
     -ffunction-sections -fdata-sections -ffile-prefix-map="$root"=. \
+    -DFW_VERSION_MAJOR="$major" -DFW_VERSION_MINOR="$minor" -DFW_VERSION_PATCH="$patch" \
+    -DFW_VERSION_STRING="\"$version\"" \
     -T "$root/src/link.ld" -Wl,--gc-sections -Wl,-e,Reset_Handler \
     -o pro800.elf "$root"/src/*.c
 rm -f ./*.o

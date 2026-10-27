@@ -29,6 +29,7 @@ SECTIONS
     .data :
     {
         _sdata = .;
+        *(.ramfunc*)
         *(.data*)
         . = ALIGN(4);
         _edata = .;

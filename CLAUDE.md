@@ -14,7 +14,10 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     that the file is a packed update and paces it below the bootloader's 9.64 kB/s, waiting after the header
     for the flash erase. `--dry-run` only checks the file.
   - The synth listens on MIDI channel 6; `play` defaults to it.
-- `VERSION` is the only version string. It's x.y.z with single digits, because the bootloader takes it as XYZ.
+- Flashing: `build/pro800 update-mode`, wait for USB ID `1397:1260`, then `build/pro800 flash
+  build/pro800-<VERSION>.syx --yes`. Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
+  own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
+- `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, because the bootloader takes it as XYZ.
 
 ## Layout
 

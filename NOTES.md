@@ -257,6 +257,21 @@ that was the pitch estimator's 4 kHz limit, since raised to 10 kHz.)
   Oscillators spread −77..+63 cents around 339 Hz (autotune will take that out); every voice within 0.7 dB at
   −38 dBFS (master 0x6000, mixer 0xC000); the filters self-oscillate at about −26 dBFS.
 
+## USB MIDI (0.0.8, 2026-10-27)
+
+- `src/usb.c`: OTG FS device in slave mode, interrupt-driven (IRQ 67), register-level (RM0390 ch. 30). No VBUS
+  sensing: `GCCFG = PWRDWN`, B-session forced valid in `GOTGCTL`. FIFOs: 128 words RX, 64 for EP0 IN, 64 for
+  the MIDI IN endpoint. USB MIDI 1.0 descriptors (one cable each way, bulk EP1 OUT/IN).
+- It reports Behringer's IDs `1397:125F` and the product name "PRO 800" (manufacturer "AI & Klaine", serial =
+  firmware version), so macOS keeps the "PRO 800" port name and `pro800` finds it with no options.
+- Enumerated first time on macOS. Notes play on any channel (8 voices, saw A + B, untuned: within about
+  −16 cents at C3–C5 on the voices tried). CoreMIDI needs a few seconds after re-enumeration before the port
+  appears.
+- SysEx: the version request (`08 00`) returns the firmware version; the stock update-mode command (`03 30`)
+  mutes, detaches from USB, erases flash sector 4 from RAM (`src/update.c`) and resets. **Confirmed**: the
+  bootloader then stays in update mode (`1397:1260` within 2 s) and `pro800 flash` reinstalls. The buttons are
+  only needed if a firmware doesn't run USB.
+
 ## Plan
 
 1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 180 MHz,

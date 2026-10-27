@@ -16,6 +16,7 @@
 #define RCC_APB1RSTR    REG(RCC_BASE + 0x20)
 #define RCC_APB2RSTR    REG(RCC_BASE + 0x24)
 #define RCC_AHB1ENR     REG(RCC_BASE + 0x30)
+#define RCC_AHB2ENR     REG(RCC_BASE + 0x34)
 #define RCC_APB1ENR     REG(RCC_BASE + 0x40)
 
 #define RCC_PLLCFGR     REG(RCC_BASE + 0x04)
@@ -43,6 +44,7 @@
 #define RCC_AHB1ENR_GPIOC (1u << 2)
 #define RCC_AHB1ENR_GPIOD (1u << 3)
 #define RCC_AHB1ENR_GPIOE (1u << 4)
+#define RCC_AHB2ENR_OTGFS (1u << 7)
 #define RCC_APB1ENR_SPI3  (1u << 15)
 #define RCC_APB1ENR_DAC   (1u << 29)
 
@@ -93,8 +95,11 @@
 #define SYST_CSR        REG(0xE000E010u)
 #define SYST_RVR        REG(0xE000E014u)
 #define SYST_CVR        REG(0xE000E018u)
+#define NVIC_ISER(n)    REG(0xE000E100u + 4u * (n))
 #define NVIC_ICER(n)    REG(0xE000E180u + 4u * (n))
 #define NVIC_ICPR(n)    REG(0xE000E280u + 4u * (n))
+#define SCB_AIRCR       REG(0xE000ED0Cu)
+#define SCB_AIRCR_SYSRESETREQ 0x05FA0004u
 #define DEMCR           REG(0xE000EDFCu)
 #define DEMCR_TRCENA    (1u << 24)
 #define DWT_CTRL        REG(0xE0001000u)
