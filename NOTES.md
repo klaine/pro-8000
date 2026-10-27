@@ -342,7 +342,7 @@ firmware's names are in `src/controls.h` and `src/display.c`.
 bend ±2, mod wheel adds LFO depth. Everything runs in the main loop with the real elapsed time (about 2.2 ms per
 pass, set by the S&H refresh). Pitch, filter cutoff and keyboard tracking are worked out in semitones and turned
 into CVs through each voice's tuning tables. First-guess ranges, all constants in `synth.c`:
-- frequency knobs ±24 semitones in semitone steps; fine (B) ±1; master tune ±1
+- frequency knobs ±24 semitones in semitone steps (±48 from 0.6.1); fine (B) ±1; master tune ±1
 - envelopes 1 ms – 10 s per stage (linear attack, exponential decay and release); filter envelope amount bipolar,
   ±72 semitones; cutoff knob 16 Hz – 16 kHz; keyboard tracking 0 / ½ / 1
 - LFO 0.05–50 Hz, triangle (or square with LFO Shape), depth = amount² (+ mod wheel), to pitch ±12 semitones,
@@ -490,6 +490,10 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
 - Checked on the Mac with the real `lfo.c`: every shape spans −1..1 with the right form (sine within 0.12 % of
   −cos), +1 octave of rate halves the period, per-voice phases advance on their own. Build 33.5 kB, `-Werror`
   clean. Not flashed yet (needs the user's go-ahead).
+
+- 0.6.1: FREQ A / B ±48 semitones in semitone steps (was ±24); FINE stays ±100 cents. While turning, the display
+  shows semitones (`-12`, ` 7`) or cents (`-100`) instead of 0-99. Stored patches keep their knob positions, so a
+  patch saved with an interval comes back with twice that interval: re-set FREQ A / B on older patches.
 
 ## Backlog
 

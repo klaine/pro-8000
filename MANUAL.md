@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.6.0. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.6.1. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with seven shapes, clock sync and per-voice retrigger;
@@ -16,6 +16,8 @@ The internal sequencer and arpeggiator are gone; their buttons do other jobs now
 | Control | What it does now |
 |---|---|
 | Knobs | As printed, with a few changes. LFO FREQ / LFO AMOUNT edit LFO 1 or LFO 2. The filter ADSR knobs can edit Env 3 / Env 4. |
+| FREQ A / FREQ B | ±48 semitones (8 octaves in all) in semitone steps; the display shows the interval, e.g. `-12`, ` 7`. |
+| FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
 | Keyboard-tracking switch | Picks what the filter ADSR knobs edit: bottom = filter envelope, middle = Env 3, top = Env 4. Keyboard tracking itself is a setting. |
 | LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`. |
 | VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. |
@@ -28,7 +30,7 @@ The internal sequencer and arpeggiator are gone; their buttons do other jobs now
 | Settings | Opens the settings menu (keys 1-5). |
 | Tune | Autotune (about 25 s, silent). |
 
-The display shows a knob's value (0-99) while you turn it. A dot after the value means the knob hasn't
+The display shows a knob's value (0-99, or semitones / cents for FREQ and FINE) while you turn it. A dot after the value means the knob hasn't
 **picked up** the stored value yet. Turn it past the stored value (or onto it) and it takes over. This happens:
 
 - after loading a patch;
@@ -257,7 +259,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.6.0.syx --yes
+build/pro800 install build/pro800-0.6.1.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

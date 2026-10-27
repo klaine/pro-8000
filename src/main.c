@@ -497,6 +497,19 @@ static void control_event(control_kind_t kind, int index, int32_t value)
                 n++;
             }
             text[n] = 0;
+        } else if (index == POT_FREQ_A || index == POT_FREQ_B || index == POT_FINE) {
+            // signed, right-aligned: semitones for the frequencies, cents for fine
+            int v = index == POT_FINE ? synth_knob_cents(knob) : synth_knob_semitones(knob);
+            int a = v < 0 ? -v : v, n = 4;
+            text[4] = 0;
+            do {
+                text[--n] = (char)('0' + a % 10);
+                a /= 10;
+            } while (a && n > 0);
+            if (n > 0)
+                text[--n] = v < 0 ? '-' : ' '; // a 7-segment digit can't show '+'
+            while (n > 0)
+                text[--n] = ' ';
         } else {
             int v = (int)(knob * 99.0f + 0.5f);
             text[0] = ' ';

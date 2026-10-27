@@ -31,8 +31,8 @@
 #include "sh.h"
 #include "tuning.h"
 
-#define OSC_RANGE_SEMITONES   24.0f // frequency knobs: ± this, in semitone steps
-#define FINE_SEMITONES        1.0f  // oscillator B fine: ±
+#define OSC_RANGE_SEMITONES   48.0f // frequency knobs: ± this, in semitone steps
+#define FINE_SEMITONES        1.0f  // oscillator B fine: ± (100 cents)
 #define MASTER_TUNE_SEMITONES 1.0f  // ±
 #define BEND_SEMITONES        2.0f  // ±
 #define CUTOFF_LOW_NOTE       12.0f // cutoff knob at minimum (about 16 Hz)
@@ -622,6 +622,14 @@ static uint16_t cv_from(float x)
 static float semitone_steps(float knob)
 {
     return (float)(int)((knob - 0.5f) * 2 * OSC_RANGE_SEMITONES + OSC_RANGE_SEMITONES + 0.5f) - OSC_RANGE_SEMITONES;
+}
+
+int synth_knob_semitones(float knob) { return (int)semitone_steps(knob); }
+
+int synth_knob_cents(float knob)
+{
+    float cents = (knob - 0.5f) * 2 * FINE_SEMITONES * 100;
+    return (int)(cents < 0 ? cents - 0.5f : cents + 0.5f);
 }
 
 static void read_panel(float dt)
