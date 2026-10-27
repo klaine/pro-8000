@@ -302,7 +302,7 @@ WebMIDI with SysEx, which Safari and the desktop app's built-in browser don't of
 
 | Tab | What it does |
 |---|---|
-| **Sound** | Every parameter of the layer you're editing: knobs, Env 3/4, LFO 2. It also has the LFO shapes, sync, retrigger and LFO 2 routing, and the layer mode, split and keyboard tracking. It follows the panel about once a second. Moving a slider puts that knob in pickup on the panel. |
+| **Sound** | Every parameter of the layer you're editing: knobs, Env 3/4, LFO 2. It also has the LFO shapes, sync, retrigger and LFO 2 routing, depth sliders from each LFO to the VCA, cutoff, oscillator A / B pitch and PWM (each one a mod route on the edit layer; double-click for 0), and the layer mode, split and keyboard tracking. It follows the panel about once a second. Moving a slider puts that knob in pickup on the panel. |
 | **Mod matrix** | Both layers' routes: change the source, destination or depth, remove routes, add new ones. |
 | **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 400 as a `.bin`. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. |

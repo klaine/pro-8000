@@ -123,6 +123,9 @@
   .steps button[disabled] { opacity: .25; }
   .step-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; }
   .step-tools button { padding: 2px 8px; font-size: 12px; }
+  .lfo-depths { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; }
+  .lfo-depths .title { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  .lfo-depths input[type=range] { background: linear-gradient(90deg, transparent 49.5%, var(--line) 49.5%, var(--line) 50.5%, transparent 50.5%); }
   .depth { display: flex; gap: 6px; align-items: center; }
   .depth input[type=range] { width: 140px; accent-color: var(--accent); }
   .depth output { font: 12px ui-monospace, monospace; width: 30px; text-align: right; }
@@ -695,6 +698,36 @@ const SHAPES = [["Triangle", "M1 14 9 2 17 14 25 2 33 14"], ["Square", "M1 2H9V1
   ["Sine", "M1 14C5 14 5 2 9 2S13 14 17 14 21 2 25 2 29 14 33 14"], ["S&H", "M1 10H7V3H13V12H19V6H25V13H33"],
   ["Drift", "M1 10C6 10 6 3 11 3S16 12 21 12 25 6 33 6"], ["Steps", "M1 14V3H5V14H9V3H13V14H17V3H21V3H25V14H33"]];
 const STEPS_SHAPE = 7;
+// LFO depth sliders: mod-matrix routes from LFO 1 / LFO 2 (sources 1 / 11) to these destinations
+const LFO_SOURCE = [1, 11];
+const LFO_TARGETS = [["VCA", [9]], ["Cutoff", [3]], ["Osc A pitch", [0]], ["Osc B pitch", [1]], ["PWM", [14, 15]]];
+let layerRoutes = null, depthDragging = null; // the edit layer's routes: [{source, dest, depth}]
+function depthText(dests, d) {
+  const signed = x => (x > 0 ? "+" : "") + x;
+  if (d === 0) return "off";
+  if (dests[0] === 3) return signed((d * 96 / 99).toFixed(0)) + " st";         // cutoff: 99 = ±96 semitones
+  if (dests[0] <= 1) return signed((d * 24 / 99).toFixed(1)) + " st";          // pitch: 99 = ±24 semitones
+  if (dests[0] === 14) return signed(Math.round(d * 50 / 99)) + " %";          // pulse width: 99 = ±50 %
+  return signed(d);                                                            // VCA: 99 = full gate
+}
+async function refreshLayerRoutes() {
+  const layer = paramsLayer, d = await ask([0x57, layer], [0x57, layer], 1000);
+  if (!d) return;
+  layerRoutes = [];
+  for (let r = 0; r < 8; r++)
+    if (d[2 + 4 * r]) layerRoutes.push({ source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
+  paintDepths();
+}
+function paintDepths() {
+  for (const which of [0, 1])
+    document.querySelectorAll(`#depths${which} input`).forEach(slider => {
+      if (slider === depthDragging || !layerRoutes) return;
+      const [, dests] = LFO_TARGETS[+slider.dataset.t];
+      const r = layerRoutes.find(x => x.source === LFO_SOURCE[which] && x.dest === dests[0]);
+      slider.value = r ? r.depth : 0;
+      slider.nextElementSibling.textContent = depthText(dests, +slider.value);
+    });
+}
 let steps = [null, null]; // [LFO 1, LFO 2] of the edit layer: {count, bits}
 const SYNC = ["Free", "MIDI clock"], TRIGGER = ["Free-running", "First key", "Every key", "Per voice (poly)"];
 
@@ -775,6 +808,12 @@ function lfoControls(which) {
       <div class="muted" style="font-size:12px">One LFO cycle plays all the steps: with MIDI clock sync, 16 steps at
         1 bar (or 8 at 1/2) are 16th notes.</div>
     </div>
+    <div class="lfo-depths" id="depths${which}">
+      <div class="title" title="each slider is this LFO's mod-matrix route on the layer you're editing; double-click for 0">
+        Depth to (−99…+99; adds to the panel's LFO buttons)</div>
+      ${LFO_TARGETS.map(([label, dests], t) => `<div class="param"><label>${label}</label>
+        <input type="range" min="-99" max="99" value="0" data-t="${t}"><span class="val">0</span></div>`).join("")}
+    </div>
     <div class="field"><span>Sync</span><select id="sync${which}">${SYNC.map((t, k) => `<option value="${k}">${t}</option>`).join("")}</select></div>
     <div class="field"><span>Retrigger</span><select id="trig${which}">${TRIGGER.map((t, k) => `<option value="${k}">${t}</option>`).join("")}</select></div>
     ${which ? `<div class="field"><span>Routing</span>
@@ -808,6 +847,28 @@ function lfoControls(which) {
       : op === "right" ? (st.bits << 1 | st.bits >> (st.count - 1)) & all
       : 0x3535 & all;
     sendSteps(which, st.count, bits);
+  });
+  box.querySelectorAll(`#depths${which} input`).forEach(slider => {
+    const [, dests] = LFO_TARGETS[+slider.dataset.t];
+    let timer = 0;
+    const apply = () => {
+      const depth = +slider.value;
+      slider.nextElementSibling.textContent = depthText(dests, depth);
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        for (const dest of dests)
+          if (!await setRoute(paramsLayer, LFO_SOURCE[which], dest, depth)) {
+            document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use (Mod matrix tab)`;
+            await refreshLayerRoutes();
+            return;
+          }
+        await refreshLayerRoutes();
+      }, 60);
+    };
+    slider.addEventListener("pointerdown", () => depthDragging = slider);
+    slider.addEventListener("pointerup", () => setTimeout(() => { if (depthDragging === slider) depthDragging = null; }, 800));
+    slider.oninput = apply;
+    slider.ondblclick = () => { slider.value = 0; apply(); };
   });
   box.querySelector("#sync" + which).onchange = e => setSetting(SET_ID[`lfo${n}Sync`], +e.target.value);
   box.querySelector("#trig" + which).onchange = e => setSetting(SET_ID[`lfo${n}Trigger`], +e.target.value);
@@ -872,6 +933,7 @@ async function refreshParams() {
   for (let i = 0; i < d[2]; i++) params.push((d[3 + 2 * i] << 7 | d[4 + 2 * i]) / 16383);
   paintParams();
   await refreshSteps();
+  await refreshLayerRoutes();
 }
 
 function paintSettings() {
