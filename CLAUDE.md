@@ -25,7 +25,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 
 - `tools/pro800.swift`: the USB MIDI tool (one file, CoreMIDI + AVFoundation).
 - `src/`: `startup.c` (vector table, reset handler that cleans up after the bootloader), `link.ld`
-  (app at `0x08010000`, max 128 kB), `regs.h` (the registers we use; no vendor headers), drivers, `main.c`.
+  (app at `0x08010000`, max 64 kB: flash sector 4), `regs.h` (the registers we use; no vendor headers), drivers, `main.c`.
 - `reference/`: GliGli's p600fw (GPL v3) and the packer + schematic. Third-party, git-ignored.
 - `backup/`: read-only SysEx dumps of the synth's patches. Git-ignored.
 
