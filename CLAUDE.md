@@ -16,6 +16,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - The synth listens on MIDI channel 6; `play` defaults to it.
   - `install <file.syx> --yes`: update-mode + flash + wait until the new firmware answers (it autotunes first).
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
+  - Patches: `patches`, `patch load|save|clear <slot>`, `import --yes`, `eeprom <file>` (read),
+    `eeprom-write <image> --yes` (write and verify, e.g. back to stock).
   - Engine: `set lfo-sync free|clock`, `set lfo-trigger free|first|every|voice`, `set layers
     off|split|stack|channel`, `set split <note>`, `layer 1|2`, `clock <bpm> [seconds]`. The WebMIDI page `scripts/web.sh` →
     http://localhost:8800 (Chrome/Edge) shows and maps the same, map in `tools/web/panel-map.json`.
@@ -39,7 +41,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 - **Never** connect a debugger to unlock the flash: that erases the chip, bootloader included. Recovery is
   always through the bootloader (hold buttons 0 and 7 at power-up) and a stock firmware `.syx`.
 - The firmware must fit in flash sector 4 (64 kB, enforced by `link.ld`): sector 5 holds the tuning tables.
-- Don't touch the EEPROM (`EEP_*` on PE1–PE6) until we own the patch format; it holds the user's patches.
+- The EEPROM (`EEP_*` on PE1–PE6) holds the user's patches in our format (`src/store.h`). Write it only through
+  `store.c` or the tool's `--yes` commands; keep `backup/2026-10-27/eeprom-stock.bin` (the way back to stock).
 - At startup, drive every S&H enable (`EN1`–`EN9`) high before anything else, so no CV channel samples
   garbage.
 - Porting p600fw code makes this firmware GPL v3.

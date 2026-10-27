@@ -12,7 +12,8 @@
 // and layer 2 on voices 5-8, except with layers off, when layer 1 has all 8. Everything else is one set of
 // wires for all voices on the hardware, so it's shared: mixer, resonance, pulse widths, poly-mod osc B amount
 // and routing, master volume, every button, and LFO → PW (from layer 1's LFO). After switching the edit layer,
-// a per-layer knob waits until it's turned past (or onto) that layer's value before it takes over.
+// a per-layer knob waits until it's turned past (or onto) that layer's value before it takes over. Loading a
+// patch puts every stored knob (all but M VOL) in pickup the same way.
 //
 // Ranges and curves are first guesses, chosen to be playable; they're constants here.
 #include "synth.h"
@@ -64,7 +65,7 @@ static float panel[POT_COUNT];
 static float layer_pot[LAYERS][POT_COUNT];
 static int pots_primed;
 static int edit_layer;
-static uint8_t latched[POT_COUNT]; // a per-layer knob controls the edit layer
+static uint8_t latched[POT_COUNT]; // the knob controls its value (per-layer knobs: the edit layer's)
 static int8_t pickup_side[POT_COUNT]; // which side of the stored value the knob started on: -1, +1 (0 = unknown)
 
 static const uint8_t per_layer[POT_COUNT] = {
@@ -73,6 +74,10 @@ static const uint8_t per_layer[POT_COUNT] = {
     [POT_AMP_ATT] = 1, [POT_AMP_DEC] = 1, [POT_AMP_SUS] = 1, [POT_AMP_REL] = 1,
     [POT_GLIDE] = 1, [POT_LFO_FREQ] = 1, [POT_LFO_AMOUNT] = 1, [POT_PMOD_FIL_ENV] = 1, [POT_MASTER_TUNE] = 1,
 };
+
+// buttons: a loaded patch's state holds until the button is toggled
+static uint8_t switch_override[SWITCH_COUNT], switch_value[SWITCH_COUNT], switch_at_load[SWITCH_COUNT];
+static uint8_t keytrack_override, keytrack_value, keytrack_at_load;
 
 static layer_mode_t layer_mode = LAYER_OFF;
 static int split_note = 60;
@@ -137,7 +142,76 @@ void synth_set_edit_layer(int layer)
 
 float synth_pot_value(int pot) { return layer_pot[edit_layer][pot]; }
 
-int synth_pot_pending(int pot) { return per_layer[pot] && !latched[pot]; }
+int synth_pot_pending(int pot) { return !latched[pot]; }
+
+static int sw(switch_t s)
+{
+    int physical = controls_on(s);
+    if (switch_override[s] && physical != switch_at_load[s])
+        switch_override[s] = 0; // toggled since the patch was loaded
+    return switch_override[s] ? switch_value[s] : physical;
+}
+
+static int keytrack(void)
+{
+    int physical = controls_keytrack();
+    if (keytrack_override && physical != keytrack_at_load)
+        keytrack_override = 0;
+    return keytrack_override ? keytrack_value : physical;
+}
+
+void synth_apply_patch(const patch_t *patch)
+{
+    synth_all_off();
+    for (int l = 0; l < LAYERS; l++)
+        for (int i = 0; i < POT_COUNT; i++)
+            if (i != POT_MASTER_VOL)
+                layer_pot[l][i] = (float)patch->pots[per_layer[i] ? l : 0][i] / 65535.0f;
+    for (int i = 0; i < POT_COUNT; i++) {
+        latched[i] = i == POT_MASTER_VOL;
+        pickup_side[i] = 0;
+    }
+    for (int s = 0; s < SWITCH_COUNT; s++) {
+        switch_value[s] = (patch->switches >> s) & 1;
+        switch_at_load[s] = (uint8_t)controls_on((switch_t)s);
+        switch_override[s] = s <= SWITCH_UNISON || s == SWITCH_SYNC;
+    }
+    keytrack_value = patch->keytrack <= 2 ? patch->keytrack : 0;
+    keytrack_at_load = (uint8_t)controls_keytrack();
+    keytrack_override = 1;
+    layer_mode = patch->layer_mode < LAYER_MODE_COUNT ? (layer_mode_t)patch->layer_mode : LAYER_OFF;
+    synth_set_split_note(patch->split);
+    lfo_sync = patch->lfo_sync < LFO_SYNC_COUNT ? (lfo_sync_t)patch->lfo_sync : LFO_SYNC_FREE;
+    lfo_trigger = patch->lfo_trigger < LFO_TRIGGER_COUNT ? (lfo_trigger_t)patch->lfo_trigger : LFO_TRIGGER_FREE;
+    unison = sw(SWITCH_UNISON);
+}
+
+void synth_capture_patch(patch_t *patch)
+{
+    for (int l = 0; l < LAYERS; l++)
+        for (int i = 0; i < POT_COUNT; i++) {
+            float v = layer_pot[per_layer[i] ? l : 0][i];
+            patch->pots[l][i] = (uint16_t)(v <= 0 ? 0 : v >= 1 ? 65535 : v * 65535.0f + 0.5f);
+        }
+    patch->switches = 0;
+    for (int s = 0; s < SWITCH_COUNT; s++)
+        if ((s <= SWITCH_UNISON || s == SWITCH_SYNC) && sw((switch_t)s)) // the latching buttons only
+            patch->switches |= 1u << s;
+    patch->keytrack = (uint8_t)keytrack();
+    patch->layer_mode = (uint8_t)layer_mode;
+    patch->split = (uint8_t)split_note;
+    patch->lfo_sync = (uint8_t)lfo_sync;
+    patch->lfo_trigger = (uint8_t)lfo_trigger;
+}
+
+void synth_manual(void)
+{
+    for (int i = 0; i < POT_COUNT; i++)
+        latched[i] = 1;
+    for (int s = 0; s < SWITCH_COUNT; s++)
+        switch_override[s] = 0;
+    keytrack_override = 0;
+}
 
 // --- notes ---
 
@@ -342,13 +416,14 @@ static void read_panel(float dt)
     float k = dt >= POT_SMOOTHING_S || !pots_primed ? 1.0f : dt / POT_SMOOTHING_S;
     for (int i = 0; i < POT_COUNT; i++) {
         panel[i] += ((float)controls_pot(i) / 4095.0f - panel[i]) * k;
-        if (!pots_primed || !per_layer[i]) { // both layers start from the panel; shared knobs always follow it
+        if (!pots_primed) { // both layers start from the panel
             layer_pot[0][i] = layer_pot[1][i] = panel[i];
             latched[i] = 1;
             continue;
         }
+        int layer = per_layer[i] ? edit_layer : 0; // shared knobs keep one value, in both layers
         if (!latched[i]) {
-            float diff = panel[i] - layer_pot[edit_layer][i];
+            float diff = panel[i] - layer_pot[layer][i];
             int8_t side = diff < 0 ? -1 : 1;
             if (diff < PICKUP_WINDOW && diff > -PICKUP_WINDOW)
                 latched[i] = 1;
@@ -357,12 +432,16 @@ static void read_panel(float dt)
             else if (side != pickup_side[i])
                 latched[i] = 1; // swept past it
         }
-        if (latched[i])
-            layer_pot[edit_layer][i] = panel[i];
+        if (latched[i]) {
+            if (per_layer[i])
+                layer_pot[edit_layer][i] = panel[i];
+            else
+                layer_pot[0][i] = layer_pot[1][i] = panel[i];
+        }
     }
     pots_primed = controls_ready(); // until the first full scan, keep copying the panel into both layers
 
-    int now_unison = controls_on(SWITCH_UNISON);
+    int now_unison = sw(SWITCH_UNISON);
     if (now_unison != unison) {
         synth_all_off();
         unison = now_unison;
@@ -379,8 +458,8 @@ void synth_update(float dt)
         dt = 0.05f; // after a long stall (tuning, flash writes), don't jump
     read_panel(dt);
 
-    int square = controls_on(SWITCH_LFO_SHAPE);
-    int pmod_freq_a = controls_on(SWITCH_PMOD_FREQ_A);
+    int square = sw(SWITCH_LFO_SHAPE);
+    int pmod_freq_a = sw(SWITCH_PMOD_FREQ_A);
     layer_params_t lp[LAYERS];
     for (int l = 0; l < LAYERS; l++) {
         const float *p = layer_pot[l];
@@ -399,33 +478,34 @@ void synth_update(float dt)
             .env_amount = (p[POT_FIL_ENV_AMT] - 0.5f) * 2 * FILTER_ENV_SEMITONES,
             .pmod_env = pmod_freq_a ? p[POT_PMOD_FIL_ENV] * PMOD_ENV_SEMITONES : 0,
             .cutoff = CUTOFF_LOW_NOTE + p[POT_CUTOFF] * CUTOFF_SPAN,
-            .to_pitch = controls_on(SWITCH_LFO_FREQ) ? depth * LFO_PITCH_SEMITONES : 0,
-            .to_filter = controls_on(SWITCH_LFO_FILTER) ? depth * LFO_FILTER_SEMITONES : 0,
+            .to_pitch = sw(SWITCH_LFO_FREQ) ? depth * LFO_PITCH_SEMITONES : 0,
+            .to_filter = sw(SWITCH_LFO_FILTER) ? depth * LFO_FILTER_SEMITONES : 0,
         };
     }
 
     // shared CVs and gates
     float depth0 = layer_pot[0][POT_LFO_AMOUNT] * layer_pot[0][POT_LFO_AMOUNT] + mod_wheel;
-    float lfo_pw = controls_on(SWITCH_LFO_PW) ? lfo_value(0, -1, square) * (depth0 > 1 ? 1 : depth0) * LFO_PW_DEPTH : 0;
-    sh_set(CV_VOL_A, cv_from(panel[POT_A_LEVEL]));
-    sh_set(CV_VOL_B, cv_from(panel[POT_B_LEVEL]));
-    sh_set(CV_NOISE, cv_from(panel[POT_NOISE]));
-    sh_set(CV_RESONANCE, cv_from(panel[POT_RESONANCE]));
-    sh_set(CV_PMOD_OSC_B, cv_from(panel[POT_PMOD_OSC_B]));
+    float lfo_pw = sw(SWITCH_LFO_PW) ? lfo_value(0, -1, square) * (depth0 > 1 ? 1 : depth0) * LFO_PW_DEPTH : 0;
+    const float *shared = layer_pot[0];
+    sh_set(CV_VOL_A, cv_from(shared[POT_A_LEVEL]));
+    sh_set(CV_VOL_B, cv_from(shared[POT_B_LEVEL]));
+    sh_set(CV_NOISE, cv_from(shared[POT_NOISE]));
+    sh_set(CV_RESONANCE, cv_from(shared[POT_RESONANCE]));
+    sh_set(CV_PMOD_OSC_B, cv_from(shared[POT_PMOD_OSC_B]));
     sh_set(CV_MASTER_VOL, cv_from(panel[POT_MASTER_VOL]));
     sh_set(CV_EXT_FIL, 0);
     // square off: PW A at maximum, PW B at minimum (as p600fw), so no pulse bleeds through
-    sh_set(CV_PW_A, controls_on(SWITCH_A_SQUARE) ? cv_from(0.05f + 0.9f * panel[POT_A_PW] + lfo_pw) : 0xFFFF);
-    sh_set(CV_PW_B, controls_on(SWITCH_B_SQUARE) ? cv_from(0.05f + 0.9f * panel[POT_B_PW] + lfo_pw) : 0);
-    sh_gate(GATE_SAW_A, controls_on(SWITCH_A_SAW));
-    sh_gate(GATE_TRI_A, controls_on(SWITCH_A_TRI));
-    sh_gate(GATE_SAW_B, controls_on(SWITCH_B_SAW));
-    sh_gate(GATE_TRI_B, controls_on(SWITCH_B_TRI));
-    sh_gate(GATE_SYNC, controls_on(SWITCH_SYNC));
+    sh_set(CV_PW_A, sw(SWITCH_A_SQUARE) ? cv_from(0.05f + 0.9f * shared[POT_A_PW] + lfo_pw) : 0xFFFF);
+    sh_set(CV_PW_B, sw(SWITCH_B_SQUARE) ? cv_from(0.05f + 0.9f * shared[POT_B_PW] + lfo_pw) : 0);
+    sh_gate(GATE_SAW_A, sw(SWITCH_A_SAW));
+    sh_gate(GATE_TRI_A, sw(SWITCH_A_TRI));
+    sh_gate(GATE_SAW_B, sw(SWITCH_B_SAW));
+    sh_gate(GATE_TRI_B, sw(SWITCH_B_TRI));
+    sh_gate(GATE_SYNC, sw(SWITCH_SYNC));
     sh_gate(GATE_PMOD_FREQ_A, pmod_freq_a);
-    sh_gate(GATE_PMOD_FILTER, controls_on(SWITCH_PMOD_FILTER));
+    sh_gate(GATE_PMOD_FILTER, sw(SWITCH_PMOD_FILTER));
 
-    float keytrack = 0.5f * (float)controls_keytrack(); // 0, 0.5, 1
+    float keytrack_amount = 0.5f * (float)keytrack(); // 0, 0.5, 1
     for (int v = 0; v < VOICE_COUNT; v++) {
         voice_t *x = &voices[v];
         int l = layer_of(v);
@@ -442,7 +522,7 @@ void synth_update(float dt)
         float pitch = x->pitch + bend + q->tune + spread + lfo * q->to_pitch;
         float a = pitch + q->coarse_a + q->pmod_env * x->filter.level;
         float b = pitch + q->coarse_b + q->fine_b;
-        float filter = q->cutoff + keytrack * (x->pitch - 60.0f) + q->env_amount * x->filter.level + lfo * q->to_filter;
+        float filter = q->cutoff + keytrack_amount * (x->pitch - 60.0f) + q->env_amount * x->filter.level + lfo * q->to_filter;
 
         sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
         sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));

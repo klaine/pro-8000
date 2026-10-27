@@ -1,5 +1,5 @@
 // Bit-banged SPI mode 0, about 250 kHz: WP = PE1, SCK = PE2, HOLD = PE3, CS = PE4, MISO (SO) = PE5,
-// MOSI (SI) = PE6. Only READ (03) and RDSR (05) are ever sent; WP stays low as well.
+// MOSI (SI) = PE6. WP stays low: it only guards the status register, which is never written.
 #include "eeprom.h"
 #include "clock.h"
 #include "gpio.h"
@@ -11,8 +11,12 @@
 #define MISO_PIN 5
 #define MOSI (1u << 6)
 
-#define CMD_READ 0x03
-#define CMD_RDSR 0x05
+#define CMD_READ  0x03
+#define CMD_RDSR  0x05
+#define CMD_WREN  0x06
+#define CMD_WRITE 0x02
+#define STATUS_WIP 0x01
+#define WRITE_TIMEOUT_US 20000
 
 static uint8_t transfer(uint8_t out)
 {
@@ -60,4 +64,47 @@ uint8_t eeprom_status(void)
     gpio_write(GPIOE_BASE, CS, 1);
     delay_us(1);
     return status;
+}
+
+static void command(uint8_t cmd)
+{
+    gpio_write(GPIOE_BASE, CS, 0);
+    delay_us(1);
+    transfer(cmd);
+    gpio_write(GPIOE_BASE, CS, 1);
+    delay_us(1);
+}
+
+static int wait_ready(void)
+{
+    for (int us = 0; us < WRITE_TIMEOUT_US; us += 50) {
+        if (!(eeprom_status() & STATUS_WIP))
+            return 1;
+        delay_us(50);
+    }
+    return 0;
+}
+
+int eeprom_write(uint32_t address, const uint8_t *data, uint32_t length)
+{
+    while (length) {
+        uint32_t room = EEPROM_PAGE - address % EEPROM_PAGE, n = length < room ? length : room;
+        if (!wait_ready())
+            return 0;
+        command(CMD_WREN);
+        gpio_write(GPIOE_BASE, CS, 0);
+        delay_us(1);
+        transfer(CMD_WRITE);
+        transfer((uint8_t)(address >> 16));
+        transfer((uint8_t)(address >> 8));
+        transfer((uint8_t)address);
+        for (uint32_t i = 0; i < n; i++)
+            transfer(data[i]);
+        gpio_write(GPIOE_BASE, CS, 1); // the write cycle starts here
+        delay_us(1);
+        address += n;
+        data += n;
+        length -= n;
+    }
+    return wait_ready();
 }

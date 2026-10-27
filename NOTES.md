@@ -401,6 +401,26 @@ Stock layout, matched against the SysEx patch dump:
   SEQ1/SEQ2?). 0x1FD00: patch-shaped ("Brass I"). 0x1FE00: system settings (the 40-byte SysEx system body).
 - zeros: 0x1F700–0x1F8FF, 0x1FF00–0x1FFFF.
 
+## Patch storage (0.4.0–0.4.1, 2026-10-27)
+
+Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-stock.bin` + `pro800 eeprom-write
+<image> --yes` is the way back to stock (writes and verifies all 128 kB). Layout (`src/store.h`):
+- 0x00000–0x18FFF: 400 patch slots (A00–D99), same slots as stock, 256 bytes in our format `P8P1`: name, layer
+  mode, split, LFO sync and retrigger, latching buttons, keyboard tracking, both layers' 26 knob values (u16),
+  reserved space for mod routes, checksum.
+- 0x19000–0x1F3FF: the stock factory bank, untouched (importable later).
+- 0x1F400: global block `P8G1` (last patch, preset/manual). 0x1F500: the autotune tables, which now survive
+  firmware updates (no more retune after `install`).
+- Import (`pro800 import --yes`): converted all 112 stock patches in place, names kept, 0 errors. The stock fields
+  map one to one (u16 little-endian; LFO shape pulse → square; LFO targets bit 0 freq, 1 filter, 2 PW), but the
+  engine's curves differ, so imported sounds are close, not identical. M TUNE becomes centre; M VOL isn't stored.
+- Panel: PRESET toggles preset (patch loaded: knobs in pickup, buttons hold the stored state until toggled) and
+  manual (panel live); two keypad digits pick a patch in the bank, VALUE steps through all 400 (display ` A.07`);
+  REC (blinks), choose the slot, REC saves (`donE`); the loaded patch's name follows it to an empty slot. Boot
+  restores the last patch and mode.
+- Checked: load + play A00/A01/A02/B04; save A01 to an empty slot and compare records: identical apart from the
+  low byte of a few knob values (1/65536 rounding) and M VOL (not applied); test slots cleared again.
+
 ## Backlog
 
 - **Two more envelopes per voice** (asked 2026-10-27): memory (128 B) and processing (microseconds per pass)
@@ -423,8 +443,8 @@ Stock layout, matched against the SysEx patch dump:
   (per voice, with `PoLY` retrigger): each voice scales its own LFO by its own envelope, e.g. delayed vibrato per
   note, an attack wobble that settles (negative depth), filter motion growing on held notes. LFO → PW only from
   shared sources. Best with the two extra envelopes, so the filter and amp envelopes stay free.
-- Settings, layers and the panel sound are RAM only: patch storage (EEPROM, read-only analysis first).
-- Hardware SPI to the DAC80501 (fails above 0.33 MHz); tuning tables erased by every update.
+- Hardware SPI to the DAC80501 (fails above 0.33 MHz).
+- Patch names: set from the Mac or the panel; import the factory bank into empty slots.
 
 ## Plan
 

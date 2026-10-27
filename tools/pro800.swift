@@ -51,6 +51,8 @@ Probe (our firmware 0.0.9+):
                                         layers off|split|stack|channel, split <note>)
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
   pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
+  pro800 patches [--all]                list the patch slots (ours, stock, empty)
+  pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-399, A00-D99)
   pro800 clock <bpm> [seconds]          send MIDI clock (Start, then 24 per quarter note)
   pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
@@ -58,6 +60,8 @@ Changes the synth (only when you mean it):
   pro800 update-mode                    reboot into the bootloader's update mode
   pro800 flash <file.syx> --yes [--rate B/s] [--erase-wait S] [--dry-run]
                                         stream a firmware update to the bootloader
+  pro800 import --yes                   convert the stock patches in the EEPROM to our format, in place
+  pro800 eeprom-write <file> --yes      write a whole EEPROM image and verify it (e.g. back to stock)
   pro800 install <file.syx> --yes       update-mode + flash + wait until the new firmware answers
 
 Options for every command: --port <name> (default "PRO 800").
@@ -799,6 +803,90 @@ func eeprom() {
     print(String(format: "\r%d bytes in %.1f s → %@ (status register 0x%02X)", data.count, Date().timeIntervalSince(began), path, status))
 }
 
+func slotNumber(_ text: String) -> Int? {
+    let t = text.uppercased()
+    if let n = Int(t), (0..<400).contains(n) { return n }
+    let banks = ["A", "B", "C", "D"]
+    if let first = t.first, let bank = banks.firstIndex(of: String(first)), let i = Int(t.dropFirst()), (0..<100).contains(i) {
+        return bank * 100 + i
+    }
+    return nil
+}
+
+func slotName(_ n: Int) -> String { "\(["A", "B", "C", "D"][n / 100])\(String(format: "%02d", n % 100))" }
+
+// Writes a whole EEPROM image and reads it back: pro800 eeprom-write <file> --yes (e.g. the stock image)
+func eepromWrite() {
+    guard flag("--yes"), let path = args.first else { fail("usage: pro800 eeprom-write <file> --yes") }
+    guard let image = FileManager.default.contents(atPath: path), image.count == 0x20000 else { fail("\(path) isn't a 128 kB image") }
+    let bytes = [UInt8](image), midi = Midi(port: portName)
+    var address = 0
+    while address < bytes.count {
+        let n = min(48, bytes.count - address)
+        var data: [UInt8] = [0x5A, UInt8(address >> 14 & 0x7F), UInt8(address >> 7 & 0x7F), UInt8(address & 0x7F), UInt8(n)]
+        for b in bytes[address..<(address + n)] { data += [b >> 4, b & 0x0F] }
+        guard midi.request(data, expect: [0x7F, 0x5A], timeout: 2) != nil else { fail("write failed at 0x\(String(address, radix: 16))") }
+        address += n
+        if address % 0x2000 < 48 { print("\rwritten \(address) / \(bytes.count)", terminator: ""); fflush(stdout) }
+    }
+    print("\nverifying")
+    let check = FileManager.default.temporaryDirectory.appendingPathComponent("pro800-verify.bin").path
+    args = [check]
+    eeprom()
+    let back = FileManager.default.contents(atPath: check)
+    print(back == image ? "verified: the EEPROM matches \(path); power-cycle the synth" : "MISMATCH after writing")
+}
+
+// Converts every stock patch in place: pro800 import --yes
+func importStock() {
+    guard flag("--yes") else { fail("usage: pro800 import --yes (converts the stock patches in the EEPROM to our format)") }
+    let midi = Midi(port: portName)
+    print("converting the 400 slots...")
+    guard let reply = midi.request([0x5B], expect: [0x5B], timeout: 60) else { fail("no reply (firmware 0.4.0 or later?)") }
+    let b = Array(reply[(sysexHeader.count + 1)...])
+    print("converted \(Int(b[0]) << 7 | Int(b[1])) patches, \(b[2]) errors")
+}
+
+// pro800 patch load|save|clear <slot>  (slot 0-399 or A00-D99)
+func patchCommand() {
+    guard args.count == 2, ["load", "save", "clear"].contains(args[0]), let n = slotNumber(args[1]) else {
+        fail("usage: pro800 patch load|save|clear <slot 0-399 or A00-D99>")
+    }
+    if args[0] == "clear" { // an empty slot is 256 zero bytes
+        let midi = Midi(port: portName)
+        for offset in stride(from: 0, to: 256, by: 32) {
+            let address = n * 256 + offset
+            let data: [UInt8] = [0x5A, UInt8(address >> 14 & 0x7F), UInt8(address >> 7 & 0x7F), UInt8(address & 0x7F), 32]
+                + [UInt8](repeating: 0, count: 64)
+            guard midi.request(data, expect: [0x7F, 0x5A], timeout: 2) != nil else { fail("clear failed") }
+        }
+        print("cleared \(slotName(n))")
+        return
+    }
+    let cmd: UInt8 = args[0] == "load" ? 0x5C : 0x5D
+    guard Midi(port: portName).request([cmd, UInt8(n >> 7), UInt8(n & 0x7F)], expect: [0x7F, cmd], timeout: 3) != nil else {
+        fail("\(args[0]) \(slotName(n)) failed (empty slot?)")
+    }
+    print("\(args[0] == "load" ? "loaded" : "saved") \(slotName(n))")
+}
+
+// Lists the patch slots: pro800 patches [--all]
+func patches() {
+    let all = flag("--all"), midi = Midi(port: portName)
+    let kinds = ["empty", "ours", "STOCK", "corrupt"]
+    var counts = [0, 0, 0, 0]
+    for n in 0..<400 {
+        guard let reply = midi.request([0x5E, UInt8(n >> 7), UInt8(n & 0x7F)], expect: [0x5E, UInt8(n >> 7), UInt8(n & 0x7F)], timeout: 2) else {
+            fail("no reply (firmware 0.4.0 or later?)")
+        }
+        let b = Array(reply[(sysexHeader.count + 3)..<(reply.count - 1)])
+        let kind = Int(b[0]), name = String(decoding: b.dropFirst(), as: UTF8.self)
+        counts[kind] += 1
+        if kind != 0 || all { print("\(slotName(n))  \(kinds[kind].padding(toLength: 7, withPad: " ", startingAt: 0)) \(name)") }
+    }
+    print("\(counts[1]) ours, \(counts[2]) stock, \(counts[0]) empty, \(counts[3]) corrupt")
+}
+
 // MARK: - Bootloader
 
 func updateMode() {
@@ -928,6 +1016,10 @@ case "state": state()
 case "set": setSetting()
 case "layer": layer()
 case "eeprom": eeprom()
+case "eeprom-write": eepromWrite()
+case "import": importStock()
+case "patch": patchCommand()
+case "patches": patches()
 case "clock": clockOut()
 case "leds": leds()
 case "update-mode": updateMode()

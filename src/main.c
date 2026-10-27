@@ -22,6 +22,11 @@
 //   7C                     panel state; replies 7C <26 pots, 2 × 7 bits each> <24 switches, 0/1 each>
 //   7D <setting> <value>   set a menu setting (0 LFO sync, 1 LFO retrigger, 2 layer mode, 3 split note)
 //   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
+//   5A <a2> <a1> <a0> <n> <2n nibbles>  write n (1-48) bytes to the patch EEPROM; acknowledged when written
+//   5B                     import: convert every stock patch in place, then mark the EEPROM as ours; replies
+//                          5B <converted, 2 × 7 bits> <errors>
+//   5C <n1> <n0>           load patch n; 5D <n1> <n0> save the current sound to patch n (both acknowledged)
+//   5E <n1> <n0>           patch info; replies 5E <n1> <n0> <kind: 0 empty, 1 ours, 2 stock, 3 corrupt> <name>
 //   79 <a2> <a1> <a0> <n>  read n (1-48) bytes of the patch EEPROM at a2 << 14 | a1 << 7 | a0; replies
 //                          79 <a2> <a1> <a0> <n> <status register, 2 nibbles> <each byte as 2 nibbles, high first>
 // Each other command is acknowledged with 7F <command>.
@@ -29,6 +34,7 @@
 #include "controls.h"
 #include "display.h"
 #include "eeprom.h"
+#include "store.h"
 #include "lfo.h"
 #include "panel.h"
 #include "regs.h"
@@ -108,6 +114,76 @@ static void show_version(void)
 static uint32_t display_until; // ms_ticks when a pot value on the display gives way; 0 = nothing shown
 static int tune_requested;
 
+// Patches: PRESET toggles preset mode (a patch loaded) and manual mode (the panel live). In preset mode two keypad
+// digits pick a patch in the current bank and VALUE steps through all 400; REC, then the slot, then REC saves.
+static int current_patch, preset_mode, saving, typed_digits, typed_value, encoder_patch_steps;
+static char loaded_name[PATCH_NAME + 1]; // travels with the sound when it's saved to an empty slot
+static uint32_t typed_at;
+
+static void patch_label(int n, char *text) // " A.07"
+{
+    static const char banks[] = "AbCd";
+    text[0] = ' ';
+    text[1] = banks[n / 100];
+    text[2] = '.';
+    text[3] = (char)('0' + n % 100 / 10);
+    text[4] = (char)('0' + n % 10);
+    text[5] = 0;
+}
+
+static void show_patch(int n)
+{
+    char text[6];
+    patch_label(n, text);
+    display_text(text);
+}
+
+static int load_patch(int n)
+{
+    patch_t patch;
+    if (!store_load_patch(n, &patch)) {
+        display_text("nonE");
+        display_until = ms_ticks + 1000;
+        return 0;
+    }
+    synth_apply_patch(&patch);
+    for (int i = 0; i <= PATCH_NAME; i++)
+        loaded_name[i] = patch.name[i];
+    current_patch = n;
+    preset_mode = 1;
+    display_led(LED_PRESET, 1);
+    show_patch(n);
+    store_set_last(n, 1);
+    return 1;
+}
+
+static void manual_mode(void)
+{
+    loaded_name[0] = 0; // a sound made on the panel has no name yet
+    synth_manual();
+    preset_mode = 0;
+    display_led(LED_PRESET, 0);
+    display_text("PAnL");
+    display_until = ms_ticks + 1000;
+    store_set_last(current_patch, 0);
+}
+
+static int save_patch(int n)
+{
+    patch_t patch, old;
+    synth_capture_patch(&patch);
+    const char *name = store_load_patch(n, &old) && old.name[0] ? old.name : loaded_name; // the slot's, else ours
+    for (int i = 0; i <= PATCH_NAME; i++)
+        patch.name[i] = name[i];
+    if (!store_save_patch(n, &patch))
+        return 0;
+    current_patch = n;
+    preset_mode = 1;
+    display_led(LED_PRESET, 1);
+    store_set_last(n, 1);
+    return 1;
+}
+
 // Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value.
 enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_COUNT };
 
@@ -166,6 +242,8 @@ static void idle_display(void)
         show_setting(menu_page);
     else if (menu_open)
         display_text("SEt");
+    else if (saving || preset_mode)
+        show_patch(current_patch);
     else
         display_clear();
 }
@@ -221,8 +299,33 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         display_until = ms_ticks + 1000;
     }
     if (kind == CONTROL_BUTTON && index > BUTTON_9) {
-        if (index != BUTTON_SETTINGS && index != BUTTON_SEQ1 && index != BUTTON_SEQ2)
+        if (index != BUTTON_SETTINGS && index != BUTTON_SEQ1 && index != BUTTON_SEQ2 && index != BUTTON_PRESET
+            && index != BUTTON_REC)
             display_led(button_led[index], (int)value);
+        if (index == BUTTON_PRESET && value) {
+            typed_digits = 0;
+            if (saving) { // cancels a save
+                saving = 0;
+                display_led(LED_REC, 0);
+                idle_display();
+            } else if (preset_mode)
+                manual_mode();
+            else
+                load_patch(current_patch);
+        }
+        if (index == BUTTON_REC && value && !menu_open) {
+            typed_digits = 0;
+            if (!saving) {
+                saving = 1; // the LED blinks in the main loop until the second press
+                show_patch(current_patch);
+                display_until = 0;
+            } else {
+                saving = 0;
+                display_led(LED_REC, 0);
+                display_text(save_patch(current_patch) ? "donE" : "Err");
+                display_until = ms_ticks + 1000;
+            }
+        }
         if (index == BUTTON_TUNE && value)
             tune_requested = 1;
         if (index == BUTTON_SETTINGS && value) {
@@ -241,6 +344,43 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             display_text(page_names[page]);
             show_value_at = ms_ticks + 700;
             display_until = 0;
+        }
+    }
+    if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && !menu_open && (preset_mode || saving)) {
+        int digit = index - BUTTON_0;
+        if (typed_digits == 1 && ms_ticks - typed_at < 3000) {
+            int n = current_patch / 100 * 100 + typed_value * 10 + digit;
+            typed_digits = 0;
+            if (saving) {
+                current_patch = n;
+                show_patch(n);
+            } else
+                load_patch(n);
+        } else {
+            typed_digits = 1;
+            typed_value = digit;
+            typed_at = ms_ticks;
+            char text[6];
+            patch_label(current_patch, text);
+            text[3] = (char)('0' + digit);
+            text[4] = '-';
+            display_text(text);
+            display_until = 0;
+        }
+    }
+    if (kind == CONTROL_ENCODER && !menu_open && (preset_mode || saving)) {
+        encoder_patch_steps += (int)value;
+        if (encoder_patch_steps >= 4 || encoder_patch_steps <= -4) {
+            int n = (current_patch + (encoder_patch_steps > 0 ? 1 : PATCH_COUNT - 1)) % PATCH_COUNT;
+            encoder_patch_steps = 0;
+            typed_digits = 0;
+            if (saving) {
+                current_patch = n;
+                show_patch(n);
+            } else if (!load_patch(n)) {
+                current_patch = n; // an empty slot: show it, keep the sound
+                show_patch(n);
+            }
         }
     }
     if (kind == CONTROL_ENCODER && menu_open && menu_page >= 0) {
@@ -345,6 +485,53 @@ static void handle_sysex(const uint8_t *message, int length)
         setting_set(data[1], data[2]);
         reply[n++] = 0x7F;
         reply[n++] = 0x7D;
+    }
+    if (data_length >= 5 && data[0] == 0x5A && data[4] >= 1 && data[4] <= 48 && data_length == 5 + 2 * data[4]) {
+        uint32_t address = (uint32_t)data[1] << 14 | (uint32_t)data[2] << 7 | data[3];
+        uint8_t bytes[48];
+        for (int i = 0; i < data[4]; i++)
+            bytes[i] = (uint8_t)(data[5 + 2 * i] << 4 | data[6 + 2 * i]);
+        if (address + data[4] <= EEPROM_SIZE && eeprom_write(address, bytes, data[4])) {
+            reply[n++] = 0x7F;
+            reply[n++] = 0x5A;
+        }
+    }
+    if (data_length == 1 && data[0] == 0x5B) {
+        synth_all_off();
+        sh_set(CV_MASTER_VOL, 0);
+        int converted = 0, errors = 0;
+        for (int i = 0; i < PATCH_COUNT; i++) {
+            int r = store_import_stock(i);
+            converted += r > 0;
+            errors += r < 0;
+            IWDG_KR = IWDG_KR_REFRESH;
+            sh_refresh();
+        }
+        if (!store_finish_import())
+            errors++;
+        reply[n++] = 0x5B;
+        reply[n++] = (uint8_t)(converted >> 7);
+        reply[n++] = converted & 0x7F;
+        reply[n++] = (uint8_t)(errors > 127 ? 127 : errors);
+    }
+    if (data_length == 3 && (data[0] == 0x5C || data[0] == 0x5D)) {
+        int slot = data[1] << 7 | data[2];
+        if (slot < PATCH_COUNT && (data[0] == 0x5C ? load_patch(slot) : save_patch(slot))) {
+            reply[n++] = 0x7F;
+            reply[n++] = data[0];
+        }
+    }
+    if (data_length == 3 && data[0] == 0x5E && (data[1] << 7 | data[2]) < PATCH_COUNT) {
+        int slot = data[1] << 7 | data[2];
+        patch_t patch;
+        slot_kind_t kind = store_slot_kind(slot);
+        reply[n++] = 0x5E;
+        reply[n++] = data[1];
+        reply[n++] = data[2];
+        reply[n++] = (uint8_t)kind;
+        if (kind == SLOT_OURS && store_load_patch(slot, &patch))
+            for (int i = 0; i < PATCH_NAME && patch.name[i]; i++)
+                reply[n++] = (uint8_t)patch.name[i] & 0x7F;
     }
     if (data_length == 5 && data[0] == 0x79 && data[4] >= 1 && data[4] <= 48) {
         uint32_t address = (uint32_t)data[1] << 14 | (uint32_t)data[2] << 7 | data[3];
@@ -484,6 +671,9 @@ int main(void)
     tune_init();
 
     sh_set(CV_MASTER_VOL, 0); // the engine sets it from the M VOL pot once the pots have been read
+    eeprom_init();
+    controls_init(); // the buttons are read when a patch loads
+    store_init();
     tuning_load();
     synth_init();
     for (int i = 0; i < 20; i++) // charge every S&H
@@ -494,8 +684,7 @@ int main(void)
     display_led(LED_POWER, 1);
     show_edit_layer();
 
-    // The bootloader erases the tables with every firmware update, so the first boot after one tunes (about
-    // 30 s, silent), showing "tUnE" meanwhile.
+    // No tables (a new EEPROM layout, or a failed write): tune first (about 30 s, silent), showing "tUnE".
     if (!tuning_valid()) {
         display_text("tUnE");
         display_update();
@@ -505,8 +694,14 @@ int main(void)
     show_version();
     display_until = ms_ticks + 1500;
 
-    controls_init();
-    eeprom_init();
+    if (store_ready()) {
+        current_patch = store_last_patch();
+        if (store_preset_mode()) {
+            for (uint32_t start = ms_ticks; !controls_ready() && ms_ticks - start < 200;)
+                controls_poll(ms_ticks, 0); // read every knob once, so the patch's pickup starts from them
+            load_patch(current_patch);
+        }
+    }
     usb_init();
 
     uint32_t last = DWT_CYCCNT;
@@ -536,6 +731,8 @@ int main(void)
             show_value_at = 0;
             idle_display();
         }
+        if (saving)
+            display_led(LED_REC, (now / 250) & 1);
         if (!report_mode)
             display_update();
 

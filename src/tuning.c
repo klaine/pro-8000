@@ -4,21 +4,20 @@
 // both mixer channels off). A note's CV is interpolated linearly in log frequency between the two nearest points;
 // the response is close to exponential (6515 codes per octave on 1A), so that's accurate between points.
 //
-// The tables live at the start of flash sector 5 (0x08020000), outside the firmware (sector 4), with a magic
-// number and checksum. They survive power cycles but not firmware updates: the bootloader erases sectors 4 and 5
-// (seen with 0.1.4), so main() tunes again when it finds none.
+// The tables live in the patch EEPROM (store.h), with a magic number and checksum, so they survive firmware
+// updates (the bootloader erases flash sectors 4 and 5 with every update); main() tunes when it finds none.
 #include "tuning.h"
 #include <stddef.h>
 #include "clock.h"
 #include "fastmath.h"
 #include "regs.h"
+#include "eeprom.h"
 #include "sh.h"
+#include "store.h"
 #include "tune.h"
 
-#define TUNING_ADDRESS 0x08020000u
-#define TUNING_SECTOR  5
 #define TUNING_MAGIC   0x4E555450u // "PTUN"
-#define TUNING_FORMAT  1
+#define TUNING_FORMAT  2 // 2: in the EEPROM
 
 #define FILTER_POINTS 12   // filters up to 0xD000 (about 15 kHz self-oscillating); higher is ultrasonic
 #define WINDOW_S      0.05f // measuring time per point
@@ -38,6 +37,7 @@ typedef struct {
 } store_t;
 
 static store_t store;
+_Static_assert(sizeof(store_t) <= STORE_TUNING_SIZE, "tuning tables outgrow their EEPROM area");
 static int valid;
 
 uint16_t tuning_point_cv(int point) { return (uint16_t)(0x2000 + 0x1000 * point); }
@@ -53,44 +53,19 @@ static uint32_t checksum(const store_t *s)
 
 int tuning_load(void)
 {
-    const store_t *flash = (const store_t *)TUNING_ADDRESS;
-    valid = flash->magic == TUNING_MAGIC && flash->format == TUNING_FORMAT && flash->checksum == checksum(flash);
-    if (valid)
-        store = *flash;
+    eeprom_read(STORE_TUNING_ADDRESS, (uint8_t *)&store, sizeof store);
+    valid = store.magic == TUNING_MAGIC && store.format == TUNING_FORMAT && store.checksum == checksum(&store);
     return valid;
 }
 
 int tuning_valid(void) { return valid; }
 
-// Flash writes stall the core (it runs from the same bank) for the erase, about a second for 128 kB; USB just
-// NAKs meanwhile and the S&H droop, so the caller keeps the synth muted.
 static void save(void)
 {
     store.magic = TUNING_MAGIC;
     store.format = TUNING_FORMAT;
     store.checksum = checksum(&store);
-
-    if (FLASH_CR & FLASH_CR_LOCK) {
-        FLASH_KEYR = FLASH_KEY1;
-        FLASH_KEYR = FLASH_KEY2;
-    }
-    while (FLASH_SR & FLASH_SR_BSY)
-        ;
-    FLASH_SR = FLASH_SR_ERRORS;
-    FLASH_CR = FLASH_CR_PSIZE_X32 | FLASH_CR_SER | FLASH_CR_SNB(TUNING_SECTOR);
-    FLASH_CR |= FLASH_CR_STRT;
-    while (FLASH_SR & FLASH_SR_BSY)
-        IWDG_KR = IWDG_KR_REFRESH;
-
-    FLASH_CR = FLASH_CR_PSIZE_X32 | FLASH_CR_PG;
-    const uint32_t *src = (const uint32_t *)&store;
-    volatile uint32_t *dst = (volatile uint32_t *)TUNING_ADDRESS;
-    for (uint32_t i = 0; i < sizeof store / 4; i++) {
-        dst[i] = src[i];
-        while (FLASH_SR & FLASH_SR_BSY)
-            ;
-    }
-    FLASH_CR = FLASH_CR_LOCK;
+    eeprom_write(STORE_TUNING_ADDRESS, (const uint8_t *)&store, sizeof store);
     tuning_load();
 }
 

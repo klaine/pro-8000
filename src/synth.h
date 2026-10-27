@@ -5,6 +5,7 @@
 #define SYNTH_H
 
 #include <stdint.h>
+#include "store.h"
 
 typedef enum {
     LAYER_OFF,     // one sound on all 8 voices
@@ -34,5 +35,11 @@ void synth_set_edit_layer(int layer);
 // For the display: the edit layer's value of a pot (0..1), and whether the knob is still waiting to pick it up.
 float synth_pot_value(int pot);
 int synth_pot_pending(int pot);
+
+// Patches: applying one puts every stored knob in pickup and holds each button's stored state until that button
+// is toggled. Manual mode makes the whole panel live again. M VOL is never stored.
+void synth_apply_patch(const patch_t *patch);
+void synth_capture_patch(patch_t *patch); // fills everything but the name
+void synth_manual(void);
 
 #endif
