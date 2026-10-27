@@ -321,6 +321,8 @@ firmware's names are in `src/controls.h` and `src/display.c`.
 - **LEDs** (RAM.bit): Preset 8.7, Sync Source 9.0, Power 9.1, Perf 10.7, Seq 1 11.0, Seq 2 11.1, Settings 12.7,
   Sync Clock 13.0, Arp Up 13.1, Tune 14.7, Rec 15.0, Arp Assign 15.1. (Sheet 4's LED table has Seq 1/Seq 2
   swapped compared with the panel.)
+- **Verified on the panel (0.1.7)**: digits (played note numbers, keypad typing), every button's LED while held,
+  the power LED.
 - **Not checked yet**: the 24 GPIO "switch" inputs (named after their schematic nets; which panel controls they
   are, and their polarity) and the VALUE encoder (transitions per detent).
 
