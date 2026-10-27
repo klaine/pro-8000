@@ -1,0 +1,13 @@
+# build outputs
+build/
+
+# third-party material: GliGli's p600fw, Music Tribe's packer and schematic
+reference/
+
+# patch dumps: personal data plus Behringer's factory patches
+backup/
+
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
