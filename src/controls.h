@@ -52,6 +52,7 @@ void controls_init(void);
 // Non-blocking: call every main-loop pass. Reports changes through `event` (may be 0).
 void controls_poll(uint32_t now_ms, control_event_t event);
 uint16_t controls_pot(int index);
+int controls_ready(void); // every pot has been read at least once
 int controls_switch(int index);
 int controls_button(button_t button);
 int controls_keytrack(void); // 0 off, 1 half, 2 full

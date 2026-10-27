@@ -27,7 +27,9 @@ static const struct {
 };
 #define DIVISION_COUNT ((int)(sizeof divisions / sizeof divisions[0]))
 
-static float shared_phase, voice_phase[VOICE_COUNT];
+static struct {
+    float shared_phase, voice_phase[VOICE_COUNT];
+} lfos[LFO_COUNT];
 static uint32_t ticks, last_tick;
 static float tick_interval; // seconds; 0 until two ticks have arrived
 static float position;       // in ticks, continuous
@@ -50,7 +52,8 @@ void lfo_clock_start(void)
 {
     ticks = 0;
     position = 0;
-    shared_phase = 0;
+    for (int i = 0; i < LFO_COUNT; i++)
+        lfos[i].shared_phase = 0;
 }
 
 void lfo_clock_stop(void) {}
@@ -63,41 +66,44 @@ int lfo_division(float knob)
 
 const char *lfo_division_name(int division) { return divisions[division].name; }
 
-void lfo_note_on(int voice, int first)
+void lfo_note_on(int lfo, int voice, int first)
 {
     if (lfo_trigger == LFO_TRIGGER_EVERY_KEY || (lfo_trigger == LFO_TRIGGER_FIRST_KEY && first))
-        shared_phase = 0;
-    voice_phase[voice] = 0;
+        lfos[lfo].shared_phase = 0;
+    lfos[lfo].voice_phase[voice] = 0;
 }
 
 static float wrap(float phase) { return phase - (float)(int)phase; }
 
-void lfo_update(float dt, float knob)
+void lfo_update(int lfo, float dt, float knob)
 {
     int synced = lfo_sync == LFO_SYNC_CLOCK && tick_interval > 0;
     float rate;
     if (synced) {
         float quarters = divisions[lfo_division(knob)].quarters;
         rate = 1.0f / (tick_interval * TICKS_PER_QUARTER * quarters);
-        float since_tick = (float)(DWT_CYCCNT - last_tick) / (float)system_hz;
-        position += dt / tick_interval;
-        if (since_tick < 2 * tick_interval && position > (float)ticks + 1)
-            position = (float)ticks + 1; // clock running: don't get ahead of the next tick
+        if (lfo == 0) { // the clock position advances once per update
+            float since_tick = (float)(DWT_CYCCNT - last_tick) / (float)system_hz;
+            position += dt / tick_interval;
+            if (since_tick < 2 * tick_interval && position > (float)ticks + 1)
+                position = (float)ticks + 1; // clock running: don't get ahead of the next tick
+        }
     } else {
         rate = 0.05f * fast_exp2(knob * 10.0f); // 0.05-51 Hz
     }
 
     if (synced && lfo_trigger == LFO_TRIGGER_FREE)
-        shared_phase = wrap(position / (TICKS_PER_QUARTER * divisions[lfo_division(knob)].quarters));
+        lfos[lfo].shared_phase = wrap(position / (TICKS_PER_QUARTER * divisions[lfo_division(knob)].quarters));
     else
-        shared_phase = wrap(shared_phase + rate * dt);
+        lfos[lfo].shared_phase = wrap(lfos[lfo].shared_phase + rate * dt);
     for (int v = 0; v < VOICE_COUNT; v++)
-        voice_phase[v] = wrap(voice_phase[v] + rate * dt);
+        lfos[lfo].voice_phase[v] = wrap(lfos[lfo].voice_phase[v] + rate * dt);
 }
 
-float lfo_value(int voice, int square)
+float lfo_value(int lfo, int voice, int square)
 {
-    float phase = voice >= 0 && lfo_trigger == LFO_TRIGGER_PER_VOICE ? voice_phase[voice] : shared_phase;
+    float phase = voice >= 0 && lfo_trigger == LFO_TRIGGER_PER_VOICE ? lfos[lfo].voice_phase[voice]
+                                                                     : lfos[lfo].shared_phase;
     if (square)
         return phase < 0.5f ? 1.0f : -1.0f;
     return phase < 0.5f ? 4 * phase - 1 : 3 - 4 * phase;

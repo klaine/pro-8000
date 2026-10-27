@@ -184,6 +184,8 @@ void controls_poll(uint32_t now_ms, control_event_t event)
 
 uint16_t controls_pot(int index) { return pots[index]; }
 
+int controls_ready(void) { return !first_poll; }
+
 int controls_switch(int index) { return switches[index]; }
 
 int controls_keytrack(void)

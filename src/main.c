@@ -20,7 +20,8 @@
 //                          64 <button> <0|1>
 //   7B <address> <v1> <v0> write a byte of the HT16K33 display RAM (address 0-15)
 //   7C                     panel state; replies 7C <26 pots, 2 × 7 bits each> <24 switches, 0/1 each>
-//   7D <setting> <value>   set a menu setting (0 LFO sync, 1 LFO retrigger)
+//   7D <setting> <value>   set a menu setting (0 LFO sync, 1 LFO retrigger, 2 layer mode, 3 split note)
+//   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
 // Each other command is acknowledged with 7F <command>.
 #include "clock.h"
 #include "controls.h"
@@ -105,36 +106,61 @@ static uint32_t display_until; // ms_ticks when a pot value on the display gives
 static int tune_requested;
 
 // Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value.
-typedef struct {
-    char name[5];
-    int count;
-    const char *values[LFO_TRIGGER_COUNT];
-} setting_t;
+enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_COUNT };
 
-static const setting_t settings[] = {
-    {"SYnC", LFO_SYNC_COUNT, {"FrEE", "CLoC"}},                  // 1: LFO sync
-    {"trIG", LFO_TRIGGER_COUNT, {"FrEE", "1St", "EACH", "PoLY"}}, // 2: LFO retrigger
-};
-#define SETTING_COUNT ((int)(sizeof settings / sizeof settings[0]))
+static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt"}; // keys 1-4
 
 static int menu_open, menu_page = -1, encoder_steps;
 static uint32_t show_value_at; // ms_ticks to replace the page name with its value; 0 = not pending
 
-static int setting_get(int page) { return page == 0 ? (int)lfo_sync : (int)lfo_trigger; }
+static int setting_count(int page)
+{
+    static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128};
+    return counts[page];
+}
+
+static int setting_get(int page)
+{
+    switch (page) {
+    case PAGE_LFO_SYNC: return (int)lfo_sync;
+    case PAGE_LFO_TRIGGER: return (int)lfo_trigger;
+    case PAGE_LAYERS: return (int)synth_layer_mode();
+    default: return synth_split_note();
+    }
+}
 
 static void setting_set(int page, int value)
 {
-    if (page == 0)
-        lfo_sync = (lfo_sync_t)value;
+    switch (page) {
+    case PAGE_LFO_SYNC: lfo_sync = (lfo_sync_t)value; break;
+    case PAGE_LFO_TRIGGER: lfo_trigger = (lfo_trigger_t)value; break;
+    case PAGE_LAYERS: synth_set_layer_mode((layer_mode_t)value); break;
+    default: synth_set_split_note(value); break;
+    }
+}
+
+static void show_setting(int page)
+{
+    static const char *const values[][LFO_TRIGGER_COUNT] = {
+        {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY"}, {"OFF", "SPLt", "StAC", "CHAn"},
+    };
+    if (page == PAGE_SPLIT)
+        display_number(synth_split_note());
     else
-        lfo_trigger = (lfo_trigger_t)value;
+        display_text(values[page][setting_get(page)]);
+}
+
+static void show_edit_layer(void)
+{
+    display_led(LED_SEQ1, synth_edit_layer() == 0);
+    display_led(LED_SEQ2, synth_edit_layer() == 1);
 }
 
 // What the display shows when nothing transient is on it.
 static void idle_display(void)
 {
     if (menu_open && menu_page >= 0)
-        display_text(settings[menu_page].values[setting_get(menu_page)]);
+        show_setting(menu_page);
     else if (menu_open)
         display_text("SEt");
     else
@@ -155,14 +181,44 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         return;
     }
     if (kind == CONTROL_POT) {
-        if (index == POT_LFO_FREQ && lfo_sync == LFO_SYNC_CLOCK)
-            display_text(lfo_division_name(lfo_division((float)value / 4095.0f)));
-        else
-            display_number((int)(value * 99 / 4095));
+        // a per-layer knob still in pickup shows the edit layer's value, with a dot
+        int pending = synth_pot_pending(index);
+        float knob = pending ? synth_pot_value(index) : (float)value / 4095.0f;
+        char text[6];
+        if (index == POT_LFO_FREQ && lfo_sync == LFO_SYNC_CLOCK) {
+            const char *name = lfo_division_name(lfo_division(knob));
+            int n = 0;
+            while (name[n] && n < 4) {
+                text[n] = name[n];
+                n++;
+            }
+            text[n] = 0;
+        } else {
+            int v = (int)(knob * 99.0f + 0.5f);
+            text[0] = ' ';
+            text[1] = ' ';
+            text[2] = v >= 10 ? (char)('0' + v / 10) : ' ';
+            text[3] = (char)('0' + v % 10);
+            text[4] = 0;
+        }
+        if (pending) {
+            int n = 0;
+            while (text[n])
+                n++;
+            text[n] = '.';
+            text[n + 1] = 0;
+        }
+        display_text(text);
         display_until = ms_ticks + 1500;
     }
+    if (kind == CONTROL_BUTTON && (index == BUTTON_SEQ1 || index == BUTTON_SEQ2) && value) {
+        synth_set_edit_layer(index == BUTTON_SEQ2);
+        show_edit_layer();
+        display_text(index == BUTTON_SEQ2 ? "L  2" : "L  1");
+        display_until = ms_ticks + 1000;
+    }
     if (kind == CONTROL_BUTTON && index > BUTTON_9) {
-        if (index != BUTTON_SETTINGS)
+        if (index != BUTTON_SETTINGS && index != BUTTON_SEQ1 && index != BUTTON_SEQ2)
             display_led(button_led[index], (int)value);
         if (index == BUTTON_TUNE && value)
             tune_requested = 1;
@@ -176,10 +232,10 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && menu_open) {
         int page = index - BUTTON_1; // key 1 = first page
-        if (page >= 0 && page < SETTING_COUNT) {
+        if (page >= 0 && page < PAGE_COUNT) {
             menu_page = page;
             encoder_steps = 0;
-            display_text(settings[page].name);
+            display_text(page_names[page]);
             show_value_at = ms_ticks + 700;
             display_until = 0;
         }
@@ -187,7 +243,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     if (kind == CONTROL_ENCODER && menu_open && menu_page >= 0) {
         encoder_steps += (int)value;
         if (encoder_steps >= 4 || encoder_steps <= -4) { // 4 transitions per quadrature cycle
-            int count = settings[menu_page].count;
+            int count = setting_count(menu_page);
             int next = (setting_get(menu_page) + (encoder_steps > 0 ? 1 : count - 1)) % count;
             encoder_steps = 0;
             setting_set(menu_page, next);
@@ -282,10 +338,16 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = 0x7F;
         reply[n++] = 0x7B;
     }
-    if (data_length == 3 && data[0] == 0x7D && data[1] < SETTING_COUNT && data[2] < settings[data[1]].count) {
+    if (data_length == 3 && data[0] == 0x7D && data[1] < PAGE_COUNT && data[2] < setting_count(data[1])) {
         setting_set(data[1], data[2]);
         reply[n++] = 0x7F;
         reply[n++] = 0x7D;
+    }
+    if (data_length == 2 && data[0] == 0x7E && data[1] < 2) {
+        synth_set_edit_layer(data[1]);
+        show_edit_layer();
+        reply[n++] = 0x7F;
+        reply[n++] = 0x7E;
     }
     if (data_length == 1 && data[0] == 0x7C) {
         reply[n++] = 0x7C;
@@ -345,8 +407,11 @@ static void handle_midi(void)
         case 0x9:
             if (direct_mode)
                 break;
-            if (p[3])
-                synth_note_on(p[2], p[3]);
+            if (p[3] && menu_open && menu_page == PAGE_SPLIT) { // play a note to set the split point
+                synth_set_split_note(p[2]);
+                show_setting(PAGE_SPLIT);
+            } else if (p[3])
+                synth_note_on(p[2], p[3], p[1] & 0x0F);
             else
                 synth_note_off(p[2]);
             break;
@@ -410,6 +475,7 @@ int main(void)
     panel_gpio_init();
     panel_init();
     display_led(LED_POWER, 1);
+    show_edit_layer();
 
     // The bootloader erases the tables with every firmware update, so the first boot after one tunes (about
     // 30 s, silent), showing "tUnE" meanwhile.

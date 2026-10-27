@@ -6,6 +6,14 @@
 //   frequency A and/or the filter by the two poly-mod buttons
 //   LFO (lfo.c): triangle or square, to frequency, pulse width and/or filter, free or synced to MIDI clock, with
 //   retrigger modes; glide, unison, master tune and volume
+//
+// Layers: two sets of the knobs that act per voice (frequencies, fine, cutoff, envelope amount, both ADSRs,
+// glide, LFO rate and amount, poly-mod envelope amount, master tune) and an LFO each. Layer 1 plays on voices 1-4
+// and layer 2 on voices 5-8, except with layers off, when layer 1 has all 8. Everything else is one set of
+// wires for all voices on the hardware, so it's shared: mixer, resonance, pulse widths, poly-mod osc B amount
+// and routing, master volume, every button, and LFO → PW (from layer 1's LFO). After switching the edit layer,
+// a per-layer knob waits until it's turned past (or onto) that layer's value before it takes over.
+//
 // Ranges and curves are first guesses, chosen to be playable; they're constants here.
 #include "synth.h"
 #include "controls.h"
@@ -27,8 +35,11 @@
 #define LFO_PW_DEPTH          0.45f
 #define UNISON_SPREAD         0.02f // semitones between neighbouring voices
 #define POT_SMOOTHING_S       0.01f
+#define PICKUP_WINDOW         0.015f // a knob this close to the stored value picks it up
 
-typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE } env_stage_t;
+#define LAYERS 2
+
+typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_RELEASE } env_stage_t;
 
 typedef struct {
     env_stage_t stage;
@@ -46,14 +57,30 @@ typedef struct {
 
 static voice_t voices[VOICE_COUNT];
 static uint32_t allocations;
-static float pot[POT_COUNT]; // smoothed, 0..1
 static float bend, mod_wheel;
-static int pots_primed;
 
-// unison: held notes, last one sounds
+// the panel's pots, smoothed (0..1), and each layer's values
+static float panel[POT_COUNT];
+static float layer_pot[LAYERS][POT_COUNT];
+static int pots_primed;
+static int edit_layer;
+static uint8_t latched[POT_COUNT]; // a per-layer knob controls the edit layer
+static int8_t pickup_side[POT_COUNT]; // which side of the stored value the knob started on: -1, +1 (0 = unknown)
+
+static const uint8_t per_layer[POT_COUNT] = {
+    [POT_FREQ_A] = 1, [POT_FREQ_B] = 1, [POT_FINE] = 1, [POT_CUTOFF] = 1, [POT_FIL_ENV_AMT] = 1,
+    [POT_FIL_ATT] = 1, [POT_FIL_DEC] = 1, [POT_FIL_SUS] = 1, [POT_FIL_REL] = 1,
+    [POT_AMP_ATT] = 1, [POT_AMP_DEC] = 1, [POT_AMP_SUS] = 1, [POT_AMP_REL] = 1,
+    [POT_GLIDE] = 1, [POT_LFO_FREQ] = 1, [POT_LFO_AMOUNT] = 1, [POT_PMOD_FIL_ENV] = 1, [POT_MASTER_TUNE] = 1,
+};
+
+static layer_mode_t layer_mode = LAYER_OFF;
+static int split_note = 60;
+
+// unison: held notes per layer, the last one sounds
 #define HELD_MAX 16
-static uint8_t held[HELD_MAX];
-static int held_count;
+static uint8_t held[LAYERS][HELD_MAX];
+static int held_count[LAYERS];
 static int unison;
 
 void synth_init(void)
@@ -62,20 +89,69 @@ void synth_init(void)
         voices[v] = (voice_t){0};
         voices[v].pitch = 60;
     }
-    held_count = 0;
+    held_count[0] = held_count[1] = 0;
 }
+
+// --- layers ---
+
+static int layer_of(int voice) { return layer_mode == LAYER_OFF || voice < VOICE_COUNT / 2 ? 0 : 1; }
+
+static void layer_voices(int layer, int *first, int *end)
+{
+    if (layer_mode == LAYER_OFF) {
+        *first = 0;
+        *end = VOICE_COUNT;
+    } else {
+        *first = layer ? VOICE_COUNT / 2 : 0;
+        *end = layer ? VOICE_COUNT : VOICE_COUNT / 2;
+    }
+}
+
+layer_mode_t synth_layer_mode(void) { return layer_mode; }
+
+void synth_set_layer_mode(layer_mode_t mode)
+{
+    if (mode == layer_mode)
+        return;
+    synth_all_off();
+    layer_mode = mode;
+}
+
+int synth_split_note(void) { return split_note; }
+
+void synth_set_split_note(int note) { split_note = note < 0 ? 0 : note > 127 ? 127 : note; }
+
+int synth_edit_layer(void) { return edit_layer; }
+
+void synth_set_edit_layer(int layer)
+{
+    if (layer == edit_layer)
+        return;
+    edit_layer = layer;
+    for (int i = 0; i < POT_COUNT; i++)
+        if (per_layer[i]) {
+            latched[i] = 0;
+            pickup_side[i] = 0;
+        }
+}
+
+float synth_pot_value(int pot) { return layer_pot[edit_layer][pot]; }
+
+int synth_pot_pending(int pot) { return per_layer[pot] && !latched[pot]; }
 
 // --- notes ---
 
-// Prefers the voice already on this note, then a silent one, then the oldest released, then the oldest.
-static int allocate(uint8_t note)
+// Within one layer's voices: the voice already on this note, then a silent one, then the oldest released, then
+// the oldest.
+static int allocate(int layer, uint8_t note)
 {
-    int best = -1;
-    for (int v = 0; v < VOICE_COUNT; v++)
+    int first, end, best = -1;
+    layer_voices(layer, &first, &end);
+    for (int v = first; v < end; v++)
         if (voices[v].note == note && (voices[v].gate || voices[v].amp.stage != ENV_IDLE))
             return v;
     for (int pass = 0; pass < 3 && best < 0; pass++)
-        for (int v = 0; v < VOICE_COUNT; v++) {
+        for (int v = first; v < end; v++) {
             voice_t *x = &voices[v];
             int ok = pass == 0 ? !x->gate && x->amp.stage == ENV_IDLE : pass == 1 ? !x->gate : 1;
             if (ok && (best < 0 || x->started < voices[best].started))
@@ -108,61 +184,97 @@ static void gate_off(voice_t *x)
         x->filter.stage = ENV_RELEASE;
 }
 
-void synth_note_on(uint8_t note, uint8_t velocity)
+static int layer_gated(int layer)
 {
-    if (unison) {
-        int was_held = held_count > 0;
-        for (int i = 0; i < held_count; i++) // move to the top if already held
-            if (held[i] == note) {
-                for (int j = i; j < held_count - 1; j++)
-                    held[j] = held[j + 1];
-                held_count--;
-                break;
-            }
-        if (held_count == HELD_MAX) {
-            for (int j = 0; j < HELD_MAX - 1; j++)
-                held[j] = held[j + 1];
-            held_count--;
+    int first, end;
+    layer_voices(layer, &first, &end);
+    for (int v = first; v < end; v++)
+        if (voices[v].gate)
+            return 1;
+    return 0;
+}
+
+static void remove_held(int layer, uint8_t note)
+{
+    for (int i = 0; i < held_count[layer]; i++)
+        if (held[layer][i] == note) {
+            for (int j = i; j < held_count[layer] - 1; j++)
+                held[layer][j] = held[layer][j + 1];
+            held_count[layer]--;
+            return;
         }
-        held[held_count++] = note;
-        for (int v = 0; v < VOICE_COUNT; v++) {
+}
+
+static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
+{
+    int first, end;
+    layer_voices(layer, &first, &end);
+    if (unison) {
+        int was_held = held_count[layer] > 0;
+        remove_held(layer, note); // moves to the top if already held
+        if (held_count[layer] == HELD_MAX)
+            remove_held(layer, held[layer][0]);
+        held[layer][held_count[layer]++] = note;
+        for (int v = first; v < end; v++) {
             gate_on(&voices[v], note, velocity, !was_held); // legato while a note is already held
-            lfo_note_on(v, !was_held);
+            lfo_note_on(layer, v, !was_held);
         }
         return;
     }
-    int first = !synth_any_gate();
-    int v = allocate(note);
+    int was_gated = layer_gated(layer);
+    int v = allocate(layer, note);
     gate_on(&voices[v], note, velocity, 1);
-    lfo_note_on(v, first);
+    lfo_note_on(layer, v, !was_gated);
+}
+
+void synth_note_on(uint8_t note, uint8_t velocity, int channel)
+{
+    switch (layer_mode) {
+    case LAYER_OFF:
+        layer_note_on(0, note, velocity);
+        break;
+    case LAYER_SPLIT:
+        layer_note_on(note < split_note ? 0 : 1, note, velocity);
+        break;
+    case LAYER_STACK:
+        layer_note_on(0, note, velocity);
+        layer_note_on(1, note, velocity);
+        break;
+    case LAYER_CHANNEL:
+        layer_note_on(channel == 1 ? 1 : 0, note, velocity);
+        break;
+    default:
+        break;
+    }
 }
 
 void synth_note_off(uint8_t note)
 {
-    if (unison) {
-        for (int i = 0; i < held_count; i++)
-            if (held[i] == note) {
-                for (int j = i; j < held_count - 1; j++)
-                    held[j] = held[j + 1];
-                held_count--;
-                break;
+    for (int layer = 0; layer < LAYERS; layer++) {
+        int first, end;
+        layer_voices(layer, &first, &end);
+        if (unison) {
+            int was_held = held_count[layer] > 0;
+            remove_held(layer, note);
+            if (!was_held)
+                continue;
+            for (int v = first; v < end; v++) {
+                if (held_count[layer])
+                    voices[v].note = held[layer][held_count[layer] - 1]; // back to the previous note, legato
+                else
+                    gate_off(&voices[v]);
             }
-        for (int v = 0; v < VOICE_COUNT; v++) {
-            if (held_count)
-                voices[v].note = held[held_count - 1]; // back to the previous note, legato
-            else
-                gate_off(&voices[v]);
+            continue;
         }
-        return;
+        for (int v = first; v < end; v++)
+            if (voices[v].gate && voices[v].note == note)
+                gate_off(&voices[v]);
     }
-    for (int v = 0; v < VOICE_COUNT; v++)
-        if (voices[v].gate && voices[v].note == note)
-            gate_off(&voices[v]);
 }
 
 void synth_all_off(void)
 {
-    held_count = 0;
+    held_count[0] = held_count[1] = 0;
     for (int v = 0; v < VOICE_COUNT; v++)
         gate_off(&voices[v]);
 }
@@ -202,8 +314,7 @@ static void env_update(env_t *e, float dt, float attack, float decay, float sust
             e->stage = ENV_DECAY;
         }
         break;
-    case ENV_DECAY:
-    case ENV_SUSTAIN: // follows the sustain knob while held
+    case ENV_DECAY: // then follows the sustain knob while held
         e->level = sustain + (e->level - sustain) * decay_factor(dt, env_time(decay));
         break;
     case ENV_RELEASE:
@@ -221,12 +332,35 @@ static uint16_t cv_from(float x)
     return (uint16_t)(x <= 0 ? 0 : x >= 1 ? 65535 : x * 65535.0f);
 }
 
+static float semitone_steps(float knob)
+{
+    return (float)(int)((knob - 0.5f) * 2 * OSC_RANGE_SEMITONES + OSC_RANGE_SEMITONES + 0.5f) - OSC_RANGE_SEMITONES;
+}
+
 static void read_panel(float dt)
 {
     float k = dt >= POT_SMOOTHING_S || !pots_primed ? 1.0f : dt / POT_SMOOTHING_S;
-    for (int i = 0; i < POT_COUNT; i++)
-        pot[i] += ((float)controls_pot(i) / 4095.0f - pot[i]) * k;
-    pots_primed = 1;
+    for (int i = 0; i < POT_COUNT; i++) {
+        panel[i] += ((float)controls_pot(i) / 4095.0f - panel[i]) * k;
+        if (!pots_primed || !per_layer[i]) { // both layers start from the panel; shared knobs always follow it
+            layer_pot[0][i] = layer_pot[1][i] = panel[i];
+            latched[i] = 1;
+            continue;
+        }
+        if (!latched[i]) {
+            float diff = panel[i] - layer_pot[edit_layer][i];
+            int8_t side = diff < 0 ? -1 : 1;
+            if (diff < PICKUP_WINDOW && diff > -PICKUP_WINDOW)
+                latched[i] = 1;
+            else if (pickup_side[i] == 0)
+                pickup_side[i] = side;
+            else if (side != pickup_side[i])
+                latched[i] = 1; // swept past it
+        }
+        if (latched[i])
+            layer_pot[edit_layer][i] = panel[i];
+    }
+    pots_primed = controls_ready(); // until the first full scan, keep copying the panel into both layers
 
     int now_unison = controls_on(SWITCH_UNISON);
     if (now_unison != unison) {
@@ -235,68 +369,80 @@ static void read_panel(float dt)
     }
 }
 
+typedef struct {
+    float coarse_a, coarse_b, fine_b, tune, glide_k, env_amount, pmod_env, cutoff, to_pitch, to_filter;
+} layer_params_t;
+
 void synth_update(float dt)
 {
     if (dt > 0.05f)
         dt = 0.05f; // after a long stall (tuning, flash writes), don't jump
     read_panel(dt);
 
-    // LFO (lfo.c): rate or clock division from LFO FREQ; triangle, or square with LFO Shape on
-    lfo_update(dt, pot[POT_LFO_FREQ]);
     int square = controls_on(SWITCH_LFO_SHAPE);
-    float depth = pot[POT_LFO_AMOUNT] * pot[POT_LFO_AMOUNT] + mod_wheel;
-    if (depth > 1)
-        depth = 1;
-    float to_pitch = controls_on(SWITCH_LFO_FREQ) ? depth * LFO_PITCH_SEMITONES : 0;
-    float to_filter = controls_on(SWITCH_LFO_FILTER) ? depth * LFO_FILTER_SEMITONES : 0;
-    float lfo_pw = controls_on(SWITCH_LFO_PW) ? lfo_value(-1, square) * depth * LFO_PW_DEPTH : 0; // one PW CV
+    int pmod_freq_a = controls_on(SWITCH_PMOD_FREQ_A);
+    layer_params_t lp[LAYERS];
+    for (int l = 0; l < LAYERS; l++) {
+        const float *p = layer_pot[l];
+        // LFO (lfo.c): rate or clock division from this layer's LFO FREQ
+        lfo_update(l, dt, p[POT_LFO_FREQ]);
+        float depth = p[POT_LFO_AMOUNT] * p[POT_LFO_AMOUNT] + mod_wheel;
+        if (depth > 1)
+            depth = 1;
+        float glide = p[POT_GLIDE] < 0.02f ? 0 : 0.002f * fast_exp2(p[POT_GLIDE] * 10.0f); // time constant, s
+        lp[l] = (layer_params_t){
+            .coarse_a = semitone_steps(p[POT_FREQ_A]),
+            .coarse_b = semitone_steps(p[POT_FREQ_B]),
+            .fine_b = (p[POT_FINE] - 0.5f) * 2 * FINE_SEMITONES,
+            .tune = (p[POT_MASTER_TUNE] - 0.5f) * 2 * MASTER_TUNE_SEMITONES,
+            .glide_k = glide > 0 ? 1.0f - fast_exp2(-dt / glide * 1.4427f) : 1.0f,
+            .env_amount = (p[POT_FIL_ENV_AMT] - 0.5f) * 2 * FILTER_ENV_SEMITONES,
+            .pmod_env = pmod_freq_a ? p[POT_PMOD_FIL_ENV] * PMOD_ENV_SEMITONES : 0,
+            .cutoff = CUTOFF_LOW_NOTE + p[POT_CUTOFF] * CUTOFF_SPAN,
+            .to_pitch = controls_on(SWITCH_LFO_FREQ) ? depth * LFO_PITCH_SEMITONES : 0,
+            .to_filter = controls_on(SWITCH_LFO_FILTER) ? depth * LFO_FILTER_SEMITONES : 0,
+        };
+    }
 
-    // global CVs and gates
-    sh_set(CV_VOL_A, cv_from(pot[POT_A_LEVEL]));
-    sh_set(CV_VOL_B, cv_from(pot[POT_B_LEVEL]));
-    sh_set(CV_NOISE, cv_from(pot[POT_NOISE]));
-    sh_set(CV_RESONANCE, cv_from(pot[POT_RESONANCE]));
-    sh_set(CV_PMOD_OSC_B, cv_from(pot[POT_PMOD_OSC_B]));
-    sh_set(CV_MASTER_VOL, cv_from(pot[POT_MASTER_VOL]));
+    // shared CVs and gates
+    float depth0 = layer_pot[0][POT_LFO_AMOUNT] * layer_pot[0][POT_LFO_AMOUNT] + mod_wheel;
+    float lfo_pw = controls_on(SWITCH_LFO_PW) ? lfo_value(0, -1, square) * (depth0 > 1 ? 1 : depth0) * LFO_PW_DEPTH : 0;
+    sh_set(CV_VOL_A, cv_from(panel[POT_A_LEVEL]));
+    sh_set(CV_VOL_B, cv_from(panel[POT_B_LEVEL]));
+    sh_set(CV_NOISE, cv_from(panel[POT_NOISE]));
+    sh_set(CV_RESONANCE, cv_from(panel[POT_RESONANCE]));
+    sh_set(CV_PMOD_OSC_B, cv_from(panel[POT_PMOD_OSC_B]));
+    sh_set(CV_MASTER_VOL, cv_from(panel[POT_MASTER_VOL]));
     sh_set(CV_EXT_FIL, 0);
     // square off: PW A at maximum, PW B at minimum (as p600fw), so no pulse bleeds through
-    sh_set(CV_PW_A, controls_on(SWITCH_A_SQUARE) ? cv_from(0.05f + 0.9f * pot[POT_A_PW] + lfo_pw) : 0xFFFF);
-    sh_set(CV_PW_B, controls_on(SWITCH_B_SQUARE) ? cv_from(0.05f + 0.9f * pot[POT_B_PW] + lfo_pw) : 0);
+    sh_set(CV_PW_A, controls_on(SWITCH_A_SQUARE) ? cv_from(0.05f + 0.9f * panel[POT_A_PW] + lfo_pw) : 0xFFFF);
+    sh_set(CV_PW_B, controls_on(SWITCH_B_SQUARE) ? cv_from(0.05f + 0.9f * panel[POT_B_PW] + lfo_pw) : 0);
     sh_gate(GATE_SAW_A, controls_on(SWITCH_A_SAW));
     sh_gate(GATE_TRI_A, controls_on(SWITCH_A_TRI));
     sh_gate(GATE_SAW_B, controls_on(SWITCH_B_SAW));
     sh_gate(GATE_TRI_B, controls_on(SWITCH_B_TRI));
     sh_gate(GATE_SYNC, controls_on(SWITCH_SYNC));
-    int pmod_freq_a = controls_on(SWITCH_PMOD_FREQ_A);
     sh_gate(GATE_PMOD_FREQ_A, pmod_freq_a);
     sh_gate(GATE_PMOD_FILTER, controls_on(SWITCH_PMOD_FILTER));
 
-    // per-voice
-    float coarse_a = (float)(int)((pot[POT_FREQ_A] - 0.5f) * 2 * OSC_RANGE_SEMITONES + OSC_RANGE_SEMITONES + 0.5f)
-                   - OSC_RANGE_SEMITONES;
-    float coarse_b = (float)(int)((pot[POT_FREQ_B] - 0.5f) * 2 * OSC_RANGE_SEMITONES + OSC_RANGE_SEMITONES + 0.5f)
-                   - OSC_RANGE_SEMITONES;
-    float fine_b = (pot[POT_FINE] - 0.5f) * 2 * FINE_SEMITONES;
-    float common = bend + (pot[POT_MASTER_TUNE] - 0.5f) * 2 * MASTER_TUNE_SEMITONES;
-    float glide = pot[POT_GLIDE] < 0.02f ? 0 : 0.002f * fast_exp2(pot[POT_GLIDE] * 10.0f); // time constant, s
-    float glide_k = glide > 0 ? 1.0f - fast_exp2(-dt / glide * 1.4427f) : 1.0f;
     float keytrack = 0.5f * (float)controls_keytrack(); // 0, 0.5, 1
-    float env_amount = (pot[POT_FIL_ENV_AMT] - 0.5f) * 2 * FILTER_ENV_SEMITONES;
-    float pmod_env = pmod_freq_a ? pot[POT_PMOD_FIL_ENV] * PMOD_ENV_SEMITONES : 0;
-    float cutoff = CUTOFF_LOW_NOTE + pot[POT_CUTOFF] * CUTOFF_SPAN;
-
     for (int v = 0; v < VOICE_COUNT; v++) {
         voice_t *x = &voices[v];
-        env_update(&x->amp, dt, pot[POT_AMP_ATT], pot[POT_AMP_DEC], pot[POT_AMP_SUS], pot[POT_AMP_REL]);
-        env_update(&x->filter, dt, pot[POT_FIL_ATT], pot[POT_FIL_DEC], pot[POT_FIL_SUS], pot[POT_FIL_REL]);
-        x->pitch += ((float)x->note - x->pitch) * glide_k;
+        int l = layer_of(v);
+        const float *p = layer_pot[l];
+        const layer_params_t *q = &lp[l];
+        env_update(&x->amp, dt, p[POT_AMP_ATT], p[POT_AMP_DEC], p[POT_AMP_SUS], p[POT_AMP_REL]);
+        env_update(&x->filter, dt, p[POT_FIL_ATT], p[POT_FIL_DEC], p[POT_FIL_SUS], p[POT_FIL_REL]);
+        x->pitch += ((float)x->note - x->pitch) * q->glide_k;
 
-        float spread = unison ? ((float)v - 3.5f) * UNISON_SPREAD : 0;
-        float lfo = lfo_value(v, square);
-        float pitch = x->pitch + common + spread + lfo * to_pitch;
-        float a = pitch + coarse_a + pmod_env * x->filter.level;
-        float b = pitch + coarse_b + fine_b;
-        float filter = cutoff + keytrack * (x->pitch - 60.0f) + env_amount * x->filter.level + lfo * to_filter;
+        int first, end;
+        layer_voices(l, &first, &end);
+        float spread = unison ? ((float)(v - first) - (float)(end - first - 1) / 2) * UNISON_SPREAD : 0;
+        float lfo = lfo_value(l, v, square);
+        float pitch = x->pitch + bend + q->tune + spread + lfo * q->to_pitch;
+        float a = pitch + q->coarse_a + q->pmod_env * x->filter.level;
+        float b = pitch + q->coarse_b + q->fine_b;
+        float filter = q->cutoff + keytrack * (x->pitch - 60.0f) + q->env_amount * x->filter.level + lfo * q->to_filter;
 
         sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
         sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));

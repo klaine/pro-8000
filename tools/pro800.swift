@@ -47,7 +47,9 @@ Probe (our firmware 0.0.9+):
   pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
   pro800 state                          print every pot (0-99) and switch as the firmware reads them
-  pro800 set lfo-sync free|clock        menu settings (also lfo-trigger free|first|every|voice)
+  pro800 set lfo-sync free|clock        menu settings (also lfo-trigger free|first|every|voice,
+                                        layers off|split|stack|channel, split <note>)
+  pro800 layer 1|2                      choose the layer the per-layer knobs edit
   pro800 clock <bpm> [seconds]          send MIDI clock (Start, then 24 per quarter note)
   pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
@@ -713,15 +715,32 @@ func state() {
     print("keyboard tracking: \(keytrack)")
 }
 
-// Menu settings: pro800 set lfo-sync free|clock, pro800 set lfo-trigger free|first|every|voice
+// Menu settings: pro800 set lfo-sync free|clock, lfo-trigger free|first|every|voice,
+// layers off|split|stack|channel, split <note 0-127>
 func setSetting() {
     let table: [String: (UInt8, [String])] = ["lfo-sync": (0, ["free", "clock"]),
-                                               "lfo-trigger": (1, ["free", "first", "every", "voice"])]
-    guard args.count == 2, let (id, values) = table[args[0]], let v = values.firstIndex(of: args[1]) else {
-        fail("usage: pro800 set lfo-sync free|clock  or  pro800 set lfo-trigger free|first|every|voice")
+                                               "lfo-trigger": (1, ["free", "first", "every", "voice"]),
+                                               "layers": (2, ["off", "split", "stack", "channel"])]
+    let usage = "usage: pro800 set lfo-sync free|clock | lfo-trigger free|first|every|voice | " +
+        "layers off|split|stack|channel | split <note 0-127>"
+    guard args.count == 2 else { fail(usage) }
+    var id: UInt8, v: Int
+    if args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
+        (id, v) = (3, note)
+    } else if let (i, values) = table[args[0]], let index = values.firstIndex(of: args[1]) {
+        (id, v) = (i, index)
+    } else {
+        fail(usage)
     }
     probeAck(Midi(port: portName), [0x7D, id, UInt8(v)])
     print("\(args[0]) = \(args[1])")
+}
+
+// The layer the per-layer knobs edit: pro800 layer 1|2
+func layer() {
+    guard let n = Int(args.first ?? ""), n == 1 || n == 2 else { fail("usage: pro800 layer 1|2") }
+    probeAck(Midi(port: portName), [0x7E, UInt8(n - 1)])
+    print("editing layer \(n)")
 }
 
 // Sends MIDI clock: Start, then 24 timing clocks per quarter note, scheduled with CoreMIDI timestamps.
@@ -878,6 +897,7 @@ case "check": check()
 case "panel": panel()
 case "state": state()
 case "set": setSetting()
+case "layer": layer()
 case "clock": clockOut()
 case "leds": leds()
 case "update-mode": updateMode()

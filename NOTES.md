@@ -371,6 +371,32 @@ into CVs through each voice's tuning tables. First-guess ranges, all constants i
   menu, all four retrigger modes, and clock (with start) from the Ableton Move through the web router. Note: the audio pitch
   check needs a plain patch: hard sync, or oscillators tuned apart, defeat it.
 
+## Bitimbral layers (0.3.0–0.3.1, 2026-10-27)
+
+- Two layers of the per-voice knobs (FREQ A/B, FINE, CUTOFF, FIL ENV AMT, both ADSRs, GLIDE, LFO FREQ/AMOUNT,
+  PMOD FIL ENV, M TUNE as layer fine-tune) and an LFO each (shared clock). Shared, because the hardware has one
+  set of wires (or a button shows one state): mixer, resonance, PW A/B, PMOD OSC B and the routing, M VOL, every
+  button (keyboard tracking and unison included), LFO → PW (from layer 1's LFO).
+- Modes (Settings key 3, `LAYr`): OFF (layer 1 on all 8 voices), SPLt (layer 1 below the split note, layer 2
+  from it up), StAC (both layers on every note), CHAn (MIDI channel 2 → layer 2, others → layer 1). Layers 1/2
+  use voices 1-4 / 5-8 except with OFF. Split note: Settings key 4, VALUE knob or play a note.
+- Seq 1 / Seq 2 pick the edit layer (LED steady, display `L  1` / `L  2`). A per-layer knob then waits for
+  pickup (within 1.5 % or swept past the stored value); until then the display shows the stored value with a dot.
+- Bug found by measuring: layer 2 was silent because both layers were primed from the pots before the first full
+  scan had read them (all 0). Fixed with `controls_ready()`. Measured after: split plays both halves at the same
+  level; stack is 1–4.4 dB louder (two voices beating).
+- From the Mac: `pro800 set layers off|split|stack|channel`, `pro800 set split <note>`, `pro800 layer 1|2`.
+
+## Backlog
+
+- **Two more envelopes per voice** (asked 2026-10-27): memory (128 B) and processing (microseconds per pass)
+  are no problem. Per-voice destinations are only pitch A, pitch B, cutoff and VCA level, so e.g. a pitch
+  envelope per oscillator, a second filter envelope, or envelope → LFO amount; PW, mixer and resonance are
+  shared wires (an envelope there could only follow the last note). UI idea: the keyboard-tracking switch picks
+  which envelope the filter ADSR knobs edit (with pickup), keyboard tracking moves to the Settings menu.
+- Settings, layers and the panel sound are RAM only: patch storage (EEPROM, read-only analysis first).
+- Hardware SPI to the DAC80501 (fails above 0.33 MHz); tuning tables erased by every update.
+
 ## Plan
 
 1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 180 MHz,
