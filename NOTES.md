@@ -553,6 +553,21 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
 - The web editor got depth sliders per LFO (VCA, cutoff, pitch A / B, PWM = the A and B pulse-width routes), backed
   by mod routes on the edit layer; pitch readouts use the curve (cents below a semitone).
 
+## Synced cycling, buttons from the host (0.6.6, 2026-10-27; built)
+
+- A cycling envelope can take a clock division (Settings key 6: `OFF`, `FrEE`, `8bAr` … `1-32`; host settings 17-24;
+  patch bytes 246-249, a nibble per envelope). Its period is the division at the LFO clock's tempo (`lfo_quarter_
+  seconds()`, 120 BPM before any clock) and the four knobs are weights sharing it out (attack, hold, fall, rest).
+  A phase drives the level (attack curve, hold, −60 dB fall, rest), restarting at each key, so it can't drift:
+  on the Mac, 80 cycles of 1/16 at 120 BPM put the 80th peak 0.9 ms from the grid (under one update). While turning
+  a knob the display shows its share in %.
+- Host commands 4C (read the latching buttons as the engine uses them) and 4B (set one; it holds like a loaded
+  patch's state until the button is toggled). `synth_switch()` / `synth_set_switch()`. Tool: `set button <name>
+  on|off`, buttons in `settings`.
+- Web editor: oscillator cards carry their wave and sync buttons next to the level faders (the Mixer card became
+  Noise), poly-mod, LFO 1 routing and unison buttons sit in their cards; envelopes have a Mode menu (ADSR, cycle,
+  synced cycle at a division) and show shares while synced.
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

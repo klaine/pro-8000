@@ -56,6 +56,13 @@ int synth_lfo2_toggle(int s);
 // Cycling envelopes per layer (ENV_CYCLE_* bits): attack, hold, fall, rest, again while the key is held.
 int synth_env_cycle(int layer);
 void synth_set_env_cycle(int layer, int bits);
+// Synced cycling per envelope (0 amp, 1 filter, 2 Env 3, 3 Env 4): 0 free, else an LFO clock division + 1. Synced,
+// the cycle lasts that division and the four knobs share it out.
+int synth_env_sync(int layer, int env);
+void synth_set_env_sync(int layer, int env, int sync);
+// For the display: the share (0..1) of a synced cycle that a knob (stage 0 attack, 1 decay = fall, 2 sustain =
+// hold, 3 release = rest) at `knob` gets on the edit layer; -1 if that envelope isn't synced.
+float synth_env_share(int env, int stage, float knob);
 // An envelope time knob in seconds: stage 0 attack, 1 decay, 2 sustain (a time only when cycling: hold, else -1),
 // 3 release (rest when cycling).
 float synth_env_time(int stage, float knob, int cycling);
@@ -76,6 +83,10 @@ int synth_dest_for_switch(int s);
 // MOD ASSIGN: every knob goes into pickup (so touching one doesn't change it); a button toggled while assigning
 // keeps its routing.
 void synth_freeze_knobs(void);
+// A latching button's state as the engine uses it (a loaded patch's, until the button is toggled), and setting it
+// from the host, which holds the same way.
+int synth_switch(int s);
+void synth_set_switch(int s, int on);
 void synth_hold_switch(int s);
 
 // For the display: the edit layer's value of a pot (0..1), and whether the knob is still waiting to pick it up.

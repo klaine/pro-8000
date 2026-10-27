@@ -53,7 +53,9 @@ Probe (our firmware 0.0.9+):
                                         shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
                                         lfo2-dests <layer> none|pitch,filter,pw,
                                         cycle <layer> none|amp,filter,env3,env4 (cycling envelopes),
-                                        steps <layer> <lfo> x.x.xx.. (the step shape's pattern, 1-16)
+                                        steps <layer> <lfo> x.x.xx.. (the step shape's pattern, 1-16),
+                                        cycle-sync <layer> <env> free|1/16|… (a cycle's length from the clock),
+                                        button a-saw|…|sync on|off (the panel's latching buttons)
   pro800 settings                       print every setting
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
@@ -740,8 +742,16 @@ let lfo2DestNames = ["pitch", "filter", "pw"]
 let layerModes = ["off", "split", "stack", "channel"], triggerModes = ["free", "first", "every", "voice"]
 let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo2-sync", "lfo2-trigger", "edit-layer",
                     "lfo", "shape 1 1", "shape 1 2", "shape 2 1", "shape 2 2", "lfo2-dests 1", "lfo2-dests 2",
-                    "cycle 1", "cycle 2", "env-select", "preset-mode", "patch"]
+                    "cycle 1", "cycle 2", "cycle-sync 1 amp", "cycle-sync 1 filter", "cycle-sync 1 env3",
+                    "cycle-sync 1 env4", "cycle-sync 2 amp", "cycle-sync 2 filter", "cycle-sync 2 env3",
+                    "cycle-sync 2 env4", "env-select", "preset-mode", "patch"]
 let cycleNames = ["amp", "filter", "env3", "env4"]
+let divisionNames = ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
+                     "1/16T", "1/32"]
+// the latching buttons (switch_t indices) the engine reports with 4C and takes with 4B
+let buttonNames: [Int: String] = [0: "a-saw", 1: "a-tri", 2: "a-square", 3: "b-saw", 4: "b-tri", 5: "b-square",
+                                  6: "lfo-pw", 7: "lfo-freq", 8: "pmod-freq-a", 10: "lfo-filter", 11: "pmod-filter",
+                                  12: "unison", 15: "sync"]
 
 func lfo2DestText(_ bits: Int) -> String {
     let on = lfo2DestNames.indices.filter { bits >> $0 & 1 != 0 }.map { lfo2DestNames[$0] }
@@ -757,7 +767,9 @@ func setSetting() {
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
         "layers off|split|stack|channel | split <note 0-127> | keytrack off|half|full | lfo 1|2 | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
-        "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)>"
+        "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
+        "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
+        "button \(buttonNames.values.sorted().joined(separator: "|")) on|off"
     var id: UInt8, v: Int
     if args.count == 2, args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
         (id, v) = (3, note)
@@ -782,6 +794,14 @@ func setSetting() {
         probeAck(Midi(port: portName), [0x4E, UInt8(layer - 1), UInt8(lfo - 1), UInt8(steps.count),
                                         UInt8(bits >> 14 & 0x7F), UInt8(bits >> 7 & 0x7F), UInt8(bits & 0x7F)])
         print("layer \(layer) LFO \(lfo) steps: " + String(steps.indices.map { bits >> $0 & 1 != 0 ? "x" : "." }))
+        return
+    } else if args.count == 4, args[0] == "cycle-sync", let layer = Int(args[1]), (1...2).contains(layer),
+              let env = cycleNames.firstIndex(of: args[2]), args[3] == "free" || divisionNames.contains(args[3]) {
+        (id, v) = (UInt8(17 + (layer - 1) * 4 + env), args[3] == "free" ? 0 : divisionNames.firstIndex(of: args[3])! + 1)
+    } else if args.count == 3, args[0] == "button", let i = buttonNames.first(where: { $0.value == args[1] })?.key,
+              args[2] == "on" || args[2] == "off" {
+        probeAck(Midi(port: portName), [0x4B, UInt8(i), args[2] == "on" ? 1 : 0])
+        print("\(args[1]) \(args[2])")
         return
     } else if args.count == 3, args[0] == "cycle", let layer = Int(args[1]), (1...2).contains(layer) {
         var bits = 0
@@ -818,13 +838,19 @@ func settings() {
         case 15, 16:
             let on = cycleNames.indices.filter { v >> $0 & 1 != 0 }.map { cycleNames[$0] }
             text = on.isEmpty ? "none" : on.joined(separator: ",")
-        case 17: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
-        case 19: text = slotName(v)
+        case 17...24: text = v == 0 ? "free" : divisionNames[safe: v - 1] ?? text
+        case 25: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
+        case 27: text = slotName(v)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 14, withPad: " ", startingAt: 0)) \(text)")
     }
     let midi = Midi(port: portName)
+    if let r = midi.request([0x4C], expect: [0x4C]) {
+        let d = Array(r[(sysexHeader.count + 1)..<(r.count - 1)])
+        let on = buttonNames.keys.sorted().filter { $0 < d.count && d[$0] != 0 }.map { buttonNames[$0]! }
+        print("buttons".padding(toLength: 15, withPad: " ", startingAt: 0) + (on.isEmpty ? "none" : on.joined(separator: " ")))
+    }
     for layer in 0..<2 {
         for lfo in 0..<2 {
             guard let r = midi.request([0x4D, UInt8(layer), UInt8(lfo)], expect: [0x4D, UInt8(layer), UInt8(lfo)]) else { continue }

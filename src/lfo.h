@@ -44,8 +44,12 @@ void lfo_update_voice(int lfo, int voice, float dt, float octaves);
 // -1..1: the voice's own phase in per-voice mode, the LFO's shared one otherwise (voice -1 always the shared one).
 float lfo_value(int lfo, int voice, lfo_shape_t shape);
 
+#define LFO_DIVISIONS 15 // 8 bars .. 1/32
 int lfo_division(float knob);
 const char *lfo_division_name(int division); // 4 display characters
+float lfo_division_quarters(int division);   // its length in quarter notes
+// Seconds per quarter note from the MIDI clock (the last tempo once it stops; 120 BPM before any clock).
+float lfo_quarter_seconds(void);
 const char *lfo_shape_name(lfo_shape_t shape); // for the display
 
 #endif

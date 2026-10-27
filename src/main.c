@@ -23,7 +23,8 @@
 //   7D <setting> <value>   set a setting (host_setting_t: 0 LFO 1 sync, 1 LFO 1 retrigger, 2 layer mode, 3 split
 //                          note, 4 keyboard tracking, 5 LFO 2 sync, 6 LFO 2 retrigger, 7 edit layer, 8 selected LFO,
 //                          9-12 LFO shapes (layer 1 LFO 1, LFO 2, layer 2 LFO 1, LFO 2), 13-14 LFO 2 routing per layer,
-//                          15-16 cycling envelopes per layer)
+//                          15-16 cycling envelopes per layer, 17-24 synced cycling per envelope: layer 1 amp,
+//                          filter, Env 3, Env 4, then layer 2; 0 free, else clock division + 1)
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
 //   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
@@ -34,6 +35,9 @@
 //   4E <layer> <lfo> <count> <p2> <p1> <p0>  set an LFO's step pattern (count 1-16, bits p2 << 14 | p1 << 7 | p0,
 //                          bit n = step n on); acknowledged
 //   4D <layer> <lfo>       its step pattern; replies 4D <layer> <lfo> <count> <p2> <p1> <p0>
+//   4C                     the buttons as the engine uses them; replies 4C <switches 0-15, 0/1 each> (switch_t order;
+//                          a loaded patch's state until the button is toggled)
+//   4B <switch> <0|1>      set a button's state (0-15), held until the button is toggled; acknowledged
 //   50 <f>                 factory patch f (0-99); replies 50 <f> <1 if it's there> <name>
 //   51 <f> <n1> <n0> [<1>] copy factory patch f into slot n, converted; only into an empty slot unless the last
 //                          byte is 1; replies 51 <0 done, 1 slot not empty, 2 no such factory patch, 3 write error>
@@ -264,7 +268,8 @@ static uint32_t show_value_at; // ms_ticks to replace the page name with its val
 
 static int setting_count(int page)
 {
-    static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, 2};
+    static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3,
+                                           2 + LFO_DIVISIONS}; // cycle: OFF, FrEE, a clock division
     return counts[page];
 }
 
@@ -275,7 +280,10 @@ static int setting_get(int page)
     case PAGE_LFO_TRIGGER: return (int)lfo_trigger[synth_lfo_select()];
     case PAGE_LAYERS: return (int)synth_layer_mode();
     case PAGE_KEYTRACK: return synth_keytrack();
-    case PAGE_CYCLE: return (synth_env_cycle(synth_edit_layer()) >> cycle_env) & 1;
+    case PAGE_CYCLE:
+        if (!(synth_env_cycle(synth_edit_layer()) >> cycle_env & 1))
+            return 0;
+        return 1 + synth_env_sync(synth_edit_layer(), cycle_env);
     default: return synth_split_note();
     }
 }
@@ -290,6 +298,7 @@ static void setting_set(int page, int value)
     case PAGE_CYCLE: {
         int bits = synth_env_cycle(synth_edit_layer());
         synth_set_env_cycle(synth_edit_layer(), value ? bits | 1 << cycle_env : bits & ~(1 << cycle_env));
+        synth_set_env_sync(synth_edit_layer(), cycle_env, value >= 2 ? value - 1 : 0);
         break;
     }
     default: synth_set_split_note(value); break;
@@ -300,10 +309,14 @@ static void show_setting(int page)
 {
     static const char *const values[][LFO_TRIGGER_COUNT] = {
         {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY"}, {"OFF", "SPLt", "StAC", "CHAn"}, {0}, {"OFF", "HALF", "FULL"},
-        {"OFF", "on"},
     };
+    int cycle = page == PAGE_CYCLE ? setting_get(page) : 0;
     if (page == PAGE_SPLIT)
         display_number(synth_split_note());
+    else if (cycle >= 2)
+        display_text(lfo_division_name(cycle - 2));
+    else if (page == PAGE_CYCLE)
+        display_text(cycle ? "FrEE" : "OFF");
     else
         display_text(values[page][setting_get(page)]);
 }
@@ -432,18 +445,28 @@ static void idle_display(void)
         display_clear();
 }
 
-// An envelope knob's time in seconds (attack, decay, release; hold and rest when cycling), or -1 for the others.
-static float env_knob_time(int pot, float knob)
+// Which envelope (0 amp, 1 filter, 2 Env 3, 3 Env 4: the ENV_CYCLE_* bit order) and stage (0 attack, 1 decay,
+// 2 sustain, 3 release) a knob edits; 0 if it isn't an envelope knob.
+static int env_knob(int pot, int *env, int *stage)
 {
-    static const int8_t stage[POT_COUNT] = {
+    static const int8_t stages[POT_COUNT] = {
         [POT_AMP_ATT] = 1, [POT_AMP_DEC] = 2, [POT_AMP_SUS] = 3, [POT_AMP_REL] = 4,
         [POT_FIL_ATT] = 1, [POT_FIL_DEC] = 2, [POT_FIL_SUS] = 3, [POT_FIL_REL] = 4,
     };
-    if (!stage[pot])
+    if (!stages[pot])
+        return 0;
+    *env = pot <= POT_AMP_ATT ? 0 : synth_env_select() + 1; // POT_AMP_REL..POT_AMP_ATT come first
+    *stage = stages[pot] - 1;
+    return 1;
+}
+
+// An envelope knob's time in seconds (attack, decay, release; hold and rest when cycling), or -1 for the others.
+static float env_knob_time(int pot, float knob)
+{
+    int env, stage;
+    if (!env_knob(pot, &env, &stage))
         return -1;
-    int amp = pot <= POT_AMP_ATT; // POT_AMP_REL..POT_AMP_ATT come first
-    int env = amp ? 0 : synth_env_select() + 1; // amp, filter, Env 3, Env 4: the ENV_CYCLE_* bit order
-    return synth_env_time(stage[pot] - 1, knob, (synth_env_cycle(synth_edit_layer()) >> env) & 1);
+    return synth_env_time(stage, knob, (synth_env_cycle(synth_edit_layer()) >> env) & 1);
 }
 
 // 4 digits: milliseconds as a whole number ("  15", " 150"), seconds with a point (" 1.25", " 12.5")
@@ -547,6 +570,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         int pending = synth_pot_pending(index);
         float knob = pending ? synth_pot_value(index) : (float)value / 4095.0f;
         char text[8];
+        int env, stage;
         if (index == POT_LFO_FREQ && lfo_sync[synth_lfo_select()] == LFO_SYNC_CLOCK) {
             const char *name = lfo_division_name(lfo_division(knob));
             int n = 0;
@@ -555,6 +579,13 @@ static void control_event(control_kind_t kind, int index, int32_t value)
                 n++;
             }
             text[n] = 0;
+        } else if (env_knob(index, &env, &stage) && synth_env_share(env, stage, knob) >= 0) {
+            int share = (int)(synth_env_share(env, stage, knob) * 100.0f + 0.5f); // percent of the synced cycle
+            text[0] = ' ';
+            text[1] = share >= 100 ? '1' : ' ';
+            text[2] = share >= 10 ? (char)('0' + share / 10 % 10) : ' ';
+            text[3] = (char)('0' + share % 10);
+            text[4] = 0;
         } else if (env_knob_time(index, knob) >= 0) {
             format_time(env_knob_time(index, knob), text);
         } else if (index == POT_FREQ_A || index == POT_FREQ_B || index == POT_FINE) {
@@ -702,7 +733,8 @@ typedef enum {
     SET_LFO1_SYNC, SET_LFO1_TRIGGER, SET_LAYERS, SET_SPLIT, SET_KEYTRACK, SET_LFO2_SYNC, SET_LFO2_TRIGGER,
     SET_EDIT_LAYER, SET_LFO_SELECT, SET_SHAPE_L1_LFO1, SET_SHAPE_L1_LFO2, SET_SHAPE_L2_LFO1, SET_SHAPE_L2_LFO2,
     SET_LFO2_DESTS_L1, SET_LFO2_DESTS_L2, SET_CYCLE_L1, SET_CYCLE_L2,
-    SET_WRITABLE,                                        // read-only from here
+    SET_CYCLE_SYNC, // 8 of them: layer 1 amp, filter, Env 3, Env 4, then layer 2 (0 free, else division + 1)
+    SET_WRITABLE = SET_CYCLE_SYNC + 8,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_COUNT
 } host_setting_t;
 
@@ -720,6 +752,9 @@ static int host_setting_get(int id)
         return synth_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2);
     case SET_LFO2_DESTS_L1: case SET_LFO2_DESTS_L2: return synth_lfo2_dests(id - SET_LFO2_DESTS_L1);
     case SET_CYCLE_L1: case SET_CYCLE_L2: return synth_env_cycle(id - SET_CYCLE_L1);
+    case SET_CYCLE_SYNC: case SET_CYCLE_SYNC + 1: case SET_CYCLE_SYNC + 2: case SET_CYCLE_SYNC + 3:
+    case SET_CYCLE_SYNC + 4: case SET_CYCLE_SYNC + 5: case SET_CYCLE_SYNC + 6: case SET_CYCLE_SYNC + 7:
+        return synth_env_sync((id - SET_CYCLE_SYNC) / 4, (id - SET_CYCLE_SYNC) % 4);
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
     case SET_CURRENT_PATCH: return current_patch;
@@ -732,6 +767,7 @@ static int host_setting_set(int id, int value)
     static const uint8_t counts[SET_WRITABLE] = {
         LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, 2, 2,
         LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8, 16, 16,
+        [SET_CYCLE_SYNC ... SET_WRITABLE - 1] = LFO_DIVISIONS + 1,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -745,6 +781,10 @@ static int host_setting_set(int id, int value)
     case SET_LFO_SELECT: synth_set_lfo_select(value); break;
     case SET_LFO2_DESTS_L1: case SET_LFO2_DESTS_L2: synth_set_lfo2_dests(id - SET_LFO2_DESTS_L1, value); break;
     case SET_CYCLE_L1: case SET_CYCLE_L2: synth_set_env_cycle(id - SET_CYCLE_L1, value); break;
+    case SET_CYCLE_SYNC: case SET_CYCLE_SYNC + 1: case SET_CYCLE_SYNC + 2: case SET_CYCLE_SYNC + 3:
+    case SET_CYCLE_SYNC + 4: case SET_CYCLE_SYNC + 5: case SET_CYCLE_SYNC + 6: case SET_CYCLE_SYNC + 7:
+        synth_set_env_sync((id - SET_CYCLE_SYNC) / 4, (id - SET_CYCLE_SYNC) % 4, value);
+        break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -866,6 +906,17 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = (uint8_t)(lfo_pattern[lfo] >> 14 & 0x7F);
         reply[n++] = (uint8_t)(lfo_pattern[lfo] >> 7 & 0x7F);
         reply[n++] = (uint8_t)(lfo_pattern[lfo] & 0x7F);
+    }
+    if (data_length == 1 && data[0] == 0x4C) {
+        reply[n++] = 0x4C;
+        for (int i = 0; i <= SWITCH_SYNC; i++)
+            reply[n++] = (uint8_t)synth_switch(i);
+    }
+    if (data_length == 3 && data[0] == 0x4B && data[1] <= SWITCH_SYNC && data[1] != SWITCH_KEYTRACK_HALF
+        && data[1] != SWITCH_KEYTRACK_FULL) {
+        synth_set_switch(data[1], data[2]);
+        reply[n++] = 0x7F;
+        reply[n++] = 0x4B;
     }
     if (data_length == 2 && data[0] == 0x53 && data[1] < 2) {
         reply[n++] = 0x53;

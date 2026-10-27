@@ -30,6 +30,9 @@
 // stops at 1, the concave curve of an analog envelope; decay and release are exponential. Sustain is linear.
 // Cycling (per envelope and layer): attack, hold at the top (SUS knob), fall to zero (DEC), rest (REL), again,
 // for as long as the key is held; on key up it falls with the DEC time. Hold and rest use the attack's range.
+// Synced cycling: the cycle lasts a clock division (lfo.c's tempo) and the four knobs are weights that share it
+// out (attack, hold, fall, rest in proportion). A phase drives it, so it stays on tempo however long it runs; it
+// restarts at each key.
 //
 // Other ranges and curves are first guesses, chosen to be playable; they're constants here.
 #include "synth.h"
@@ -79,6 +82,8 @@ typedef struct {
     env_stage_t stage;
     float level; // 0..1
     float timer; // seconds in ENV_HOLD / ENV_REST
+    float phase; // synced cycling: 0..1 through the cycle
+    float start; // synced cycling: the level the current attack started from
 } env_t;
 
 // One envelope's settings as per-update factors, worked out once per layer and update
@@ -87,6 +92,8 @@ typedef struct {
     float sustain;
     float hold, rest;             // seconds (cycling)
     int cycle;
+    int synced;                   // synced cycling: the cycle is `period` seconds, shared out as a / h / f / rest
+    float period, a, h, f;
 } env_rates_t;
 
 typedef struct {
@@ -116,6 +123,14 @@ static int lfo_select;      // which LFO the LFO knobs, the shape button and the
 static uint8_t lfo_shape[LAYERS][2]; // lfo_shape_t, per layer and LFO
 static uint8_t lfo2_dests[LAYERS];   // LFO2_TO_* bits
 static uint8_t env_cycle[LAYERS];    // ENV_CYCLE_* bits
+static uint8_t env_sync[LAYERS][4];  // amp, filter, Env 3, Env 4: 0 free, else the clock division + 1
+
+// Each envelope's knobs: attack, decay, sustain, release
+static const uint8_t env_params[4][4] = {
+    {POT_AMP_ATT, POT_AMP_DEC, POT_AMP_SUS, POT_AMP_REL}, {POT_FIL_ATT, POT_FIL_DEC, POT_FIL_SUS, POT_FIL_REL},
+    {PARAM_ENV3_ATT, PARAM_ENV3_DEC, PARAM_ENV3_SUS, PARAM_ENV3_REL},
+    {PARAM_ENV4_ATT, PARAM_ENV4_DEC, PARAM_ENV4_SUS, PARAM_ENV4_REL},
+};
 
 static const uint8_t per_layer[PARAM_COUNT] = {
     [POT_FREQ_A] = 1, [POT_FREQ_B] = 1, [POT_FINE] = 1, [POT_CUTOFF] = 1, [POT_FIL_ENV_AMT] = 1,
@@ -363,6 +378,18 @@ static int sw(switch_t s)
     return switch_override[s] ? switch_value[s] : physical;
 }
 
+int synth_switch(int s) { return s >= 0 && s < SWITCH_COUNT ? sw((switch_t)s) : 0; }
+
+void synth_set_switch(int s, int on)
+{
+    // like a loaded patch: holds until the button is toggled
+    if (s < 0 || s >= SWITCH_COUNT)
+        return;
+    switch_value[s] = (uint8_t)(on != 0);
+    switch_at_load[s] = (uint8_t)controls_on((switch_t)s);
+    switch_override[s] = 1;
+}
+
 void synth_hold_switch(int s)
 {
     // the button was just toggled: keep the state it had (the held one, if it was already holding a patch's or an
@@ -391,6 +418,8 @@ void synth_apply_patch(const patch_t *patch)
             lfo_shape[l][w] = patch->lfo_shape[l][w] < LFO_SHAPE_COUNT ? patch->lfo_shape[l][w] : 0;
         lfo2_dests[l] = patch->lfo2_dests[l] & 7;
         env_cycle[l] = patch->env_cycle[l] & 15;
+        for (int e = 0; e < 4; e++)
+            env_sync[l][e] = patch->env_sync[l][e] <= LFO_DIVISIONS ? patch->env_sync[l][e] : 0;
         for (int w = 0; w < 2; w++) { // no steps stored (older patches): the default pattern
             int count = patch->step_count[l][w];
             lfo_step_count[LFO_ID(l, w)] = (uint8_t)(count >= 1 && count <= LFO_MAX_STEPS ? count : LFO_DEFAULT_STEPS);
@@ -434,6 +463,8 @@ void synth_capture_patch(patch_t *patch)
             patch->lfo_shape[l][w] = lfo_shape[l][w];
         patch->lfo2_dests[l] = lfo2_dests[l];
         patch->env_cycle[l] = env_cycle[l];
+        for (int e = 0; e < 4; e++)
+            patch->env_sync[l][e] = env_sync[l][e];
         for (int w = 0; w < 2; w++) {
             patch->step_count[l][w] = lfo_step_count[LFO_ID(l, w)];
             patch->step_pattern[l][w] = lfo_pattern[LFO_ID(l, w)];
@@ -500,6 +531,11 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
         x->filter.stage = ENV_ATTACK;
         x->env3.stage = ENV_ATTACK;
         x->env4.stage = ENV_ATTACK;
+        env_t *envs[] = {&x->amp, &x->filter, &x->env3, &x->env4};
+        for (int i = 0; i < 4; i++) { // synced cycling starts its cycle here
+            envs[i]->phase = 0;
+            envs[i]->start = envs[i]->level;
+        }
     }
 }
 
@@ -649,8 +685,18 @@ static float step_factor(float dt, float time, float log2_left)
     return time <= 0 ? 0 : fast_exp2(-dt / time * log2_left);
 }
 
-static void env_rates(env_rates_t *r, float dt, const float *p, int att, int dec, int sus, int rel, int cycle)
+// A synced cycle's shares of its period, from the knobs as weights (attack, hold = SUS, fall = DEC, rest = REL)
+static void cycle_shares(const float *p, const uint8_t *knobs, float share[4])
 {
+    float w[4] = {p[knobs[0]], p[knobs[2]], p[knobs[1]], p[knobs[3]]};
+    float sum = w[0] + w[1] + w[2] + w[3];
+    for (int i = 0; i < 4; i++)
+        share[i] = sum < 0.001f ? 0.25f : w[i] / sum;
+}
+
+static void env_rates(env_rates_t *r, float dt, const float *p, const uint8_t *knobs, int cycle, int sync)
+{
+    int att = knobs[0], dec = knobs[1], sus = knobs[2], rel = knobs[3];
     r->cycle = cycle;
     r->attack = step_factor(dt, synth_env_time(0, p[att], cycle), 1.585f); // log2(3)
     r->decay = step_factor(dt, synth_env_time(1, p[dec], cycle), 9.966f);  // log2(1000)
@@ -658,10 +704,70 @@ static void env_rates(env_rates_t *r, float dt, const float *p, int att, int dec
     r->sustain = p[sus];
     r->hold = cycle ? synth_env_time(2, p[sus], 1) : 0;
     r->rest = cycle ? synth_env_time(3, p[rel], 1) : 0;
+    r->synced = cycle && sync > 0;
+    if (r->synced) {
+        float share[4];
+        cycle_shares(p, knobs, share);
+        r->period = lfo_division_quarters(sync - 1) * lfo_quarter_seconds();
+        r->a = share[0];
+        r->h = share[1];
+        r->f = share[2];
+        r->release = step_factor(dt, r->f * r->period, 9.966f); // key up: falls with its share of the cycle
+    }
+}
+
+// Synced cycling: the level is a function of the phase through the cycle
+static void env_synced(env_t *e, float dt, const env_rates_t *r)
+{
+    e->phase += dt / r->period;
+    if (e->phase >= 1.0f) {
+        e->phase -= (float)(int)e->phase;
+        e->start = 0;
+    }
+    float x = e->phase;
+    if (x < r->a) {
+        e->stage = ENV_ATTACK;
+        e->level = e->start + (1.0f - e->start) * ATTACK_OVERSHOOT * (1.0f - fast_exp2(-x / r->a * 1.585f));
+    } else if ((x -= r->a) < r->h) {
+        e->stage = ENV_HOLD;
+        e->level = 1.0f;
+    } else if ((x -= r->h) < r->f) {
+        e->stage = ENV_DECAY;
+        e->level = fast_exp2(-x / r->f * 9.966f);
+    } else {
+        e->stage = ENV_REST;
+        e->level = 0;
+    }
+}
+
+int synth_env_sync(int layer, int env) { return env_sync[layer][env]; }
+
+void synth_set_env_sync(int layer, int env, int sync)
+{
+    if (sync >= 0 && sync <= LFO_DIVISIONS)
+        env_sync[layer][env] = (uint8_t)sync;
+}
+
+float synth_env_share(int env, int stage, float knob)
+{
+    if (!(env_cycle[edit_layer] >> env & 1) || !env_sync[edit_layer][env])
+        return -1;
+    float p[PARAM_COUNT];
+    for (int i = 0; i < PARAM_COUNT; i++)
+        p[i] = layer_param[edit_layer][i];
+    p[env_params[env][stage]] = knob;
+    float share[4];
+    cycle_shares(p, env_params[env], share);
+    static const uint8_t slot[4] = {0, 2, 1, 3}; // attack, decay = fall, sustain = hold, release = rest
+    return share[slot[stage]];
 }
 
 static void env_update(env_t *e, float dt, const env_rates_t *r)
 {
+    if (r->synced && e->stage != ENV_IDLE && e->stage != ENV_RELEASE) {
+        env_synced(e, dt, r);
+        return;
+    }
     switch (e->stage) {
     case ENV_IDLE:
         e->level = 0;
@@ -841,12 +947,8 @@ void synth_update(float dt)
     for (int l = 0; l < LAYERS; l++) {
         const float *p = layer_param[l];
         int c = env_cycle[l];
-        env_rates(&rates[l][0], dt, p, POT_AMP_ATT, POT_AMP_DEC, POT_AMP_SUS, POT_AMP_REL, c & ENV_CYCLE_AMP);
-        env_rates(&rates[l][1], dt, p, POT_FIL_ATT, POT_FIL_DEC, POT_FIL_SUS, POT_FIL_REL, c & ENV_CYCLE_FILTER);
-        env_rates(&rates[l][2], dt, p, PARAM_ENV3_ATT, PARAM_ENV3_DEC, PARAM_ENV3_SUS, PARAM_ENV3_REL,
-                  c & ENV_CYCLE_ENV3);
-        env_rates(&rates[l][3], dt, p, PARAM_ENV4_ATT, PARAM_ENV4_DEC, PARAM_ENV4_SUS, PARAM_ENV4_REL,
-                  c & ENV_CYCLE_ENV4);
+        for (int e = 0; e < 4; e++)
+            env_rates(&rates[l][e], dt, p, env_params[e], c >> e & 1, env_sync[l][e]);
         // LFOs (lfo.c): rate or clock division from the rate knobs; LFO_ID(0, 0) goes first
         lfo_update(LFO_ID(l, 0), dt, p[POT_LFO_FREQ], last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES);
         lfo_update(LFO_ID(l, 1), dt, p[PARAM_LFO2_RATE], last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES);

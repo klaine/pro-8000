@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.6.5. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.6.6. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -188,8 +188,9 @@ release fall exponentially. Sustain is a level, 0-99. The engine updates every 2
 
 Any envelope can cycle while the key is held, like a one-shot LFO per note that restarts itself. Turn it on in
 Settings → key 6, which shows `CY.A` (amp), `CY.F` (filter), `CY.3` or `CY.4`. It opens on the envelope the filter
-ADSR knobs edit, or amp; press 6 again for the next one. VALUE sets `OFF` / `on`. This is per layer and stored in
-the patch. On the web page, each envelope has a "cycle while held" box.
+ADSR knobs edit, or amp; press 6 again for the next one. VALUE chooses `OFF`, `FrEE` (cycling on its own times) or
+a clock division (`8bAr` … `1-32`, synced cycling, below). This is per layer and stored in the patch. On the web
+page, each envelope has a Mode menu with the same choices.
 
 While it cycles, the knobs mean:
 
@@ -205,6 +206,17 @@ On key up the envelope falls to zero with the DEC time. One cycle lasts attack +
 - A cycling amp envelope with short attack and fall makes rhythmic gating that restarts with every note.
 - A cycling Env 3 → CUTOFF gives each note its own filter "wah" pattern.
 - Cycling Env 4 → pitch A with a long rest gives a recurring blip.
+
+### Synced cycling
+
+With a clock division instead of `FrEE`, one cycle lasts that division at the MIDI clock's tempo (120 BPM when no
+clock has arrived). The four knobs become weights that share the cycle out: attack, hold (SUS), fall (DEC) and rest
+(REL) in proportion. Turning one up takes time from the others, and REL at 0 means no gap. While you turn one, the
+display shows its share of the cycle in percent; the web page shows all four.
+
+The cycle restarts with each key and follows tempo changes, so it stays on the beat however long you hold. A
+synced amp envelope at `1-16`, with a short attack, some hold and a longer fall, is a pulsing gate with shaped
+edges. On key up it falls with its share of the cycle.
 
 ## Mod matrix (MOD ASSIGN)
 
@@ -288,7 +300,7 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 | 3 | `LAYr`: layer mode | `OFF`, `SPLt`, `StAC`, `CHAn` |
 | 4 | `SPLt`: split note | 0-127, or play a note |
 | 5 | `trAC`: keyboard tracking | `OFF`, `HALF`, `FULL` |
-| 6 | `CY.A` / `CY.F` / `CY.3` / `CY.4`: cycling envelope (6 again: next one) | `OFF`, `on` |
+| 6 | `CY.A` / `CY.F` / `CY.3` / `CY.4`: cycling envelope (6 again: next one) | `OFF`, `FrEE`, `8bAr` … `1-32` |
 
 Settings live in the patch, so save the patch to keep them.
 
@@ -305,7 +317,7 @@ WebMIDI with SysEx, which Safari and the desktop app's built-in browser don't of
 
 | Tab | What it does |
 |---|---|
-| **Sound** | Every parameter of the layer you're editing: knobs, Env 3/4, LFO 2. It also has the LFO shapes, sync, retrigger and LFO 2 routing, depth sliders from each LFO to the VCA, cutoff, oscillator A / B pitch and PWM (each one a mod route on the edit layer; double-click for 0), and the layer mode, split and keyboard tracking. It follows the panel about once a second. Moving a slider puts that knob in pickup on the panel. |
+| **Sound** | Every parameter of the layer you're editing: knobs, Env 3/4, LFO 2. Each oscillator card has its wave buttons (and sync) next to its level; poly-mod, LFO 1 routing and unison have their buttons too. A button click holds until you press that button on the panel, like a loaded patch. Each envelope has a Mode menu (ADSR, cycle, synced cycle). It also has the LFO shapes, sync, retrigger and LFO 2 routing, depth sliders from each LFO to the VCA, cutoff, oscillator A / B pitch and PWM (each one a mod route on the edit layer; double-click for 0), and the layer mode, split and keyboard tracking. It follows the panel about once a second. Moving a slider puts that knob in pickup on the panel. |
 | **Mod matrix** | Both layers' routes: change the source, destination or depth, remove routes, add new ones. |
 | **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 400 as a `.bin`. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. |
@@ -324,7 +336,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.6.5.syx --yes
+build/pro800 install build/pro800-0.6.6.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

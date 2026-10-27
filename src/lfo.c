@@ -112,6 +112,12 @@ int lfo_division(float knob)
 
 const char *lfo_division_name(int division) { return divisions[division].name; }
 
+float lfo_division_quarters(int division) { return divisions[division].quarters; }
+
+float lfo_quarter_seconds(void) { return tick_interval > 0 ? tick_interval * TICKS_PER_QUARTER : 0.5f; }
+
+_Static_assert(DIVISION_COUNT == LFO_DIVISIONS, "LFO_DIVISIONS");
+
 const char *lfo_shape_name(lfo_shape_t shape) { return shape_names[shape < LFO_SHAPE_COUNT ? shape : 0]; }
 
 void lfo_note_on(int lfo, int voice, int first)

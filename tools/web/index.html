@@ -123,6 +123,10 @@
   .steps button[disabled] { opacity: .25; }
   .step-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; }
   .step-tools button { padding: 2px 8px; font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 16px; }
+  .chip-group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .chip-group > span { font-size: 12px; color: var(--muted); margin-right: 2px; }
+  button[data-sw].on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .lfo-depths { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; }
   .lfo-depths .title { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
   .lfo-depths input[type=range] { background: linear-gradient(90deg, transparent 49.5%, var(--line) 49.5%, var(--line) 50.5%, transparent 50.5%); }
@@ -149,7 +153,8 @@
     <h2>Layers</h2>
     <p class="hint">The page follows the synth: turn a knob, press Seq1 / Seq2 or Arp Up-Dn on the panel and it shows
       here within a second. Moving a slider here puts that knob in pickup on the panel, just like loading a patch.
-      The oscillator and routing buttons stay on the panel.</p>
+      The oscillator, poly-mod, LFO 1 and unison buttons show the state the sound uses; clicking one holds it until
+      you press that button on the panel (as a loaded patch does).</p>
     <div class="row">
       <span>Editing <span class="seg" id="edit-layer"><button data-v="0">Layer 1</button><button data-v="1">Layer 2</button></span></span>
       <span>Mode <select id="layer-mode"><option value="0">Off (one sound, 8 voices)</option><option value="1">Split</option>
@@ -662,7 +667,9 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab
 
 // --- model ---
 const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo2Sync", "lfo2Trigger", "editLayer",
-  "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2", "envSelect",
+  "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2",
+  "cycleSync1_0", "cycleSync1_1", "cycleSync1_2", "cycleSync1_3", "cycleSync2_0", "cycleSync2_1", "cycleSync2_2",
+  "cycleSync2_3", "envSelect",
   "presetMode", "patch"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 let settings = null, params = null, paramsLayer = 0, dragging = null;
@@ -670,11 +677,11 @@ let settings = null, params = null, paramsLayer = 0, dragging = null;
 // [label, per layer] in the firmware's order: the knobs by hardware position, then Env 3, Env 4, LFO 2
 const PARAMS = [["Release", 1], ["Sustain", 1], ["Decay", 1], ["Attack", 1], ["Release", 1], ["Sustain", 1], ["Decay", 1],
   ["Attack", 1], ["Resonance", 0], ["Env amount", 1], ["Frequency", 1], ["Frequency", 1], ["Fine", 1], ["Pulse width", 0],
-  ["Pulse width", 0], ["Osc A", 0], ["Glide", 1], ["Rate", 1], ["Amount", 1], ["Master tune", 1], ["Master vol", 0],
-  ["Osc B", 0], ["Osc B amount", 0], ["Filter env", 1], ["Cutoff", 1], ["Noise", 0],
+  ["Pulse width", 0], ["Level", 0], ["Glide", 1], ["Rate", 1], ["Amount", 1], ["Master tune", 1], ["Master vol", 0],
+  ["Level", 0], ["Osc B amount", 0], ["Filter env", 1], ["Cutoff", 1], ["Level", 0],
   ["Attack", 1], ["Decay", 1], ["Sustain", 1], ["Release", 1], ["Attack", 1], ["Decay", 1], ["Sustain", 1], ["Release", 1],
   ["Rate", 1], ["Amount", 1]];
-const GROUPS = [["Oscillator A", [10, 13]], ["Oscillator B", [11, 12, 14]], ["Mixer", [15, 21, 25]],
+const GROUPS = [["Oscillator A", [10, 13, 15]], ["Oscillator B", [11, 12, 14, 21]], ["Noise", [25]],
   ["Filter", [24, 8, 9]], ["Filter envelope", [7, 6, 5, 4], "", 2], ["Amp envelope", [3, 2, 1, 0], "", 1],
   ["Env 3", [26, 27, 28, 29], "filter ADSR knobs, keytrack switch in the middle", 4],
   ["Env 4", [30, 31, 32, 33], "filter ADSR knobs, keytrack switch at the top", 8],
@@ -684,6 +691,24 @@ const ENV_KNOB = {3: [1, 0], 2: [1, 1], 1: [1, 2], 0: [1, 3], 7: [2, 0], 6: [2, 
   26: [4, 0], 27: [4, 1], 28: [4, 2], 29: [4, 3], 30: [8, 0], 31: [8, 1], 32: [8, 2], 33: [8, 3]};
 const CYCLE_LABELS = ["Attack", "Fall", "Hold", "Rest"], ADSR_LABELS = ["Attack", "Decay", "Sustain", "Release"];
 function cycling(bit) { return !!(settings && (settings["cycle" + (paramsLayer + 1)] & bit)); }
+const envIndex = bit => Math.log2(bit); // ENV_CYCLE_* bit → 0 amp, 1 filter, 2 Env 3, 3 Env 4
+// synced cycling: 0 free, else the clock division + 1
+function cycleSync(bit) { return settings && cycling(bit) ? settings[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`] : 0; }
+// a synced cycle's share for a knob: the four knobs are weights (attack, hold = sustain, fall = decay, rest = release)
+function cycleShare(bit, stage) {
+  const knob = st => +Object.keys(ENV_KNOB).find(i => ENV_KNOB[i][0] === bit && ENV_KNOB[i][1] === st);
+  const w = [0, 1, 2, 3].map(st => params ? params[knob(st)] : 0.25), sum = w.reduce((a, b) => a + b, 0);
+  return sum < 0.001 ? 0.25 : w[stage] / sum;
+}
+const SYNCED_LABELS = CYCLE_LABELS; // the values show the shares in %
+// The panel's latching buttons (switch_t indices) shown in each card. They're shared by both layers and show the
+// state the sound uses (a loaded patch's, until the button is pressed on the panel); clicking one holds it the same way.
+const GROUP_BUTTONS = {"Oscillator A": [[0, "Saw"], [1, "Triangle"], [2, "Square"], [15, "Sync"]],
+  "Oscillator B": [[3, "Saw"], [4, "Triangle"], [5, "Square"]], "Poly-mod": [[8, "→ Freq A"], [11, "→ Filter"]],
+  "LFO 1": [[7, "Freq"], [10, "Filter"], [6, "PW"]], "Glide and tune": [[12, "Unison"]]};
+const buttonChips = list => `<div class="chip-group">${list.map(([i, name]) =>
+  `<button data-sw="${i}" title="a panel button: shared by both layers">${name}</button>`).join("")}</div>`;
+let buttons = null;
 // the firmware's curve (synth.c knob_time): an exponential offset to start at the minimum
 const knobTime = (k, min, max) => min + (max - min) * (2 ** (k * 12) - 1) / 4095;
 function envTime(stage, k, cyc) {
@@ -740,6 +765,7 @@ function format(i, v) {
   if (i === 10 || i === 11) return signed(Math.floor((v - 0.5) * 72 + 36.5) - 36) + " st";
   if (i === 12 || i === 19) return signed(Math.round((v - 0.5) * 200)) + " ct";
   if (i === 9) return signed(Math.round((v - 0.5) * 198));
+  if (ENV_KNOB[i] && cycleSync(ENV_KNOB[i][0])) return Math.round(cycleShare(ENV_KNOB[i][0], ENV_KNOB[i][1]) * 100) + " %";
   if (ENV_KNOB[i]) {
     const t = envTime(ENV_KNOB[i][1], v, cycling(ENV_KNOB[i][0]));
     if (t >= 0) return t === 0 ? "0 ms" : seconds(t);
@@ -761,12 +787,18 @@ function buildGroups() {
     g.className = "group";
     const note = typeof extra === "string" && extra ? `<span class="muted">${extra}</span>` : "";
     g.innerHTML = `<h3><span>${title}</span>${note}</h3>`;
+    if (GROUP_BUTTONS[title] && title !== "LFO 1")
+      g.insertAdjacentHTML("beforeend", `<div class="chips" style="margin-bottom:6px">${buttonChips(GROUP_BUTTONS[title])}</div>`);
     if (cycleBit) {
-      g.insertAdjacentHTML("beforeend", `<div class="field"><span>Mode</span><label title="attack, hold, fall, rest, again while the key is held">
-        <input type="checkbox" class="cycle" data-bit="${cycleBit}"> cycle while held</label></div>`);
-      g.querySelector(".cycle").onchange = e => {
-        const key = "cycle" + (paramsLayer + 1), bits = settings ? settings[key] : 0;
-        setSetting(SET_ID[key], e.target.checked ? bits | cycleBit : bits & ~cycleBit);
+      g.insertAdjacentHTML("beforeend", `<div class="field"><span>Mode</span>
+        <select class="cycle" data-bit="${cycleBit}" title="cycling: attack, hold, fall, rest, again while the key is held">
+          <option value="0">ADSR</option><option value="1">Cycle while held</option>
+          ${DIVISIONS.map((d, k) => `<option value="${k + 2}">Cycle synced: ${d}</option>`).join("")}
+        </select></div>`);
+      g.querySelector(".cycle").onchange = async e => {
+        const v = +e.target.value, key = "cycle" + (paramsLayer + 1), bits = settings ? settings[key] : 0;
+        await setSetting(SET_ID[`cycleSync${paramsLayer + 1}_${envIndex(cycleBit)}`], v >= 2 ? v - 1 : 0);
+        await setSetting(SET_ID[key], v ? bits | cycleBit : bits & ~cycleBit);
       };
     }
     for (const i of list) {
@@ -782,6 +814,7 @@ function buildGroups() {
         const v = +slider.value;
         if (params) params[i] = v / 16383;
         document.getElementById("pv" + i).textContent = format(i, v / 16383);
+        if (ENV_KNOB[i] && cycleSync(ENV_KNOB[i][0])) paintParams(); // the other knobs' shares move too
         clearTimeout(timer);
         timer = setTimeout(() => send([0x52, paramsLayer, i, v >> 7, v & 0x7F]), 25);
       };
@@ -822,7 +855,7 @@ function lfoControls(which) {
     ${which ? `<div class="field"><span>Routing</span>
       <label><input type="checkbox" data-bit="1"> pitch</label><label><input type="checkbox" data-bit="2"> filter</label>
       <label title="pulse width is one wire: layer 1's LFO 2 only"><input type="checkbox" data-bit="4"> PW</label></div>` :
-      `<div class="field"><span>Routing</span><span class="muted">LFO → Freq / Filter / PW buttons on the panel</span></div>`}
+      `<div class="field"><span>Routing</span>${buttonChips(GROUP_BUTTONS["LFO 1"])}</div>`}
     <div class="field"><span></span><span class="muted" id="lfo-sel${which}"></span></div>`;
   box.querySelectorAll(".shapes button").forEach(b => b.onclick = () =>
     setSetting(SET_ID["shape" + (paramsLayer + 1) + n], +b.dataset.s));
@@ -926,6 +959,21 @@ function paintSteps() {
   }
 }
 
+function buildButtons() {
+  document.querySelectorAll("button[data-sw]").forEach(b => b.onclick = async () => {
+    const i = +b.dataset.sw, on = buttons ? !buttons[i] : 1;
+    if (offline()) return;
+    if (await ack([0x4B, i, on ? 1 : 0])) await refreshButtons();
+    else document.getElementById("status").textContent = "The synth didn't take that (firmware 0.6.6 or later?)";
+  });
+}
+async function refreshButtons() {
+  const d = await ask([0x4C], [0x4C], 1000);
+  if (!d) return;
+  buttons = d.slice(1);
+  document.querySelectorAll("button[data-sw]").forEach(b => b.classList.toggle("on", !!buttons[+b.dataset.sw]));
+}
+
 async function refreshParams() {
   if (!settings) return;
   const layer = settings.editLayer;
@@ -935,6 +983,7 @@ async function refreshParams() {
   params = [];
   for (let i = 0; i < d[2]; i++) params.push((d[3 + 2 * i] << 7 | d[4 + 2 * i]) / 16383);
   paintParams();
+  await refreshButtons();
   await refreshSteps();
   await refreshLayerRoutes();
 }
@@ -953,10 +1002,14 @@ function paintSettings() {
       `Arp Up-Dn on the panel switches the LFO knobs to LFO ${n}`;
   }
   const cyc = s["cycle" + (s.editLayer + 1)];
-  document.querySelectorAll("input.cycle").forEach(c => c.checked = !!(cyc & +c.dataset.bit));
+  document.querySelectorAll("select.cycle").forEach(c => {
+    const bit = +c.dataset.bit, sync = s[`cycleSync${s.editLayer + 1}_${envIndex(bit)}`];
+    if (document.activeElement !== c) c.value = String(!(cyc & bit) ? 0 : sync ? sync + 1 : 1);
+  });
   for (const [i, [bit, stage]] of Object.entries(ENV_KNOB)) {
     const label = document.querySelector(`label[for="p${i}"]`);
-    if (label) label.textContent = (cyc & bit ? CYCLE_LABELS : ADSR_LABELS)[stage];
+    const sync = s[`cycleSync${s.editLayer + 1}_${envIndex(bit)}`];
+    if (label) label.textContent = (!(cyc & bit) ? ADSR_LABELS : sync ? SYNCED_LABELS : CYCLE_LABELS)[stage];
   }
   if (params) paintParams();
   paintSteps();
@@ -1279,6 +1332,7 @@ async function afterConnect() {
 
 buildPiano(); relabel(); buildPots(); buildSwitches(); buildKeys(); buildDisplay(); paintDisplay(); save();
 buildGroups();
+buildButtons();
 try { tab = localStorage.getItem("pro800-tab") || "sound"; } catch (e) {}
 if (!document.getElementById("tab-" + tab)) tab = "sound";
 showTab(tab);
