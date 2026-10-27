@@ -50,6 +50,7 @@ Probe (our firmware 0.0.9+):
   pro800 set lfo-sync free|clock        menu settings (also lfo-trigger free|first|every|voice,
                                         layers off|split|stack|channel, split <note>)
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
+  pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
   pro800 clock <bpm> [seconds]          send MIDI clock (Start, then 24 per quarter note)
   pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
@@ -770,6 +771,34 @@ func clockOut() {
     pump(0.05)
 }
 
+// Reads the patch EEPROM (read-only): pro800 eeprom <file> [start] [length]
+func eeprom() {
+    guard let path = args.first else { fail("usage: pro800 eeprom <file> [start] [length]") }
+    let start = args.count > 1 ? parseValue(args[1]) ?? 0 : 0
+    let length = args.count > 2 ? parseValue(args[2]) ?? 0x20000 : 0x20000
+    let midi = Midi(port: portName)
+    var data = [UInt8](), address = start, status = -1
+    let began = Date()
+    while address < start + length {
+        let n = min(48, start + length - address)
+        let request: [UInt8] = [0x79, UInt8(address >> 14 & 0x7F), UInt8(address >> 7 & 0x7F), UInt8(address & 0x7F), UInt8(n)]
+        guard let reply = midi.request(request, expect: Array(request), timeout: 2) else {
+            fail("no reply at 0x\(String(address, radix: 16)) (firmware 0.3.2 or later?)")
+        }
+        let b = Array(reply[(sysexHeader.count + 5)..<(reply.count - 1)])
+        guard b.count == 2 + 2 * n else { fail("short reply at 0x\(String(address, radix: 16))") }
+        status = Int(b[0]) << 4 | Int(b[1])
+        for i in 0..<n { data.append(b[2 + 2 * i] << 4 | b[3 + 2 * i]) }
+        address += n
+        if (address - start) % 0x2000 < 48 {
+            print("\r\(address - start) / \(length) bytes", terminator: "")
+            fflush(stdout)
+        }
+    }
+    try! Data(data).write(to: URL(fileURLWithPath: path))
+    print(String(format: "\r%d bytes in %.1f s → %@ (status register 0x%02X)", data.count, Date().timeIntervalSince(began), path, status))
+}
+
 // MARK: - Bootloader
 
 func updateMode() {
@@ -898,6 +927,7 @@ case "panel": panel()
 case "state": state()
 case "set": setSetting()
 case "layer": layer()
+case "eeprom": eeprom()
 case "clock": clockOut()
 case "leds": leds()
 case "update-mode": updateMode()

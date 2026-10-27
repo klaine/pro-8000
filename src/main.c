@@ -22,10 +22,13 @@
 //   7C                     panel state; replies 7C <26 pots, 2 × 7 bits each> <24 switches, 0/1 each>
 //   7D <setting> <value>   set a menu setting (0 LFO sync, 1 LFO retrigger, 2 layer mode, 3 split note)
 //   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
+//   79 <a2> <a1> <a0> <n>  read n (1-48) bytes of the patch EEPROM at a2 << 14 | a1 << 7 | a0; replies
+//                          79 <a2> <a1> <a0> <n> <status register, 2 nibbles> <each byte as 2 nibbles, high first>
 // Each other command is acknowledged with 7F <command>.
 #include "clock.h"
 #include "controls.h"
 #include "display.h"
+#include "eeprom.h"
 #include "lfo.h"
 #include "panel.h"
 #include "regs.h"
@@ -39,7 +42,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 112
+#define SYSEX_MAX 120
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -343,6 +346,20 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = 0x7F;
         reply[n++] = 0x7D;
     }
+    if (data_length == 5 && data[0] == 0x79 && data[4] >= 1 && data[4] <= 48) {
+        uint32_t address = (uint32_t)data[1] << 14 | (uint32_t)data[2] << 7 | data[3];
+        uint8_t bytes[48];
+        eeprom_read(address, bytes, data[4]);
+        uint8_t status = eeprom_status();
+        for (int i = 0; i < 5; i++)
+            reply[n++] = data[i];
+        reply[n++] = status >> 4;
+        reply[n++] = status & 0x0F;
+        for (int i = 0; i < data[4]; i++) {
+            reply[n++] = bytes[i] >> 4;
+            reply[n++] = bytes[i] & 0x0F;
+        }
+    }
     if (data_length == 2 && data[0] == 0x7E && data[1] < 2) {
         synth_set_edit_layer(data[1]);
         show_edit_layer();
@@ -489,6 +506,7 @@ int main(void)
     display_until = ms_ticks + 1500;
 
     controls_init();
+    eeprom_init();
     usb_init();
 
     uint32_t last = DWT_CYCCNT;
