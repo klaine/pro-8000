@@ -405,6 +405,10 @@ into CVs through each voice's tuning tables. First-guess ranges, all constants i
   poly-mod amount) only take shared sources (shared LFO, mod wheel, last note's envelope), else the display shows
   `noPE`. Browsing: touching a destination with a source picked shows its depth; turning VALUE with no source
   steps through the active routes.
+  Envelopes → LFO depth (touch LFO AMOUNT for all destinations, or one LFO button for that one) and → LFO rate
+  (per voice, with `PoLY` retrigger): each voice scales its own LFO by its own envelope, e.g. delayed vibrato per
+  note, an attack wobble that settles (negative depth), filter motion growing on held notes. LFO → PW only from
+  shared sources. Best with the two extra envelopes, so the filter and amp envelopes stay free.
 - Settings, layers and the panel sound are RAM only: patch storage (EEPROM, read-only analysis first).
 - Hardware SPI to the DAC80501 (fails above 0.33 MHz); tuning tables erased by every update.
 
