@@ -77,6 +77,8 @@
   .group { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
   .group h3 { font-size: 13px; margin: 0 0 8px; display: flex; flex-direction: column; gap: 2px; }
   .group h3 .muted { font-weight: 400; font-size: 12px; }
+  .group h3 .title-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .group h3 button.copy { font-size: 11px; font-weight: 400; padding: 2px 8px; }
   .param { display: grid; grid-template-columns: 92px 1fr 66px; gap: 8px; align-items: center; margin: 4px 0; }
   .param label { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .param label .tag { font-size: 9px; padding: 0 3px; margin-left: 2px; }
@@ -791,7 +793,11 @@ function buildGroups() {
     const g = document.createElement("div");
     g.className = "group";
     const note = typeof extra === "string" && extra ? `<span class="muted">${extra}</span>` : "";
-    g.innerHTML = `<h3><span>${title}</span>${note}</h3>`;
+    const copy = cycleBit ? `<button class="copy" data-env="${cycleBit}">Copy from layer 2</button>`
+      : extra === 0 || extra === 1 ? `<button class="copy" data-lfo="${extra}">Copy from layer 2</button>` : "";
+    g.innerHTML = `<h3><span class="title-row"><span>${title}</span>${copy}</span>${note}</h3>`;
+    const button = g.querySelector("button.copy");
+    if (button) button.onclick = () => cycleBit ? copyEnvelope(cycleBit, title) : copyLfo(extra);
     if (GROUP_BUTTONS[title] && title !== "LFO 1")
       g.insertAdjacentHTML("beforeend", `<div class="chips" style="margin-bottom:6px">${buttonChips(GROUP_BUTTONS[title])}</div>`);
     if (cycleBit) {
@@ -979,6 +985,65 @@ async function refreshButtons() {
   document.querySelectorAll("button[data-sw]").forEach(b => b.classList.toggle("on", !!buttons[+b.dataset.sw]));
 }
 
+// --- copying an LFO or an envelope from the other layer ---
+async function readParams(layer) {
+  const d = await ask([0x53, layer], [0x53, layer], 1000);
+  return d ? Array.from({ length: d[2] }, (_, i) => d[3 + 2 * i] << 7 | d[4 + 2 * i]) : null;
+}
+async function copyParams(list, from, to) {
+  const p = await readParams(from);
+  if (!p) return false;
+  for (const i of list) if (!await ack([0x52, to, i, p[i] >> 7, p[i] & 127])) return false;
+  return true;
+}
+const set7D = (name, value) => ack([0x7D, SET_ID[name], value]);
+async function copyLfo(which) {
+  if (offline() || !settings) return;
+  const to = paramsLayer, from = 1 - to, n = which + 1, src = LFO_SOURCE[which];
+  if (!confirm(`Replace layer ${to + 1}'s LFO ${n} with layer ${from + 1}'s? Rate, amount, shape, step pattern` +
+               `${which ? ", routing" : ""} and the mod routes from LFO ${n} are copied.`)) return;
+  let ok = await copyParams(which ? [34, 35] : [17, 18], from, to);
+  ok = ok && await set7D(`shape${to + 1}${n}`, settings[`shape${from + 1}${n}`]);
+  const st = ok && await ask([0x4D, from, which], [0x4D, from, which], 1000);
+  ok = ok && !!st && await ack([0x4E, to, which, st[3], st[4], st[5], st[6]]);
+  if (which) ok = ok && await set7D(`lfo2Dests${to + 1}`, settings[`lfo2Dests${from + 1}`]);
+  // routes: drop this LFO's routes on this layer, then add the other layer's
+  const read = async layer => {
+    const d = await ask([0x57, layer], [0x57, layer], 1000), list = [];
+    if (d) for (let r = 0; r < 8; r++)
+      if (d[2 + 4 * r] === src) list.push({ dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
+    return d ? list : null;
+  };
+  const mine = ok && await read(to), theirs = ok && await read(from);
+  let full = 0;
+  if (mine && theirs) {
+    for (const r of mine) await setRoute(to, src, r.dest, 0);
+    for (const r of theirs) if (!await setRoute(to, src, r.dest, r.depth)) full++;
+  } else ok = false;
+  const status = document.getElementById("status");
+  status.textContent = !ok ? "Copying failed (firmware 0.6.6 or later?)" : full ?
+    `Copied LFO ${n} to layer ${to + 1}, but ${full} route${full > 1 ? "s" : ""} didn't fit (8 per layer)` :
+    `Copied layer ${from + 1}'s LFO ${n} to layer ${to + 1}`;
+  status.className = ok && !full ? "ok" : "bad";
+  await refreshSettings(); await refreshParams();
+  if (tab === "matrix") loadRoutes();
+}
+async function copyEnvelope(bit, title) {
+  if (offline() || !settings) return;
+  const to = paramsLayer, from = 1 - to, env = envIndex(bit);
+  if (!confirm(`Replace layer ${to + 1}'s ${title.toLowerCase()} with layer ${from + 1}'s (its four knobs and mode)?`))
+    return;
+  const knobs = Object.keys(ENV_KNOB).filter(i => ENV_KNOB[i][0] === bit).map(Number);
+  let ok = await copyParams(knobs, from, to);
+  const cycle = settings[`cycle${to + 1}`], on = settings[`cycle${from + 1}`] & bit;
+  ok = ok && await set7D(`cycleSync${to + 1}_${env}`, settings[`cycleSync${from + 1}_${env}`]);
+  ok = ok && await set7D(`cycle${to + 1}`, on ? cycle | bit : cycle & ~bit);
+  const status = document.getElementById("status");
+  status.textContent = ok ? `Copied layer ${from + 1}'s ${title.toLowerCase()} to layer ${to + 1}` : "Copying failed";
+  status.className = ok ? "ok" : "bad";
+  await refreshSettings(); await refreshParams();
+}
+
 async function refreshParams() {
   if (!settings) return;
   const layer = settings.editLayer;
@@ -1003,6 +1068,7 @@ function paintSettings() {
     const n = which + 1, shape = s[`shape${s.editLayer + 1}${n}`];
     document.querySelectorAll(`#shapes${which} button`).forEach(b => b.classList.toggle("active", +b.dataset.s === shape));
     set("sync" + which, s[`lfo${n}Sync`]); set("trig" + which, s[`lfo${n}Trigger`]);
+    document.querySelectorAll("button.copy").forEach(b => b.textContent = `Copy from layer ${2 - s.editLayer}`);
     document.getElementById("lfo-sel" + which).textContent = s.lfoSelect === which ? "the panel's LFO knobs edit this LFO" :
       `Arp Up-Dn on the panel switches the LFO knobs to LFO ${n}`;
   }
