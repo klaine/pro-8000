@@ -45,6 +45,8 @@ Probe (our firmware 0.0.9+):
   pro800 tune                           run autotune in the synth (about 25 s) and save it
   pro800 tuning                         print the tuning tables (Hz per CV point)
   pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
+  pro800 panel [seconds]                print every pot, switch, button and encoder change live
+  pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
 Changes the synth (only when you mean it):
   pro800 update-mode                    reboot into the bootloader's update mode
@@ -614,6 +616,65 @@ func check() {
     print(String(format: "worst: %.1f cents", worst))
 }
 
+// Live panel events: pro800 panel [seconds]
+let switchNames = ["OSC1_SAW", "OSC1_TRI", "OSC1_SQ", "OSC2_SAW", "OSC2_TRI", "OSC2_SQ", "PW_A_B", "F_A_B", "FREQ_A",
+                   "LFO_SHAP", "LFO_FILTER", "FILTER", "UNISON", "HALF", "FULL", "SYNC_SEL", "MIDI_CH_0", "MIDI_CH_1",
+                   "MIDI_CH_2", "MIDI_CH_3", "BACKPANEL_PRESENCE", "PEDAL_DT", "SYNC_IN_A", "SYNC_IN_B"]
+
+func potLabel(_ i: Int) -> String {
+    i < 24 ? "pot \(["U22/VMUX1", "U21/VMUX2", "U42/VMUX3"][i / 8]).Y\(i % 8) (#\(i))" : (i == 24 ? "pot CUTOFF (#24)" : "pot NOISE (#25)")
+}
+
+var panelMidi: Midi?
+func panelOff() {
+    if let midi = panelMidi { _ = midi.request([0x7A, 0], expect: [0x7F, 0x7A], timeout: 1) }
+}
+
+func panel() {
+    let seconds = Double(args.first ?? "120") ?? 120
+    let midi = Midi(port: portName)
+    panelMidi = midi
+    probeAck(midi, [0x7A, 1])
+    signal(SIGINT) { _ in panelOff(); exit(0) }
+    print("panel report on for \(Int(seconds)) s: move knobs, press buttons (Ctrl-C to stop)")
+    let end = Date().addingTimeInterval(seconds)
+    while Date() < end {
+        pump(0.05)
+        for m in midi.takeSysex() where m.count > sysexHeader.count + 2 && m.starts(with: sysexHeader) {
+            let b = Array(m[sysexHeader.count..<(m.count - 1)])
+            switch b[0] {
+            case 0x60 where b.count >= 4: print("\(potLabel(Int(b[1])))  \(Int(b[2]) << 7 | Int(b[3]))")
+            case 0x61 where b.count >= 3:
+                print("switch \(Int(b[1]) < switchNames.count ? switchNames[Int(b[1])] : "#\(b[1])") = \(b[2])")
+            case 0x62 where b.count >= 4:
+                let v = Int(b[2]) << 7 | Int(b[3])
+                print("keys byte \(b[1]) = " + String(v, radix: 2).leftPad(8))
+            case 0x63 where b.count >= 2: print("encoder \(Int(b[1]) - 64 > 0 ? "+" : "-")")
+            default: break
+            }
+            fflush(stdout)
+        }
+    }
+    panelOff()
+}
+
+// Writes HT16K33 display RAM bytes (report mode keeps the firmware off the display): pro800 leds <addr> <value> ...
+func leds() {
+    guard args.count >= 2, args.count % 2 == 0 else { fail("usage: pro800 leds <address 0-15> <value 0-255 or 0x..> ...") }
+    let midi = Midi(port: portName)
+    probeAck(midi, [0x7A, 1])
+    for i in stride(from: 0, to: args.count, by: 2) {
+        guard let a = parseValue(args[i]), (0..<16).contains(a), let v = parseValue(args[i + 1]), (0..<256).contains(v) else {
+            fail("bad address/value \(args[i]) \(args[i + 1])")
+        }
+        probeAck(midi, [0x7B, UInt8(a), UInt8(v >> 7), UInt8(v & 0x7F)])
+    }
+}
+
+extension String {
+    func leftPad(_ n: Int) -> String { String(repeating: "0", count: max(0, n - count)) + self }
+}
+
 // MARK: - Bootloader
 
 func updateMode() {
@@ -738,6 +799,8 @@ case "measure": measure()
 case "tune": tune()
 case "tuning": tuning()
 case "check": check()
+case "panel": panel()
+case "leds": leds()
 case "update-mode": updateMode()
 case "flash": flash()
 case "install": install()

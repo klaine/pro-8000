@@ -301,6 +301,29 @@ that was the pitch estimator's 4 kHz limit, since raised to 10 kHz.)
 - USB: our firmware now reports the chip-ID serial (ST's formula: UID0 + UID2, then the top of UID1), which is
   exactly the stock firmware's `203E30674E53`, so macOS treats it as the accessory it already approved.
 
+## Panel map (0.1.6–0.1.7, 2026-10-27)
+
+Mapped with the WebMIDI page (`scripts/web.sh`, `tools/web/`), saved as `tools/web/panel-map.json`; the
+firmware's names are in `src/controls.h` and `src/display.c`.
+
+- **Pots** (index = mux × 8 + address; each mux runs opposite to the schematic's drawing):
+  - U22 / VMUX1: AMP REL, AMP SUS, AMP DEC, AMP ATT, FIL REL, FIL SUS, FIL DEC, FIL ATT
+  - U21 / VMUX2: RESONANCE, FIL ENV AMT, FREQ A, FREQ B, FINE, A PW, B PW, A LEVEL
+  - U42 / VMUX3: GLIDE, LFO FREQ, LFO AMOUNT, M TUNE, M VOL, B LEVEL, PMOD OSC B, PMOD FIL ENV
+  - direct: CUTOFF (PC3), NOISE (PA2)
+  - Each pot has 100 nF at the mux and each VMUX 100 nF at the MCU: the scan waits 4 ms per address. Idle
+    readings stay inside a 24/4095 hysteresis.
+- **Buttons** (HT16K33 key RAM byte.bit): Tune 0.0, 1 0.1, 2 0.2, 3 0.3, Preset 0.4, Perf 0.5, Settings 0.6,
+  Arp Assign 0.7; Rec 2.0, 4 2.1, 5 2.2, 6 2.3, Sync Source 2.4, Sync Clock 2.5; Arp Up 4.0, 7 4.1, 8 4.2,
+  9 4.3, 0 4.4, Seq 1 4.5, Seq 2 4.6.
+- **Display**: digits left to right at RAM 2, 0, 6, 4. Each digit's address holds segments a, b, g (bits 0-2),
+  and the next address f, e, d, c and the dot after the digit (bits 3-7). Everything else in RAM 0-7 is unused.
+- **LEDs** (RAM.bit): Preset 8.7, Sync Source 9.0, Power 9.1, Perf 10.7, Seq 1 11.0, Seq 2 11.1, Settings 12.7,
+  Sync Clock 13.0, Arp Up 13.1, Tune 14.7, Rec 15.0, Arp Assign 15.1. (Sheet 4's LED table has Seq 1/Seq 2
+  swapped compared with the panel.)
+- **Not checked yet**: the 24 GPIO "switch" inputs (named after their schematic nets; which panel controls they
+  are, and their polarity) and the VALUE encoder (transitions per detent).
+
 ## Plan
 
 1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 180 MHz,

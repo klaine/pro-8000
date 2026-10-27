@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pro 800 Panel</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #dddcd8;
+    --accent: #d2601a; --accent-soft: #fbe4d6; --on: #2f7d4f; --on-soft: #dcefe3; --warn: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161617; --card: #212123; --ink: #ececee; --muted: #9a9aa0; --line: #343437;
+      --accent: #f08a4b; --accent-soft: #4a2c1b; --on: #6cc596; --on-soft: #1f3b2b; --warn: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 -apple-system, system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line);
+           padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  main { padding: 16px; max-width: 1200px; margin: 0 auto; }
+  section { margin-bottom: 28px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  p.hint { color: var(--muted); margin: -4px 0 12px; max-width: 70ch; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+           border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #status { color: var(--muted); }
+  #status.ok { color: var(--on); }
+  #status.bad { color: var(--warn); }
+  .grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+          transition: border-color .4s, background .4s; }
+  .card.hot { border-color: var(--accent); background: var(--accent-soft); transition: none; }
+  .card .id { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+  .card input { width: 100%; font: inherit; border: 1px solid transparent; border-radius: 4px; padding: 2px 4px;
+                background: transparent; color: var(--ink); margin: 2px 0 4px; }
+  .card input:focus, .card input:hover { border-color: var(--line); outline: none; }
+  .card input:placeholder-shown { color: var(--muted); }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); }
+  .state { font-weight: 600; }
+  .state.on { color: var(--on); }
+  .keys { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  .key.pressed { border-color: var(--on); background: var(--on-soft); }
+  .disp { display: grid; gap: 4px; grid-template-columns: 70px repeat(8, minmax(0, 1fr)); align-items: stretch; }
+  .disp .addr { color: var(--muted); font-size: 12px; align-self: center; }
+  .bit { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 4px; min-width: 0; }
+  .bit.lit { border-color: var(--accent); background: var(--accent-soft); }
+  .bit.current { outline: 2px solid var(--accent); }
+  .bit button { width: 100%; padding: 2px; font-size: 11px; }
+  .bit input { width: 100%; font-size: 11px; border: 0; background: transparent; color: var(--ink); padding: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  textarea { width: 100%; min-height: 160px; font: 12px ui-monospace, monospace; background: var(--card);
+             color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  #encoder { font-size: 20px; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pro 800 Panel</h1>
+  <button class="primary" id="connect">Connect</button>
+  <span id="status">Not connected. Needs Chrome or Edge (WebMIDI with SysEx) and firmware 0.1.6 or later.</span>
+</header>
+<main>
+  <section>
+    <h2>Pots</h2>
+    <p class="hint">Turn a knob: its card lights up. Type the knob's name (as printed on the panel) into that card.
+      Names are saved in this browser as you type.</p>
+    <datalist id="pot-names"></datalist>
+    <div class="grid" id="pots"></div>
+  </section>
+  <section>
+    <h2>Switches</h2>
+    <p class="hint">Inputs read directly by the MCU. Names are the schematic's net names; rename them if the panel
+      says otherwise.</p>
+    <div class="grid" id="switches"></div>
+  </section>
+  <section>
+    <h2>Buttons (HT16K33 key scan)</h2>
+    <p class="hint">Press a button: the bits it sets turn green. Name the bit.</p>
+    <div class="keys" id="keys"></div>
+    <p class="hint" id="last-button"></p>
+    <div class="row" style="margin-top:10px">Encoder: <span id="encoder">0</span>
+      <span class="hint" id="encoder-hint">transitions (turn one detent to see how many it makes)</span></div>
+  </section>
+  <section>
+    <h2>Display and LEDs (HT16K33 RAM)</h2>
+    <p class="hint">Each square is one bit of display RAM. "Walk" lights one bit at a time: name what lights up
+      (for example "digit 1 segment a", "SEQ1 LED", or "nothing"), then press Next.</p>
+    <div class="row">
+      <button id="walk">Walk from the start</button>
+      <button id="next">Next bit</button>
+      <button id="all-on">All on</button>
+      <button id="all-off">All off</button>
+      <span id="walk-at" class="hint"></span>
+    </div>
+    <div class="disp" id="display"></div>
+  </section>
+  <section>
+    <h2>Map</h2>
+    <div class="row">
+      <button id="copy">Copy JSON</button>
+      <button id="download">Download JSON</button>
+      <button id="import">Import from the box</button>
+      <button id="reset">Clear all names</button>
+    </div>
+    <textarea id="json" spellcheck="false"></textarea>
+  </section>
+</main>
+<script>
+const HEADER = [0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00];
+const POT_GROUPS = ["U22 / VMUX1", "U21 / VMUX2", "U42 / VMUX3"];
+const POT_NAMES = ["AMP ATT", "AMP DEC", "AMP SUS", "AMP REL", "FIL ATT", "FIL DEC", "FIL SUS", "FIL REL",
+  "FREQ A", "FREQ B", "FINE", "FIL ENV AMT", "RESONANCE", "A PW", "B PW", "A LEVEL",
+  "M TUNE", "M VOL", "LFO FREQ", "LFO AMOUNT", "GLIDE", "B LEVEL", "PMOD OSC B", "PMOD FIL ENV", "CUTOFF", "NOISE"];
+const SWITCH_NAMES = ["OSC1_SAW", "OSC1_TRI", "OSC1_SQ", "OSC2_SAW", "OSC2_TRI", "OSC2_SQ", "PW_A_B", "F_A_B",
+  "FREQ_A", "LFO_SHAP", "LFO_FILTER", "FILTER", "UNISON", "HALF", "FULL", "SYNC_SEL", "MIDI_CH_0", "MIDI_CH_1",
+  "MIDI_CH_2", "MIDI_CH_3", "BACKPANEL_PRESENCE", "PEDAL_DT", "SYNC_IN_A", "SYNC_IN_B"];
+const STORE = "pro800-panel-map";
+
+let input = null, output = null, waiters = [], encoder = 0;
+let map = load();
+// a fresh browser starts from the map in the repo (panel-map.json)
+if (!localStorage.getItem(STORE)) fetch("panel-map.json").then(r => r.ok ? r.json() : null).then(m => {
+  if (m) { map = m; save(); location.reload(); } }).catch(() => {});
+const displayRam = new Array(16).fill(0);
+let walkAt = -1;
+
+function load() {
+  try {
+    const m = JSON.parse(localStorage.getItem(STORE));
+    if (m && m.pots) return m;
+  } catch (e) {}
+  return { pots: {}, switches: Object.fromEntries(SWITCH_NAMES.map((n, i) => [i, n])), keys: {}, display: {} };
+}
+function save() {
+  try { localStorage.setItem(STORE, JSON.stringify(map)); } catch (e) {}
+  document.getElementById("json").value = JSON.stringify(map, null, 2);
+}
+
+// --- MIDI ---
+function send(data) { if (output) output.send([...HEADER, ...data, 0xF7]); }
+function request(data, prefix, ms = 1500) {
+  return new Promise(resolve => {
+    const w = { prefix, resolve };
+    waiters.push(w);
+    send(data);
+    setTimeout(() => { waiters = waiters.filter(x => x !== w); resolve(null); }, ms);
+  });
+}
+function onMessage(e) {
+  const m = Array.from(e.data);
+  if (m[0] !== 0xF0 || m.length < HEADER.length + 2 || HEADER.some((b, i) => m[i] !== b)) return;
+  const d = m.slice(HEADER.length, -1);
+  for (const w of waiters) {
+    if (w.prefix.every((b, i) => d[i] === b)) { waiters = waiters.filter(x => x !== w); w.resolve(d); return; }
+  }
+  if (d[0] === 0x60) potEvent(d[1], d[2] << 7 | d[3]);
+  else if (d[0] === 0x61) switchEvent(d[1], d[2]);
+  else if (d[0] === 0x62) keyEvent(d[1], d[2] << 7 | d[3]);
+  else if (d[0] === 0x63) { encoder += d[1] - 64; document.getElementById("encoder").textContent = encoder; }
+  else if (d[0] === 0x64) document.getElementById("last-button").textContent =
+    `last button: #${d[1]} ${d[2] ? "pressed" : "released"}`;
+}
+
+async function connect() {
+  const status = document.getElementById("status");
+  try {
+    const access = await navigator.requestMIDIAccess({ sysex: true });
+    const find = list => Array.from(list.values()).find(p => p.name && p.name.includes("PRO 800"));
+    input = find(access.inputs); output = find(access.outputs);
+    if (!input || !output) throw new Error("no MIDI port called PRO 800");
+    input.onmidimessage = onMessage;
+    const v = await request([0x08, 0x00], [0x09, 0x00]);
+    if (!v) throw new Error("the synth didn't answer the version request");
+    const on = await request([0x7A, 1], [0x7F, 0x7A]);
+    if (!on) throw new Error(`firmware ${v.slice(2).join(".")} has no panel report mode (needs 0.1.6+)`);
+    status.textContent = `Connected: firmware ${v.slice(2).join(".")}, panel report mode on`;
+    status.className = "ok";
+    access.onstatechange = () => { if (input && input.state === "disconnected") {
+      status.textContent = "Disconnected"; status.className = "bad"; } };
+  } catch (err) {
+    status.textContent = "Can't connect: " + err.message; status.className = "bad";
+  }
+}
+
+// --- UI ---
+function flash(el) { el.classList.add("hot"); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("hot"), 700); }
+
+function card(id, label, value) {
+  const el = document.createElement("div");
+  el.className = "card";
+  el.innerHTML = `<div class="id"><span>${id}</span><span class="v">${value}</span></div><input>`;
+  return el;
+}
+
+function buildPots() {
+  document.getElementById("pot-names").innerHTML = POT_NAMES.map(n => `<option value="${n}">`).join("");
+  const box = document.getElementById("pots");
+  for (let i = 0; i < 26; i++) {
+    const id = i < 24 ? `${POT_GROUPS[i >> 3]} Y${i & 7}` : (i === 24 ? "CUTOFF_ADC (direct)" : "NOISE_ADC (direct)");
+    const el = card(id, "", "–");
+    el.id = "pot" + i;
+    el.insertAdjacentHTML("beforeend", `<div class="bar"><div></div></div>`);
+    const inp = el.querySelector("input");
+    inp.placeholder = "name…"; inp.setAttribute("list", "pot-names"); inp.value = map.pots[i] || "";
+    inp.oninput = () => { map.pots[i] = inp.value; save(); };
+    box.appendChild(el);
+  }
+}
+function potEvent(i, v) {
+  const el = document.getElementById("pot" + i);
+  if (!el) return;
+  el.querySelector(".v").textContent = v;
+  el.querySelector(".bar > div").style.width = (v / 40.95) + "%";
+  flash(el);
+}
+
+function buildSwitches() {
+  const box = document.getElementById("switches");
+  SWITCH_NAMES.forEach((n, i) => {
+    const el = card(`#${i} ${n}`, "", `<span class="state">?</span>`);
+    el.id = "sw" + i;
+    const inp = el.querySelector("input");
+    inp.value = map.switches[i] || ""; inp.placeholder = n;
+    inp.oninput = () => { map.switches[i] = inp.value; save(); };
+    box.appendChild(el);
+  });
+}
+function switchEvent(i, v) {
+  const el = document.getElementById("sw" + i);
+  if (!el) return;
+  const s = el.querySelector(".v");
+  s.innerHTML = `<span class="state ${v ? "" : "on"}">${v ? "high" : "low"}</span>`;
+  flash(el);
+}
+
+function buildKeys() {
+  const box = document.getElementById("keys");
+  for (let b = 0; b < 6; b++) for (let bit = 0; bit < 8; bit++) {
+    const key = `${b}.${bit}`;
+    const el = card(`K byte ${b} bit ${bit}`, "", "");
+    el.classList.add("key"); el.id = "key" + b + "_" + bit;
+    const inp = el.querySelector("input");
+    inp.placeholder = "name…"; inp.value = map.keys[key] || "";
+    inp.oninput = () => { map.keys[key] = inp.value; save(); };
+    box.appendChild(el);
+  }
+}
+function keyEvent(b, v) {
+  for (let bit = 0; bit < 8; bit++) {
+    const el = document.getElementById("key" + b + "_" + bit);
+    if (!el) continue;
+    const pressed = (v >> bit) & 1;
+    if (pressed !== +el.classList.contains("pressed")) flash(el);
+    el.classList.toggle("pressed", !!pressed);
+  }
+}
+
+function buildDisplay() {
+  const box = document.getElementById("display");
+  for (let a = 0; a < 16; a++) {
+    box.insertAdjacentHTML("beforeend", `<div class="addr">RAM ${a}<br>COM${a >> 1} row ${a & 1 ? "8-15" : "0-7"}</div>`);
+    for (let bit = 0; bit < 8; bit++) {
+      const key = `${a}.${bit}`;
+      const el = document.createElement("div");
+      el.className = "bit"; el.id = "bit" + a + "_" + bit;
+      el.innerHTML = `<button>${a}.${bit}</button><input placeholder="?">`;
+      const inp = el.querySelector("input");
+      inp.value = map.display[key] || "";
+      inp.oninput = () => { map.display[key] = inp.value; save(); };
+      el.querySelector("button").onclick = () => { setBit(a, bit, !(displayRam[a] >> bit & 1)); };
+      box.appendChild(el);
+    }
+  }
+}
+function paintDisplay() {
+  for (let a = 0; a < 16; a++) for (let bit = 0; bit < 8; bit++) {
+    const el = document.getElementById("bit" + a + "_" + bit);
+    el.classList.toggle("lit", !!(displayRam[a] >> bit & 1));
+    el.classList.toggle("current", walkAt === a * 8 + bit);
+  }
+  document.getElementById("walk-at").textContent = walkAt >= 0 ? `walking: RAM ${walkAt >> 3} bit ${walkAt & 7}` : "";
+}
+function writeRam(a) { send([0x7B, a, displayRam[a] >> 7, displayRam[a] & 0x7F]); }
+function setBit(a, bit, on) {
+  displayRam[a] = on ? displayRam[a] | (1 << bit) : displayRam[a] & ~(1 << bit);
+  writeRam(a); paintDisplay();
+}
+function setAll(v) { for (let a = 0; a < 16; a++) { displayRam[a] = v; writeRam(a); } paintDisplay(); }
+function walk(to) {
+  setAll(0);
+  walkAt = to;
+  if (walkAt >= 0 && walkAt < 128) setBit(walkAt >> 3, walkAt & 7, true);
+  else walkAt = -1;
+  paintDisplay();
+  const inp = document.querySelector(`#bit${walkAt >> 3}_${walkAt & 7} input`);
+  if (inp) inp.focus();
+}
+
+document.getElementById("connect").onclick = connect;
+document.getElementById("walk").onclick = () => walk(0);
+document.getElementById("next").onclick = () => walk(walkAt + 1);
+document.getElementById("all-on").onclick = () => { walkAt = -1; setAll(255); };
+document.getElementById("all-off").onclick = () => { walkAt = -1; setAll(0); };
+document.getElementById("copy").onclick = () => navigator.clipboard.writeText(JSON.stringify(map, null, 2));
+document.getElementById("download").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(map, null, 2)], { type: "application/json" }));
+  a.download = "pro800-panel-map.json"; a.click();
+};
+document.getElementById("import").onclick = () => {
+  try { map = JSON.parse(document.getElementById("json").value); save(); location.reload(); }
+  catch (e) { alert("That isn't valid JSON: " + e.message); }
+};
+document.getElementById("reset").onclick = () => {
+  if (confirm("Clear every name in this browser?")) { localStorage.removeItem(STORE); location.reload(); }
+};
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && walkAt >= 0) { e.preventDefault(); walk(walkAt + 1); }
+});
+window.addEventListener("beforeunload", () => send([0x7A, 0]));
+
+buildPots(); buildSwitches(); buildKeys(); buildDisplay(); paintDisplay(); save();
+</script>
+</body>
+</html>

@@ -61,6 +61,7 @@
 #define RCC_AHB2ENR_OTGFS (1u << 7)
 #define RCC_APB1ENR_SPI3  (1u << 15)
 #define RCC_APB1ENR_DAC   (1u << 29)
+#define RCC_APB2ENR_ADC1  (1u << 8)
 #define RCC_APB2ENR_SYSCFG (1u << 14)
 
 // GPIO
@@ -98,6 +99,19 @@
 #define EXTI_RTSR       REG(0x40013C08u)
 #define EXTI_FTSR       REG(0x40013C0Cu)
 #define EXTI_PR         REG(0x40013C14u)
+
+// ADC1
+#define ADC1_SR         REG(0x40012000u)
+#define ADC1_CR2        REG(0x40012008u)
+#define ADC1_SMPR1      REG(0x4001200Cu) // channels 10-18
+#define ADC1_SMPR2      REG(0x40012010u) // channels 0-9
+#define ADC1_SQR3       REG(0x40012034u)
+#define ADC1_DR         REG(0x4001204Cu)
+#define ADC_CCR         REG(0x40012304u)
+#define ADC_SR_EOC      (1u << 1)
+#define ADC_CR2_ADON    (1u << 0)
+#define ADC_CR2_SWSTART (1u << 30)
+#define ADC_CCR_DIV4    (1u << 16)
 
 // on-chip 12-bit DAC: channel 1 on PA4, channel 2 on PA5
 #define DAC_BASE        0x40007400u

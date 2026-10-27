@@ -14,8 +14,14 @@
 //   77 <row>               tuning table row (osc A 1-8, osc B 1-8, filter 1-8); replies
 //                          77 <row> <points> <centihertz, 4 × 7 bits, per point; 0 = not measured>
 //   78 <voice> <osc> <note> set voice's oscillator (0 A, 1 B) to a MIDI note through the tables
+//   7A <0|1>               panel report mode off/on: on sends every control change, and leaves the display to 7B
+//                          60 <pot> <v1> <v0>   61 <switch> <0|1>   62 <key byte> <v1> <v0>   63 <64 ± transitions>
+//                          64 <button> <0|1>
+//   7B <address> <v1> <v0> write a byte of the HT16K33 display RAM (address 0-15)
 // Each other command is acknowledged with 7F <command>.
 #include "clock.h"
+#include "controls.h"
+#include "display.h"
 #include "panel.h"
 #include "regs.h"
 #include "sh.h"
@@ -33,6 +39,8 @@ static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24,
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
+static int report_mode;
+static uint8_t display_ram[PANEL_RAM_BYTES];
 
 void SysTick_Handler(void) { ms_ticks++; }
 
@@ -57,6 +65,64 @@ static void send_sysex(const uint8_t *message, int length)
             if (ms_ticks - start > 100)
                 return;
         sent += chunk;
+    }
+}
+
+static void report_event(control_kind_t kind, int index, int32_t value)
+{
+    uint8_t m[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00, (uint8_t)(0x60 + kind), (uint8_t)index, 0, 0, 0xF7};
+    int n = 10;
+    switch (kind) {
+    case CONTROL_POT:
+    case CONTROL_KEYS:
+        m[n++] = (uint8_t)((value >> 7) & 0x7F);
+        m[n++] = (uint8_t)(value & 0x7F);
+        break;
+    case CONTROL_SWITCH:
+    case CONTROL_BUTTON:
+        m[n++] = (uint8_t)value;
+        break;
+    case CONTROL_ENCODER:
+        m[n++] = (uint8_t)(64 + value);
+        break;
+    }
+    m[n++] = 0xF7;
+    send_sysex(m, n);
+}
+
+static void show_version(void)
+{
+    char text[] = {(char)('0' + FW_VERSION_MAJOR), '.', (char)('0' + FW_VERSION_MINOR), '.',
+                   (char)('0' + FW_VERSION_PATCH), 0};
+    display_text(text);
+    display_update();
+}
+
+// Panel test behaviour until the synth engine owns the panel: a button's LED lights while it's held, the keypad
+// types a number on the display, and played notes show their number.
+static void control_event(control_kind_t kind, int index, int32_t value)
+{
+    static const led_t button_led[BUTTON_COUNT] = {
+        [BUTTON_PRESET] = LED_PRESET, [BUTTON_PERF] = LED_PERF, [BUTTON_SETTINGS] = LED_SETTINGS,
+        [BUTTON_TUNE] = LED_TUNE, [BUTTON_SYNC_SOURCE] = LED_SYNC_SOURCE, [BUTTON_SYNC_CLOCK] = LED_SYNC_CLOCK,
+        [BUTTON_REC] = LED_REC, [BUTTON_SEQ1] = LED_SEQ1, [BUTTON_SEQ2] = LED_SEQ2, [BUTTON_ARP_UP] = LED_ARP_UP,
+        [BUTTON_ARP_ASSIGN] = LED_ARP_ASSIGN,
+    };
+    static int typed;
+
+    if (report_mode) {
+        report_event(kind, index, value);
+        return;
+    }
+    if (kind != CONTROL_BUTTON)
+        return;
+    if (index <= BUTTON_9) {
+        if (value) {
+            typed = (typed * 10 + index) % 1000;
+            display_number(typed);
+        }
+    } else {
+        display_led(button_led[index], (int)value);
     }
 }
 
@@ -120,6 +186,22 @@ static void handle_sysex(const uint8_t *message, int length)
         for (int shift = 14; shift >= 0; shift -= 7)
             reply[n++] = (khz >> shift) & 0x7F;
     }
+    if (data_length == 2 && data[0] == 0x7A) {
+        report_mode = data[1] != 0;
+        for (int i = 0; i < PANEL_RAM_BYTES; i++)
+            display_ram[i] = 0;
+        panel_write(display_ram);
+        if (!report_mode)
+            display_redraw();
+        reply[n++] = 0x7F;
+        reply[n++] = 0x7A;
+    }
+    if (data_length == 4 && data[0] == 0x7B && data[1] < PANEL_RAM_BYTES) {
+        display_ram[data[1]] = (uint8_t)(data[2] << 7 | data[3]);
+        panel_write(display_ram);
+        reply[n++] = 0x7F;
+        reply[n++] = 0x7B;
+    }
     if (data_length == 1 && data[0] == 0x75) {
         voice_all_off();
         int rows = tuning_run();
@@ -168,8 +250,10 @@ static void handle_midi(void)
         case 0x9:
             if (direct_mode)
                 break;
-            if (p[3])
+            if (p[3]) {
                 voice_note_on(p[2]);
+                display_number(p[2]);
+            }
             else
                 voice_note_off(p[2]);
             break;
@@ -219,26 +303,23 @@ int main(void)
     sh_set(CV_MASTER_VOL, MASTER_VOLUME);
 
     panel_gpio_init();
-    int have_panel = panel_init() != 0;
-    uint8_t all_on[PANEL_RAM_BYTES], all_off[PANEL_RAM_BYTES] = {0};
-    for (int i = 0; i < PANEL_RAM_BYTES; i++)
-        all_on[i] = 0xFF;
+    panel_init();
+    display_led(LED_POWER, 1);
 
     // The bootloader erases the tables with every firmware update, so the first boot after one tunes (about
-    // 30 s, silent), with the panel lit meanwhile.
+    // 30 s, silent), showing "tUnE" meanwhile.
     if (!tuning_valid()) {
-        if (have_panel)
-            panel_write(all_on);
+        display_text("tUnE");
+        display_update();
         tuning_run();
         voice_init();
         sh_set(CV_MASTER_VOL, MASTER_VOLUME);
     }
-    if (have_panel)
-        panel_write(all_off);
+    show_version();
 
+    controls_init();
     usb_init();
 
-    int shown = 0;
     uint32_t last = ms_ticks;
     for (;;) {
         IWDG_KR = IWDG_KR_REFRESH;
@@ -249,11 +330,9 @@ int main(void)
             voice_update(now - last);
         last = now;
 
-        int lit = voice_any_gate();
-        if (have_panel && lit != shown) {
-            panel_write(lit ? all_on : all_off);
-            shown = lit;
-        }
+        controls_poll(now, control_event);
+        if (!report_mode)
+            display_update();
 
         sh_refresh();
     }
