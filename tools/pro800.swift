@@ -935,6 +935,11 @@ func param() {
 }
 
 // pro800 seq: the loaded patch's step sequence
+func arpText(_ d: [UInt8]) -> String {
+    guard d.count > 10, d[9] != 0 else { return "" }
+    return ", arp " + (["off", "up", "down", "up-down", "random", "played"][safe: Int(d[9])] ?? "?")
+}
+
 func showSequence() {
     let midi = Midi(port: portName)
     guard let h = midi.request([0x48], expect: [0x48], timeout: 2) else { fail("no reply (firmware 0.7.0 or later?)") }
@@ -943,21 +948,25 @@ func showSequence() {
     print("\(flags & 1 != 0 ? "on" : "off"), \(length) steps of \(divisionNames[safe: Int(d[2])] ?? "?"), " +
           (flags & 2 != 0 ? "MIDI clock" : "\(Int(d[3]) << 7 | Int(d[4])) BPM") + ", swing \(d[6]) %, " +
           (flags & 4 != 0 ? "once per key" : "loops") + ", keys of " + ["both layers", "layer 1", "layer 2", "?"][flags >> 3 & 3] +
-          ", \(lanes) lane\(lanes == 1 ? "" : "s") (max \(d[8]) steps)")
-    var notes = [String](), gates = [String](), laneRows = [[String]](repeating: [], count: lanes)
+          ", \(lanes) lane\(lanes == 1 ? "" : "s") (max \(d[8]) steps)" + arpText(d))
+    var notes = [String](), gates = [String](), extras = [String](), laneRows = [[String]](repeating: [], count: lanes)
     for first in stride(from: 0, to: length, by: 8) {
         guard let r = midi.request([0x46, UInt8(first), 8], expect: [0x46, UInt8(first), 8], timeout: 2) else { fail("no reply") }
         let x = Array(r[(sysexHeader.count + 3)...])
         for k in 0..<8 where first + k < length {
-            let s = Array(x[(8 * k)..<(8 * k + 8)])
+            let s = Array(x[(9 * k)..<(9 * k + 9)]) // note, velocity, gate, on, extra, lanes A-D
             let offset = Int(s[0]) - 64
             notes.append(s[3] == 0 ? "  ." : String(format: "%+3d", offset).replacingOccurrences(of: "+0", with: " 0"))
             gates.append(s[3] == 0 ? "  ." : s[2] >= 100 ? "tie" : String(format: "%3d", s[2]))
-            for l in 0..<lanes { laneRows[l].append(String(format: "%+3d", Int((Double(Int(s[4 + l]) - 64) / 63 * 99).rounded()))) }
+            let probability = 8 - Int(s[4] & 7), ratchets = Int(s[4] >> 3 & 3) + 1
+            extras.append(probability == 8 && ratchets == 1 ? "  ." : ratchets > 1 && probability == 8 ? " x\(ratchets)" :
+                          ratchets > 1 ? "\(probability)x\(ratchets)" : " \(probability)8")
+            for l in 0..<lanes { laneRows[l].append(String(format: "%+3d", Int((Double(Int(s[5 + l]) - 64) / 63 * 99).rounded()))) }
         }
     }
     print("note  " + notes.joined(separator: " "))
     print("gate  " + gates.joined(separator: " "))
+    if extras.contains(where: { $0 != "  ." }) { print("prob  " + extras.joined(separator: " ") + "   (n8 = n in 8, xN = ratchets)") }
     for l in 0..<lanes { print("seq \(["A", "B", "C", "D"][l]) " + laneRows[l].joined(separator: " ")) }
 }
 
