@@ -13,7 +13,10 @@ firmware) as the reference for how the analog side behaves.
   - Sync to MIDI clock in 15 divisions; a delay and fade-in per LFO, per voice.
   - Retrigger free, on the first key, on every key, or per voice (poly LFOs).
 - **Envelopes:** four per voice, with analog-style curves and times shown in ms / s on the display. Env 3 and
-  Env 4 are edited with the filter ADSR knobs. Any of them can cycle while a key is held (attack, hold, fall, rest).
+  Env 4 are edited with the filter and amp ADSR knobs while Shift (Sync Source) is held. Any of them can cycle
+  while a key is held (attack, hold, fall, rest).
+- **Shift:** a second layer on the knobs (LFO delay and fade, drift, detune, bend range, macro offsets, CC
+  numbers) and buttons (compare, undo, quick save, layer copy, settings pages, panic).
 - **Mod matrix:** 16 routes per layer, assigned and browsed from the panel (MOD ASSIGN on Arp Assign), with two
   macros that are destinations and sources at once.
   - 28 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, pitch

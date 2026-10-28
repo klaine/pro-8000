@@ -959,6 +959,29 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   slot zero. The panel editor itself isn't exercised from here (it needs the buttons).
 - Build 59,576 bytes of 65,536: about 6 kB left in sector 4.
 
+## Shift on Sync Source, the keytrack switch back, macro offsets (0.8.1, 2026-10-28)
+
+- **Shift** (`main.c`): Sync Source held, or latched with two presses within 400 ms (LED; `SHFt` / `oFF`). On:
+  `synth_set_shift(1)` sets `env_select` 3 (the filter ADSR knobs edit Env 3, the amp ADSR knobs Env 4, with pickup)
+  and freezes every other knob, which `shift_turn()` turns into relative nudges of a secondary value: the first
+  event of a knob under Shift only takes its position, later ones add the delta scaled to the value's range
+  (fractions carried in `shift_acc`), the display shows the name for 0.5 s then the value. LFO FREQ / AMOUNT →
+  the selected LFO's delay / fade, GLIDE → drift, M TUNE → detune, FINE → bend range, CUTOFF / RESONANCE → the
+  macro offsets, A / B LEVEL → the CC A / B numbers. Buttons: Rec compare (the stored patch while held, the edit
+  back on release, also if Shift went first), Perf undo (the edit before the last load or init; again redoes),
+  Preset save to the current slot, Seq 1 / 2 copy the edit layer (`synth_copy_layer()`), 1-9 open that Settings
+  page, 0 panic. Off: the knobs are in pickup, as after a load.
+- **The keyboard-tracking switch is keyboard tracking again**: `read_panel()` takes the switch's position when it
+  changes; a patch's value holds until then (`keytrack_switch_seen`). The `trAC` settings page stays.
+- **Macro offsets**, per layer and macro, -99..99, added to what's routed into a macro; in the record at 70-73,
+  host settings 38-41 (the offset + 99, so 7D now also takes a 14-bit value: `7D <setting> <v1> <v0>`; the tool
+  and page send two bytes always), `pro800 set macro <layer> <1|2> <offset>`. The read-only settings moved to
+  42-45.
+- Checked on the synth: Macro 1 offset +99 / -99 with Macro 1 → pitch 50 read +610.4 / -612.0 cents; an offset
+  of 40 saved to P8 and read back +40 after a load; the settings dump lists everything at its new index. Shift
+  itself, the switch and the shifted buttons need hands on the panel.
+- Build 62108 bytes of 65,536.
+
 ## Backlog
 
 Nothing here is needed for the synth to work; this is what's open, consolidated 2026-10-28 after the review, the
@@ -999,11 +1022,9 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 
 - MPE: the RPNs for the member bend range and zone layout (fixed at the lower zone, channels 2-9, 48 semitones).
 - LFO delay / fade per layer (today per LFO, shared by both layers; the format-2 record has room).
-- **Shift on Sync Source**: hold it and turn a knob for a secondary value, relatively (no pickup): LFO FREQ /
-  AMOUNT → the selected LFO's delay / fade, GLIDE → drift, M TUNE → unison detune, FINE → bend range, CUTOFF /
-  RESONANCE → Macro 1 / 2 as hand-set offsets, A / B LEVEL → the CC A / B numbers; Shift + Rec compare (hear the
-  stored patch while held), Shift + Perf undo the last load, Shift + a key a settings page. Sync Clock stays for
-  the internal clock and tap tempo.
+- Sync Clock is the last free button: the internal clock and tap tempo (clock source MIDI / internal / SYNC IN).
+- Shift + Arp Up-Dn to swap the two LFOs, Shift + Tune for the last tune's result: not done (LFO 1's routing
+  lives in the panel switches, so a swap isn't symmetric; the tune result isn't kept).
 - A converter for the 0.7.x patch records (the backups), if the old sounds are wanted back.
 - The web page could show the macros as a panel of their own (today a summary line in the Mod matrix).
 - Voice stealing: a one-tick VCA dip for a stolen voice was considered and rejected (a step of its own); the pitch

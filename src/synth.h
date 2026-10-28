@@ -42,6 +42,15 @@ void synth_set_cc_number(int which, int number);
 // MOD ASSIGN: the source touching a knob means (SRC_NONE if none): the LFO knobs the selected LFO, the ADSR knobs
 // their envelope (the filter's per the keytrack switch).
 int synth_source_for_pot(int pot);
+// Shift (Sync Source held or latched): the filter ADSR knobs edit Env 3 and the amp ADSR knobs Env 4, with pickup;
+// every other knob is frozen (main.c turns them into secondary values). Off again, the knobs pick up as usual.
+void synth_set_shift(int on);
+int synth_shift(void);
+// The macros' hand-set offsets, per layer, -99..99: added to whatever is routed into them
+int synth_macro_offset(int layer, int which);
+void synth_set_macro_offset(int layer, int which, int value);
+// Copies a layer's sound (knobs, Env 3 / 4, LFOs, routes, voice mode, macro offsets) onto the other
+void synth_copy_layer(int from, int to);
 // The layers (bit 0 layer 1, bit 1 layer 2) a key would play, and playing a note on given layers (the sequencer).
 int synth_key_layers(uint8_t note, int channel);
 void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers);

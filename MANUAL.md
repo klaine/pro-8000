@@ -17,10 +17,11 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 
 | Control | What it does now |
 |---|---|
-| Knobs | As printed, with a few changes. LFO FREQ / LFO AMOUNT edit LFO 1 or LFO 2. The filter ADSR knobs can edit Env 3 / Env 4. |
+| Knobs | As printed, with a few changes. LFO FREQ / LFO AMOUNT edit LFO 1 or LFO 2. With Shift (Sync Source) held, the filter ADSR knobs edit Env 3, the amp ADSR knobs Env 4, and the other knobs secondary values (see Shift). |
 | FREQ A / FREQ B | ±36 semitones (6 octaves in all) in semitone steps; the display shows the interval, e.g. `-12`, ` 7`. |
 | FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
-| Keyboard-tracking switch | Picks what the filter ADSR knobs edit: bottom = filter envelope, middle = Env 3, top = Env 4. Keyboard tracking itself is a setting. |
+| Keyboard-tracking switch | Keyboard tracking, as printed: off, half, full. A loaded patch's setting holds until you move the switch. |
+| Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |
 | LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`. |
 | VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. |
 | Seq 1 / Seq 2 | Choose the layer the knobs edit (LED). |
@@ -236,9 +237,10 @@ Sync and retrigger are set per LFO (LFO 1, LFO 2) and apply to both layers.
 
 ## Envelopes
 
-Every voice has four ADSRs: filter, amp, Env 3 and Env 4. The keyboard-tracking switch picks which envelope the
-four filter ADSR knobs edit (`FEnV`, `EnV3` or `EnV4` on the display, with pickup). Env 3 and Env 4 do nothing
-until a mod route uses them. Keyboard tracking (`OFF` / `HALF` / `FULL`) is Settings → key 5 (`trAC`).
+Every voice has four ADSRs: filter, amp, Env 3 and Env 4. With **Shift** (Sync Source) held or latched, the four
+filter ADSR knobs edit Env 3 and the four amp ADSR knobs Env 4, with pickup; without it they edit the filter and
+amp envelopes. Env 3 and Env 4 do nothing until a mod route uses them. Keyboard tracking is the switch again
+(`OFF` / `HALF` / `FULL`; a loaded patch's value holds until the switch moves), also Settings → key 5 (`trAC`).
 
 While you turn a time knob the display shows the time: milliseconds as a whole number (` 150`), seconds with a
 point (` 1.25`, ` 12.5`).
@@ -328,12 +330,13 @@ Each layer has 16 routes. A route adds source × depth (−99 to 99) to a destin
 1. Press **Arp Assign** (LED blinks, display `SrC`). The knobs go into pickup and stay there until you leave MOD
    ASSIGN, so touching one won't change the sound.
 2. **Pick the source:** a number key (table below), or touch a knob that stands for one: LFO FREQ or LFO AMOUNT
-   for the selected LFO, a filter ADSR knob for the filter envelope (or Env 3 / Env 4 per the keytrack switch), an amp
-   ADSR knob for the amp envelope. Or turn **VALUE** to scroll through every source, the web-only ones included.
+   for the selected LFO, a filter ADSR knob for the filter envelope, an amp ADSR knob for the amp envelope (with
+   Shift held: Env 3 and Env 4). Or turn **VALUE** to scroll through every source, the web-only ones included.
 3. **Pick the destination:** turn its knob a little, or press its LFO routing button; the knob you touched last
    before pressing Arp Assign is already offered, so you can tweak a knob, press Arp Assign and go straight to the
    source. Or scroll with VALUE and press Arp Assign to take the one shown. The envelope stages are reached by
-   touching the ADSR knobs (the filter ones per the keytrack switch); AMP SUS stays the VCA.
+   touching the ADSR knobs (with Shift held: Env 3 on the filter knobs, Env 4 on the amp knobs); AMP SUS stays the
+   VCA unless Shift is held.
 4. Turn **VALUE** to set the depth for the edit layer. 0 removes the route; `FULL` means all 16 are in use.
 5. Press **Arp Assign** again to finish.
 
@@ -394,8 +397,8 @@ The Morph destination (web page only) fades toward the morph target patch (see V
 | PMOD OSC B * | Poly-mod oscillator B amount | `P.ob` | full scale |
 | AMP ATT / DEC / REL | Amp envelope attack / decay / release time | `EA-A` `EA-d` `EA-r` | 16× shorter or longer |
 | VALUE (scroll) | Amp envelope sustain level | `EA-S` | ± full scale |
-| FIL ATT / DEC / SUS / REL | Filter envelope stage (keytrack switch down) | `EF-A` `EF-d` `EF-S` `EF-r` | as above |
-| the same, switch middle / up | Env 3 / Env 4 stage | `E3-A`… `E4-r` | as above |
+| FIL ATT / DEC / SUS / REL | Filter envelope stage | `EF-A` `EF-d` `EF-S` `EF-r` | as above |
+| Shift + filter / amp ADSR knobs | Env 3 / Env 4 stage | `E3-A`… `E4-r` | as above |
 | GLIDE | Glide time | `GLId` | 16× shorter or longer |
 | VALUE / web | Unison detune * | `dEtU` | ±50 cents |
 | VALUE / web | Master volume * (a 0-to-1 source counts down from full, as the VCA) | `VOL` | closed to full |
@@ -431,6 +434,36 @@ beat; with retrigger `FrEE` it slides back onto the bar within a cycle or two on
 - **Pressure brightens:** route 6 (aftertouch) → CUTOFF.
 - **Trance gate:** an LFO on `StEP`, clock-synced, routed to the VCA at 99 (see Step patterns above).
 
+## Shift (Sync Source)
+
+Hold **Sync Source**, or press it twice quickly to latch it (LED on; twice again, or hold and release, to leave).
+While Shift is on, the knobs don't edit their printed parameters. A knob you turn nudges a secondary value by how
+far you turn it, so nothing jumps and nothing needs picking up; the display shows the name, then the value.
+
+| Shift + knob | Secondary value |
+|---|---|
+| Filter ATT / DEC / SUS / REL | Env 3 (with pickup, as a loaded patch's knobs) |
+| Amp ATT / DEC / SUS / REL | Env 4 (the same) |
+| LFO FREQ | The selected LFO's delay (`dLY`, 0-99: off, 20 ms to 5 s) |
+| LFO AMOUNT | The selected LFO's fade-in (`FAdE`) |
+| GLIDE | Drift (`drFt`, 0-99) |
+| M TUNE | Unison detune (`dEtU`, 0-50 cents) |
+| FINE | Pitch-bend range (`bEnd`, 1-12 semitones) |
+| CUTOFF | Macro 1's offset (`nAC1`, -99 to 99): a hand-set input to the macro, saved in the patch |
+| RESONANCE | Macro 2's offset (`nAC2`) |
+| A LEVEL / B LEVEL | The CC A / CC B source numbers (`CC.A` / `CC.b`, 1-127; a system setting) |
+
+| Shift + button | Does |
+|---|---|
+| Rec | Compare: the stored patch sounds while Rec is held (`CoNP`), your edit comes back when you let go (`EdIt`) |
+| Perf | Undo the last patch load or init (`Undo`); again redoes |
+| Preset | Save to the current slot (`donE`), without Rec, slot, Rec |
+| Seq 1 / Seq 2 | Copy the edit layer onto that layer (`CoPY`) |
+| 1-9 | Open that Settings page directly |
+| 0 | Panic: every note off, the pedal cleared, the sequence stopped (`PAnC`) |
+
+When Shift is released the knobs go into pickup, as after loading a patch, so letting go doesn't move anything.
+
 ## Settings menu
 
 Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the value, and Settings closes it.
@@ -441,7 +474,7 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 | 2 | `trIG` / `trI2`: selected LFO's retrigger | `FrEE`, `1St`, `EACH`, `PoLY` |
 | 3 | `LAYr`: layer mode | `OFF`, `SPLt`, `StAC`, `CHAn`, `8CH`, `nPE` |
 | 4 | `SPLt`: split note | 0-127, or play a note |
-| 5 | `trAC`: keyboard tracking | `OFF`, `HALF`, `FULL` |
+| 5 | `trAC`: keyboard tracking (also the switch) | `OFF`, `HALF`, `FULL` |
 | 6 | `CY.A` / `CY.F` / `CY.3` / `CY.4`: cycling envelope (6 again: next one) | `OFF`, `FrEE`, `8bAr` … `1-32` |
 | 7 | `bEnd`: pitch bend range | 1-12 semitones (default 2) |
 | 8 | `dEtU`: unison detune, cents between the outermost voices | 0-50 (default 14) |

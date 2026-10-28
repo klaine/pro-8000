@@ -12,7 +12,8 @@
 //   37  reserved to 40
 //   40  switches (u16)            bit s = switch s engaged
 //   42  LFO 2 destinations[2], 44 cycling envelopes[2], 46 step counts[2][2], 50 step patterns[2][2] (u16),
-//   58  synced cycling[2][4] (0 free, else clock division + 1), 66 LFO shapes[2][2], 70 reserved to 96
+//   58  synced cycling[2][4] (0 free, else clock division + 1), 66 LFO shapes[2][2], 70 macro offsets[2][2]
+//       (int8, 0.8.1), 74 reserved to 96
 //   96  pots[2][26] (u16)         layer 1, then layer 2
 //   200 extra[2][10] (u16)        Env 3 and Env 4 ADSR, LFO 2 rate and amount, per layer
 //   240 routes[2][16]             source, destination, depth (int8) per layer
@@ -62,6 +63,7 @@
 #define OFF_STEPS 50
 #define OFF_ENV_SYNC 58
 #define OFF_SHAPES 66
+#define OFF_MACRO 70 // [layer][macro] offsets, int8
 #define OFF_POTS 96
 #define OFF_EXTRA 200
 #define OFF_ROUTES 240
@@ -212,6 +214,7 @@ int store_load_patch(int n, patch_t *patch)
             patch->step_count[l][w] = b[OFF_STEP_COUNTS + 2 * l + w];
             patch->step_pattern[l][w] = get16(b + OFF_STEPS + 2 * (2 * l + w));
             patch->lfo_shape[l][w] = b[OFF_SHAPES + 2 * l + w];
+            patch->macro_offset[l][w] = (int8_t)b[OFF_MACRO + 2 * l + w];
         }
         for (int e = 0; e < 4; e++)
             patch->env_sync[l][e] = b[OFF_ENV_SYNC + 4 * l + e];
@@ -260,6 +263,7 @@ int store_save_patch(int n, const patch_t *patch)
             b[OFF_STEP_COUNTS + 2 * l + w] = patch->step_count[l][w];
             put16(b + OFF_STEPS + 2 * (2 * l + w), patch->step_pattern[l][w]);
             b[OFF_SHAPES + 2 * l + w] = patch->lfo_shape[l][w];
+            b[OFF_MACRO + 2 * l + w] = (uint8_t)patch->macro_offset[l][w];
         }
         for (int e = 0; e < 4; e++)
             b[OFF_ENV_SYNC + 4 * l + e] = patch->env_sync[l][e];

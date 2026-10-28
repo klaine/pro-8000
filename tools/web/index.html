@@ -397,7 +397,8 @@
         <tr><td><kbd>Arp Up-Dn</kbd></td><td>LFO knobs, Shape button and LFO routing edit LFO 1 or LFO 2 (LED lit = LFO 2) <code class="lcd">LFO1</code> <code class="lcd">LFO2</code></td></tr>
         <tr><td><kbd>Arp Assign</kbd></td><td>Mod assign: the mod matrix (LED blinks) <code class="lcd">SrC</code></td></tr>
         <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways</td></tr>
-        <tr><td>Keyboard-tracking switch</td><td>What the filter ADSR knobs edit: bottom <code class="lcd">FEnV</code>, middle <code class="lcd">EnV3</code>, top <code class="lcd">EnV4</code></td></tr>
+        <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
+        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers. With Rec: compare; Perf: undo; Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
         <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live)</td></tr>
         <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
         <tr><td><kbd>Perf</kbd></td><td>Load the init sound (one saw, filter open)</td></tr>
@@ -450,7 +451,7 @@
     <section class="cs">
       <h3>Envelopes</h3>
       <ol>
-        <li>Keyboard-tracking switch: the filter ADSR knobs edit <code class="lcd">FEnV</code> (bottom), <code class="lcd">EnV3</code> (middle) or <code class="lcd">EnV4</code> (top).</li>
+        <li>Shift (<kbd>Sync Source</kbd>) + the filter ADSR knobs edit Env 3, + the amp ADSR knobs Env 4 (with pickup). The keyboard-tracking switch is keyboard tracking.</li>
         <li>Env 3 / 4 do nothing until a mod route uses them (sources 7, 8).</li>
         <li>Keytracking itself: <kbd>Settings</kbd> <kbd>5</kbd> <code class="lcd">trAC</code> → <code class="lcd">OFF</code> <code class="lcd">HALF</code> <code class="lcd">FULL</code>.</li>
         <li>Cycling: <kbd>Settings</kbd> <kbd>6</kbd> <code class="lcd">CY.A</code> <code class="lcd">CY.F</code> <code class="lcd">CY.3</code> <code class="lcd">CY.4</code> (<kbd>6</kbd> again: next), <kbd>VALUE</kbd>: <code class="lcd">OFF</code>, <code class="lcd">FrEE</code>, or a division (synced).</li>
@@ -1043,7 +1044,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2",
   "cycleSync1_0", "cycleSync1_1", "cycleSync1_2", "cycleSync1_3", "cycleSync2_0", "cycleSync2_1", "cycleSync2_2",
   "cycleSync2_3", "bend", "detune", "voice1", "voice2", "drift", "scale", "root", "lfoDelay1", "lfoFade1", "lfoDelay2", "lfoFade2",
-  "ccA", "ccB", "envSelect",
+  "ccA", "ccB", "macro11", "macro12", "macro21", "macro22", "envSelect",
   "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 let settings = null, params = null, paramsLayer = 0;
@@ -1192,7 +1193,7 @@ paints.push(() => {
   } else {
     top.textContent = settings ? `layer ${paramsLayer + 1} · ${["one layer", "split", "stack", "by channel", "a voice per channel", "MPE"][settings.layers]}` : "pro 800";
     big.textContent = settings ? patch : "not connected";
-    sub.textContent = settings ? `filter ADSR knobs edit the ${["filter env", "Env 3", "Env 4"][settings.envSelect] || ""}` : "";
+    sub.textContent = settings ? (settings.envSelect === 3 ? "Shift on the synth: ADSR knobs edit Env 3 / Env 4" : "") : "";
   }
 });
 setInterval(() => { if (touched && Date.now() - touchedAt >= 2500 && Date.now() - touchedAt < 3500) paintAll(); }, 500);
@@ -1962,7 +1963,7 @@ function mutateControls() {
   return [h("button", { type: "button", class: "chip", title: "nudge every knob of the layer you're editing at random (not saved until you save)", onclick: go }, "Mutate"), amount];
 }
 
-const ENV_SELECT_NAMES = ["Filter envelope", "Env 3", "Env 4"];
+const ENV_SELECT_NAMES = ["Filter envelope", "Env 3", "Env 4", "Env 3 (Shift on the synth)"];
 const LFO_SHAPE_NAMES = [["TRI", "Triangle"], ["SQR", "Square"], ["UP", "Ramp up"], ["DN", "Ramp down"], ["SIN", "Sine"],
   ["S&H", "Sample & hold"], ["DRF", "Drift"], ["STP", "Steps"]];
 function buildPanel() {
@@ -1984,7 +1985,7 @@ function buildPanel() {
     if (settings.envSelect !== envSeen) { envSeen = settings.envSelect; envPicked = null; }
     return envPicked ?? settings.envSelect;
   };
-  const envSelectKnobs = () => ENVS[[0, 2, 3][envSelect()]].slice(2);
+  const envSelectKnobs = () => ENVS[[0, 2, 3, 2][envSelect()] ?? 0].slice(2);
   const envCaption = h("div", { class: "cap" }, "Filter envelope");
   paints.push(() => { envCaption.textContent = ENV_SELECT_NAMES[envSelect()]; });
   // the faceplate, as on the synth
@@ -2019,9 +2020,9 @@ function buildPanel() {
     ps("glide", "", knob(P.GLIDE, "Glide")),
     ps("flt", "Filter",
       prow(knob(P.CUTOFF, "Cutoff"), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Envelope amount"),
-        lever3("Env select", ["ENV 4", "ENV 3", "FILTER"], () => settings ? 2 - envSelect() : undefined, k => {
-          envPicked = 2 - k; touch("Filter ADSR knobs", ENV_SELECT_NAMES[envPicked]); paintAll();
-        }, "what the four ADSR knobs below edit; on the synth, the keyboard-tracking switch (a click here holds until you move it)")),
+        lever3("Keyboard tracking", ["FULL", "HALF", "OFF"], () => settings ? 2 - settings.keytrack : undefined, k => {
+          touch("Keyboard tracking", ["Off", "Half", "Full"][2 - k]); setSetting(SET_ID.keytrack, 2 - k);
+        }, "how far the cutoff follows the key; on the synth, the switch (a loaded patch's value holds until it moves)")),
       h("div", { class: "grp" },
         prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))), envCaption)),
     h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Master tune"), power),
@@ -2090,7 +2091,7 @@ async function refreshLayerRoutes() {
 
 async function setSetting(id, value) {
   if (offline()) return;
-  if (!await ack([0x7D, id, value])) { document.getElementById("status").textContent = "The synth didn't accept that setting"; return; }
+  if (!await ack([0x7D, id, value >> 7, value & 127])) { document.getElementById("status").textContent = "The synth didn't accept that setting"; return; }
   await refreshSettings();
 }
 
@@ -2143,7 +2144,7 @@ async function copyParams(list, from, to) {
   for (const i of list) if (!await ack([0x52, to, i, p[i] >> 7, p[i] & 127])) return false;
   return true;
 }
-const set7D = (name, value) => ack([0x7D, SET_ID[name], value]);
+const set7D = (name, value) => ack([0x7D, SET_ID[name], value >> 7, value & 127]);
 async function copyLfo(which) {
   if (offline() || !settings) return;
   const to = paramsLayer, from = 1 - to, n = which + 1, src = LFO_SOURCE[which];
@@ -2287,8 +2288,9 @@ function renderRoutes(force) {
   if (mac) mac.replaceChildren(...[0, 1].map(k => {
     const ins = layerRoutes.filter(r => r.dest === 44 + k).map(r => `${SOURCES[r.source]} ${signed(r.depth)}`);
     const outs = layerRoutes.filter(r => r.source === 26 + k).map(r => `${DESTS[r.dest]} ${signed(r.depth)}`);
-    return h("span", { class: "dim small", title: "Macro " + (k + 1) + ": what feeds it → what it drives" },
-      `Macro ${k + 1}: ${ins.length ? ins.join(", ") : "—"} → ${outs.length ? outs.join(", ") : "—"}`);
+    const off = settings ? settings[`macro${paramsLayer + 1}${k + 1}`] - 99 : 0;
+    return h("span", { class: "dim small", title: "Macro " + (k + 1) + ": what feeds it (plus its offset, Shift + CUTOFF / RESONANCE on the panel) → what it drives" },
+      `Macro ${k + 1}: ${ins.length ? ins.join(", ") : "—"}${off ? ` (offset ${signed(off)})` : ""} → ${outs.length ? outs.join(", ") : "—"}`);
   }));
 }
 async function loadRoutes() {

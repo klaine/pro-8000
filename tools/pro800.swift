@@ -869,8 +869,8 @@ let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "l
                     "cycle 1", "cycle 2", "cycle-sync 1 amp", "cycle-sync 1 filter", "cycle-sync 1 env3",
                     "cycle-sync 1 env4", "cycle-sync 2 amp", "cycle-sync 2 filter", "cycle-sync 2 env3",
                     "cycle-sync 2 env4", "bend", "detune", "voice 1", "voice 2", "drift", "scale", "root",
-                    "lfo-delay", "lfo-fade", "lfo2-delay", "lfo2-fade", "cc-a", "cc-b", "env-select", "preset-mode", "patch",
-                   "morph"]
+                    "lfo-delay", "lfo-fade", "lfo2-delay", "lfo2-fade", "cc-a", "cc-b", "macro 1 1", "macro 1 2", "macro 2 1",
+                   "macro 2 2", "env-select", "preset-mode", "patch", "morph"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                   "pentatonic-minor", "blues", "whole-tone", "chromatic"]
 let rootNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -896,7 +896,7 @@ func setSetting() {
                                                "lfo": (8, ["1", "2"])]
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
         "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | keytrack off|half|full | lfo 1|2 | " +
-        "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | " +
+        "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
@@ -919,6 +919,9 @@ func setSetting() {
         (id, v) = (UInt8(32 + 2 * (lfo - 1) + (args[0] == "lfo-fade" ? 1 : 0)), a)
     } else if args.count == 2, ["cc-a", "cc-b"].contains(args[0]), let num = Int(args[1]), (1...127).contains(num) {
         (id, v) = (args[0] == "cc-a" ? 36 : 37, num)
+    } else if args.count == 4, args[0] == "macro", let layer = Int(args[1]), (1...2).contains(layer), let m = Int(args[2]),
+              (1...2).contains(m), let off = Int(args[3]), (-99...99).contains(off) {
+        (id, v) = (UInt8(38 + 2 * (layer - 1) + (m - 1)), off + 99)
     } else if args.count == 4, args[0] == "voice", let layer = Int(args[1]), (1...2).contains(layer),
               let m = voiceModes.firstIndex(of: args[2]), let p = priorities.firstIndex(of: args[3]) {
         (id, v) = (UInt8(27 + layer - 1), m | p << 2)
@@ -962,7 +965,7 @@ func setSetting() {
     } else {
         fail(usage)
     }
-    probeAck(Midi(port: portName), [0x7D, id, UInt8(v)])
+    probeAck(Midi(port: portName), [0x7D, id, UInt8(v >> 7), UInt8(v & 0x7F)])
     print("\(args.joined(separator: " "))")
 }
 
@@ -995,9 +998,10 @@ func settings() {
         case 31: text = rootNames[safe: v] ?? text
         case 32...35: text = v == 0 ? "off" : String(format: "%d (%.2f s)", v, 0.02 * pow(2, Double(v) * 8 / 99))
         case 36, 37: text = "CC \(v)"
-        case 38: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
-        case 40: text = slotName(v)
-        case 41: text = v == 0 ? "none" : slotName(v - 1)
+        case 38...41: text = String(format: "%+d", v - 99)
+        case 42: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 44: text = slotName(v)
+        case 45: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")

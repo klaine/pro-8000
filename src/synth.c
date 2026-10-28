@@ -164,7 +164,10 @@ static int edit_layer;
 static uint8_t latched[PARAM_COUNT]; // its knob controls the value (per-layer parameters: the edit layer's)
 static int8_t pickup_side[PARAM_COUNT]; // which side of the stored value the knob started on: -1, +1 (0 = unknown)
 static int frozen; // MOD ASSIGN: no knob picks up, however close it is to its value
-static int env_select = -1; // which envelope the filter ADSR knobs edit: 0 filter, 1 Env 3, 2 Env 4
+static int env_select; // the ADSR knobs' envelopes: 0 filter and amp; 3 (Shift) Env 3 on the filter knobs, Env 4 on the amp's
+static int shift;      // Shift held or latched: the non-ADSR knobs are frozen
+static int keytrack_switch_seen = -1; // the keytrack switch's last position: a patch's value holds until it moves
+static int8_t macro_offset[LAYERS][2];
 static int lfo_select;      // which LFO the LFO knobs, the shape button and the routing buttons edit: 0 or 1
 static uint8_t lfo_shape[LAYERS][2]; // lfo_shape_t, per layer and LFO
 static uint8_t lfo2_dests[LAYERS];   // LFO2_TO_* bits
@@ -264,12 +267,16 @@ void synth_set_edit_layer(int layer)
 
 // The parameter a knob edits: the filter ADSR knobs edit Env 3 / Env 4 when the switch says so, the LFO knobs
 // LFO 2 while it's selected.
+static int adsr_pot(int pot) { return (pot >= POT_AMP_REL && pot <= POT_AMP_ATT) || (pot >= POT_FIL_REL && pot <= POT_FIL_ATT); }
+
 static int param_of_pot(int pot)
 {
-    if (env_select > 0 && pot >= POT_FIL_REL && pot <= POT_FIL_ATT) { // FIL REL, SUS, DEC, ATT
-        static const uint8_t stage[] = {[POT_FIL_REL] = 3, [POT_FIL_SUS] = 2, [POT_FIL_DEC] = 1, [POT_FIL_ATT] = 0};
-        return (env_select == 1 ? PARAM_ENV3_ATT : PARAM_ENV4_ATT) + stage[pot];
-    }
+    static const uint8_t stage[] = {[POT_FIL_REL] = 3, [POT_FIL_SUS] = 2, [POT_FIL_DEC] = 1, [POT_FIL_ATT] = 0,
+                                    [POT_AMP_REL] = 3, [POT_AMP_SUS] = 2, [POT_AMP_DEC] = 1, [POT_AMP_ATT] = 0};
+    if (env_select > 0 && pot >= POT_FIL_REL && pot <= POT_FIL_ATT) // FIL REL, SUS, DEC, ATT
+        return (env_select == 2 ? PARAM_ENV4_ATT : PARAM_ENV3_ATT) + stage[pot];
+    if (env_select == 3 && pot >= POT_AMP_REL && pot <= POT_AMP_ATT)
+        return PARAM_ENV4_ATT + stage[pot];
     if (lfo_select && pot == POT_LFO_FREQ)
         return PARAM_LFO2_RATE;
     if (lfo_select && pot == POT_LFO_AMOUNT)
@@ -338,7 +345,7 @@ int synth_keytrack(void) { return keytrack_setting; }
 
 void synth_set_keytrack(int amount) { keytrack_setting = amount < 0 ? 0 : amount > 2 ? 2 : amount; }
 
-int synth_env_select(void) { return env_select < 0 ? 0 : env_select; }
+int synth_env_select(void) { return env_select; }
 
 void synth_aftertouch(uint8_t value, int layers)
 {
@@ -460,13 +467,13 @@ int synth_dest_for_pot(int pot)
     case POT_PMOD_FIL_ENV: return DEST_PMOD_ENV;
     case POT_LFO_AMOUNT: return lfo_select ? DEST_LFO2_AMOUNT : DEST_LFO_AMOUNT;
     case POT_LFO_FREQ: return lfo_select ? DEST_LFO2_RATE : DEST_LFO_RATE;
-    case POT_AMP_SUS: return DEST_VCA;
-    case POT_AMP_ATT: return DEST_AMP_ATT;
-    case POT_AMP_DEC: return DEST_AMP_DEC;
-    case POT_AMP_REL: return DEST_AMP_REL;
+    case POT_AMP_SUS: return env_select == 3 ? DEST_ENV4_SUS : DEST_VCA;
+    case POT_AMP_ATT: return env_select == 3 ? DEST_ENV4_ATT : DEST_AMP_ATT;
+    case POT_AMP_DEC: return env_select == 3 ? DEST_ENV4_DEC : DEST_AMP_DEC;
+    case POT_AMP_REL: return env_select == 3 ? DEST_ENV4_REL : DEST_AMP_REL;
     case POT_FIL_ATT: case POT_FIL_DEC: case POT_FIL_SUS: case POT_FIL_REL: {
         static const uint8_t stage[] = {[POT_FIL_ATT] = 0, [POT_FIL_DEC] = 1, [POT_FIL_SUS] = 2, [POT_FIL_REL] = 3};
-        int first = env_select == 1 ? DEST_ENV3_ATT : env_select == 2 ? DEST_ENV4_ATT : DEST_FIL_ATT;
+        int first = env_select == 2 ? DEST_ENV4_ATT : env_select ? DEST_ENV3_ATT : DEST_FIL_ATT;
         return first + stage[pot];
     }
     case POT_GLIDE: return DEST_GLIDE;
@@ -565,6 +572,10 @@ void synth_apply_patch(const patch_t *patch)
         switch_override[s] = s <= SWITCH_UNISON || s == SWITCH_SYNC;
     }
     keytrack_setting = patch->keytrack <= 2 ? patch->keytrack : 0;
+    keytrack_switch_seen = controls_keytrack();
+    for (int l = 0; l < LAYERS; l++)
+        for (int k = 0; k < 2; k++)
+            macro_offset[l][k] = patch->macro_offset[l][k] < -99 ? -99 : patch->macro_offset[l][k];
     layer_mode = patch->layer_mode < LAYER_MODE_COUNT ? (layer_mode_t)patch->layer_mode : LAYER_OFF;
     synth_set_split_note(patch->split);
     for (int w = 0; w < 2; w++) {
@@ -618,6 +629,9 @@ void synth_capture_patch(patch_t *patch)
         if ((s <= SWITCH_UNISON || s == SWITCH_SYNC) && sw((switch_t)s)) // the latching buttons only
             patch->switches |= 1u << s;
     patch->keytrack = (uint8_t)keytrack_setting;
+    for (int l = 0; l < LAYERS; l++)
+        for (int k = 0; k < 2; k++)
+            patch->macro_offset[l][k] = macro_offset[l][k];
     patch->layer_mode = (uint8_t)layer_mode;
     patch->split = (uint8_t)split_note;
     patch->voice_mode = (uint8_t)(voice_mode[0] | priority[0] << 2 | voice_mode[1] << 4 | priority[1] << 6);
@@ -841,10 +855,60 @@ int synth_source_for_pot(int pot)
     switch (pot) {
     case POT_LFO_FREQ: case POT_LFO_AMOUNT: return lfo_select ? SRC_LFO2 : SRC_LFO;
     case POT_FIL_ATT: case POT_FIL_DEC: case POT_FIL_SUS: case POT_FIL_REL:
-        return env_select == 1 ? SRC_ENV3 : env_select == 2 ? SRC_ENV4 : SRC_FILTER_ENV;
-    case POT_AMP_ATT: case POT_AMP_DEC: case POT_AMP_SUS: case POT_AMP_REL: return SRC_AMP_ENV;
+        return env_select == 2 ? SRC_ENV4 : env_select ? SRC_ENV3 : SRC_FILTER_ENV;
+    case POT_AMP_ATT: case POT_AMP_DEC: case POT_AMP_SUS: case POT_AMP_REL: return env_select == 3 ? SRC_ENV4 : SRC_AMP_ENV;
     default: return SRC_NONE;
     }
+}
+
+void synth_set_shift(int on)
+{
+    if (!on == !shift)
+        return;
+    shift = on;
+    env_select = on ? 3 : 0;
+    for (int i = 0; i < POT_COUNT; i++) // the ADSR knobs change meaning, the rest will pick up after
+        if (i != POT_MASTER_VOL) {
+            unlatch(param_of_pot(i));
+            if (adsr_pot(i))
+                unlatch(i); // their plain parameter too
+        }
+}
+
+int synth_shift(void) { return shift; }
+
+int synth_macro_offset(int layer, int which) { return macro_offset[layer & 1][which & 1]; }
+
+void synth_set_macro_offset(int layer, int which, int value)
+{
+    macro_offset[layer & 1][which & 1] = (int8_t)(value < -99 ? -99 : value > 99 ? 99 : value);
+}
+
+void synth_copy_layer(int from, int to)
+{
+    if (from == to || from < 0 || from >= LAYERS || to < 0 || to >= LAYERS)
+        return;
+    for (int i = 0; i < PARAM_COUNT; i++)
+        if (per_layer[i])
+            layer_param[to][i] = layer_param[from][i];
+    for (int r = 0; r < ROUTES; r++)
+        routes[to][r] = routes[from][r];
+    for (int w = 0; w < 2; w++) {
+        lfo_shape[to][w] = lfo_shape[from][w];
+        lfo_pattern[LFO_ID(to, w)] = lfo_pattern[LFO_ID(from, w)];
+        lfo_step_count[LFO_ID(to, w)] = lfo_step_count[LFO_ID(from, w)];
+        macro_offset[to][w] = macro_offset[from][w];
+    }
+    lfo2_dests[to] = lfo2_dests[from];
+    env_cycle[to] = env_cycle[from];
+    for (int e = 0; e < 4; e++)
+        env_sync[to][e] = env_sync[from][e];
+    voice_mode[to] = voice_mode[from];
+    priority[to] = priority[from];
+    if (to == edit_layer)
+        for (int i = 0; i < PARAM_COUNT; i++)
+            if (per_layer[i])
+                unlatch(i);
 }
 
 int synth_channel_plays(int channel)
@@ -1170,14 +1234,10 @@ int synth_knob_cents(float knob)
 
 static void read_panel(float dt)
 {
-    int select = controls_keytrack(); // the switch picks the envelope the filter ADSR knobs edit
-    if (select != env_select) {
-        int first_time = env_select < 0;
-        env_select = select;
-        for (int i = POT_FIL_REL; i <= POT_FIL_ATT && !first_time; i++) {
-            latched[param_of_pot(i)] = 0;
-            pickup_side[param_of_pot(i)] = 0;
-        }
+    int track = controls_keytrack(); // keyboard tracking: a loaded patch's value holds until the switch moves
+    if (track != keytrack_switch_seen) {
+        keytrack_switch_seen = track;
+        keytrack_setting = track;
     }
 
     float k = dt >= POT_SMOOTHING_S || !pots_primed ? 1.0f : dt / POT_SMOOTHING_S;
@@ -1202,7 +1262,7 @@ static void read_panel(float dt)
             continue;
         }
         int layer = per_layer[p] ? edit_layer : 0; // shared knobs keep one value, in both layers
-        if (!latched[p] && !frozen) {
+        if (!latched[p] && !frozen && !(shift && !adsr_pot(i))) {
             float diff = panel[i] - layer_param[layer][p];
             int8_t side = diff < 0 ? -1 : 1;
             if (diff < PICKUP_WINDOW && diff > -PICKUP_WINDOW)
@@ -1298,7 +1358,7 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
     for (int phase = 0; phase < (fast ? 1 : 2); phase++) {
         if (phase == 1)
             for (int k = 0; k < 2; k++) {
-                float m = mod[DEST_MACRO1 + k];
+                float m = mod[DEST_MACRO1 + k] + (float)macro_offset[layer][k] / 99.0f;
                 voices[voice].macro[k] = m < -1 ? -1 : m > 1 ? 1 : m;
             }
         for (int r = 0; r < ROUTES; r++) {

@@ -25,7 +25,8 @@
 //                          64 <button> <0|1>
 //   7B <address> <v1> <v0> write a byte of the HT16K33 display RAM (address 0-15)
 //   7C                     panel state; replies 7C <26 pots, 2 × 7 bits each> <24 switches, 0/1 each>
-//   7D <setting> <value>   set a setting (host_setting_t: 0 LFO 1 sync, 1 LFO 1 retrigger, 2 layer mode, 3 split
+//   7D <setting> <value>   set a setting (or 7D <setting> <v1> <v0>, value = v1 << 7 | v0, for values over 127;
+//                          host_setting_t: 0 LFO 1 sync, 1 LFO 1 retrigger, 2 layer mode, 3 split
 //                          note, 4 keyboard tracking, 5 LFO 2 sync, 6 LFO 2 retrigger, 7 edit layer, 8 selected LFO,
 //                          9-12 LFO shapes (layer 1 LFO 1, LFO 2, layer 2 LFO 1, LFO 2), 13-14 LFO 2 routing per layer,
 //                          15-16 cycling envelopes per layer, 17-24 synced cycling per envelope: layer 1 amp,
@@ -33,8 +34,9 @@
 //                          (1-12 semitones), 26 unison detune (0-50 cents), 27-28 voice modes per layer (mode 0 poly
 //                          1 mono 2 legato | priority 0 last 1 low 2 high << 2), 29 drift (0-99), 30 scale (0 off,
 //                          synth.h SCALE_*), 31 root (0-11), 32-35 LFO 1 delay, LFO 1 fade, LFO 2 delay, LFO 2 fade
-//                          (0-99), 36-37 CC A / CC B source numbers (1-127, system-wide); read-only after: env
-//                          select, preset mode, patch, morph
+//                          (0-99), 36-37 CC A / CC B source numbers (1-127, system-wide), 38-41 macro offsets
+//                          (layer 1 macro 1, 2, layer 2 macro 1, 2; the offset + 99); read-only after: env select,
+//                          preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
@@ -173,6 +175,12 @@ static int tune_requested;
 // digits pick a patch (1-128) and VALUE steps through them; REC, then the slot, then REC saves;
 // PERF loads the init sound.
 static int current_patch, preset_mode, saving, typed_digits, typed_value, encoder_patch_steps;
+static patch_t compare_copy, undo_copy; // Shift + Rec: the edit while the stored patch sounds; Shift + Perf: before the last load
+static int comparing, undo_valid;
+// The sustain pedal, per layer (bits: in channel mode each channel's pedal holds its own layer), and the keys let go
+// while it was down: the layers each one's note-off releases
+static int sustain;
+static uint8_t sustained[128];
 static char loaded_name[PATCH_NAME + 1]; // travels with the sound when it's saved to an empty slot
 static uint32_t typed_at;
 
@@ -209,6 +217,8 @@ static int load_patch(int n)
         return 0;
     }
     seq_stop();
+    synth_capture_patch(&undo_copy);
+    undo_valid = 1;
     synth_apply_patch(&patch);
     if (!store_load_sequence(n))
         seq_clear();
@@ -246,6 +256,8 @@ static void init_patch(void)
     patch.keytrack = 2;
     patch.layer_mode = LAYER_OFF;
     patch.split = 60; // LFOs free-running triangles, LFO 2 with no routing
+    synth_capture_patch(&undo_copy);
+    undo_valid = 1;
     seq_clear();
     synth_apply_patch(&patch);
     synth_set_morph(0, 0);
@@ -648,6 +660,94 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
     return 0;
 }
 
+// Shift (the Sync Source button): held, or latched with two quick presses (LED on). The filter and amp ADSR knobs
+// edit Env 3 and Env 4 meanwhile (synth.c); the other knobs nudge a secondary value by how far they're turned:
+// LFO FREQ / AMOUNT the selected LFO's delay / fade, GLIDE drift, M TUNE unison detune, FINE the bend range,
+// CUTOFF / RESONANCE the macro offsets, A / B LEVEL the CC A / B numbers. Shift + Rec compares (the stored patch
+// while held), + Perf undoes the last load, + Preset saves to the current slot, + Seq 1 / 2 copies the edit layer
+// there, + a number key opens that Settings page, + 0 is a panic.
+static int shift_held, shift_latched;
+static int adsr_pot_index(int pot) { return (pot >= POT_AMP_REL && pot <= POT_AMP_ATT) || (pot >= POT_FIL_REL && pot <= POT_FIL_ATT); }
+static uint32_t shift_tap_at;
+static int shift_pot_last[POT_COUNT];
+static float shift_acc[POT_COUNT];
+static uint32_t shift_value_at; // when to show the secondary's value (after its name)
+static int shift_value, shift_pot = -1;
+
+static void shift_set(int on)
+{
+    synth_set_shift(on);
+    display_led(LED_SYNC_SOURCE, on);
+    for (int i = 0; i < POT_COUNT; i++)
+        shift_pot_last[i] = -1;
+    shift_pot = -1;
+}
+
+static int shift_active(void) { return shift_held || shift_latched; }
+
+// A knob turned under Shift: the secondary it nudges, by `delta` of 4095
+static void shift_turn(int pot, int delta)
+{
+    static const struct { uint8_t pot; char name[5]; int16_t low, high; } table[] = {
+        {POT_LFO_FREQ, "dLY", 0, 99},    {POT_LFO_AMOUNT, "FAdE", 0, 99}, {POT_GLIDE, "drFt", 0, 99},
+        {POT_MASTER_TUNE, "dEtU", 0, 50}, {POT_FINE, "bEnd", 1, 12},      {POT_CUTOFF, "nAC1", -99, 99},
+        {POT_RESONANCE, "nAC2", -99, 99}, {POT_A_LEVEL, "CC.A", 1, 127},   {POT_B_LEVEL, "CC.b", 1, 127},
+    };
+    unsigned t = 0;
+    for (; t < sizeof table / sizeof table[0] && table[t].pot != pot; t++)
+        ;
+    if (t == sizeof table / sizeof table[0])
+        return;
+    int which = synth_lfo_select(), layer = synth_edit_layer(), value;
+    switch (pot) {
+    case POT_LFO_FREQ: value = lfo_delay[which]; break;
+    case POT_LFO_AMOUNT: value = lfo_fade[which]; break;
+    case POT_GLIDE: value = synth_drift(); break;
+    case POT_MASTER_TUNE: value = synth_detune(); break;
+    case POT_FINE: value = synth_bend_range(); break;
+    case POT_CUTOFF: value = synth_macro_offset(layer, 0); break;
+    case POT_RESONANCE: value = synth_macro_offset(layer, 1); break;
+    case POT_A_LEVEL: value = synth_cc_number(0); break;
+    default: value = synth_cc_number(1); break;
+    }
+    shift_acc[pot] += (float)delta * (float)(table[t].high - table[t].low) / 4095.0f;
+    int step = (int)shift_acc[pot];
+    shift_acc[pot] -= (float)step;
+    value += step;
+    value = value < table[t].low ? table[t].low : value > table[t].high ? table[t].high : value;
+    switch (pot) {
+    case POT_LFO_FREQ: lfo_delay[which] = (uint8_t)value; break;
+    case POT_LFO_AMOUNT: lfo_fade[which] = (uint8_t)value; break;
+    case POT_GLIDE: synth_set_drift(value); break;
+    case POT_MASTER_TUNE: synth_set_detune(value); break;
+    case POT_FINE: synth_set_bend_range(value); break;
+    case POT_CUTOFF: synth_set_macro_offset(layer, 0, value); break;
+    case POT_RESONANCE: synth_set_macro_offset(layer, 1, value); break;
+    case POT_A_LEVEL: synth_set_cc_number(0, value); store_set_cc_number(0, value); break;
+    default: synth_set_cc_number(1, value); store_set_cc_number(1, value); break;
+    }
+    shift_value = value;
+    if (pot != shift_pot) { // its name first, then the value
+        shift_pot = pot;
+        display_text(table[t].name);
+        display_until = 0;
+        shift_value_at = ms_ticks + 500;
+    } else if (!shift_value_at) {
+        display_number(value);
+        display_until = ms_ticks + 1500;
+    }
+}
+
+static void compare_end(void)
+{
+    if (!comparing)
+        return;
+    comparing = 0;
+    synth_apply_patch(&compare_copy);
+    display_text("EdIt");
+    display_until = ms_ticks + 800;
+}
+
 // What the display shows when nothing transient is on it.
 static void idle_display(void)
 {
@@ -798,6 +898,85 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         }
         return;
     }
+    if (kind == CONTROL_BUTTON && index == BUTTON_SYNC_SOURCE) {
+        if (value) {
+            shift_held = 1;
+            if (ms_ticks - shift_tap_at < 400) { // two quick presses: latch
+                shift_latched = !shift_latched;
+                display_text(shift_latched ? "SHFt" : "oFF");
+                display_until = ms_ticks + 800;
+            }
+            shift_tap_at = ms_ticks;
+        } else
+            shift_held = 0;
+        shift_set(shift_active());
+        return;
+    }
+    if (kind == CONTROL_BUTTON && index == BUTTON_REC && !value)
+        compare_end(); // (whether or not Shift is still down)
+    if (shift_active() && kind == CONTROL_POT && !adsr_pot_index(index)) { // the ADSR knobs: Env 3 / 4, by the engine
+        if (shift_pot_last[index] >= 0)
+            shift_turn(index, (int)value - shift_pot_last[index]);
+        shift_pot_last[index] = (int)value;
+        return;
+    }
+    if (shift_active() && kind == CONTROL_BUTTON && value) {
+        patch_t p;
+        switch (index) {
+        case BUTTON_REC: // compare: the stored patch while held
+            if (preset_mode && !comparing && store_load_patch(current_patch, &p)) {
+                synth_capture_patch(&compare_copy);
+                synth_apply_patch(&p);
+                comparing = 1;
+                display_text("CoNP");
+                display_until = 0;
+            } else
+                display_text("no");
+            return;
+        case BUTTON_PERF: // undo the last load or init
+            if (undo_valid) {
+                synth_capture_patch(&p);
+                synth_apply_patch(&undo_copy);
+                undo_copy = p;
+                display_text("Undo");
+            } else
+                display_text("no");
+            display_until = ms_ticks + 1000;
+            return;
+        case BUTTON_PRESET: // save to the current slot
+            display_text(preset_mode && save_patch(current_patch) ? "donE" : "no");
+            display_until = ms_ticks + 1000;
+            return;
+        case BUTTON_SEQ1: case BUTTON_SEQ2: { // copy the edit layer there
+            int to = index == BUTTON_SEQ2;
+            if (to != synth_edit_layer()) {
+                synth_copy_layer(synth_edit_layer(), to);
+                display_text("CoPY");
+            } else
+                display_text("SAnE");
+            display_until = ms_ticks + 1000;
+            return;
+        }
+        case BUTTON_0: // panic
+            seq_stop();
+            synth_all_off();
+            sustain = 0;
+            for (int n = 0; n < 128; n++)
+                sustained[n] = 0;
+            display_text("PAnC");
+            display_until = ms_ticks + 1000;
+            return;
+        default:
+            if (index >= BUTTON_1 && index <= BUTTON_9) { // straight to that Settings page
+                menu_open = 1;
+                menu_page = index - BUTTON_1;
+                display_led(LED_SETTINGS, 1);
+                display_until = 0;
+                idle_display();
+                return;
+            }
+        }
+    }
     if (kind == CONTROL_POT && !assigning && !browsing)
         last_pot = index;
     if ((assigning || browsing) && kind == CONTROL_BUTTON && value
@@ -838,8 +1017,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         display_until = ms_ticks + 1000;
     }
     if (kind == CONTROL_SWITCH && (index == SWITCH_KEYTRACK_HALF || index == SWITCH_KEYTRACK_FULL)) {
-        static const char names[3][5] = {"FEnV", "EnV3", "EnV4"};
-        display_text(names[controls_keytrack()]); // the envelope the filter ADSR knobs now edit
+        static const char names[3][5] = {"OFF", "HALF", "FULL"};
+        display_text(names[controls_keytrack()]); // keyboard tracking
         display_until = ms_ticks + 1000;
     }
     if (kind == CONTROL_POT) {
@@ -1027,6 +1206,7 @@ typedef enum {
     SET_VOICE_L1, SET_VOICE_L2, SET_DRIFT, SET_SCALE, SET_ROOT, // voice modes (mode | priority << 2), drift, scale
     SET_LFO1_DELAY, SET_LFO1_FADE, SET_LFO2_DELAY, SET_LFO2_FADE, // 0-99 (lfo.h)
     SET_CC_A, SET_CC_B,                                  // the CC A / B mod sources' controller numbers (1-127)
+    SET_MACRO_L1_1, SET_MACRO_L1_2, SET_MACRO_L2_1, SET_MACRO_L2_2, // the macros' offsets + 99 (0-198)
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1057,6 +1237,8 @@ static int host_setting_get(int id)
     case SET_LFO1_DELAY: case SET_LFO2_DELAY: return lfo_delay[id == SET_LFO2_DELAY];
     case SET_LFO1_FADE: case SET_LFO2_FADE: return lfo_fade[id == SET_LFO2_FADE];
     case SET_CC_A: case SET_CC_B: return synth_cc_number(id == SET_CC_B);
+    case SET_MACRO_L1_1: case SET_MACRO_L1_2: case SET_MACRO_L2_1: case SET_MACRO_L2_2:
+        return synth_macro_offset((id - SET_MACRO_L1_1) / 2, (id - SET_MACRO_L1_1) % 2) + 99;
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -1073,6 +1255,7 @@ static int host_setting_set(int id, int value)
         [SET_CYCLE_SYNC ... SET_CYCLE_SYNC + 7] = LFO_DIVISIONS + 1, [SET_BEND] = 13, [SET_DETUNE] = 51,
         [SET_VOICE_L1] = 11, [SET_VOICE_L2] = 11, [SET_DRIFT] = 100, [SET_SCALE] = SCALE_COUNT, [SET_ROOT] = 12,
         [SET_LFO1_DELAY ... SET_LFO2_FADE] = 100, [SET_CC_A] = 128, [SET_CC_B] = 128,
+        [SET_MACRO_L1_1 ... SET_MACRO_L2_2] = 199,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1104,6 +1287,9 @@ static int host_setting_set(int id, int value)
         synth_set_cc_number(id == SET_CC_B, value);
         store_set_cc_number(id == SET_CC_B, value);
         break;
+    case SET_MACRO_L1_1: case SET_MACRO_L1_2: case SET_MACRO_L2_1: case SET_MACRO_L2_2:
+        synth_set_macro_offset((id - SET_MACRO_L1_1) / 2, (id - SET_MACRO_L1_1) % 2, value - 99);
+        break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -1112,10 +1298,6 @@ static int host_setting_set(int id, int value)
     return 1;
 }
 
-// The sustain pedal, per layer (bits: in channel mode each channel's pedal holds its own layer), and the keys let go
-// while it was down: the layers each one's note-off releases
-static int sustain;
-static uint8_t sustained[128];
 
 // After tuning (25 s or so) the USB ring holds only the first packets that came in meanwhile, so note-offs may be
 // missing: drop them all, and let go of the keys the sequence holds and of the pedal. (The clock ticks didn't go
@@ -1242,7 +1424,8 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = 0x7F;
         reply[n++] = 0x7B;
     }
-    if (data_length == 3 && data[0] == 0x7D && host_setting_set(data[1], data[2])) {
+    if ((data_length == 3 || data_length == 4) && data[0] == 0x7D
+        && host_setting_set(data[1], data_length == 4 ? data[2] << 7 | data[3] : data[2])) { // 4 bytes: 14-bit value
         reply[n++] = 0x7F;
         reply[n++] = 0x7D;
     }
@@ -1864,6 +2047,11 @@ int main(void)
         }
         if (saving)
             display_led(LED_REC, (now / 250) & 1);
+        if (shift_value_at && (int32_t)(now - shift_value_at) > 0) {
+            shift_value_at = 0;
+            display_number(shift_value);
+            display_until = now + 1500;
+        }
         if (assign_press_at && now - assign_press_at >= 600) {
             assign_press_at = 0;
             assign_hold();
