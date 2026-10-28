@@ -26,7 +26,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - From 0.7.0: 200 patches (A, B); slots 200-399 are each patch's step sequence (`src/seq.c`, edited on the web
     page; `seq` prints it).
   - The WebMIDI page `scripts/web.sh` → http://localhost:8800 (Chrome/Edge; the desktop app's built-in browser
-    has no MIDI): tabs Sound, Mod matrix, Patches, Play, System, Panel mapping (map in `tools/web/panel-map.json`).
+    has no MIDI): tabs Sound (the faceplate on top, then the extras and the mod matrix), Device cheat sheet (keep it in
+    step with `MANUAL.md`), Patches, Play, System, Panel mapping (map in `tools/web/panel-map.json`).
   - Probe commands for our firmware: `direct on|off`, `cv`, `gate`, `measure` (the tuning comparator),
     `tune`, `tuning` (print the tables), `check` (cents error of every oscillator through the tables).
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its

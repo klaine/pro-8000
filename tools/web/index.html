@@ -81,7 +81,7 @@
   .msg.bad { color: var(--warn); }
   .msg.ok { color: var(--ok); }
   .tag { font-size: 10px; border: 1px solid var(--edge); border-radius: 4px; padding: 0 4px; color: var(--dim); }
-  body.offline #tab-sound .synth, body.offline #tab-matrix section, body.offline #tab-patches section,
+  body.offline #tab-sound .synth, body.offline #tab-patches section,
   body.offline #tab-system section { opacity: .45; }
   .seg { display: inline-flex; flex-wrap: wrap; background: var(--well); border: 1px solid #000; border-radius: 7px; padding: 2px; gap: 2px; }
   .seg button, .seg-b { min-width: 34px; padding: 4px 7px; border: 0; border-radius: 5px; background: transparent; color: var(--dim);
@@ -91,68 +91,131 @@
   .chip { padding: 4px 9px; font-size: 11px; }
   .chip.small { padding: 3px 8px; }
 
-  /* ---------------------------------------------------------------- the synth panel */
-  .synth { display: grid; gap: 12px; grid-template-columns: repeat(12, minmax(0, 1fr));
-    grid-template-areas:
-      "osca osca osca oscb oscb oscb mix mix flt flt flt flt"
-      "env0 env0 env0 env1 env1 env1 env2 env2 env2 env3 env3 env3"
-      "lfo1 lfo1 lfo1 lfo1 lfo1 lfo2 lfo2 lfo2 lfo2 lfo2 pm pm"
-      "lfo1 lfo1 lfo1 lfo1 lfo1 lfo2 lfo2 lfo2 lfo2 lfo2 voice voice"
-      "seq seq seq seq seq seq seq seq seq seq seq seq"; }
-  .sec-osca { grid-area: osca; } .sec-oscb { grid-area: oscb; } .sec-mix { grid-area: mix; } .sec-flt { grid-area: flt; }
-  .sec-env0 { grid-area: env1; } .sec-env1 { grid-area: env0; } .sec-env2 { grid-area: env2; } .sec-env3 { grid-area: env3; }
-  .sec-seq { grid-area: seq; }
-  .sec-lfo1 { grid-area: lfo1; } .sec-lfo2 { grid-area: lfo2; } .sec-pm { grid-area: pm; } .sec-voice { grid-area: voice; }
-  @media (max-width: 1360px) {
-    .synth { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-areas:
-      "osca osca oscb oscb mix mix" "flt flt flt flt pm pm" "env0 env0 env0 env1 env1 env1" "env2 env2 env2 env3 env3 env3"
-      "lfo1 lfo1 lfo1 lfo2 lfo2 lfo2" "voice voice voice voice voice voice" "seq seq seq seq seq seq"; }
+  /* ---------------------------------------------------------------- the faceplate (after the PRO-800's own) */
+  /* Black plate, white-framed sections with their names in the frame, knurled knobs in printed 0-10 scales and
+     bat-lever switches, laid out as on the synth. The editor's extras (visuals, Env 3/4, LFO 2, voice, sequencer,
+     mod matrix) follow below it. */
+  .synth { display: flex; flex-direction: column; gap: 30px; }
+  .face { --plate: #111214; --silk: #f1f1ec; --frame: #deded8;
+    background: var(--plate); border: 1px solid #000; border-radius: 12px; padding: 26px 18px 18px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .06), inset 0 0 0 6px #0b0b0c;
+    display: grid; gap: 22px 14px; align-items: stretch;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 1.2fr) minmax(0, 5.4fr) minmax(0, 1.25fr);
+    grid-template-areas: "osca osca brand brand" "oscb oscb flt tune" "pm noise flt tune" "lfo glide amp vol"; }
+  .ps-osca { grid-area: osca; } .ps-oscb { grid-area: oscb; } .ps-pm { grid-area: pm; } .ps-noise { grid-area: noise; }
+  .ps-lfo { grid-area: lfo; } .ps-glide { grid-area: glide; } .ps-flt { grid-area: flt; } .ps-amp { grid-area: amp; }
+  .brandplate { grid-area: brand; } .loose-tune { grid-area: tune; } .loose-vol { grid-area: vol; }
+  @media (max-width: 1280px) {
+    .face { grid-template-columns: minmax(0, 5fr) minmax(0, 1fr);
+      grid-template-areas: "brand brand" "osca osca" "oscb oscb" "pm noise" "lfo glide" "flt tune" "amp vol"; }
   }
-  @media (max-width: 760px) {
-    .synth { grid-template-columns: 1fr; grid-template-areas: "osca" "oscb" "mix" "flt" "pm" "env1" "env0" "env2" "env3" "lfo1" "lfo2" "voice" "seq"; }
-    main { padding: 10px; }
+  @media (max-width: 640px) {
+    .face { grid-template-columns: 1fr; padding: 22px 10px 12px;
+      grid-template-areas: "brand" "osca" "oscb" "pm" "noise" "lfo" "glide" "flt" "tune" "amp" "vol"; }
   }
-  .sec { position: relative; min-width: 0; padding: 12px 14px 14px; border-radius: 10px;
-         background: linear-gradient(180deg, var(--panel-2), var(--panel) 60px); border: 1px solid #0c0c0d;
-         box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); display: flex; flex-direction: column; gap: 10px; }
-  .sec > h2 { margin: 0; }
-  .sec .row { justify-content: space-between; }
-  .sec-tools { display: flex; gap: 6px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
-  .sec-tools select { flex: 1; }
-  .lbl { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--label); white-space: nowrap; }
-  .val { font: 11px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
-  .sel { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-  canvas.viz { width: 100%; height: 70px; display: block; background: var(--well); border-radius: 7px; border: 1px solid #000; }
-  canvas.viz.flt, canvas.viz.lfo { height: 80px; }
+  .ps { position: relative; min-width: 0; border: 1.5px solid var(--frame); border-radius: 10px; padding: 16px 8px 8px;
+        display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-around; gap: 6px 4px; }
+  .ps > h3 { position: absolute; top: 0; left: 50%; transform: translate(-50%, -56%); margin: 0; padding: 0 8px;
+             background: var(--plate); color: var(--silk); font: 800 12.5px/1 var(--sans); letter-spacing: .07em;
+             text-transform: uppercase; white-space: nowrap; }
+  .ps-noise, .ps-glide { justify-content: center; }
+  .ps-flt { flex-direction: column; align-items: stretch; justify-content: space-around; }
+  .prow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; align-items: end; gap: 6px 2px; }
+  .grp { display: flex; flex-direction: column; align-items: stretch; gap: 3px; }
+  .grp-in { display: flex; gap: 4px; align-items: flex-end; justify-content: center; }
+  .cap { display: flex; align-items: center; gap: 6px; color: var(--silk); font: 800 9.5px/1 var(--sans); letter-spacing: .06em;
+         text-transform: uppercase; white-space: nowrap; }
+  .cap::before, .cap::after { content: ""; flex: 1; min-width: 8px; height: 1.5px; background: var(--frame); }
+  .loose { display: flex; flex-direction: column; align-items: center; justify-content: space-around; gap: 10px; }
+  .brandplate { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0 6px; min-width: 0; }
+  .brandplate .model { font: 800 34px/1 var(--sans); letter-spacing: .14em; color: var(--silk); }
+  .brandplate .sub { font: 800 10px/1.3 var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--silk); }
+  .brandplate .sub.dim { color: var(--dim); margin-top: 4px; }
+  .power { display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--silk); font: 800 9.5px var(--sans); letter-spacing: .06em; }
+  .power i { width: 11px; height: 11px; border-radius: 50%; background: #3a1410; box-shadow: inset 0 1px 2px #000; }
+  .power.on i { background: #ff3b2b; box-shadow: 0 0 10px #ff3b2b, 0 0 3px #fff inset; }
 
-  /* knobs */
-  .knob { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 62px; }
-  .knob .dial { width: 46px; height: 46px; cursor: ns-resize; touch-action: none; border-radius: 50%; }
-  .knob.k-l { width: 86px; } .knob.k-l .dial { width: 68px; height: 68px; }
-  .knob.k-l .val { color: var(--text); }
-  .knob svg { width: 100%; height: 100%; overflow: visible; }
-  .k-track { fill: none; stroke: #0a0a0b; stroke-width: 4; stroke-linecap: round; }
-  .k-arc { fill: none; stroke: var(--trace); stroke-width: 3; stroke-linecap: round; }
-  .knob.accent .k-arc { stroke: var(--accent); }
-  .k-cap { fill: var(--knob); stroke: #3d3e43; stroke-width: 1; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .6)); }
+  /* knobs: knurled black, white pointer, printed scale */
+  .knob { display: flex; flex-direction: column; align-items: center; width: 76px; min-width: 0; }
+  .knob .dial { width: 74px; height: 64px; cursor: ns-resize; touch-action: none; border-radius: 12px; }
+  .knob svg { width: 100%; height: 100%; overflow: visible; display: block; }
+  .k-scale line { stroke: var(--silk, #eee); stroke-width: 1; }
+  .k-scale text { fill: var(--silk, #eee); font: 700 7px var(--sans); text-anchor: middle; dominant-baseline: central; }
+  .k-scale.names text { font-size: 6.2px; letter-spacing: .02em; }
+  .k-scale text.on { fill: #ff4a36; }
+  .k-grip { fill: #070708; stroke: #35353a; stroke-width: 3; stroke-dasharray: 1.3 1.25; }
+  .k-cap { fill: url(#k-cap-fill); stroke: #000; stroke-width: .6; }
   .k-ptr { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
-  .knob .dial:hover .k-cap, .knob .dial.active .k-cap { stroke: #66676d; }
-  .knob .lbl { margin-top: 1px; }
+  .knob .dial:hover .k-grip, .knob .dial.active .k-grip, .knob .dial:focus-visible .k-grip { stroke: #56565c; }
+  .knob .dial:focus-visible { outline-offset: -2px; }
+  .knob .lbl { margin-top: -3px; color: var(--silk, var(--label)); font: 800 9.5px/1.15 var(--sans); letter-spacing: .04em;
+               text-align: center; white-space: normal; }
+  .knob .val { margin-top: 2px; min-height: 13px; font: 10px/1.2 var(--mono); color: var(--dim); }
+  .face:not(.values) .knob .val { visibility: hidden; }
+  .face .knob:hover .val, .face .knob:focus-within .val, .face .knob .dial.active ~ .val { visibility: visible; }
   i.shared { display: inline-block; width: 5px; height: 5px; border-radius: 50%; border: 1px solid var(--dim); margin-left: 4px;
              vertical-align: 1px; }
 
-  /* faders */
-  .faders { display: flex; gap: 8px; justify-content: space-between; padding: 0 2px; }
-  .fader { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; min-width: 40px; }
-  .f-slot { position: relative; width: 26px; height: 108px; cursor: ns-resize; touch-action: none;
-            background: linear-gradient(90deg, transparent 11px, #050506 11px, #050506 15px, transparent 15px); }
-  .f-fill { position: absolute; left: 11px; width: 4px; bottom: 0; background: var(--accent); border-radius: 2px; box-shadow: 0 0 6px var(--accent-soft); }
-  .f-thumb { position: absolute; left: 1px; width: 24px; height: 11px; border-radius: 2px;
-             background: linear-gradient(#fafafa, #c9c9c9); box-shadow: 0 2px 3px rgba(0, 0, 0, .6), inset 0 -2px 0 #9b9b9b; }
-  .f-thumb::after { content: ""; position: absolute; left: 3px; right: 3px; top: 5px; height: 1px; background: #333; }
-  .fader .val { min-height: 14px; }
-  .sec-mix .faders { flex: 1; align-items: stretch; }
-  .sec-mix .f-slot { flex: 1; height: auto; min-height: 120px; }
+  /* bat-lever switches: up is on */
+  .lever { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 38px; padding: 2px 2px 4px; border: 0;
+           border-radius: 6px; background: transparent; cursor: pointer; color: var(--silk, var(--text)); }
+  .lever:hover:not(:disabled) { background: rgba(255, 255, 255, .04); }
+  .lever .pos { font: 800 9px/1.1 var(--sans); letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; min-height: 10px; }
+  .lever .ico svg { width: 24px; height: 13px; display: block; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+  .slot { position: relative; display: block; width: 15px; height: 36px; border-radius: 3px; border: 1px solid #45454a;
+          background: linear-gradient(90deg, #000, #1c1c1f 50%, #000); box-shadow: inset 0 1px 4px #000; }
+  .bat { position: absolute; left: 1px; right: 1px; height: 16px; top: 17px; border-radius: 2px;
+         background: linear-gradient(#fbfbf7, #b9b9b3); box-shadow: 0 2px 3px rgba(0, 0, 0, .8), inset 0 -2px 0 #8d8d88; transition: top .07s; }
+  .lever[aria-pressed="true"] .bat { top: 1px; }
+  .lever3 { display: flex; gap: 6px; align-items: center; }
+  .lever3 .slot { height: 46px; cursor: pointer; }
+  .lever3 .bat { height: 14px; }
+  .lever3 .names { display: flex; flex-direction: column; justify-content: space-between; height: 46px; }
+  .lever3 .names button { padding: 0 2px; border: 0; background: transparent; color: var(--silk); font: 800 9px/1 var(--sans);
+                          letter-spacing: .04em; text-align: left; border-radius: 3px; }
+  .lever3 .names button[aria-pressed="true"] { color: #ff4a36; }
+  .lever3-box { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .lever3-box .lbl { color: var(--silk); font: 800 9.5px var(--sans); letter-spacing: .04em; }
+
+  /* ---------------------------------------------------------------- the extras below the faceplate */
+  .extras-head { display: flex; align-items: center; gap: 12px; margin: 0 0 -14px; color: var(--label);
+                 font: 800 11px/1 var(--sans); letter-spacing: .24em; text-transform: uppercase; }
+  .extras-head::after { content: ""; flex: 1; height: 1px; background: var(--edge); }
+  .extras { display: grid; gap: 26px 14px; grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-areas:
+      "scope scope scope scope scope scope scope scope scope scope scope scope"
+      "env1 env1 env1 env0 env0 env0 env2 env2 env2 env3 env3 env3"
+      "lfo1 lfo1 lfo1 lfo1 lfo1 lfo1 lfo2 lfo2 lfo2 lfo2 lfo2 lfo2"
+      "voice voice voice voice mtx mtx mtx mtx mtx mtx mtx mtx"
+      "seq seq seq seq seq seq seq seq seq seq seq seq"; }
+  .sec-scope { grid-area: scope; } .sec-seq { grid-area: seq; } .sec-matrix { grid-area: mtx; }
+  .sec-env0 { grid-area: env0; } .sec-env1 { grid-area: env1; } .sec-env2 { grid-area: env2; } .sec-env3 { grid-area: env3; }
+  .sec-lfo1 { grid-area: lfo1; } .sec-lfo2 { grid-area: lfo2; } .sec-voice { grid-area: voice; }
+  @media (max-width: 1360px) {
+    .extras { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas:
+      "scope scope" "env1 env0" "env2 env3" "lfo1 lfo2" "voice voice" "mtx mtx" "seq seq"; }
+  }
+  @media (max-width: 760px) {
+    .extras { grid-template-columns: 1fr; grid-template-areas: "scope" "env1" "env0" "env2" "env3" "lfo1" "lfo2" "voice" "mtx" "seq"; }
+    main { padding: 10px; }
+  }
+  .sec { position: relative; min-width: 0; padding: 20px 14px 14px; border-radius: 10px; background: var(--well);
+         border: 1px solid #4b4b50; display: flex; flex-direction: column; gap: 10px; }
+  .sec > h2 { position: absolute; top: 0; left: 12px; transform: translateY(-50%); margin: 0; padding: 0 8px;
+              background: linear-gradient(var(--bg) 50%, var(--well) 50%); color: var(--text); }
+  .sec > h2::before { display: none; }
+  .sec .row { justify-content: space-between; }
+  .sec-tools { display: flex; gap: 6px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .sec-tools select { flex: 1; }
+  .krow { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 4px; }
+  .scopes { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .scopes > div { display: flex; flex-direction: column; gap: 5px; }
+  @media (max-width: 760px) { .scopes { grid-template-columns: 1fr; } }
+  .lbl { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--label); white-space: nowrap; }
+  .val { font: 11px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
+  .sel { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  canvas.viz { width: 100%; height: 70px; display: block; background: #0b0b0c; border-radius: 7px; border: 1px solid #000; }
+  canvas.viz.flt, canvas.viz.lfo, canvas.viz.osc { height: 80px; }
 
   /* LED buttons */
   .led { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; font-size: 11px; font-weight: 600; letter-spacing: .06em; }
@@ -206,6 +269,25 @@
   .lane-head select { max-width: 260px; }
   canvas.viz.lane { grid-column: 2; height: 52px; cursor: crosshair; touch-action: none; }
   @media (max-width: 760px) { .seq-grid { grid-template-columns: 30px repeat(8, minmax(0, 1fr)); } .seq-col:nth-child(n+10) { display: none; } }
+
+  /* ---------------------------------------------------------------- the device cheat sheet */
+  .cheat { display: grid; gap: 24px 14px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); margin-top: 18px; }
+  .cs { position: relative; min-width: 0; padding: 20px 14px 12px; border: 1.5px solid #deded8; border-radius: 10px; background: #111214; }
+  .cs > h3 { position: absolute; top: 0; left: 14px; transform: translateY(-56%); margin: 0; padding: 0 8px;
+             background: linear-gradient(var(--bg) 50%, #111214 50%); color: #f1f1ec; font: 800 12px/1 var(--sans);
+             letter-spacing: .07em; text-transform: uppercase; }
+  .cs-wide { grid-column: 1 / -1; }
+  .cs ul, .cs ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .cs p { margin: 8px 0 0; }
+  .cs ol.steps-line { flex-direction: row; flex-wrap: wrap; gap: 6px 22px; margin-bottom: 12px; }
+  .ct { background: transparent; border: 0; }
+  .ct td, .ct th { padding: 4px 6px; vertical-align: top; }
+  .ct td:first-child { white-space: nowrap; color: var(--label); }
+  .ct-pair { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  kbd { display: inline-block; padding: 1px 6px; border-radius: 4px; border: 1px solid #55555b; border-bottom-width: 2px;
+        background: #26272b; color: #f1f1ec; font: 700 10.5px/1.5 var(--sans); letter-spacing: .03em; white-space: nowrap; }
+  code.lcd { display: inline-block; padding: 0 5px; border-radius: 3px; background: var(--screen); color: var(--screen-fg);
+             font: 600 11.5px/1.5 var(--mono); text-shadow: 0 0 5px rgba(255, 80, 50, .5); white-space: pre; }
 
   /* ---------------------------------------------------------------- other tabs */
   .grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
@@ -274,19 +356,174 @@
     <span id="status">Not connected. Needs Chrome or Edge (WebMIDI with SysEx).</span>
   </div>
   <nav class="tabs" id="tabs">
-    <button data-tab="sound">Sound</button><button data-tab="matrix">Mod matrix</button>
+    <button data-tab="sound">Sound</button><button data-tab="device">Device cheat sheet</button>
     <button data-tab="patches">Patches</button><button data-tab="play">Play</button>
     <button data-tab="system">System</button><button data-tab="mapping">Panel mapping</button>
   </nav>
 </header>
 <main>
 <div class="panel" id="tab-sound">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <radialGradient id="k-cap-fill" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#2e2e31"/><stop offset="1" stop-color="#09090a"/></radialGradient>
+  </defs></svg>
   <div class="synth" id="synth"></div>
-  <p class="hint" style="margin-top:14px">Drag a knob or fader up and down (shift: fine), or click it and use the scroll
+  <p class="hint" style="margin-top:14px">Drag a knob up and down (shift: fine), or click it and use the scroll
     wheel or arrow keys; double-click resets it. The page follows the synth about once a second, and moving a control here puts that
-    knob in pickup on the panel, as loading a patch does. LED buttons show the panel buttons as the sound uses them; a
-    click holds the state until you press that button on the panel. Depth bars are mod routes on the layer you're
-    editing. ○ marks a control shared by both layers.</p>
+    knob in pickup on the panel, as loading a patch does. Switches show the panel buttons as the sound uses them; a
+    click holds the state until you press that button on the panel. Knobs, depth bars and the mod matrix edit the
+    layer you're editing (Layer 1 / 2 at the top). ○ marks a control shared by both layers.</p>
+</div>
+
+<div class="panel" id="tab-device">
+  <p class="hint">Everything this firmware adds, reached from the synth itself. <kbd>Buttons</kbd> are as printed on the panel;
+    <code class="lcd">codes</code> are what the display shows. Web-only features are listed at the end.</p>
+  <div class="cheat">
+    <section class="cs cs-wide">
+      <h3>Buttons that do new jobs</h3>
+      <table class="ct">
+        <tr><td><kbd>Seq 1</kbd> / <kbd>Seq 2</kbd></td><td>Choose the layer the knobs edit <code class="lcd">L  1</code> <code class="lcd">L  2</code></td></tr>
+        <tr><td><kbd>Arp Up-Dn</kbd></td><td>LFO knobs, Shape button and LFO routing edit LFO 1 or LFO 2 (LED lit = LFO 2) <code class="lcd">LFO1</code> <code class="lcd">LFO2</code></td></tr>
+        <tr><td><kbd>Arp Assign</kbd></td><td>Mod assign: the mod matrix (LED blinks) <code class="lcd">SrC</code></td></tr>
+        <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways</td></tr>
+        <tr><td>Keyboard-tracking switch</td><td>What the filter ADSR knobs edit: bottom <code class="lcd">FEnV</code>, middle <code class="lcd">EnV3</code>, top <code class="lcd">EnV4</code></td></tr>
+        <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live)</td></tr>
+        <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
+        <tr><td><kbd>Perf</kbd></td><td>Load the init sound (one saw, filter open)</td></tr>
+        <tr><td><kbd>Settings</kbd></td><td>The settings menu <code class="lcd">SEt</code> (keys 0-9 below)</td></tr>
+        <tr><td><kbd>Tune</kbd></td><td>Autotune, about 25 s, silent <code class="lcd">tUnE</code></td></tr>
+      </table>
+    </section>
+
+    <section class="cs">
+      <h3>The display</h3>
+      <ul>
+        <li>A knob shows its value while turned, in real units: semitones (FREQ A/B), cents (FINE, M TUNE), Hz with a point from 1 kHz (CUTOFF), ms / s (envelopes, GLIDE), divisions when synced (LFO FREQ).</li>
+        <li>No plus sign: positive values have none.</li>
+        <li><b>A dot after the value</b> = the knob hasn't picked up yet. Turn it past (or onto) the stored value and it takes over. Happens after loading a patch, switching layer / LFO / envelope, or editing from the web page.</li>
+      </ul>
+    </section>
+
+    <section class="cs">
+      <h3>Patches</h3>
+      <ul>
+        <li><b>Load:</b> in preset mode, two digits pick a patch in the bank, or <kbd>VALUE</kbd> steps through all 200 (<code class="lcd"> A.07</code>, <code class="lcd"> b.12</code>).</li>
+        <li><b>Save:</b> <kbd>Rec</kbd>, two digits or <kbd>VALUE</kbd>, <kbd>Rec</kbd>. <kbd>Preset</kbd> cancels.</li>
+        <li><b>Init:</b> <kbd>Perf</kbd>, then <kbd>Rec</kbd> to keep it anywhere.</li>
+        <li>A patch keeps both layers, settings, routes, LFO shapes and step patterns, and its sequence. M VOL isn't stored.</li>
+      </ul>
+    </section>
+
+    <section class="cs">
+      <h3>Layers</h3>
+      <ol>
+        <li><kbd>Settings</kbd> <kbd>3</kbd> <code class="lcd">LAYr</code>, <kbd>VALUE</kbd>: <code class="lcd">OFF</code> <code class="lcd">SPLt</code> <code class="lcd">StAC</code> <code class="lcd">CHAn</code> (MIDI channel 2 = layer 2).</li>
+        <li>Split point: <kbd>Settings</kbd> <kbd>4</kbd>, then <kbd>VALUE</kbd> or play the note.</li>
+        <li><kbd>Seq 1</kbd> / <kbd>Seq 2</kbd> choose the layer you edit.</li>
+      </ol>
+      <p class="dim small">Shared by both layers: mixer, noise, resonance, PW A/B, PMOD OSC B, M VOL, every button.</p>
+    </section>
+
+    <section class="cs">
+      <h3>LFOs</h3>
+      <ol>
+        <li><kbd>Arp Up-Dn</kbd> picks LFO 1 / LFO 2 (LED lit = 2).</li>
+        <li><kbd>LFO Shape</kbd>: <code class="lcd">trI</code> <code class="lcd">PULS</code> <code class="lcd">SA.UP</code> <code class="lcd">SA.dn</code> <code class="lcd">SInE</code> <code class="lcd">S-H</code> <code class="lcd">drFt</code> <code class="lcd">StEP</code></li>
+        <li>LFO 2 routing: select it, press LFO → Freq / Filter / PW <code class="lcd">Fr.on</code> <code class="lcd">FL.oF</code>. The button positions keep showing LFO 1.</li>
+        <li>Sync: <kbd>Settings</kbd> <kbd>1</kbd> <code class="lcd">SYnC</code>/<code class="lcd">SYn2</code> → <code class="lcd">FrEE</code> <code class="lcd">CLoC</code>. With the clock, LFO FREQ picks <code class="lcd">8bAr</code> … <code class="lcd">1-32</code>.</li>
+        <li>Retrigger: <kbd>Settings</kbd> <kbd>2</kbd> <code class="lcd">trIG</code>/<code class="lcd">trI2</code> → <code class="lcd">FrEE</code> <code class="lcd">1St</code> <code class="lcd">EACH</code> <code class="lcd">PoLY</code> (per voice).</li>
+      </ol>
+      <p class="dim small">The mod wheel adds LFO 1 depth. The StEP pattern is edited on the web page.</p>
+    </section>
+
+    <section class="cs">
+      <h3>Envelopes</h3>
+      <ol>
+        <li>Keyboard-tracking switch: the filter ADSR knobs edit <code class="lcd">FEnV</code> (bottom), <code class="lcd">EnV3</code> (middle) or <code class="lcd">EnV4</code> (top).</li>
+        <li>Env 3 / 4 do nothing until a mod route uses them (sources 7, 8).</li>
+        <li>Keytracking itself: <kbd>Settings</kbd> <kbd>5</kbd> <code class="lcd">trAC</code> → <code class="lcd">OFF</code> <code class="lcd">HALF</code> <code class="lcd">FULL</code>.</li>
+        <li>Cycling: <kbd>Settings</kbd> <kbd>6</kbd> <code class="lcd">CY.A</code> <code class="lcd">CY.F</code> <code class="lcd">CY.3</code> <code class="lcd">CY.4</code> (<kbd>6</kbd> again: next), <kbd>VALUE</kbd>: <code class="lcd">OFF</code>, <code class="lcd">FrEE</code>, or a division (synced).</li>
+      </ol>
+      <p class="dim small">Cycling knobs: ATT rise, SUS hold, DEC fall, REL rest. Synced: the four are shares of the division (shown in %).</p>
+    </section>
+
+    <section class="cs cs-wide">
+      <h3>Mod assign (the matrix)</h3>
+      <ol class="steps-line">
+        <li><kbd>Arp Assign</kbd> <code class="lcd">SrC</code></li>
+        <li>a number key: the source</li>
+        <li>touch the destination: turn its knob a little, or press an LFO routing button</li>
+        <li><kbd>VALUE</kbd>: depth −99…99 (0 removes; <code class="lcd">FULL</code> = 8 in use)</li>
+        <li><kbd>Arp Assign</kbd> to finish</li>
+      </ol>
+      <div class="ct-pair">
+        <table class="ct">
+          <tr><th>Key</th><th>Source</th></tr>
+          <tr><td><kbd>1</kbd></td><td>Selected LFO (1 again: the other) <code class="lcd">LFO1</code> <code class="lcd">LFO2</code></td></tr>
+          <tr><td><kbd>2</kbd></td><td>Filter env <code class="lcd">FEnV</code></td></tr>
+          <tr><td><kbd>3</kbd></td><td>Amp env <code class="lcd">AEnV</code></td></tr>
+          <tr><td><kbd>4</kbd></td><td>Velocity <code class="lcd">VEL</code></td></tr>
+          <tr><td><kbd>5</kbd></td><td>Mod wheel <code class="lcd">nod</code></td></tr>
+          <tr><td><kbd>6</kbd></td><td>Aftertouch, per voice with poly pressure <code class="lcd">PrES</code></td></tr>
+          <tr><td><kbd>7</kbd> / <kbd>8</kbd></td><td>Env 3 / Env 4 <code class="lcd">EnV3</code> <code class="lcd">EnV4</code></td></tr>
+          <tr><td><kbd>9</kbd></td><td>Random per note <code class="lcd">rAnd</code></td></tr>
+          <tr><td><kbd>0</kbd></td><td>Note number <code class="lcd">notE</code></td></tr>
+        </table>
+        <table class="ct">
+          <tr><th>Touch</th><th>Destination</th></tr>
+          <tr><td>FREQ A / FREQ B, FINE / M TUNE</td><td>Pitch A <code class="lcd">P.A</code>, B <code class="lcd">P.b</code>, both <code class="lcd">PIt</code></td></tr>
+          <tr><td>CUTOFF</td><td>Cutoff <code class="lcd">CUt</code></td></tr>
+          <tr><td>FIL ENV AMT / PMOD FIL ENV</td><td>Env amounts <code class="lcd">F.EA</code> <code class="lcd">P.EA</code></td></tr>
+          <tr><td>AMP SUS</td><td>VCA gain <code class="lcd">VCA</code></td></tr>
+          <tr><td>LFO AMOUNT / LFO FREQ</td><td>LFO depth / rate <code class="lcd">L.An</code> <code class="lcd">L.rt</code> (<code class="lcd">L2.</code> for LFO 2)</td></tr>
+          <tr><td>LFO → Freq / Filter / PW button</td><td>LFO routing depths <code class="lcd">L.Fr</code> <code class="lcd">L.FL</code> <code class="lcd">L.PU</code></td></tr>
+          <tr><td>A LEVEL / B LEVEL / NOISE</td><td>Mixer <code class="lcd">A.LE</code> <code class="lcd">b.LE</code> <code class="lcd">noIS</code></td></tr>
+          <tr><td>RESONANCE, PW A / B, PMOD OSC B</td><td><code class="lcd">rES</code> <code class="lcd">A.PU</code> <code class="lcd">b.PU</code> <code class="lcd">P.ob</code></td></tr>
+        </table>
+      </div>
+    </section>
+
+    <section class="cs">
+      <h3>Settings menu</h3>
+      <table class="ct">
+        <tr><td><kbd>1</kbd></td><td><code class="lcd">SYnC</code> LFO sync</td></tr>
+        <tr><td><kbd>2</kbd></td><td><code class="lcd">trIG</code> LFO retrigger</td></tr>
+        <tr><td><kbd>3</kbd></td><td><code class="lcd">LAYr</code> layer mode</td></tr>
+        <tr><td><kbd>4</kbd></td><td><code class="lcd">SPLt</code> split note</td></tr>
+        <tr><td><kbd>5</kbd></td><td><code class="lcd">trAC</code> keytracking</td></tr>
+        <tr><td><kbd>6</kbd></td><td><code class="lcd">CY.x</code> cycling envelope</td></tr>
+        <tr><td><kbd>7</kbd></td><td><code class="lcd">bEnd</code> bend range, 1-12 st</td></tr>
+        <tr><td><kbd>8</kbd></td><td><code class="lcd">dEtU</code> unison detune, 0-50 ct</td></tr>
+        <tr><td><kbd>9</kbd></td><td><code class="lcd">UOIC</code> voice mode <code class="lcd">POLY</code> <code class="lcd">nono</code> <code class="lcd">LEG</code></td></tr>
+        <tr><td><kbd>0</kbd></td><td><code class="lcd">drFt</code> drift, 0-99</td></tr>
+      </table>
+      <p class="dim small"><kbd>Settings</kbd> opens and closes it; <kbd>VALUE</kbd> changes. Settings live in the patch: save to keep them.</p>
+    </section>
+
+    <section class="cs">
+      <h3>MIDI</h3>
+      <ul>
+        <li>USB MIDI on any channel (5-pin in isn't supported yet). MIDI clock drives sync; Start lines up the bar.</li>
+        <li>Sustain (CC 64), pitch bend (range: <kbd>Settings</kbd> <kbd>7</kbd>), mod wheel, poly and channel aftertouch.</li>
+        <li>Program change picks a patch; bank select CC 0 / 32: 0 = A, 1 = b.</li>
+        <li>CCs: 74 cutoff, 71 resonance, 5 glide, 14 / 15 FREQ A / B, 16 FINE, 17 / 18 PW, 19 / 20 levels, 21 noise, 22 filter env amount, 23-26 filter ADSR, 73 / 75 / 70 / 72 amp A / D / S / R, 76 / 77 LFO 1, 27 / 28 LFO 2, 29 / 30 poly-mod, 31 tune, 85-90 + 102-103 Env 3 / 4.</li>
+      </ul>
+    </section>
+
+    <section class="cs">
+      <h3>Recovery</h3>
+      <ul>
+        <li>A firmware that won't start: hold <kbd>0</kbd> and <kbd>7</kbd> while switching on → bootloader; flash any <code>.syx</code>.</li>
+        <li>Retune after the synth has warmed up: <kbd>Tune</kbd>.</li>
+      </ul>
+    </section>
+
+    <section class="cs cs-wide">
+      <h3>On the web page only</h3>
+      <p class="small">The step sequencer, its lanes, arpeggio, probability and ratchets (the panel only plays it, from a key) ·
+        LFO step patterns · scale and root · morph target and source · note priority · Mutate · mod routes from Seq A-D
+        and to Morph · patch names, export, the factory bank · copying an LFO or envelope from the other layer.</p>
+    </section>
+  </div>
 </div>
 
 <div class="panel" id="tab-matrix">
@@ -296,7 +533,7 @@
       marked <span class="tag">wire</span> are a single wire for all voices, so they follow the most recently played
       note. On the panel: Arp Assign, a number key for the source (1 again swaps LFO 1 / LFO 2), touch a knob or LFO
       button for the destination, VALUE for the depth.</p>
-    <div class="row"><span class="seg" id="matrix-layer"><button data-v="0">Layer 1</button><button data-v="1">Layer 2</button></span>
+    <div class="row"><span class="dim small">the layer you're editing</span>
       <button id="matrix-refresh">Refresh</button><span class="msg" id="matrix-msg"></span></div>
     <div class="table-wrap"><table>
       <thead><tr><th>Source</th><th>Destination</th><th>Depth</th><th></th></tr></thead>
@@ -775,12 +1012,12 @@ const result = (id, ok, done, failed) => msg(id, ok ? done : failed, ok ? "ok" :
 // --- tabs ---
 let tab = "sound";
 function showTab(name) {
+  if (name === "matrix") name = "sound"; // the mod matrix is on the Sound tab now
   tab = name;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".panel").forEach(p => p.hidden = p.id !== "tab-" + name);
   try { localStorage.setItem("pro800-tab", name); } catch (e) {}
   if (!output) return;
-  if (name === "matrix") loadRoutes();
   if (name === "patches" && !slots.length) scanSlots();
   if (name === "system") showStats();
 }
@@ -996,95 +1233,113 @@ function adjustable(e, get, set, reset, { vertical = true, span = 200, unit = 0 
   });
 }
 
-const ARC = 270;
-function arcPath(cx, cy, r, a0, a1) {
-  const pt = a => [cx + r * Math.sin(a * Math.PI / 180), cy - r * Math.cos(a * Math.PI / 180)];
-  const [x0, y0] = pt(a0), [x1, y1] = pt(a1);
-  return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+// The knob face: a knurled black knob with a white pointer, in a printed scale (0-10, -5..+5 when bipolar) or, for a
+// selector, its named positions. turn(u) points it at u (0..1); mark(k) lights selector position k.
+function dial(scale) {
+  const s = svgEl("svg", { viewBox: "0 0 80 70", "aria-hidden": "true" });
+  const names = Array.isArray(scale) ? scale : null, n = names ? names.length : 11;
+  const g = svgEl("g", { class: "k-scale" + (names ? " names" : "") }), texts = [];
+  const at = (a, r) => [40 + r * Math.sin(a * Math.PI / 180), 38 - r * Math.cos(a * Math.PI / 180)];
+  for (let k = 0; k < n; k++) {
+    const a = -135 + k * 270 / (n - 1), major = names || k % 2 === 0 || (scale === "bi" && k === 5);
+    const [x0, y0] = at(a, 20.5), [x1, y1] = at(a, major ? 25 : 23);
+    g.append(svgEl("line", { x1: x0.toFixed(2), y1: y0.toFixed(2), x2: x1.toFixed(2), y2: y1.toFixed(2) }));
+    const text = names ? names[k] : scale === "bi" ? { 0: "−5", 5: "0", 10: "+5" }[k] : k % 2 ? null : String(k);
+    if (text) {
+      const [x, y] = at(a, names ? 31.5 : 30.5), t = svgEl("text", { x: x.toFixed(2), y: y.toFixed(2) });
+      t.textContent = text;
+      g.append(t);
+      texts[k] = t;
+    }
+  }
+  const ptr = svgEl("line", { class: "k-ptr", x1: 40, y1: 33, x2: 40, y2: 22.5 });
+  s.append(g, svgEl("circle", { class: "k-grip", cx: 40, cy: 38, r: 17 }), svgEl("circle", { class: "k-cap", cx: 40, cy: 38, r: 13 }), ptr);
+  return {
+    svg: s,
+    turn: u => ptr.setAttribute("transform", `rotate(${(-135 + u * 270).toFixed(1)} 40 38)`),
+    mark: k => texts.forEach((t, j) => t && t.classList.toggle("on", j === k)),
+  };
 }
 
-// A rotary knob for parameter i. opts: { size: "s" | "m" | "l", accent }
-function knob(i, text, opts = {}) {
-  const s = svgEl("svg", { viewBox: "0 0 48 48", "aria-hidden": "true" });
-  const arc = svgEl("path", { class: "k-arc" }), ptr = svgEl("line", { class: "k-ptr", x1: 24, y1: 24, x2: 24, y2: 12 });
-  s.append(svgEl("path", { class: "k-track", d: arcPath(24, 24, 19, -135, 135) }), arc,
-    svgEl("circle", { class: "k-cap", cx: 24, cy: 24, r: 14 }), ptr);
+// A rotary knob for parameter i
+function knob(i, text) {
+  const d = dial(BIPOLAR.has(i) ? "bi" : "uni");
   const val = h("span", { class: "val" }, "–");
-  const dial = h("div", { class: "dial", role: "slider", "aria-label": NAMES[i] || text }, s);
+  const dl = h("div", { class: "dial", role: "slider", "aria-label": NAMES[i] || text }, d.svg);
   const lbl = h("span", { class: "lbl" }, text);
-  const e = h("div", { class: `knob k-${opts.size || "m"}${opts.accent ? " accent" : ""}`, title: (NAMES[i] || text) +
-    (SHARED.has(i) ? " (shared by both layers)" : "") }, dial, lbl, val);
+  const e = h("div", { class: "knob", title: (NAMES[i] || text) + (SHARED.has(i) ? " (shared by both layers)" : "") }, dl, lbl, val);
   if (SHARED.has(i)) lbl.append(h("i", { class: "shared", title: "shared by both layers" }));
-  adjustable(dial, () => params ? params[i] : 0, v => { setParam(i, v); paintAll(); },
+  adjustable(dl, () => params ? params[i] : 0, v => { setParam(i, v); paintAll(); },
     () => { if (i in DEFAULTS) { setParam(i, DEFAULTS[i]); paintAll(); } });
-  dial.addEventListener("focus", () => params && touch(label(i), format(i, params[i])));
+  dl.addEventListener("focus", () => params && touch(label(i), format(i, params[i])));
   paints.push(() => {
     if (!params) return;
-    const u = params[i], a = -135 + u * ARC, a0 = BIPOLAR.has(i) ? 0 : -135;
-    arc.setAttribute("d", Math.abs(a - a0) < .5 ? "" : arcPath(24, 24, 19, Math.min(a0, a), Math.max(a0, a)));
-    ptr.setAttribute("transform", `rotate(${a} 24 24)`);
+    const u = params[i];
+    d.turn(u);
     val.textContent = format(i, u);
-    dial.setAttribute("aria-valuetext", val.textContent);
+    dl.setAttribute("aria-valuetext", val.textContent);
     if (ENV_KNOB[i]) { const [bit, stage] = ENV_KNOB[i]; lbl.firstChild.textContent = (cycling(bit) ? CYCLE_LABELS : ADSR_LABELS)[stage]; }
   });
   return e;
 }
 
-// A knob on any value: get / set 0..1, text(u) for the reading
+// A knob on any value: get / set 0..1, show(u) for the reading
 function modelKnob(text, get, set, show, reset, title) {
-  const s = svgEl("svg", { viewBox: "0 0 48 48", "aria-hidden": "true" });
-  const arc = svgEl("path", { class: "k-arc" }), ptr = svgEl("line", { class: "k-ptr", x1: 24, y1: 24, x2: 24, y2: 12 });
-  s.append(svgEl("path", { class: "k-track", d: arcPath(24, 24, 19, -135, 135) }), arc,
-    svgEl("circle", { class: "k-cap", cx: 24, cy: 24, r: 14 }), ptr);
-  const val = h("span", { class: "val" }, "–"), dial = h("div", { class: "dial", role: "slider", "aria-label": text }, s);
-  adjustable(dial, get, u => { set(Math.min(1, Math.max(0, u))); paintAll(); }, () => { set(reset); paintAll(); });
-  paints.push(() => {
-    const u = get(), a = -135 + u * ARC;
-    arc.setAttribute("d", u < .003 ? "" : arcPath(24, 24, 19, -135, a));
-    ptr.setAttribute("transform", `rotate(${a} 24 24)`);
-    val.textContent = show(u);
-  });
-  return h("div", { class: "knob", title }, dial, h("span", { class: "lbl" }, text), val);
+  const d = dial("uni"), val = h("span", { class: "val" }, "–");
+  const dl = h("div", { class: "dial", role: "slider", "aria-label": text }, d.svg);
+  adjustable(dl, get, u => { set(Math.min(1, Math.max(0, u))); paintAll(); }, () => { set(reset); paintAll(); });
+  paints.push(() => { const u = get(); d.turn(u); val.textContent = show(u); });
+  return h("div", { class: "knob", title }, dl, h("span", { class: "lbl" }, text), val);
 }
 
-// A vertical fader for parameter i (levels, envelope stages)
-function fader(i, text) {
-  const fill = h("i", { class: "f-fill" }), thumb = h("b", { class: "f-thumb" });
-  const slot = h("div", { class: "f-slot", role: "slider", "aria-label": NAMES[i] || text, "aria-orientation": "vertical" }, fill, thumb);
-  const val = h("span", { class: "val" }, "–"), lbl = h("span", { class: "lbl" }, text);
-  const e = h("div", { class: "fader", title: label(i) }, val, slot, lbl);
-  adjustable(slot, () => params ? params[i] : 0, v => { setParam(i, v); paintAll(); },
-    () => { if (i in DEFAULTS) { setParam(i, DEFAULTS[i]); paintAll(); } }, { span: 130 });
-  slot.addEventListener("pointerdown", ev => { // a click on the track jumps there
-    if (ev.target === thumb) return;
-    const r = slot.getBoundingClientRect();
-    setParam(i, 1 - (ev.clientY - r.top) / r.height); paintAll();
-  }, true);
-  paints.push(() => {
-    if (!params) return;
-    const u = params[i];
-    fill.style.height = (u * 100).toFixed(1) + "%";
-    thumb.style.bottom = `calc(${(u * 100).toFixed(1)}% - 5px)`;
-    val.textContent = format(i, u);
-    if (ENV_KNOB[i]) { const [bit, stage] = ENV_KNOB[i]; lbl.textContent = (cycling(bit) ? CYCLE_LABELS : ADSR_LABELS)[stage]; }
-  });
-  return e;
+// A rotary selector over named positions (a setting): get() → index, set(index)
+function selector(text, names, get, set, title) {
+  const n = names.length, d = dial(names.map(x => x[0])), val = h("span", { class: "val" }, "–");
+  const dl = h("div", { class: "dial", role: "slider", "aria-label": text }, d.svg);
+  let local = null, at = 0;
+  const cur = () => local !== null && Date.now() - at < 1500 ? local : get();
+  adjustable(dl, () => (cur() || 0) / (n - 1), u => {
+    const k = Math.round(Math.min(1, Math.max(0, u)) * (n - 1));
+    if (k === cur() || offline()) return;
+    local = k; at = Date.now(); set(k); paintAll();
+  }, () => { local = 0; at = Date.now(); set(0); paintAll(); }, { span: 150, unit: 1 / (n - 1) });
+  paints.push(() => { const k = cur(); if (k === undefined || k === null) return; d.turn(k / (n - 1)); d.mark(k); val.textContent = names[k][1]; });
+  return h("div", { class: "knob", title }, dl, h("span", { class: "lbl" }, text), val);
 }
 
-// An LED push button for a latching panel button (switch_t index): it shows and holds the state the sound uses
-function ledSwitch(sw, text) {
-  const b = h("button", { type: "button", class: "led", title: "a panel button, shared by both layers: a click holds it " +
-    "until you press it on the panel" }, h("i", { class: "lamp" }), h("span", {}, text));
-  b.onclick = async () => {
+// A bat-lever switch (up is on): opts { top, bottom, icon (a WAVES key), title }
+const WAVES = { saw: "M1 12 11 2V12L21 2V12", tri: "M1 12 6 2 11 12 16 2 21 12", sq: "M1 12V2H11V12H21V2" };
+function lever(text, get, set, { top = "", bottom = "", icon, title } = {}) {
+  let ico = null;
+  if (icon) { const s = svgEl("svg", { viewBox: "0 0 22 14", "aria-hidden": "true" }); s.append(svgEl("path", { d: WAVES[icon] })); ico = h("span", { class: "ico" }, s); }
+  const b = h("button", { type: "button", class: "lever", title: title || text, "aria-label": text },
+    ico || h("span", { class: "pos" }, top), h("span", { class: "slot" }, h("i", { class: "bat" })), h("span", { class: "pos" }, bottom));
+  b.onclick = () => set(!get());
+  paints.push(() => b.setAttribute("aria-pressed", String(!!get())));
+  return b;
+}
+// A lever for a latching panel button (switch_t index): it shows and holds the state the sound uses
+function panelLever(sw, text, opts = {}) {
+  return lever(text, () => buttons && buttons[sw], async on => {
     if (offline() || !buttons) return;
-    const on = !buttons[sw];
     buttons[sw] = on ? 1 : 0;
     touch(text, on ? "on" : "off");
     if (!await ack([0x4B, sw, on ? 1 : 0])) document.getElementById("status").textContent = "The synth didn't take that (firmware 0.6.6 or later?)";
     await refreshButtons();
-  };
-  paints.push(() => b.setAttribute("aria-pressed", String(!!(buttons && buttons[sw]))));
-  return b;
+  }, { title: `${text}: a panel button, shared by both layers; a click holds it until you press it on the panel`, ...opts });
+}
+// A three-position lever: names top to bottom; get() / set() the index from the top
+function lever3(text, names, get, set, title) {
+  const bat = h("i", { class: "bat" }), slot = h("span", { class: "slot" }, bat);
+  const picks = names.map((name, k) => h("button", { type: "button", title: `${text}: ${name}`, onclick: () => set(k) }, name));
+  slot.onclick = () => { const k = get(); if (k !== undefined) set((k + 1) % names.length); };
+  paints.push(() => {
+    const k = get();
+    if (k === undefined) return;
+    bat.style.top = `${1 + k * (46 - 2 - 14 - 2) / (names.length - 1)}px`;
+    picks.forEach((b, j) => b.setAttribute("aria-pressed", String(j === k)));
+  });
+  return h("div", { class: "lever3-box", title }, h("div", { class: "lever3" }, slot, h("div", { class: "names" }, picks)), h("span", { class: "lbl" }, text));
 }
 // An LED button for an arbitrary on/off: get() → bool, set(bool)
 function led(text, get, set, title) {
@@ -1120,7 +1375,7 @@ function depthBar(which, t) {
     timer = setTimeout(async () => {
       for (const dest of dests)
         if (!await setRoute(paramsLayer, src, dest, depth)) {
-          document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use (Mod matrix tab)`;
+          document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use (Mod matrix, below)`;
           local = null;
           break;
         }
@@ -1284,11 +1539,12 @@ function envSection(env) {
     await setSetting(SET_ID[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`], v >= 2 ? v - 1 : 0);
     await setSetting(SET_ID[key], v ? bits | bit : bits & ~bit);
   }, "ADSR, or cycling while a key is held: attack, hold, fall, rest; synced cycles share a clock division");
-  const note = bit >= 4 ? h("span", { class: "dim small" }, `panel: keytrack switch ${bit === 4 ? "middle" : "top"}`) : null;
+  const note = h("span", { class: "dim small" }, bit < 4 ? `knobs: ${bit === 2 ? "Filter" : "Amplifier"} on the panel above` :
+    `on the synth: the filter ADSR knobs, with the keytrack switch ${bit === 4 ? "in the middle" : "up"}`);
   return sec(`env${envIndex(bit)}`, title,
     h("div", { class: "sec-tools" }, mode, copyButton(`copy this envelope from the other layer`, () => copyEnvelope(bit, title))),
     viz("env", drawEnv(bit)),
-    h("div", { class: "faders" }, fader(a, "Attack"), fader(d, "Decay"), fader(s, "Sustain"), fader(r, "Release")),
+    bit >= 4 ? h("div", { class: "krow" }, knob(a, "Attack"), knob(d, "Decay"), knob(s, "Sustain"), knob(r, "Release")) : null,
     note);
 }
 function lfoSection(which) {
@@ -1325,22 +1581,22 @@ function lfoSection(which) {
         for (let i = 0; i < c; i++) if (i * k % c < k) x |= 1 << i;
         return x; })));
   paints.push(() => { stepEdit.hidden = !settings || settings[shapeKey()] !== STEPS_SHAPE; });
-  const routing = which
-    ? [["Pitch", 1], ["Filter", 2], ["PW", 4]].map(([t, bit]) => led(t, () => settings && settings[`lfo2Dests${paramsLayer + 1}`] & bit,
-        on => { const key = `lfo2Dests${paramsLayer + 1}`, v = settings[key]; touch(`LFO 2 → ${t}`, on ? "on" : "off");
-          setSetting(SET_ID[key], on ? v | bit : v & ~bit); }, t === "PW" ? "pulse width is one wire: layer 1's LFO 2" : ""))
-    : [ledSwitch(7, "Freq"), ledSwitch(10, "Filter"), ledSwitch(6, "PW")];
+  // LFO 1's rate, shape, amount and routing are on the faceplate (LFO-MOD); LFO 2 has them here
+  const routing = which ? [["Pitch", 1], ["Filter", 2], ["PW", 4]].map(([t, bit]) => led(t, () => settings && settings[`lfo2Dests${paramsLayer + 1}`] & bit,
+    on => { const key = `lfo2Dests${paramsLayer + 1}`, v = settings[key]; touch(`LFO 2 → ${t}`, on ? "on" : "off");
+      setSetting(SET_ID[key], on ? v | bit : v & ~bit); }, t === "PW" ? "pulse width is one wire: layer 1's LFO 2" : "")) : [];
   const selNote = h("span", { class: "dim small" });
-  paints.push(() => { selNote.textContent = !settings ? "" : settings.lfoSelect === which ? "panel LFO knobs: this LFO" : "Arp Up-Dn: select on the panel"; });
+  paints.push(() => { selNote.textContent = !settings ? "" : settings.lfoSelect === which ? "on the synth: the LFO knobs edit this LFO" : "on the synth: Arp Up-Dn selects it"; });
+  const timing = h("div", { class: "lfo-sel" },
+    settingSelect("Sync", SYNC, () => settings && settings[`lfo${n}Sync`], v => setSetting(SET_ID[`lfo${n}Sync`], v)),
+    settingSelect("Retrigger", TRIGGER, () => settings && settings[`lfo${n}Trigger`], v => setSetting(SET_ID[`lfo${n}Trigger`], v)));
   return sec(`lfo${n}`, `LFO ${n}`,
-    h("div", { class: "sec-tools" }, shapes, copyButton(`copy LFO ${n} from the other layer`, () => copyLfo(which))),
+    h("div", { class: "sec-tools" }, which ? shapes : h("span", { class: "dim small" }, "rate, shape, amount and routing: LFO-MOD on the panel above"),
+      copyButton(`copy LFO ${n} from the other layer`, () => copyLfo(which))),
     viz("lfo", drawLfo(which)),
     stepEdit,
-    row(knob(which ? P.LFO2_RATE : P.LFO_RATE, "Rate", { accent: true }), knob(which ? P.LFO2_AMT : P.LFO_AMT, "Amount"),
-      h("div", { class: "lfo-sel" },
-        settingSelect("Sync", SYNC, () => settings && settings[`lfo${n}Sync`], v => setSetting(SET_ID[`lfo${n}Sync`], v)),
-        settingSelect("Retrigger", TRIGGER, () => settings && settings[`lfo${n}Trigger`], v => setSetting(SET_ID[`lfo${n}Trigger`], v)))),
-    h("div", { class: "routing" }, h("span", { class: "lbl" }, which ? "Routing" : "Routing (panel)"), ...routing, selNote),
+    which ? row(knob(P.LFO2_RATE, "Rate"), knob(P.LFO2_AMT, "Amount"), timing) : row(timing, selNote),
+    which ? h("div", { class: "routing" }, h("span", { class: "lbl" }, "Routing"), ...routing, selNote) : null,
     h("div", { class: "depths" }, h("span", { class: "lbl" }, "Depth (mod routes)"), LFO_TARGETS.map((_, t) => depthBar(which, t))));
 }
 
@@ -1677,24 +1933,68 @@ function mutateControls() {
   return [h("button", { type: "button", class: "chip", title: "nudge every knob of the layer you're editing at random (not saved until you save)", onclick: go }, "Mutate"), amount];
 }
 
+const LFO_SHAPE_NAMES = [["TRI", "Triangle"], ["SQR", "Square"], ["UP", "Ramp up"], ["DN", "Ramp down"], ["SIN", "Sine"],
+  ["S&H", "Sample & hold"], ["DRF", "Drift"], ["STP", "Steps"]];
 function buildPanel() {
   const box = document.getElementById("synth");
-  box.append(
-    sec("osca", "Oscillator A", viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(0, 1, 2, params[P.PW_A], params[P.LEVEL_A]), 240, { fill: true })),
-      row(ledSwitch(0, "Saw"), ledSwitch(1, "Tri"), ledSwitch(2, "Square"), ledSwitch(15, "Sync")),
-      row(knob(P.FREQ_A, "Frequency", { accent: true }), knob(P.PW_A, "PW"))),
-    sec("oscb", "Oscillator B", viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(3, 4, 5, params[P.PW_B], params[P.LEVEL_B]), 240, { fill: true })),
-      row(ledSwitch(3, "Saw"), ledSwitch(4, "Tri"), ledSwitch(5, "Square")),
-      row(knob(P.FREQ_B, "Frequency", { accent: true }), knob(P.FINE, "Fine"), knob(P.PW_B, "PW"))),
-    sec("mix", "Mixer", h("div", { class: "faders" }, fader(P.LEVEL_A, "Osc A"), fader(P.LEVEL_B, "Osc B"), fader(P.NOISE, "Noise"))),
-    sec("flt", "Filter", viz("flt", drawFilter),
-      row(knob(P.CUTOFF, "Cutoff", { size: "l", accent: true }), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Env amt"),
-        settingSelect("Keytrack", ["Off", "Half", "Full"], () => settings && settings.keytrack, v => setSetting(SET_ID.keytrack, v)))),
+  const ps = (id, title, ...body) => h("div", { class: `ps ps-${id}` }, title ? h("h3", {}, title) : null, ...body);
+  const grp = (caption, ...kids) => h("div", { class: "grp" }, h("div", { class: "grp-in" }, ...kids), h("div", { class: "cap" }, caption));
+  const prow = (...kids) => h("div", { class: "prow" }, ...kids);
+  let showValues = false;
+  try { showValues = localStorage.getItem("pro800-values") === "1"; } catch (e) {}
+  const face = h("div", { class: "face" + (showValues ? " values" : "") });
+  const power = h("div", { class: "power", title: "lit while the page talks to the synth" }, h("i"), "POWER");
+  paints.push(() => power.classList.toggle("on", !offline()));
+  const lfoShape = () => settings ? settings[`shape${paramsLayer + 1}1`] : undefined;
+  // the faceplate, as on the synth
+  face.append(
+    h("div", { class: "brandplate" },
+      h("div", {}, h("div", { class: "sub" }, "Analog 8-voice polyphonic synthesizer"), h("div", { class: "model" }, "PRO-800"),
+        h("div", { class: "sub dim" }, "custom firmware")),
+      lever("Values", () => showValues, on => {
+        showValues = on; face.classList.toggle("values", on);
+        try { localStorage.setItem("pro800-values", on ? "1" : "0"); } catch (e) {}
+      }, { top: "VALUES", bottom: "HOVER", title: "show every knob's value, or only under the pointer" })),
+    ps("osca", "Oscillator A", knob(P.FREQ_A, "Frequency"), panelLever(15, "Sync", { top: "SYNC", bottom: "OFF" }),
+      grp("Shape", panelLever(0, "Osc A saw", { icon: "saw" }), panelLever(1, "Osc A triangle", { icon: "tri" }),
+        panelLever(2, "Osc A square", { icon: "sq" })),
+      knob(P.PW_A, "Pulse width"), knob(P.LEVEL_A, "Level")),
+    ps("oscb", "Oscillator B", knob(P.FREQ_B, "Frequency"), knob(P.FINE, "Fine"),
+      grp("Shape", panelLever(3, "Osc B saw", { icon: "saw" }), panelLever(4, "Osc B triangle", { icon: "tri" }),
+        panelLever(5, "Osc B square", { icon: "sq" })),
+      knob(P.PW_B, "Pulse width"), knob(P.LEVEL_B, "Level")),
+    ps("pm", "Poly-mod", grp("Source amount", knob(P.PMOD_ENV, "Fil env"), knob(P.PMOD_B, "Osc B")),
+      grp("Destination", panelLever(8, "Poly-mod → Freq A", { top: "FREQ A" }), panelLever(11, "Poly-mod → Filter", { top: "FILTER" })),
+      panelLever(12, "Unison", { top: "UNISON", bottom: "OFF" })),
+    ps("noise", "", knob(P.NOISE, "Noise")),
+    ps("lfo", "LFO-mod", knob(P.LFO_RATE, "Frequency"),
+      selector("Shape", LFO_SHAPE_NAMES, lfoShape, k => { touch("LFO 1 shape", LFO_SHAPE_NAMES[k][1]); setSetting(SET_ID[`shape${paramsLayer + 1}1`], k); },
+        "LFO 1's shape (the shape button steps through them on the synth)"),
+      knob(P.LFO_AMT, "Initial amount"),
+      grp("Destination", panelLever(7, "LFO → Freq A-B", { top: "FREQ A-B" }), panelLever(6, "LFO → PW A-B", { top: "PW A-B" }),
+        panelLever(10, "LFO → Filter", { top: "FILTER" }))),
+    ps("glide", "", knob(P.GLIDE, "Glide")),
+    ps("flt", "Filter",
+      prow(knob(P.CUTOFF, "Cutoff"), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Envelope amount"),
+        lever3("Keyboard", ["FULL", "1/2", "OFF"], () => settings ? 2 - settings.keytrack : undefined,
+          k => setSetting(SET_ID.keytrack, 2 - k), "filter keytracking")),
+      prow(knob(P.FIL_ATT, "Attack"), knob(P.FIL_DEC, "Decay"), knob(P.FIL_SUS, "Sustain"), knob(P.FIL_REL, "Release"))),
+    h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Master tune"), power),
+    ps("amp", "Amplifier", knob(P.AMP_ATT, "Attack"), knob(P.AMP_DEC, "Decay"), knob(P.AMP_SUS, "Sustain"), knob(P.AMP_REL, "Release")),
+    h("div", { class: "loose loose-vol" }, knob(P.VOL, "Volume")));
+  // what the editor adds, below
+  const scope = (text, canvas) => h("div", {}, h("span", { class: "lbl" }, text), canvas);
+  const matrix = document.querySelector("#tab-matrix section");
+  matrix.className = "sec sec-matrix";
+  document.getElementById("tab-matrix").remove();
+  const extras = h("div", { class: "extras" },
+    sec("scope", "Scope", h("div", { class: "scopes" },
+      scope("Oscillator A", viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(0, 1, 2, params[P.PW_A], params[P.LEVEL_A]), 240, { fill: true }))),
+      scope("Oscillator B", viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(3, 4, 5, params[P.PW_B], params[P.LEVEL_B]), 240, { fill: true }))),
+      scope("Filter", viz("flt", drawFilter)))),
     ...ENVS.map(envSection),
     lfoSection(0), lfoSection(1),
-    sec("pm", "Poly-mod", row(knob(P.PMOD_ENV, "Filter env"), knob(P.PMOD_B, "Osc B")),
-      row(ledSwitch(8, "→ Freq A"), ledSwitch(11, "→ Filter"))),
-    sec("voice", "Voice", row(knob(P.GLIDE, "Glide"), knob(P.TUNE, "Tune"), ledSwitch(12, "Unison")),
+    sec("voice", "Voice",
       settingSelect("Layers", ["Off: one sound, 8 voices", "Split", "Stack", "By MIDI channel (ch 2 = layer 2)"],
         () => settings && settings.layers, v => setSetting(SET_ID.layers, v)),
       settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
@@ -1713,7 +2013,9 @@ function buildPanel() {
           () => settings && settings.bend - 1, v => setSetting(SET_ID.bend, v + 1), "pitch bend range (per patch)"),
         settingSelect("Unison detune", Array.from({ length: 51 }, (_, k) => `${k} ct`),
           () => settings && settings.detune, v => setSetting(SET_ID.detune, v), "cents between the outermost voices in unison (per patch)"))),
+    matrix,
     seqSection());
+  box.append(face, h("div", { class: "extras-head" }, "Beyond the panel"), extras);
   // layer buttons in the header
   document.querySelectorAll("#layers .led").forEach(b => {
     const v = +b.dataset.v;
@@ -1731,6 +2033,7 @@ async function refreshLayerRoutes() {
   for (let r = 0; r < 8; r++)
     if (d[2 + 4 * r]) layerRoutes.push({ source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
   paintAll();
+  renderRoutes();
 }
 
 async function setSetting(id, value) {
@@ -1818,7 +2121,6 @@ async function copyLfo(which) {
     `Copied layer ${from + 1}'s LFO ${n} to layer ${to + 1}`;
   status.className = ok && !full ? "ok" : "bad";
   await refreshSettings(); await refreshParams();
-  if (tab === "matrix") loadRoutes();
 }
 async function copyEnvelope(bit, title) {
   if (offline() || !settings) return;
@@ -1876,7 +2178,6 @@ const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount
   "B pulse width", "Poly-mod osc B", "LFO 1 → PW", "LFO 1 rate", "LFO 2 amount", "LFO 2 rate", "LFO 2 → pitch",
   "LFO 2 → filter", "LFO 2 → PW", "Morph"];
 const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24]);
-let matrixLayer = 0;
 const options = (list, skip) => list.map((t, i) => i === skip ? "" :
   `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");
 document.getElementById("new-source").innerHTML = options(SOURCES, 0);
@@ -1887,17 +2188,18 @@ async function setRoute(layer, src, dest, depth) {
   const d = depth + 99;
   return ack([0x56, layer, src, dest, d >> 7, d & 0x7F]);
 }
-async function loadRoutes() {
-  document.querySelectorAll("#matrix-layer button").forEach(b => b.classList.toggle("active", +b.dataset.v === matrixLayer));
-  const d = await ask([0x57, matrixLayer], [0x57, matrixLayer], 1500);
+// The edit layer's routes as a table: rebuilt when they change, but not under a control that's being used
+let routesShown = null;
+function renderRoutes(force) {
   const body = document.getElementById("routes");
-  if (!d) { msg("matrix-msg", "No answer (firmware 0.5.0 or later?)", "bad"); return; }
-  msg("matrix-msg", "");
+  if (!layerRoutes) return;
+  const key = paramsLayer + ":" + JSON.stringify(layerRoutes);
+  if (!force && (key === routesShown || body.contains(document.activeElement))) return;
+  routesShown = key;
   body.innerHTML = "";
   let used = 0;
-  for (let r = 0; r < 8; r++) {
-    const src = d[2 + 4 * r], dest = d[3 + 4 * r], depth = (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99;
-    if (!src || src >= SOURCES.length || dest >= DESTS.length) continue;
+  for (const { source: src, dest, depth } of layerRoutes) {
+    if (src >= SOURCES.length || dest >= DESTS.length) continue;
     used++;
     const tr = document.createElement("tr");
     tr.innerHTML = `<td><select class="s">${options(SOURCES, 0)}</select></td>
@@ -1908,28 +2210,32 @@ async function loadRoutes() {
     const range = tr.querySelector("input"), out = tr.querySelector("output");
     let timer = 0;
     range.oninput = () => { out.textContent = range.value; clearTimeout(timer);
-      timer = setTimeout(() => setRoute(matrixLayer, src, dest, +range.value || 0), 40); };
+      timer = setTimeout(() => setRoute(paramsLayer, src, dest, +range.value || 0), 40); };
     range.onchange = () => { if (+range.value === 0) loadRoutes(); };
     const move = async () => {
       const s2 = +tr.querySelector(".s").value, d2 = +tr.querySelector(".d").value;
-      await setRoute(matrixLayer, src, dest, 0);
-      if (!await setRoute(matrixLayer, s2, d2, depth || 50)) msg("matrix-msg", "Couldn't set that route", "bad");
+      await setRoute(paramsLayer, src, dest, 0);
+      if (!await setRoute(paramsLayer, s2, d2, depth || 50)) msg("matrix-msg", "Couldn't set that route", "bad");
       loadRoutes();
     };
     tr.querySelector(".s").onchange = move; tr.querySelector(".d").onchange = move;
-    tr.querySelector(".del").onclick = async () => { await setRoute(matrixLayer, src, dest, 0); loadRoutes(); };
+    tr.querySelector(".del").onclick = async () => { await setRoute(paramsLayer, src, dest, 0); loadRoutes(); };
     body.appendChild(tr);
   }
-  if (!used) body.innerHTML = `<tr><td colspan="4" class="muted">No routes on layer ${matrixLayer + 1} yet.</td></tr>`;
+  if (!used) body.innerHTML = `<tr><td colspan="4" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
   document.getElementById("add-route").disabled = used >= 8;
 }
-document.querySelectorAll("#matrix-layer button").forEach(b => b.onclick = () => { matrixLayer = +b.dataset.v; loadRoutes(); });
+async function loadRoutes() {
+  if (offline()) return;
+  await refreshLayerRoutes();
+  renderRoutes(true);
+}
 document.getElementById("matrix-refresh").onclick = loadRoutes;
 document.getElementById("add-route").onclick = async () => {
   const src = +document.getElementById("new-source").value, dest = +document.getElementById("new-dest").value;
   const depth = +document.getElementById("new-depth").value;
   if (!depth) { msg("matrix-msg", "A depth of 0 is no route", "bad"); return; }
-  if (!await setRoute(matrixLayer, src, dest, depth)) msg("matrix-msg", "All 8 routes are in use", "bad");
+  if (!await setRoute(paramsLayer, src, dest, depth)) msg("matrix-msg", "All 8 routes are in use", "bad");
   loadRoutes();
 };
 
