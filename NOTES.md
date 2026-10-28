@@ -609,6 +609,31 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
 - Not changed, need measuring (group B): resonance (self-oscillation point), mixer levels and noise (dead zone,
   taper), M VOL (taper), PW (duty against the knob, silent ends), PMOD OSC B (depth curve).
 
+## Expression, voice modes, morph, sequencer extras (0.7.2, 2026-10-28)
+
+- Poly aftertouch per voice: poly pressure sets the pressure of the voices playing that note; SRC_AFTERTOUCH is
+  the larger of a voice's pressure and channel pressure.
+- Voice modes per layer: poly / mono (retrigger) / legato, note priority last / low / high (also for unison, which
+  is the mono path on all the layer's voices). Patch byte 30, host settings 27-28, Settings key 9.
+- Drift 0-99: per voice, a new random target every 0.4-2 s approached with a 0.5 s time constant; ±15 cents of
+  pitch and ±1 semitone of cutoff at 99. Patch byte 26, setting 29, Settings key 0.
+- Scale quantize: 12 scales and a root; the note plus the common pitch modulation snaps to the nearest scale note
+  (ties go up). Patch byte 29 (scale | root << 4), settings 30 / 31.
+- Morph: a target patch (byte 27, target + 1; SysEx 44 sets it, setting 35 reads it) whose knob values load into
+  RAM; the Morph destination (24, per layer from the last voice) fades every knob towards them before the engine
+  reads them. Switches now u16 at 24 so bytes 26-27 are free.
+- Sequencer: steps are 4 bytes (extra: probability in eighths, 1-4 ratchets); max steps 60 / 48 / 40 / 34 / 30
+  with 0-4 lanes; arpeggio modes (header byte 11) walk the held notes, a chord within 30 ms restarts step 1.
+- MIDI: CC map for every knob (to the channel's layer or the edit layer), CC 64 sustain (holds keys and sequence),
+  bank select + program change.
+- Checked on the Mac (real synth.c / seq.c / lfo.c, hardware stubbed): mono low priority 60+64 → 60, then 55 → 55,
+  back to 60; legato high 60 64 62 → 64; C major key 61 → 62; A minor pentatonic 57 + 6 st → 64; morph to a
+  +12 st target → 72, halfway 66; poly pressure on one note opens only its VCA; drift 99 stays within ±0.15 st;
+  4 ratchets → 4 note starts; probability 4/8 → 93 of 200 steps; arp up-down over a chord 60 64 67 64 60 64 67 64.
+- Web: Voice card (voice mode, priority, drift knob, scale, root, morph to / by, Mutate), sequencer Prob / Ratch
+  rows, Arpeggio, Euclid fill, Record from the page's keys or the router, Reset steps; Euclid on the LFO step grid;
+  Morph in the Mod matrix.
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

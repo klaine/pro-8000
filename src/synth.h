@@ -27,6 +27,7 @@ void synth_all_off(void);
 void synth_pitch_bend(int value);   // 14-bit, centre 8192
 void synth_mod_wheel(uint8_t value); // 0-127, adds LFO depth (and is a mod source)
 void synth_aftertouch(uint8_t value); // channel pressure 0-127 (a mod source)
+void synth_poly_pressure(uint8_t note, uint8_t value); // per voice: the voices playing that note (the same source)
 // Reads the panel, advances envelopes, LFOs and glide by dt seconds, and sets every CV and gate.
 void synth_update(float dt);
 int synth_any_gate(void);
@@ -43,6 +44,25 @@ void synth_set_edit_layer(int layer);
 int synth_keytrack(void);
 void synth_set_keytrack(int amount);
 int synth_env_select(void);
+
+// Voice modes per layer (bits: mode | priority << 2)
+enum { VOICE_POLY, VOICE_MONO, VOICE_LEGATO };
+enum { PRIORITY_LAST, PRIORITY_LOW, PRIORITY_HIGH };
+int synth_voice_mode(int layer);
+void synth_set_voice_mode(int layer, int bits);
+// Drift: slow random wander of each voice's pitch and cutoff, 0-99
+int synth_drift(void);
+void synth_set_drift(int amount);
+// Scale quantize (bits: scale | root << 4, root 0-11 = C-B; scale 0 = off)
+enum { SCALE_OFF, SCALE_MAJOR, SCALE_MINOR, SCALE_DORIAN, SCALE_PHRYGIAN, SCALE_LYDIAN, SCALE_MIXOLYDIAN,
+       SCALE_HARMONIC_MINOR, SCALE_PENTATONIC_MAJOR, SCALE_PENTATONIC_MINOR, SCALE_BLUES, SCALE_WHOLE_TONE,
+       SCALE_CHROMATIC, SCALE_COUNT };
+int synth_scale(void);
+void synth_set_scale(int bits);
+// Morph: the target patch (its number + 1, 0 = none) and its knob values, which the Morph destination fades to.
+// The caller loads the target's data (0 if it couldn't); applying a patch doesn't.
+int synth_morph_target(void);
+void synth_set_morph(int target, const patch_t *data);
 
 // LFO 1 / LFO 2 (0 / 1): which one the LFO knobs, the shape button and the LFO routing buttons edit. Switching
 // puts the LFO knobs in pickup.

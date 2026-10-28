@@ -7,6 +7,7 @@
 #include "synth.h"
 
 #define HELD_MAX 8
+#define CHORD_WINDOW_S 0.03f
 
 sequence_t sequence;
 
@@ -14,13 +15,22 @@ static struct {
     uint8_t note, velocity;
 } held[HELD_MAX]; // keys the sequence took, the latest last
 static int held_count;
-static int playing, step, layers, sounding = -1, tied;
+static int playing, step, layers, sounding = -1, tied, ratchet, skipped, arp_index;
 static float in_step; // seconds into the current step
 static uint8_t base_note, base_velocity;
+static uint32_t random_state = 0x6C078965u;
+
+static uint32_t random32(void) // xorshift32
+{
+    random_state ^= random_state << 13;
+    random_state ^= random_state >> 17;
+    random_state ^= random_state << 5;
+    return random_state;
+}
 
 int seq_max_steps(int lanes)
 {
-    int n = SEQ_BYTES / (3 + lanes);
+    int n = SEQ_BYTES / (4 + lanes);
     return n > SEQ_MAX_STEPS ? SEQ_MAX_STEPS : n;
 }
 
@@ -39,6 +49,8 @@ void seq_fix(void)
         s->bpm = 120;
     if (s->swing > 75)
         s->swing = 75;
+    if (s->arp >= ARP_COUNT)
+        s->arp = ARP_OFF;
 }
 
 void seq_clear(void)
@@ -76,24 +88,64 @@ static float step_seconds(int n)
     return n % 2 ? length * (1.0f - swing) : length * (1.0f + swing);
 }
 
-static void play_step(void)
+// Arpeggio: the next held note in the arp's order
+static uint8_t arp_note(void)
 {
-    int gate = sequence.gate[step];
-    if (!(gate & 0x80)) { // a rest
-        release();
-        return;
+    uint8_t sorted[HELD_MAX];
+    int n = held_count;
+    if (!n)
+        return base_note;
+    for (int i = 0; i < n; i++) { // insertion sort, low to high
+        uint8_t v = held[i].note;
+        int j = i;
+        for (; j > 0 && sorted[j - 1] > v; j--)
+            sorted[j] = sorted[j - 1];
+        sorted[j] = v;
     }
-    int note = (int)base_note + (int)sequence.note[step] - 64;
+    int i;
+    switch (sequence.arp) {
+    case ARP_DOWN: i = n - 1 - arp_index % n; break;
+    case ARP_UP_DOWN: { // up, then down without repeating the ends
+        int period = n > 1 ? 2 * n - 2 : 1, k = arp_index % period;
+        i = k < n ? k : period - k;
+        break;
+    }
+    case ARP_RANDOM: i = (int)(random32() % (uint32_t)n); break;
+    case ARP_PLAYED: return held[arp_index % n].note;
+    default: i = arp_index % n; break;
+    }
+    return sorted[i];
+}
+
+static void play_note(int retrigger)
+{
+    int note = (int)(sequence.arp ? arp_note() : base_note) + (int)sequence.note[step] - 64;
     note = note < 0 ? 0 : note > 127 ? 127 : note;
     uint8_t velocity = sequence.velocity[step] ? sequence.velocity[step] : base_velocity;
-    if (!(tied && note == sounding)) { // a tie into the same note just carries on
+    if (retrigger || !(tied && note == sounding)) { // a tie into the same note just carries on
         int previous = sounding;
         synth_note_on_layers((uint8_t)note, velocity, layers);
         if (previous >= 0 && previous != note)
             synth_note_off((uint8_t)previous); // after the new note: legato when tied
         sounding = note;
     }
-    tied = (gate & 0x7F) >= SEQ_GATE_TIE;
+}
+
+static void play_step(void)
+{
+    int gate = sequence.gate[step];
+    ratchet = 0;
+    // a rest, or a step its probability skips this time
+    skipped = !(gate & 0x80) || (int)(random32() % 8) >= SEQ_PROBABILITY(sequence.extra[step]);
+    if (skipped) {
+        release();
+        tied = 0;
+        return;
+    }
+    play_note(0);
+    if (sequence.arp)
+        arp_index++;
+    tied = (gate & 0x7F) >= SEQ_GATE_TIE && SEQ_RATCHETS(sequence.extra[step]) == 1;
 }
 
 int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
@@ -108,11 +160,14 @@ int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
     held_count++;
     base_note = note;
     base_velocity = velocity;
-    if (!playing) {
-        layers = target ? target : key_layers;
+    if (!playing || (sequence.arp && step == 0 && in_step < CHORD_WINDOW_S)) {
+        // a chord's notes arrive a few ms apart: an arpeggio restarts its first step until the chord is in
+        if (!playing)
+            layers = target ? target : key_layers;
         playing = 1;
         step = 0;
         in_step = 0;
+        arp_index = 0;
         play_step();
     }
     return 1;
@@ -143,8 +198,17 @@ void seq_update(float dt)
         return;
     in_step += dt;
     float length = step_seconds(step);
-    int gate = sequence.gate[step] & 0x7F;
-    if (sounding >= 0 && !tied && in_step >= length * (float)gate / 100.0f)
+    int gate = sequence.gate[step] & 0x7F, ratchets = SEQ_RATCHETS(sequence.extra[step]);
+    float part = length / (float)ratchets; // ratchets: the step played as 2-4 notes
+    if (!skipped && ratchets > 1) {
+        int now = (int)(in_step / part);
+        if (now > ratchet && now < ratchets) {
+            ratchet = now;
+            release();
+            play_note(1);
+        }
+    }
+    if (sounding >= 0 && !tied && in_step - (float)ratchet * part >= part * (float)gate / 100.0f)
         release();
     while (in_step >= length) {
         in_step -= length;

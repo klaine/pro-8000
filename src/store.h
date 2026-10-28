@@ -29,7 +29,11 @@ typedef struct {
     uint8_t env_sync[2][4];              // [layer][amp, filter, Env 3, Env 4]: 0 free, else clock division + 1
     uint16_t step_pattern[2][2];         // [layer][LFO 1, LFO 2]: bit n = step n on
     uint8_t step_count[2][2];            // 1..16; 0 = not stored (before 0.6.3): the default pattern
-    uint32_t switches; // bit s: switch s engaged (controls_on() sense), for the latching buttons
+    uint16_t switches; // bit s: switch s engaged (controls_on() sense), for the latching buttons
+    uint8_t drift;     // 0-99
+    uint8_t morph;     // the morph target patch + 1; 0 = none
+    uint8_t scale;     // scale | root << 4
+    uint8_t voice_mode; // layer 1 mode | priority << 2, layer 2 the same << 4
     uint8_t keytrack;  // 0 off, 1 half, 2 full
     uint16_t pots[2][POT_COUNT]; // per layer, 0..65535; shared pots are the same in both
     uint16_t extra[2][EXTRA_PARAMS]; // Env 3, Env 4, LFO 2 rate and amount per layer

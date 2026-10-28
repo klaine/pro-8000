@@ -25,7 +25,10 @@
 //                          9-12 LFO shapes (layer 1 LFO 1, LFO 2, layer 2 LFO 1, LFO 2), 13-14 LFO 2 routing per layer,
 //                          15-16 cycling envelopes per layer, 17-24 synced cycling per envelope: layer 1 amp,
 //                          filter, Env 3, Env 4, then layer 2; 0 free, else clock division + 1), 25 bend range
-//                          (1-12 semitones), 26 unison detune (0-50 cents)
+//                          (1-12 semitones), 26 unison detune (0-50 cents), 27-28 voice modes per layer (mode 0 poly
+//                          1 mono 2 legato | priority 0 last 1 low 2 high << 2), 29 drift (0-99), 30 scale (0 off,
+//                          synth.h SCALE_*), 31 root (0-11); read-only after: env select, preset mode, patch, morph
+//   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
 //   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
@@ -37,11 +40,11 @@
 //                          bit n = step n on); acknowledged
 //   4D <layer> <lfo>       its step pattern; replies 4D <layer> <lfo> <count> <p2> <p1> <p0>
 //   48                     the sequence's settings; replies 48 <length> <lanes> <division> <bpm, 2 × 7 bits> <flags>
-//                          <swing> <smooth> <max steps for these lanes>
-//   47 <length> <lanes> <division> <bpm, 2 × 7 bits> <flags> <swing> <smooth>  set them (clamped to what fits)
+//                          <swing> <smooth> <max steps for these lanes> <arp>
+//   47 <length> <lanes> <division> <bpm, 2 × 7 bits> <flags> <swing> <smooth> <arp>  set them (clamped to fit)
 //   46 <first> <n ≤ 8>     steps; replies 46 <first> <n> then per step <note offset + 64> <velocity, 0 = the key's>
-//                          <gate % (100 = tie)> <on> <lane A-D values, 64 = 0>
-//   45 <first> <n ≤ 8> <8 bytes per step, as 46 replies>  set steps; acknowledged. The sequence is saved with the
+//                          <gate % (100 = tie)> <on> <extra: probability | ratchets - 1 << 3> <lane A-D values, 64 = 0>
+//   45 <first> <n ≤ 8> <9 bytes per step, as 46 replies>  set steps; acknowledged. The sequence is saved with the
 //                          patch (REC, 5D).
 //   4C                     the buttons as the engine uses them; replies 4C <switches 0-15, 0/1 each> (switch_t order;
 //                          a loaded patch's state until the button is toggled)
@@ -174,6 +177,13 @@ static void show_patch(int n)
     display_text(text);
 }
 
+// The morph target's knob values (target = patch + 1, 0 = none)
+static void load_morph(int target)
+{
+    patch_t t;
+    synth_set_morph(target, target && store_load_patch(target - 1, &t) ? &t : 0);
+}
+
 static int load_patch(int n)
 {
     patch_t patch;
@@ -186,6 +196,7 @@ static int load_patch(int n)
     synth_apply_patch(&patch);
     if (!store_load_sequence(n))
         seq_clear();
+    load_morph(patch.morph);
     for (int i = 0; i <= PATCH_NAME; i++)
         loaded_name[i] = patch.name[i];
     current_patch = n;
@@ -221,6 +232,7 @@ static void init_patch(void)
     patch.split = 60; // LFOs free-running triangles, LFO 2 with no routing
     seq_clear();
     synth_apply_patch(&patch);
+    synth_set_morph(0, 0);
     for (int i = 0; i <= PATCH_NAME; i++)
         loaded_name[i] = i < (int)sizeof name ? name[i] : 0;
     preset_mode = 1; // the slot number stays; REC saves the init sound wherever you choose
@@ -260,9 +272,10 @@ static int save_patch(int n)
 // LFO pages set the LFO that Arp Up-Dn selects ("SYn2" / "trI2" for LFO 2).
 // Key 6 sets cycling for one envelope of the edit layer: pressing 6 again moves to the next envelope.
 enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_CYCLE, PAGE_BEND, PAGE_DETUNE,
-       PAGE_COUNT };
+       PAGE_VOICE, PAGE_DRIFT, PAGE_COUNT }; // keys 1-9, then 0
 
-static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC", "", "bEnd", "dEtU"}; // keys 1-8
+static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC", "", "bEnd", "dEtU", "UOIC",
+                                                "drFt"};
 static const char cycle_names[4][6] = {"CY.A", "CY.F", "CY.3", "CY.4"}; // amp, filter, Env 3, Env 4
 static int cycle_env; // the envelope page 6 shows
 
@@ -284,7 +297,8 @@ static int setting_count(int page)
 {
     static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3,
                                            2 + LFO_DIVISIONS, // cycle: OFF, FrEE, a clock division
-                                           12, 51};           // bend 1-12 semitones, detune 0-50 cents
+                                           12, 51,            // bend 1-12 semitones, detune 0-50 cents
+                                           3, 100};           // the edit layer's voice mode, drift 0-99
     return counts[page];
 }
 
@@ -297,6 +311,8 @@ static int setting_get(int page)
     case PAGE_KEYTRACK: return synth_keytrack();
     case PAGE_BEND: return synth_bend_range() - 1;
     case PAGE_DETUNE: return synth_detune();
+    case PAGE_VOICE: return synth_voice_mode(synth_edit_layer()) & 3;
+    case PAGE_DRIFT: return synth_drift();
     case PAGE_CYCLE:
         if (!(synth_env_cycle(synth_edit_layer()) >> cycle_env & 1))
             return 0;
@@ -314,6 +330,12 @@ static void setting_set(int page, int value)
     case PAGE_KEYTRACK: synth_set_keytrack(value); break;
     case PAGE_BEND: synth_set_bend_range(value + 1); break;
     case PAGE_DETUNE: synth_set_detune(value); break;
+    case PAGE_VOICE: { // the mode; the note priority stays (set it on the web page)
+        int layer = synth_edit_layer();
+        synth_set_voice_mode(layer, (synth_voice_mode(layer) & ~3) | value);
+        break;
+    }
+    case PAGE_DRIFT: synth_set_drift(value); break;
     case PAGE_CYCLE: {
         int bits = synth_env_cycle(synth_edit_layer());
         synth_set_env_cycle(synth_edit_layer(), value ? bits | 1 << cycle_env : bits & ~(1 << cycle_env));
@@ -336,6 +358,12 @@ static void show_setting(int page)
         display_number(synth_bend_range());
     else if (page == PAGE_DETUNE)
         display_number(synth_detune());
+    else if (page == PAGE_DRIFT)
+        display_number(synth_drift());
+    else if (page == PAGE_VOICE) {
+        static const char modes[3][5] = {"POLY", "nono", "LEG"};
+        display_text(modes[setting_get(page)]);
+    }
     else if (cycle >= 2)
         display_text(lfo_division_name(cycle - 2));
     else if (page == PAGE_CYCLE)
@@ -750,7 +778,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         }
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && menu_open) {
-        int page = index - BUTTON_1; // key 1 = first page
+        int page = index == BUTTON_0 ? PAGE_DRIFT : index - BUTTON_1; // key 1 = first page, key 0 = the tenth
         if (page == PAGE_CYCLE)
             cycle_env = menu_page == PAGE_CYCLE ? (cycle_env + 1) % 4 : synth_env_select() ? synth_env_select() + 1 : 0;
         if (page >= 0 && page < PAGE_COUNT) {
@@ -819,8 +847,9 @@ typedef enum {
     SET_LFO2_DESTS_L1, SET_LFO2_DESTS_L2, SET_CYCLE_L1, SET_CYCLE_L2,
     SET_CYCLE_SYNC, // 8 of them: layer 1 amp, filter, Env 3, Env 4, then layer 2 (0 free, else division + 1)
     SET_BEND = SET_CYCLE_SYNC + 8, SET_DETUNE, // bend range (semitones), unison detune (cents)
+    SET_VOICE_L1, SET_VOICE_L2, SET_DRIFT, SET_SCALE, SET_ROOT, // voice modes (mode | priority << 2), drift, scale
     SET_WRITABLE,                                        // read-only from here
-    SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_COUNT
+    SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
 
 static int host_setting_get(int id)
@@ -842,6 +871,11 @@ static int host_setting_get(int id)
         return synth_env_sync((id - SET_CYCLE_SYNC) / 4, (id - SET_CYCLE_SYNC) % 4);
     case SET_BEND: return synth_bend_range();
     case SET_DETUNE: return synth_detune();
+    case SET_VOICE_L1: case SET_VOICE_L2: return synth_voice_mode(id - SET_VOICE_L1);
+    case SET_DRIFT: return synth_drift();
+    case SET_SCALE: return synth_scale() & 15;
+    case SET_ROOT: return synth_scale() >> 4;
+    case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
     case SET_CURRENT_PATCH: return current_patch;
@@ -855,6 +889,7 @@ static int host_setting_set(int id, int value)
         LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, 2, 2,
         LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8, 16, 16,
         [SET_CYCLE_SYNC ... SET_CYCLE_SYNC + 7] = LFO_DIVISIONS + 1, [SET_BEND] = 13, [SET_DETUNE] = 51,
+        [SET_VOICE_L1] = 11, [SET_VOICE_L2] = 11, [SET_DRIFT] = 100, [SET_SCALE] = SCALE_COUNT, [SET_ROOT] = 12,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -874,6 +909,10 @@ static int host_setting_set(int id, int value)
         break;
     case SET_BEND: synth_set_bend_range(value); break;
     case SET_DETUNE: synth_set_detune(value); break;
+    case SET_VOICE_L1: case SET_VOICE_L2: synth_set_voice_mode(id - SET_VOICE_L1, value); break;
+    case SET_DRIFT: synth_set_drift(value); break;
+    case SET_SCALE: synth_set_scale(value | (synth_scale() & ~15)); break;
+    case SET_ROOT: synth_set_scale((synth_scale() & 15) | value << 4); break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -996,6 +1035,11 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = (uint8_t)(lfo_pattern[lfo] >> 7 & 0x7F);
         reply[n++] = (uint8_t)(lfo_pattern[lfo] & 0x7F);
     }
+    if (data_length == 3 && data[0] == 0x44 && (data[1] << 7 | data[2]) <= PATCH_COUNT) {
+        load_morph(data[1] << 7 | data[2]);
+        reply[n++] = 0x7F;
+        reply[n++] = 0x44;
+    }
     if (data_length == 1 && data[0] == 0x48) {
         const sequence_t *q = &sequence;
         reply[n++] = 0x48;
@@ -1008,8 +1052,9 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = q->swing;
         reply[n++] = q->smooth & 0x0F;
         reply[n++] = (uint8_t)seq_max_steps(q->lanes);
+        reply[n++] = q->arp;
     }
-    if (data_length == 9 && data[0] == 0x47) {
+    if (data_length == 10 && data[0] == 0x47) {
         sequence_t *q = &sequence;
         q->length = data[1];
         q->lanes = data[2];
@@ -1018,6 +1063,7 @@ static void handle_sysex(const uint8_t *message, int length)
         q->flags = data[6];
         q->swing = data[7];
         q->smooth = data[8] & 0x0F;
+        q->arp = data[9];
         seq_fix();
         if (!(q->flags & SEQ_ENABLED))
             seq_stop();
@@ -1034,21 +1080,23 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = q->velocity[i] & 0x7F;
             reply[n++] = q->gate[i] & 0x7F;
             reply[n++] = q->gate[i] >> 7;
+            reply[n++] = q->extra[i] & 0x1F;
             for (int l = 0; l < SEQ_LANES; l++)
                 reply[n++] = q->lane[l][i] & 0x7F;
         }
     }
     if (data_length >= 3 && data[0] == 0x45 && data[1] < SEQ_MAX_STEPS && data[2] <= 8 && data[1] + data[2] <= SEQ_MAX_STEPS
-        && data_length == 3 + 8 * data[2]) {
+        && data_length == 3 + 9 * data[2]) {
         sequence_t *q = &sequence;
         for (int k = 0; k < data[2]; k++) {
-            const uint8_t *x = data + 3 + 8 * k;
+            const uint8_t *x = data + 3 + 9 * k;
             int i = data[1] + k, gate = x[2] < 1 ? 1 : x[2] > SEQ_GATE_TIE ? SEQ_GATE_TIE : x[2];
             q->note[i] = x[0];
             q->velocity[i] = x[1];
             q->gate[i] = (uint8_t)(gate | (x[3] ? 0x80 : 0));
+            q->extra[i] = x[4] & 0x1F;
             for (int l = 0; l < SEQ_LANES; l++)
-                q->lane[l][i] = x[4 + l];
+                q->lane[l][i] = x[5 + l];
         }
         reply[n++] = 0x7F;
         reply[n++] = 0x45;
@@ -1266,6 +1314,54 @@ static void handle_sysex(const uint8_t *message, int length)
     }
 }
 
+// MIDI CCs → parameters of the layer the channel plays (layer 2 for channel 2 in channel mode), else the edit layer.
+// Also CC 64 sustain pedal, CC 0 / 32 bank select (for program change).
+static const struct { uint8_t cc, param; } cc_map[] = {
+    {14, POT_FREQ_A}, {15, POT_FREQ_B}, {16, POT_FINE}, {17, POT_A_PW}, {18, POT_B_PW}, {19, POT_A_LEVEL},
+    {20, POT_B_LEVEL}, {21, POT_NOISE}, {74, POT_CUTOFF}, {71, POT_RESONANCE}, {22, POT_FIL_ENV_AMT},
+    {23, POT_FIL_ATT}, {24, POT_FIL_DEC}, {25, POT_FIL_SUS}, {26, POT_FIL_REL}, {73, POT_AMP_ATT}, {75, POT_AMP_DEC},
+    {70, POT_AMP_SUS}, {72, POT_AMP_REL}, {5, POT_GLIDE}, {76, POT_LFO_FREQ}, {77, POT_LFO_AMOUNT},
+    {27, PARAM_LFO2_RATE}, {28, PARAM_LFO2_AMOUNT}, {29, POT_PMOD_FIL_ENV}, {30, POT_PMOD_OSC_B},
+    {31, POT_MASTER_TUNE}, {85, PARAM_ENV3_ATT}, {86, PARAM_ENV3_DEC}, {87, PARAM_ENV3_SUS}, {88, PARAM_ENV3_REL},
+    {89, PARAM_ENV4_ATT}, {90, PARAM_ENV4_DEC}, {102, PARAM_ENV4_SUS}, {103, PARAM_ENV4_REL},
+};
+static int sustain, bank;
+static uint8_t sustained[128]; // keys let go while the pedal was down
+
+static void key_off(uint8_t note)
+{
+    if (sustain) {
+        sustained[note & 0x7F] = 1;
+        return;
+    }
+    if (!seq_key_off(note))
+        synth_note_off(note);
+}
+
+static void control_change(uint8_t cc, uint8_t value, int channel)
+{
+    if (cc == 64) { // sustain pedal
+        sustain = value >= 64;
+        if (!sustain)
+            for (int n = 0; n < 128; n++)
+                if (sustained[n]) {
+                    sustained[n] = 0;
+                    key_off((uint8_t)n);
+                }
+        return;
+    }
+    if (cc == 0 || cc == 32) {
+        bank = value ? 1 : 0;
+        return;
+    }
+    for (unsigned i = 0; i < sizeof cc_map / sizeof cc_map[0]; i++)
+        if (cc_map[i].cc == cc) {
+            int layer = synth_layer_mode() == LAYER_CHANNEL ? channel == 1 : synth_edit_layer();
+            synth_set_param(layer, cc_map[i].param, (float)value / 127.0f);
+            return;
+        }
+}
+
 static void handle_midi(void)
 {
     static uint8_t sysex[SYSEX_MAX];
@@ -1283,14 +1379,18 @@ static void handle_midi(void)
                 synth_set_split_note(p[2]);
                 show_setting(PAGE_SPLIT);
             } else if (p[3]) { // the sequence takes the key if it's on for that key's layer
+                sustained[p[2] & 0x7F] = 0;
                 if (!seq_key_on(p[2], p[3], synth_key_layers(p[2], p[1] & 0x0F)))
                     synth_note_on(p[2], p[3], p[1] & 0x0F);
-            } else if (!seq_key_off(p[2]))
-                synth_note_off(p[2]);
+            } else
+                key_off(p[2]);
             break;
         case 0x8:
-            if (!seq_key_off(p[2]))
-                synth_note_off(p[2]);
+            key_off(p[2]);
+            break;
+        case 0xC: // program change: patch n of the bank chosen by bank select (CC 0 / 32: 0 = A, 1 = b)
+            if (bank * 100 + p[2] < PATCH_COUNT)
+                load_patch(bank * 100 + p[2]);
             break;
         case 0xB:
             if (status == 0xB0 && (p[2] == 120 || p[2] == 123)) { // all sound off, all notes off
@@ -1299,6 +1399,8 @@ static void handle_midi(void)
             }
             if (status == 0xB0 && p[2] == 1)
                 synth_mod_wheel(p[3]);
+            if (status == 0xB0)
+                control_change(p[2], p[3], p[1] & 0x0F);
             break;
         case 0xE:
             synth_pitch_bend(p[2] | p[3] << 7);
@@ -1306,8 +1408,8 @@ static void handle_midi(void)
         case 0xD: // channel pressure
             synth_aftertouch(p[2]);
             break;
-        case 0xA: // poly pressure: used as channel pressure for now
-            synth_aftertouch(p[3]);
+        case 0xA: // poly pressure: the voices playing that note
+            synth_poly_pressure(p[2], p[3]);
             break;
         case 0xF: // single-byte messages: realtime
             if (p[1] == 0xF8)

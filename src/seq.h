@@ -1,7 +1,9 @@
 // The patch's step sequence, played from a key: pressing a key starts it at step 1, transposed so an offset of 0 is
 // that key; it loops (or plays once) while keys are held, a new key transposes it from the next step, and letting
-// go of every key stops it. Up to four automation lanes run with it as mod sources (SRC_SEQ_A..D). Edited from the
-// host only; stored with the patch (store.c).
+// go of every key stops it. In arpeggio mode the steps walk the held notes instead (up, down, up-down, random, as
+// played), each step's offset transposing the note it plays. Steps can play with a probability and as 2-4 ratchets.
+// Up to four automation lanes run with it as mod sources (SRC_SEQ_A..D). Edited from the host only; stored with the
+// patch (store.c).
 #ifndef SEQ_H
 #define SEQ_H
 
@@ -9,7 +11,7 @@
 
 #define SEQ_MAX_STEPS 64
 #define SEQ_LANES     4
-#define SEQ_BYTES     240 // steps × (3 + lanes) must fit: 64 steps alone, 48 with 2 lanes, 32 with 4
+#define SEQ_BYTES     240 // steps × (4 + lanes) must fit: 60 steps alone, 48 with 1 lane, 30 with 4
 
 #define SEQ_ENABLED    1u // flags
 #define SEQ_CLOCK      2u // tempo from MIDI clock (lfo.c), else bpm
@@ -18,6 +20,11 @@
 
 #define SEQ_GATE_TIE 100  // a gate of 100 % holds the note into the next step (legato)
 #define SEQ_LANE_ZERO 64  // lane values 0..127, 64 = 0
+// extra[]: bits 0-2 probability (0 = always, n = 8 - n in 8), bits 3-4 ratchets - 1
+#define SEQ_PROBABILITY(x) (8 - ((x) & 7))
+#define SEQ_RATCHETS(x)    (((x) >> 3 & 3) + 1)
+
+enum { ARP_OFF, ARP_UP, ARP_DOWN, ARP_UP_DOWN, ARP_RANDOM, ARP_PLAYED, ARP_COUNT };
 
 typedef struct {
     uint8_t length;   // 1..SEQ_MAX_STEPS
@@ -27,9 +34,11 @@ typedef struct {
     uint8_t flags;
     uint8_t swing;    // 0..75 %: even steps longer, odd shorter
     uint8_t smooth;   // bit l: lane l glides from step to step
+    uint8_t arp;      // ARP_*: off = the key transposes the steps
     uint8_t note[SEQ_MAX_STEPS];     // offset + 64, in semitones
     uint8_t velocity[SEQ_MAX_STEPS]; // 0 = the key's
     uint8_t gate[SEQ_MAX_STEPS];     // bit 7 on, bits 0-6 percent of the step (SEQ_GATE_TIE ties)
+    uint8_t extra[SEQ_MAX_STEPS];    // probability and ratchets (SEQ_PROBABILITY, SEQ_RATCHETS)
     uint8_t lane[SEQ_LANES][SEQ_MAX_STEPS];
 } sequence_t;
 

@@ -187,8 +187,10 @@
   canvas.viz.seq { height: 90px; }
   .seq-pages { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .seq-grid { display: grid; grid-template-columns: 44px repeat(16, minmax(0, 1fr)); gap: 3px; }
-  .seq-labels { display: grid; grid-template-rows: 22px 46px 30px 30px; gap: 3px; align-items: center; }
-  .seq-col { display: grid; grid-template-rows: 22px 46px 30px 30px; gap: 3px; min-width: 0; }
+  .seq-labels { display: grid; grid-template-rows: 22px 46px 30px 30px 24px 24px; gap: 3px; align-items: center; }
+  .seq-col { display: grid; grid-template-rows: 22px 46px 30px 30px 24px 24px; gap: 3px; min-width: 0; }
+  .seq-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .cell.prob .c-fill, .cell.ratch .c-fill { background: rgba(154, 208, 255, .2); }
   .seq-col .step { font-size: 10px; color: var(--dim); }
   .seq-col .step.on { color: #fff; }
   .seq-col.beat .step:not(.on) { border-color: #4a4b50; }
@@ -673,7 +675,7 @@ const LOW = 48, HIGH = 72; // two octaves on screen, C3..C5, shifted by the octa
 const KEYS = "awsedftgyhujkolp;'";
 let octave = 4, velocity = 100, channel = 0;
 const down = new Map(); // source (key or "mouse") -> note
-function noteOn(n) { if (output) output.send([0x90 | channel, n, velocity]); paintKey(n, true); }
+function noteOn(n) { if (output) output.send([0x90 | channel, n, velocity]); paintKey(n, true); if (typeof recordNote === "function") recordNote(n, velocity); }
 function noteOff(n) { if (output) output.send([0x80 | channel, n, 0]); paintKey(n, false); }
 function allNotesOff() {
   if (!output) return;
@@ -753,6 +755,7 @@ document.getElementById("route-from").onchange = e => {
     const clock = st === 0xF8 || st === 0xFA || st === 0xFB || st === 0xFC;
     if (!output || !(voice || (clock && document.getElementById("route-clock").checked))) return;
     output.send(d);
+    if ((st & 0xF0) === 0x90 && d[2] && typeof recordNote === "function") recordNote(d[1], d[2]);
     if (voice && ++routed % 8 === 1) document.getElementById("route-log").textContent = `${routed} messages forwarded`;
   };
 };
@@ -787,8 +790,8 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab
 const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo2Sync", "lfo2Trigger", "editLayer",
   "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2",
   "cycleSync1_0", "cycleSync1_1", "cycleSync1_2", "cycleSync1_3", "cycleSync2_0", "cycleSync2_1", "cycleSync2_2",
-  "cycleSync2_3", "bend", "detune", "envSelect",
-  "presetMode", "patch"];
+  "cycleSync2_3", "bend", "detune", "voice1", "voice2", "drift", "scale", "root", "envSelect",
+  "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 let settings = null, params = null, paramsLayer = 0;
 
@@ -900,8 +903,10 @@ let paintQueued = false;
 function paintAll() {
   if (paintQueued) return;
   paintQueued = true;
-  const run = () => { paintQueued = false; for (const f of paints) f(); };
-  document.hidden ? setTimeout(run, 50) : requestAnimationFrame(run); // animation frames stop in a hidden page
+  let done = false;
+  const run = () => { if (done) return; done = true; paintQueued = false; for (const f of paints) f(); };
+  requestAnimationFrame(run);
+  setTimeout(run, 100); // animation frames pause in a hidden or covered page
 }
 const h = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -959,7 +964,7 @@ function label(i) {
 }
 
 // Drag (shift: fine), wheel (once focused), arrow keys, double-click reset, on a 0..1 value.
-function adjustable(e, get, set, reset, { vertical = true, span = 200 } = {}) {
+function adjustable(e, get, set, reset, { vertical = true, span = 200, unit = 0 } = {}) { // unit: one key press, if coarser than 1 %
   let start = null;
   e.tabIndex = 0;
   e.addEventListener("pointerdown", ev => {
@@ -982,12 +987,12 @@ function adjustable(e, get, set, reset, { vertical = true, span = 200 } = {}) {
   e.addEventListener("wheel", ev => { // only once clicked (focused), so scrolling the page over the panel doesn't edit it
     if (document.activeElement !== e) return;
     ev.preventDefault();
-    set(get() + (ev.deltaY < 0 ? 1 : -1) * (ev.shiftKey ? .002 : .01));
+    set(get() + (ev.deltaY < 0 ? 1 : -1) * Math.max(unit, ev.shiftKey ? .002 : .01));
   }, { passive: false });
   e.addEventListener("dblclick", reset);
   e.addEventListener("keydown", ev => {
     const step = { ArrowUp: .01, ArrowRight: .01, ArrowDown: -.01, ArrowLeft: -.01, PageUp: .1, PageDown: -.1 }[ev.key];
-    if (step) { ev.preventDefault(); set(get() + step * (ev.shiftKey ? .2 : 1)); }
+    if (step) { ev.preventDefault(); set(get() + (unit ? Math.sign(step) * unit : step * (ev.shiftKey ? .2 : 1))); }
   });
 }
 
@@ -1023,6 +1028,23 @@ function knob(i, text, opts = {}) {
     if (ENV_KNOB[i]) { const [bit, stage] = ENV_KNOB[i]; lbl.firstChild.textContent = (cycling(bit) ? CYCLE_LABELS : ADSR_LABELS)[stage]; }
   });
   return e;
+}
+
+// A knob on any value: get / set 0..1, text(u) for the reading
+function modelKnob(text, get, set, show, reset, title) {
+  const s = svgEl("svg", { viewBox: "0 0 48 48", "aria-hidden": "true" });
+  const arc = svgEl("path", { class: "k-arc" }), ptr = svgEl("line", { class: "k-ptr", x1: 24, y1: 24, x2: 24, y2: 12 });
+  s.append(svgEl("path", { class: "k-track", d: arcPath(24, 24, 19, -135, 135) }), arc,
+    svgEl("circle", { class: "k-cap", cx: 24, cy: 24, r: 14 }), ptr);
+  const val = h("span", { class: "val" }, "–"), dial = h("div", { class: "dial", role: "slider", "aria-label": text }, s);
+  adjustable(dial, get, u => { set(Math.min(1, Math.max(0, u))); paintAll(); }, () => { set(reset); paintAll(); });
+  paints.push(() => {
+    const u = get(), a = -135 + u * ARC;
+    arc.setAttribute("d", u < .003 ? "" : arcPath(24, 24, 19, -135, a));
+    ptr.setAttribute("transform", `rotate(${a} 24 24)`);
+    val.textContent = show(u);
+  });
+  return h("div", { class: "knob", title }, dial, h("span", { class: "lbl" }, text), val);
 }
 
 // A vertical fader for parameter i (levels, envelope stages)
@@ -1297,7 +1319,11 @@ function lfoSection(which) {
     h("div", { class: "step-tools" }, countSel, op("Clear", "all steps off", () => 0), op("Invert", "", (b, all) => ~b & all),
       op("◀", "rotate left", (b, all, c) => (b >> 1 | (b & 1) << (c - 1)) & all),
       op("▶", "rotate right", (b, all, c) => (b << 1 | b >> (c - 1)) & all),
-      op("Trance", "1 0 1 0 1 1 0 0, twice", (b, all) => 0x3535 & all)));
+      op("Trance", "1 0 1 0 1 1 0 0, twice", (b, all) => 0x3535 & all),
+      op("Euclid", "3 hits in every 8 steps, spread evenly", (b, all, c) => {
+        const k = Math.max(1, Math.round(c * 3 / 8)); let x = 0;
+        for (let i = 0; i < c; i++) if (i * k % c < k) x |= 1 << i;
+        return x; })));
   paints.push(() => { stepEdit.hidden = !settings || settings[shapeKey()] !== STEPS_SHAPE; });
   const routing = which
     ? [["Pitch", 1], ["Filter", 2], ["PW", 4]].map(([t, bit]) => led(t, () => settings && settings[`lfo2Dests${paramsLayer + 1}`] & bit,
@@ -1321,21 +1347,39 @@ function lfoSection(which) {
 // --- the sequencer (firmware 0.7.0+): the patch's key-triggered step sequence and its automation lanes ---
 const SEQ_MAX = 64, SEQ_BYTES = 240, LANE_NAMES = ["A", "B", "C", "D"], SEQ_SOURCE = 12; // SRC_SEQ_A
 const SEQ_ON = 1, SEQ_CLOCK = 2, SEQ_ONE_SHOT = 4;
+// step recording: each note played on the page (keys or the router) fills the next step, relative to the first
+const seqRec = { armed: false, pos: 0, base: null };
+function recordNote(n, vel) {
+  if (!seqRec.armed || !seq) return;
+  if (seqRec.base === null) seqRec.base = n;
+  const st = seq.steps[seqRec.pos];
+  st.note = Math.max(28, Math.min(100, 64 + n - seqRec.base));
+  st.on = 1; st.vel = 0;
+  sendStep(seqRec.pos);
+  touch(`record step ${seqRec.pos + 1}`, offsetText(st.note));
+  seqRec.pos++;
+  if (seqRec.pos >= seq.length) { seqRec.armed = false; document.getElementById("rec-hint").textContent = "recorded all steps"; }
+  else seqPage = Math.floor(seqRec.pos / 16);
+  paintAll();
+}
 let seq = null, seqPage = 0, seqFor = null;
-const seqMax = lanes => Math.min(SEQ_MAX, Math.floor(SEQ_BYTES / (3 + lanes)));
-const newStep = () => ({ note: 64, vel: 0, gate: 50, on: 1, lane: [64, 64, 64, 64] });
+const seqMax = lanes => Math.min(SEQ_MAX, Math.floor(SEQ_BYTES / (4 + lanes)));
+const newStep = () => ({ note: 64, vel: 0, gate: 50, on: 1, extra: 0, lane: [64, 64, 64, 64] });
+// extra: bits 0-2 probability (0 = always, n = 8 - n in 8), bits 3-4 ratchets - 1
+const probOf = s => 8 - (s.extra & 7), ratchetsOf = s => (s.extra >> 3 & 3) + 1;
+const ARPS = ["Off: the key transposes", "Up", "Down", "Up-down", "Random", "As played"];
 
 async function refreshSequence() {
   const d = await ask([0x48], [0x48], 1000);
   if (!d) { seq = null; paintAll(); return; }
   const s = { length: d[1], lanes: d[2], division: d[3], bpm: d[4] << 7 | d[5], flags: d[6], swing: d[7], smooth: d[8],
-              steps: Array.from({ length: SEQ_MAX }, newStep) };
+              arp: d[10] || 0, steps: Array.from({ length: SEQ_MAX }, newStep) };
   for (let first = 0; first < SEQ_MAX; first += 8) {
     const r = await ask([0x46, first, 8], [0x46, first, 8], 1000);
     if (!r) break;
     for (let k = 0; k < 8; k++) {
-      const x = r.slice(3 + 8 * k, 11 + 8 * k);
-      s.steps[first + k] = { note: x[0], vel: x[1], gate: x[2], on: x[3], lane: x.slice(4, 8) };
+      const x = r.slice(3 + 9 * k, 12 + 9 * k);
+      s.steps[first + k] = { note: x[0], vel: x[1], gate: x[2], on: x[3], extra: x[4], lane: x.slice(5, 9) };
     }
   }
   seq = s;
@@ -1346,7 +1390,7 @@ function sendSeqHeader() {
   if (!seq || offline()) return;
   const s = seq;
   s.length = Math.max(1, Math.min(s.length, seqMax(s.lanes)));
-  send([0x47, s.length, s.lanes, s.division, s.bpm >> 7, s.bpm & 0x7F, s.flags, s.swing, s.smooth]);
+  send([0x47, s.length, s.lanes, s.division, s.bpm >> 7, s.bpm & 0x7F, s.flags, s.swing, s.smooth, s.arp]);
   paintAll();
 }
 const dirtySteps = new Set();
@@ -1359,7 +1403,7 @@ function sendStep(i) {
   stepTimer = setTimeout(() => {
     for (const k of [...dirtySteps]) {
       const st = seq.steps[k];
-      send([0x45, k, 1, st.note, st.vel, st.gate, st.on ? 1 : 0, ...st.lane]);
+      send([0x45, k, 1, st.note, st.vel, st.gate, st.on ? 1 : 0, st.extra & 0x1F, ...st.lane]);
     }
     dirtySteps.clear();
   }, 40);
@@ -1378,7 +1422,8 @@ function stepCell(k, get, set, text, cls, { span = 120, min = 0, max = 127, rese
     set(st, v);
     touch(`step ${step() + 1}`, text(st));
     sendStep(step());
-  }, () => { if (seq && reset !== undefined) { set(seq.steps[step()], reset); sendStep(step()); } }, { span });
+  }, () => { if (seq && reset !== undefined) { set(seq.steps[step()], reset); sendStep(step()); } },
+    { span, unit: max - min <= 20 ? 1 / (max - min) : 0 });
   paints.push(() => {
     const i = step(), live = seq && i < seq.length;
     cell.classList.toggle("off", !live);
@@ -1517,8 +1562,35 @@ function seqSection() {
     return h("div", { class: "seq-col" + (k % 4 ? "" : " beat") }, on,
       stepCell(k, s => s.note, (s, v) => { s.note = v; }, s => offsetText(s.note), "note", { span: 160, min: 28, max: 100, reset: 64 }),
       stepCell(k, s => s.gate, (s, v) => { s.gate = v; }, s => s.gate >= 100 ? "tie" : s.gate + "%", "gate", { min: 1, max: 100, reset: 50 }),
-      stepCell(k, s => s.vel, (s, v) => { s.vel = v; }, s => s.vel ? String(s.vel) : "key", "vel", { reset: 0 }));
+      stepCell(k, s => s.vel, (s, v) => { s.vel = v; }, s => s.vel ? String(s.vel) : "key", "vel", { reset: 0 }),
+      stepCell(k, probOf, (s, v) => { s.extra = s.extra & ~7 | (8 - v); }, s => probOf(s) === 8 ? "100%" : Math.round(probOf(s) * 12.5) + "%",
+        "prob", { min: 1, max: 8, reset: 8, span: 80 }),
+      stepCell(k, ratchetsOf, (s, v) => { s.extra = s.extra & 7 | (v - 1) << 3; }, s => ratchetsOf(s) > 1 ? "×" + ratchetsOf(s) : "·",
+        "ratch", { min: 1, max: 4, reset: 1, span: 60 }));
   });
+  // Euclidean fill, reset, recording
+  const euclidK = h("select", { title: "hits" });
+  paints.push(() => {
+    if (!seq) return;
+    if (euclidK.options.length !== seq.length) { const keep = euclidK.value;
+      euclidK.replaceChildren(...Array.from({ length: seq.length }, (_, k) => h("option", { value: k + 1 }, String(k + 1))));
+      euclidK.value = keep && +keep <= seq.length ? keep : String(Math.max(1, Math.round(seq.length * 3 / 8))); }
+  });
+  const euclid = () => {
+    if (!seq) return;
+    const n = seq.length, k = +euclidK.value || Math.max(1, Math.round(n * 3 / 8)); // the menu may not be filled yet
+    for (let i = 0; i < n; i++) { const on = i * k % n < k ? 1 : 0; // Euclidean, starting on a hit
+      if (seq.steps[i].on !== on) { seq.steps[i].on = on; sendStep(i); } }
+    touch("Euclid", `${k} in ${n}`);
+  };
+  const resetSteps = () => {
+    if (!seq || !confirm("Reset every step (notes, gates, velocity, probability, ratchets)? Lanes stay.")) return;
+    for (let i = 0; i < seq.length; i++) { Object.assign(seq.steps[i], { note: 64, vel: 0, gate: 50, on: 1, extra: 0 }); sendStep(i); }
+  };
+  const recButton = led("Record", () => seqRec.armed, on => {
+    seqRec.armed = on; seqRec.pos = 0; seqRec.base = null;
+    document.getElementById("rec-hint").textContent = on ? "play notes (on-screen keys or the routed MIDI input): each fills the next step" : "";
+  }, "record notes from the Play keys or the MIDI router into the steps, from step 1");
   return sec("seq", "Sequencer",
     h("div", { class: "seq-top" },
       flag(SEQ_ON, "On", "play the sequence from a key (transposed from it) while keys are held"),
@@ -1529,17 +1601,80 @@ function seqSection() {
       field("Step", pick(DIVISIONS, () => seq.division, v => { seq.division = v; }, "the length of a step")),
       flag(SEQ_CLOCK, "MIDI clock", "tempo from MIDI clock (120 BPM until one arrives); off: the BPM here"),
       field("BPM", bpm), field("Swing", swing), field("Length", lengthSel),
-      field("Lanes", pick(["None (64 steps)", "1 (60 steps)", "2 (48 steps)", "3 (40 steps)", "4 (34 steps)"],
+      field("Arpeggio", pick(ARPS, () => seq.arp, v => { seq.arp = v; }, "walk the held notes instead of transposing; each step's note offset transposes the arp note")),
+      field("Lanes", pick(["None (60 steps)", "1 (48 steps)", "2 (40 steps)", "3 (34 steps)", "4 (30 steps)"],
         () => seq.lanes, v => { seq.lanes = v; }, "automation lanes: mod sources Seq A-D; each takes room from the steps")),
       h("button", { type: "button", class: "chip", title: "read the sequence from the synth again", onclick: refreshSequence }, "↻")),
     viz("seq", drawSeq),
     h("div", { class: "seq-pages" }, pages, h("span", { class: "dim small" },
       "Note: drag up/down for semitones from the key · Gate: 100 % ties into the next step · Vel: 0 = the key's · double-click resets")),
     h("div", { class: "seq-grid" }, h("div", { class: "seq-labels" }, h("span", { class: "lbl" }, "Step"), h("span", { class: "lbl" }, "Note"),
-      h("span", { class: "lbl" }, "Gate"), h("span", { class: "lbl" }, "Vel")), ...columns),
+      h("span", { class: "lbl" }, "Gate"), h("span", { class: "lbl" }, "Vel"), h("span", { class: "lbl" }, "Prob"),
+      h("span", { class: "lbl" }, "Ratch")), ...columns),
+    h("div", { class: "seq-tools" },
+      h("span", { class: "lbl" }, "Fill"), euclidK, h("span", { class: "dim small" }, "hits, Euclidean, over the length"),
+      h("button", { type: "button", class: "chip", onclick: () => euclid() }, "Euclid"),
+      h("button", { type: "button", class: "chip", title: "every step on, note 0, gate 50 %, always, one note", onclick: () => resetSteps() }, "Reset steps"),
+      recButton, h("span", { class: "dim small", id: "rec-hint" })),
     ...[0, 1, 2, 3].map(laneEditor),
     h("p", { class: "dim small", style: "margin:0" }, "Saved with the patch (REC on the panel, or Save in Patches). Lanes are " +
       "mod sources Seq A-D: pick where each goes here, or in the Mod matrix with any depth."));
+}
+
+const SCALES = ["Off", "Major", "Minor", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Harmonic minor", "Pentatonic major",
+  "Pentatonic minor", "Blues", "Whole tone", "Chromatic"];
+const MORPH_DEST = 24;
+function driftKnob() {
+  let local = null, at = 0, timer = 0;
+  const get = () => local !== null && Date.now() - at < 1500 ? local : (settings ? settings.drift / 99 : 0);
+  return modelKnob("Drift", get, u => {
+    if (offline()) return;
+    local = u; at = Date.now(); touch("Drift", String(Math.round(u * 99)));
+    clearTimeout(timer); timer = setTimeout(() => setSetting(SET_ID.drift, Math.round(u * 99)), 60);
+  }, u => String(Math.round(u * 99)), 0, "each voice's pitch and cutoff wander slowly at random (up to 15 cents and a semitone)");
+}
+function morphControls() {
+  const target = h("select", { title: "the patch this one morphs towards (its knobs)" });
+  const fill = () => {
+    const names = n => slots[n] && slots[n].kind === 1 ? `${slotLabel(n)} ${slots[n].name}` : slotLabel(n);
+    target.replaceChildren(h("option", { value: 0 }, "— none —"), ...Array.from({ length: 200 }, (_, n) => h("option", { value: n + 1 }, names(n))));
+  };
+  fill();
+  target.onfocus = fill;
+  target.onchange = async () => { if (offline()) return; await ack([0x44, +target.value >> 7, +target.value & 0x7F]); await refreshSettings(); };
+  paints.push(() => { if (settings && document.activeElement !== target) target.value = String(settings.morph || 0); });
+  // the source: a route to the Morph destination on the edit layer, at 99
+  const source = h("select", { title: "what fades towards the target: a mod route to Morph on the layer you're editing" },
+    h("option", { value: 0 }, "— nothing —"), SOURCES.slice(1).map((n, k) => h("option", { value: k + 1 }, n)));
+  source.onchange = async () => {
+    if (offline() || !layerRoutes) return;
+    for (const r of layerRoutes.filter(r => r.dest === MORPH_DEST)) await setRoute(paramsLayer, r.source, MORPH_DEST, 0);
+    if (+source.value && !await setRoute(paramsLayer, +source.value, MORPH_DEST, 99))
+      document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use`;
+    await refreshLayerRoutes();
+  };
+  paints.push(() => { const r = layerRoutes && layerRoutes.find(r => r.dest === MORPH_DEST);
+    if (document.activeElement !== source) source.value = String(r ? r.source : 0); });
+  return h("div", { class: "row" }, h("label", { class: "sel" }, h("span", { class: "lbl" }, "Morph to"), target),
+    h("label", { class: "sel" }, h("span", { class: "lbl" }, "Morph by"), source));
+}
+function mutateControls() {
+  const amount = h("select", { title: "how far each knob moves at most" }, [5, 10, 20, 35, 60].map(p => h("option", { value: p }, `±${p} %`)));
+  amount.value = "10";
+  const go = async () => {
+    if (offline() || !params) return;
+    const a = +amount.value / 100;
+    for (let i = 0; i < params.length; i++) {
+      if (i === P.VOL) continue;
+      const v = Math.min(1, Math.max(0, params[i] + (Math.random() * 2 - 1) * a));
+      const q = Math.round(v * 16383);
+      params[i] = v;
+      await ack([0x52, paramsLayer, i, q >> 7, q & 0x7F]);
+    }
+    touch("Mutate", `±${amount.value} %`);
+    paintAll();
+  };
+  return [h("button", { type: "button", class: "chip", title: "nudge every knob of the layer you're editing at random (not saved until you save)", onclick: go }, "Mutate"), amount];
 }
 
 function buildPanel() {
@@ -1564,6 +1699,16 @@ function buildPanel() {
         () => settings && settings.layers, v => setSetting(SET_ID.layers, v)),
       settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
         () => settings && settings.split, v => setSetting(SET_ID.split, v)),
+      row(settingSelect("Voice", ["Poly", "Mono (retrigger)", "Legato"], () => settings && settings["voice" + (paramsLayer + 1)] & 3,
+          v => setSetting(SET_ID["voice" + (paramsLayer + 1)], settings["voice" + (paramsLayer + 1)] & ~3 | v), "the layer you're editing"),
+        settingSelect("Priority", ["Last note", "Low note", "High note"], () => settings && settings["voice" + (paramsLayer + 1)] >> 2 & 3,
+          v => setSetting(SET_ID["voice" + (paramsLayer + 1)], settings["voice" + (paramsLayer + 1)] & 3 | v << 2), "which held note mono, legato and unison play")),
+      row(driftKnob(),
+        settingSelect("Scale", SCALES, () => settings && settings.scale, v => setSetting(SET_ID.scale, v),
+          "snap pitch (with its modulation) to a scale: random and LFO pitch modulation play melodies"),
+        settingSelect("Root", NOTE_NAMES, () => settings && settings.root, v => setSetting(SET_ID.root, v))),
+      morphControls(),
+      row(mutateControls()),
       row(settingSelect("Bend", Array.from({ length: 12 }, (_, k) => `±${k + 1} st`),
           () => settings && settings.bend - 1, v => setSetting(SET_ID.bend, v + 1), "pitch bend range (per patch)"),
         settingSelect("Unison detune", Array.from({ length: 51 }, (_, k) => `${k} ct`),
@@ -1729,8 +1874,8 @@ const SOURCES = ["", "LFO 1", "Filter envelope", "Amp envelope", "Velocity", "Mo
 const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount", "Poly-mod env amount", "LFO 1 amount",
   "LFO 1 → pitch", "LFO 1 → filter", "VCA", "Osc A level", "Osc B level", "Noise", "Resonance", "A pulse width",
   "B pulse width", "Poly-mod osc B", "LFO 1 → PW", "LFO 1 rate", "LFO 2 amount", "LFO 2 rate", "LFO 2 → pitch",
-  "LFO 2 → filter", "LFO 2 → PW"];
-const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23]);
+  "LFO 2 → filter", "LFO 2 → PW", "Morph"];
+const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24]);
 let matrixLayer = 0;
 const options = (list, skip) => list.map((t, i) => i === skip ? "" :
   `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");

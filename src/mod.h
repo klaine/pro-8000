@@ -34,6 +34,7 @@ typedef enum {
     DEST_LFO_TO_PITCH, DEST_LFO_TO_FILTER, DEST_VCA,
     DEST_A_LEVEL, DEST_B_LEVEL, DEST_NOISE, DEST_RESONANCE, DEST_A_PW, DEST_B_PW, DEST_PMOD_OSC_B, DEST_LFO_TO_PW,
     DEST_LFO_RATE, DEST_LFO2_AMOUNT, DEST_LFO2_RATE, DEST_LFO2_TO_PITCH, DEST_LFO2_TO_FILTER, DEST_LFO2_TO_PW,
+    DEST_MORPH, // towards the morph target patch's knobs: per layer, from the most recently played voice
     DEST_COUNT
 } mod_dest_t;
 #define DEST_NONE 0xFF

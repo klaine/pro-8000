@@ -2,8 +2,10 @@
 //   0  "P8P1"            magic and format
 //   4  name[16]          0-padded
 //   20 layer mode, split note, LFO sync, LFO retrigger
-//   24 switches (u32)    bit s = switch s engaged
+//   24 switches (u16)    bit s = switch s engaged
+//   26 drift (0-99), 27 morph target patch + 1 (0 = none)   (0.7.2; zero in older patches)
 //   28 keyboard tracking 0 off, 1 half, 2 full
+//   29 scale | root << 4, 30 voice modes (layer 1 mode | priority << 2, layer 2 << 4), 31 reserved
 //   32 pots[2][26] (u16) layer 1, then layer 2
 //   136 extra[2][8] (u16) Env 3 and Env 4 ADSR per layer
 //   168 routes[2][8]     source, destination, depth (int8) per layer
@@ -27,8 +29,9 @@
 #include "eeprom.h"
 #include "seq.h"
 
-// Sequence record (256 bytes): "P8S1", length, lanes, division, bpm, flags, swing, smooth, 0 (4-11), then from 12
-// each step's note, velocity, gate (length × 3 bytes) and each lane's values (length bytes each), checksum at 252.
+// Sequence record (256 bytes): "P8S1", length, lanes, division, bpm, flags, swing, smooth, arp (4-11), then from 12
+// each step's note, velocity, gate, extra (length × 4 bytes) and each lane's values (length bytes each), checksum
+// at 252.
 #define SEQ_ADDRESS 0x0C800u
 #define SEQ_MAGIC   0x31533850u // "P8S1"
 
@@ -39,7 +42,11 @@
 #define OFF_NAME 4
 #define OFF_SETTINGS 20
 #define OFF_SWITCHES 24
+#define OFF_DRIFT 26
+#define OFF_MORPH 27
 #define OFF_KEYTRACK 28
+#define OFF_SCALE 29
+#define OFF_VOICE_MODE 30
 #define OFF_POTS 32
 #define OFF_EXTRA 136
 #define OFF_ROUTES 168
@@ -133,7 +140,11 @@ int store_load_patch(int n, patch_t *patch)
     patch->lfo_trigger[0] = b[OFF_SETTINGS + 3];
     patch->lfo_sync[1] = b[OFF_LFO2];
     patch->lfo_trigger[1] = b[OFF_LFO2 + 1];
-    patch->switches = get32(b + OFF_SWITCHES);
+    patch->switches = get16(b + OFF_SWITCHES);
+    patch->drift = b[OFF_DRIFT];
+    patch->morph = b[OFF_MORPH];
+    patch->scale = b[OFF_SCALE];
+    patch->voice_mode = b[OFF_VOICE_MODE];
     patch->keytrack = b[OFF_KEYTRACK];
     patch->bend_range = b[OFF_BEND];
     patch->detune = b[OFF_DETUNE];
@@ -177,7 +188,11 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_SETTINGS + 3] = patch->lfo_trigger[0];
     b[OFF_LFO2] = patch->lfo_sync[1];
     b[OFF_LFO2 + 1] = patch->lfo_trigger[1];
-    put32(b + OFF_SWITCHES, patch->switches);
+    put16(b + OFF_SWITCHES, patch->switches);
+    b[OFF_DRIFT] = patch->drift;
+    b[OFF_MORPH] = patch->morph;
+    b[OFF_SCALE] = patch->scale;
+    b[OFF_VOICE_MODE] = patch->voice_mode;
     b[OFF_KEYTRACK] = patch->keytrack;
     b[OFF_BEND] = patch->bend_range;
     b[OFF_DETUNE] = patch->detune;
@@ -330,12 +345,14 @@ int store_load_sequence(int n)
     s->flags = b[8];
     s->swing = b[9];
     s->smooth = b[10];
+    s->arp = b[11];
     seq_fix();
     const uint8_t *x = b + 12;
-    for (int i = 0; i < s->length; i++, x += 3) {
+    for (int i = 0; i < s->length; i++, x += 4) {
         s->note[i] = x[0];
         s->velocity[i] = x[1];
         s->gate[i] = x[2];
+        s->extra[i] = x[3];
     }
     for (int l = 0; l < s->lanes; l++)
         for (int i = 0; i < s->length; i++)
@@ -358,11 +375,13 @@ int store_save_sequence(int n)
     b[8] = s->flags;
     b[9] = s->swing;
     b[10] = s->smooth;
+    b[11] = s->arp;
     uint8_t *x = b + 12;
-    for (int i = 0; i < s->length; i++, x += 3) {
+    for (int i = 0; i < s->length; i++, x += 4) {
         x[0] = s->note[i];
         x[1] = s->velocity[i];
         x[2] = s->gate[i];
+        x[3] = s->extra[i];
     }
     for (int l = 0; l < s->lanes; l++)
         for (int i = 0; i < s->length; i++)

@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.7.1. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.7.2. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -56,9 +56,42 @@ A digit display can't show a plus sign, so positive values have none. A dot afte
 ## Playing
 
 Play over USB MIDI, on any channel. Pitch bend is ±2 semitones by default (Settings key 7, per patch). The mod wheel adds LFO 1 depth and is also a mod
-source. Channel pressure and poly pressure act as aftertouch, also a mod source. The firmware follows MIDI clock
-(Start, Stop and Clock) for LFO sync. The 5-pin MIDI input isn't supported yet: use USB, or route through the web
-page's MIDI router.
+source. Aftertouch is a mod source too, and it's per voice: poly pressure (the Move's pads send it) moves only the
+voice playing that note; channel pressure moves them all. The firmware follows MIDI clock (Start, Stop and Clock)
+for LFO sync. The 5-pin MIDI input isn't supported yet: use USB, or route through the web page's MIDI router.
+
+- **Sustain pedal** (CC 64): keys let go while it's down keep sounding (and keep a sequence running) until it's
+  released.
+- **Program change** picks a patch in the bank chosen with bank select (CC 0 or 32: 0 = A, 1 = b); programs 100-127
+  of bank A reach b.00-b.27.
+- **Controllers** set knobs on the layer the channel plays (layer 2 for channel 2 in channel mode), else the layer
+  you're editing; the knob then picks up as after loading a patch:
+
+| CC | Knob | CC | Knob | CC | Knob |
+|---|---|---|---|---|---|
+| 5 | Glide | 21 | Noise | 29 | PMOD filter env |
+| 14 | FREQ A | 22 | Filter env amount | 30 | PMOD osc B |
+| 15 | FREQ B | 23-26 | Filter A / D / S / R | 31 | Master tune |
+| 16 | FINE | 27 / 28 | LFO 2 rate / amount | 70 / 72 / 73 / 75 | Amp S / R / A / D |
+| 17 / 18 | PW A / B | 71 | Resonance | 76 / 77 | LFO 1 rate / amount |
+| 19 / 20 | Level A / B | 74 | Cutoff | 85-88, 89-90 + 102-103 | Env 3, Env 4 A / D / S / R |
+
+### Voice modes, drift, scale, morph
+
+- **Voice mode** (per layer; Settings key 9 `UOIC`, or the web page): `POLY`, mono (`nono`: one voice, every new
+  note retriggers the envelopes) or legato (`LEG`: one voice, retriggers only after all keys are up). Note priority
+  (web page): last, low or high note; it also applies to unison, which plays the same line on all the layer's
+  voices.
+- **Drift** (Settings key 0 `drFt`, 0-99): each voice's pitch (up to 15 cents) and cutoff (up to a semitone) wander
+  slowly at random, so stacked notes and unison breathe like an old poly.
+- **Scale** (web page: scale and root): the pitch of each voice, with its common pitch modulation (LFO → Freq, LFO
+  2 → pitch, routes to Pitch A + B), snaps to the scale. An S&H or drift LFO on pitch plays melodies; a sequence's
+  transpositions stay in key. Keys off the scale snap too. Major, minor, Dorian, Phrygian, Lydian, Mixolydian,
+  harmonic minor, pentatonic major / minor, blues, whole tone, chromatic.
+- **Morph** (web page): pick another patch as the morph target and a source to morph by (a route to the Morph
+  destination). The source fades every knob from this patch's value to the target's: wheel up for a different
+  sound, an LFO for a slow evolution, a sequencer lane for a different sound on every step, velocity for harder
+  sounds on harder notes. Buttons, routes and settings stay this patch's.
 
 ## Patches
 
@@ -244,16 +277,23 @@ only plays it.
   key. It loops while keys are held (or plays once per key). Pressing another key while holding transposes it
   from the next step without restarting. Letting go of every key stops it. The notes go through the normal
   voices, envelopes and modulation.
-- **Steps:** up to 64. Each is on or a rest, with a note offset (semitones from the key), a gate (1-99 % of the
-  step; 100 % ties into the next step, legato) and a velocity (0 = the key's).
+- **Steps:** up to 60. Each is on or a rest, with a note offset (semitones from the key), a gate (1-99 % of the
+  step; 100 % ties into the next step, legato), a velocity (0 = the key's), a probability (100 % down to 12.5 %,
+  in eighths: some steps sometimes don't play) and ratchets (the step plays as 2, 3 or 4 quick notes).
+- **Arpeggio:** instead of transposing, the steps can walk the held notes (up, down, up-down, random, or in the
+  order played); each step's note offset transposes the arpeggio note (+12 for an octave jump). A chord played
+  within 30 ms counts as one.
 - **Timing:** a step lasts a clock division (1/16, 1/8T, …) at the MIDI clock's tempo (120 BPM until a clock
   arrives), or at the sequence's own BPM; swing makes even steps longer and odd ones shorter.
 - **Layers:** the sequence can take keys of both layers, or only those of layer 1 or layer 2. In a split, one hand
   plays a sequenced bass and the other plays normally.
 - **Automation lanes:** up to four, one value per step (−99..+99), optionally gliding from step to step. They're
   mod sources Seq A-D: choose a destination next to each lane (a route at depth 99 on the layer you're editing) or
-  route them in the Mod matrix with any depth. Steps and lanes share the space in the sequence's slot: 64 steps
-  with no lanes, 60 with 1, 48 with 2, 40 with 3, 34 with 4.
+  route them in the Mod matrix with any depth. Steps and lanes share the space in the sequence's slot: 60 steps
+  with no lanes, 48 with 1, 40 with 2, 34 with 3, 30 with 4.
+- **On the web page also:** Euclid fills the steps with k hits spread evenly over the length; Record writes notes
+  you play (the on-screen keys or the routed MIDI input, e.g. the Move) into the steps one by one, relative to the
+  first; Reset steps.
 - **Saving:** the sequence is saved with the patch (REC, or Save in Patches) and loaded with it. PERF's init sound
   has none.
 
@@ -283,6 +323,8 @@ Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn stil
 | 9 | Random, new for every note | `rAnd` |
 | 0 | Note number (centred on middle C) | `notE` |
 | (web only) | Sequence lanes A-D | |
+
+The Morph destination (web page only) fades toward the morph target patch (see Voice modes, drift, scale, morph).
 
 | Touch | Destination | Display | Full depth |
 |---|---|---|---|
@@ -347,6 +389,8 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 | 6 | `CY.A` / `CY.F` / `CY.3` / `CY.4`: cycling envelope (6 again: next one) | `OFF`, `FrEE`, `8bAr` … `1-32` |
 | 7 | `bEnd`: pitch bend range | 1-12 semitones (default 2) |
 | 8 | `dEtU`: unison detune, cents between the outermost voices | 0-50 (default 14) |
+| 9 | `UOIC`: the edit layer's voice mode | `POLY`, `nono`, `LEG` |
+| 0 | `drFt`: drift | 0-99 |
 
 Settings live in the patch, so save the patch to keep them.
 
@@ -363,7 +407,7 @@ WebMIDI with SysEx, which Safari and the desktop app's built-in browser don't of
 
 | Tab | What it does |
 |---|---|
-| **Sound** | The synth as a front panel: oscillators (wave and sync LED buttons, a picture of the waveform), mixer faders, filter (with its response curve), poly-mod, the four envelopes (faders, a picture of the shape, a Mode menu for ADSR / cycle / synced cycle, ⇆ to copy from the other layer), both LFOs (shape buttons, a picture of the wave, rate and amount, sync, retrigger, routing LEDs, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape) and voice settings. Drag a knob or fader up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch. Layer 1 / Layer 2 are in the header. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. ○ marks controls shared by both layers. |
+| **Sound** | The synth as a front panel: oscillators (wave and sync LED buttons, a picture of the waveform), mixer faders, filter (with its response curve), poly-mod, the four envelopes (faders, a picture of the shape, a Mode menu for ADSR / cycle / synced cycle, ⇆ to copy from the other layer), both LFOs (shape buttons, a picture of the wave, rate and amount, sync, retrigger, routing LEDs, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape) and voice settings (voice mode and note priority, drift, scale and root, morph target and source, Mutate: nudges every knob of the edit layer at random by up to the chosen amount). Drag a knob or fader up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch. Layer 1 / Layer 2 are in the header. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. ○ marks controls shared by both layers. |
 | **Mod matrix** | Both layers' routes: change the source, destination or depth, remove routes, add new ones. |
 | **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 400 as a `.bin`. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. |
@@ -382,7 +426,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.7.1.syx --yes
+build/pro800 install build/pro800-0.7.2.syx --yes
 ```
 
 ## Updating, recovery and going back to stock
@@ -402,7 +446,8 @@ build/pro800 install build/pro800-0.7.1.syx --yes
 
 - Waveform levels within one oscillator (e.g. saw louder than triangle on oscillator A) can't be mixed: the
   waveform buttons are on/off lines to the voice board. Put the second waveform on the other oscillator instead.
-- 5-pin MIDI in and out and an arpeggiator aren't implemented. The sequencer is edited on the web page only.
+- 5-pin MIDI in and out aren't implemented. The sequencer, scale, morph and note priority are set on the web page
+  only.
 - 200 patches (A and b): banks C and D hold the sequences.
 - The LFO routing buttons always show LFO 1's routing. LFO 2's shows on the display when toggled, and on the web
   page.

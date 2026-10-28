@@ -34,6 +34,13 @@
 // out (attack, hold, fall, rest in proportion). A phase drives it, so it stays on tempo however long it runs; it
 // restarts at each key.
 //
+// Voice modes per layer: poly, mono (every new note retriggers) or legato, with last / low / high note priority;
+// unison plays the layer's mono line on all its voices. Drift wanders each voice's pitch and cutoff slowly at random
+// (up to 15 cents and a semitone). Scale quantize snaps a voice's pitch, the note plus its common pitch modulation
+// (LFOs, routes to pitch A + B), to a scale from a root: random and LFO pitch modulation plays melodies, and keys
+// off the scale snap too. Morph: a second patch's knob values (the morph target), reached by the Morph mod
+// destination (0 = this patch, 1 = the target), knob by knob; buttons, routes and settings stay this patch's.
+//
 // Other ranges and curves are first guesses, chosen to be playable; they're constants here.
 #include "synth.h"
 #include "controls.h"
@@ -75,6 +82,9 @@
 #define ENV_FLOOR             0.0005f // -66 dB: a release ends here
 #define CYCLE_FLOOR           0.001f  // -60 dB: a cycle's fall ends here, on time
 
+#define DRIFT_PITCH_SEMITONES 0.15f // at a drift of 99
+#define DRIFT_CUTOFF_SEMITONES 1.0f
+
 #define LAYERS 2
 
 typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_RELEASE, ENV_HOLD, ENV_REST } env_stage_t;
@@ -104,6 +114,8 @@ typedef struct {
     uint32_t started; // allocation order
     float pitch;      // gliding note, in semitones (MIDI note numbers)
     float random;     // -1..1, new for every note
+    float pressure;   // poly aftertouch, 0..1
+    float drift[2], drift_to[2], drift_timer; // pitch and cutoff wander, -1..1
     env_t amp, filter, env3, env4;
 } voice_t;
 
@@ -111,6 +123,11 @@ static voice_t voices[VOICE_COUNT];
 static uint32_t allocations, random_state = 0x2545F491u;
 static float bend, mod_wheel, aftertouch; // bend -1..1
 static int bend_range = BEND_DEFAULT, detune = DETUNE_DEFAULT;
+static uint8_t voice_mode[LAYERS], priority[LAYERS]; // VOICE_* and PRIORITY_* (synth.h)
+static int drift_amount;                             // 0..99
+static uint8_t scale, scale_root;                    // SCALE_* (0 off), root 0..11 (C..B)
+static float morph_param[LAYERS][PARAM_COUNT];       // the morph target's knob values
+static int morph_loaded, morph_target; // the target patch + 1, 0 = none
 static int last_voice[2] = {-1, -1}; // per layer: the most recently played voice, for the single-wire destinations
 
 // the panel's pots, smoothed (0..1), and each layer's parameters (the knobs, then Env 3 and Env 4)
@@ -294,6 +311,70 @@ int synth_env_select(void) { return env_select < 0 ? 0 : env_select; }
 
 void synth_aftertouch(uint8_t value) { aftertouch = (float)value / 127.0f; }
 
+void synth_poly_pressure(uint8_t note, uint8_t value)
+{
+    for (int v = 0; v < VOICE_COUNT; v++)
+        if (voices[v].gate && voices[v].note == note)
+            voices[v].pressure = (float)value / 127.0f;
+}
+
+// --- voice modes, drift, scale, morph ---
+
+int synth_voice_mode(int layer) { return voice_mode[layer] | priority[layer] << 2; }
+
+void synth_set_voice_mode(int layer, int bits)
+{
+    int mode = bits & 3, prio = bits >> 2 & 3;
+    if (mode > VOICE_LEGATO || prio > PRIORITY_HIGH || (mode == voice_mode[layer] && prio == priority[layer]))
+        return;
+    synth_all_off();
+    voice_mode[layer] = (uint8_t)mode;
+    priority[layer] = (uint8_t)prio;
+}
+
+int synth_drift(void) { return drift_amount; }
+void synth_set_drift(int amount) { drift_amount = amount < 0 ? 0 : amount > 99 ? 99 : amount; }
+
+int synth_scale(void) { return scale | scale_root << 4; }
+void synth_set_scale(int bits)
+{
+    scale = (uint8_t)((bits & 15) < SCALE_COUNT ? bits & 15 : 0);
+    scale_root = (uint8_t)((bits >> 4) % 12);
+}
+
+static const uint16_t scale_masks[SCALE_COUNT] = { // bit n: n semitones above the root is in the scale
+    0xFFF, 0xAB5, 0x5AD, 0x6AD, 0x5AB, 0xAD5, 0x6B5, 0x9AD, 0x295, 0x4A9, 0x4E9, 0x555, 0xFFF,
+};
+
+// The nearest pitch in the scale (semitones, MIDI note numbers)
+static float quantize(float pitch)
+{
+    int centre = (int)(pitch + 0.5f), best = centre;
+    for (int d = 0; d <= 6; d++) {
+        int up = centre + d, down = centre - d;
+        if (scale_masks[scale] >> ((up - scale_root + 120) % 12) & 1) { best = up; break; }
+        if (scale_masks[scale] >> ((down - scale_root + 120) % 12) & 1) { best = down; break; }
+    }
+    return (float)best;
+}
+
+int synth_morph_target(void) { return morph_target; }
+
+void synth_set_morph(int target, const patch_t *data)
+{
+    morph_target = target;
+    morph_loaded = data != 0;
+    if (!data)
+        return;
+    const patch_t *t = data;
+    for (int l = 0; l < LAYERS; l++) {
+        for (int i = 0; i < POT_COUNT; i++)
+            morph_param[l][i] = (float)t->pots[per_layer[i] ? l : 0][i] / 65535.0f;
+        for (int i = 0; i < EXTRA_PARAMS; i++)
+            morph_param[l][POT_COUNT + i] = (float)t->extra[l][i] / 65535.0f;
+    }
+}
+
 // --- mod matrix ---
 
 int synth_route(int layer, mod_source_t source, mod_dest_t dest)
@@ -446,6 +527,14 @@ void synth_apply_patch(const patch_t *patch)
                                                                      : LFO_TRIGGER_FREE;
     }
     unison = sw(SWITCH_UNISON);
+    for (int l = 0; l < LAYERS; l++) {
+        voice_mode[l] = patch->voice_mode >> (4 * l) & 3;
+        priority[l] = patch->voice_mode >> (4 * l + 2) & 3;
+        if (voice_mode[l] > VOICE_LEGATO) voice_mode[l] = VOICE_POLY;
+        if (priority[l] > PRIORITY_HIGH) priority[l] = PRIORITY_LAST;
+    }
+    synth_set_drift(patch->drift);
+    synth_set_scale(patch->scale);
     bend_range = patch->bend_range ? patch->bend_range : BEND_DEFAULT; // 0: not stored (before 0.7.1)
     detune = patch->detune ? patch->detune - 1 : DETUNE_DEFAULT;
     synth_set_bend_range(bend_range);
@@ -483,6 +572,10 @@ void synth_capture_patch(patch_t *patch)
     patch->keytrack = (uint8_t)keytrack_setting;
     patch->layer_mode = (uint8_t)layer_mode;
     patch->split = (uint8_t)split_note;
+    patch->voice_mode = (uint8_t)(voice_mode[0] | priority[0] << 2 | voice_mode[1] << 4 | priority[1] << 6);
+    patch->drift = (uint8_t)drift_amount;
+    patch->morph = (uint8_t)morph_target;
+    patch->scale = (uint8_t)synth_scale();
     patch->bend_range = (uint8_t)bend_range;
     patch->detune = (uint8_t)(detune + 1); // 0 means "not stored"
     for (int w = 0; w < 2; w++) {
@@ -521,6 +614,14 @@ static int allocate(int layer, uint8_t note)
     return best;
 }
 
+static float random_signed(void) // xorshift32, -1..1
+{
+    random_state ^= random_state << 13;
+    random_state ^= random_state >> 17;
+    random_state ^= random_state << 5;
+    return (float)(int32_t)random_state / 2147483648.0f;
+}
+
 static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
 {
     int was_silent = x->amp.stage == ENV_IDLE;
@@ -528,10 +629,8 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
     x->gate = 1;
     x->velocity = velocity;
     x->started = ++allocations;
-    random_state ^= random_state << 13; // xorshift32
-    random_state ^= random_state >> 17;
-    random_state ^= random_state << 5;
-    x->random = (float)(int32_t)random_state / 2147483648.0f;
+    x->random = random_signed();
+    x->pressure = 0;
     if (was_silent)
         x->pitch = note; // glide only from a sounding note
     if (retrigger) {
@@ -577,18 +676,45 @@ static void remove_held(int layer, uint8_t note)
         }
 }
 
+// Mono, legato and unison play one line: the held note the priority picks
+static int mono(int layer) { return unison || voice_mode[layer] != VOICE_POLY; }
+
+static uint8_t priority_note(int layer)
+{
+    uint8_t n = held[layer][held_count[layer] - 1]; // the latest
+    for (int i = 0; i < held_count[layer]; i++) {
+        uint8_t h = held[layer][i];
+        if ((priority[layer] == PRIORITY_LOW && h < n) || (priority[layer] == PRIORITY_HIGH && h > n))
+            n = h;
+    }
+    return n;
+}
+
+static void mono_voices(int layer, int *first, int *end)
+{
+    layer_voices(layer, first, end);
+    if (!unison)
+        *end = *first + 1; // mono / legato: the layer's first voice
+}
+
 static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
 {
     int first, end;
     layer_voices(layer, &first, &end);
-    if (unison) {
+    if (mono(layer)) {
         int was_held = held_count[layer] > 0;
         remove_held(layer, note); // moves to the top if already held
         if (held_count[layer] == HELD_MAX)
             remove_held(layer, held[layer][0]);
         held[layer][held_count[layer]++] = note;
+        uint8_t target = priority_note(layer);
+        mono_voices(layer, &first, &end);
+        if (was_held && voices[first].gate && voices[first].note == target)
+            return; // the priority keeps the note that's sounding
+        // mono retriggers every new note; legato and unison only the first after all were released
+        int retrigger = !was_held || (voice_mode[layer] == VOICE_MONO);
         for (int v = first; v < end; v++) {
-            gate_on(&voices[v], note, velocity, !was_held); // legato while a note is already held
+            gate_on(&voices[v], target, velocity, retrigger);
             lfo_note_on(LFO_ID(layer, 0), v, !was_held);
             lfo_note_on(LFO_ID(layer, 1), v, !was_held);
         }
@@ -631,16 +757,21 @@ void synth_note_off(uint8_t note)
     for (int layer = 0; layer < LAYERS; layer++) {
         int first, end;
         layer_voices(layer, &first, &end);
-        if (unison) {
+        if (mono(layer)) {
             int was_held = held_count[layer] > 0;
             remove_held(layer, note);
             if (!was_held)
                 continue;
+            mono_voices(layer, &first, &end);
             for (int v = first; v < end; v++) {
-                if (held_count[layer])
-                    voices[v].note = held[layer][held_count[layer] - 1]; // back to the previous note, legato
-                else
+                if (!held_count[layer])
                     gate_off(&voices[v]);
+                else if (voices[v].note != priority_note(layer)) { // back to a held note: legato, or mono retriggers
+                    if (voice_mode[layer] == VOICE_MONO)
+                        gate_on(&voices[v], priority_note(layer), voices[v].velocity, 1);
+                    else
+                        voices[v].note = priority_note(layer);
+                }
             }
             continue;
         }
@@ -910,7 +1041,7 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
     case SRC_AMP_ENV: return x->amp.level;
     case SRC_VELOCITY: return (float)x->velocity / 127.0f;
     case SRC_MOD_WHEEL: return mod_wheel;
-    case SRC_AFTERTOUCH: return aftertouch;
+    case SRC_AFTERTOUCH: return x->pressure > aftertouch ? x->pressure : aftertouch; // poly, else channel
     case SRC_ENV3: return x->env3.level;
     case SRC_ENV4: return x->env4.level;
     case SRC_RANDOM: return x->random;
@@ -967,10 +1098,19 @@ void synth_update(float dt)
         if (last_voice[l] >= 0 && (layer_mode != LAYER_OFF || l == 0))
             evaluate_routes(l, last_voice[l], last_mod[l]);
 
+    // the knob values as heard: morphed towards the morph target by the Morph destination
+    static float eff[LAYERS][PARAM_COUNT];
+    for (int l = 0; l < LAYERS; l++) {
+        float m = morph_loaded ? clamp01(last_mod[l][DEST_MORPH]) : 0;
+        for (int i = 0; i < PARAM_COUNT; i++)
+            eff[l][i] = m > 0 && i != POT_MASTER_VOL ? layer_param[l][i] + (morph_param[l][i] - layer_param[l][i]) * m
+                                                     : layer_param[l][i];
+    }
+
     layer_params_t lp[LAYERS];
     env_rates_t rates[LAYERS][4]; // amp, filter, Env 3, Env 4
     for (int l = 0; l < LAYERS; l++) {
-        const float *p = layer_param[l];
+        const float *p = eff[l];
         int c = env_cycle[l];
         for (int e = 0; e < 4; e++)
             env_rates(&rates[l][e], dt, p, env_params[e], c >> e & 1, env_sync[l][e]);
@@ -996,7 +1136,7 @@ void synth_update(float dt)
     float shared_mod[DEST_COUNT];
     for (int d = 0; d < DEST_COUNT; d++)
         shared_mod[d] = last_mod[0][d] + last_mod[1][d];
-    const float *shared = layer_param[0];
+    const float *shared = eff[0];
     float pw_depth = clamp01(clamp01(lp[0].depth) * sw(SWITCH_LFO_PW) + shared_mod[DEST_LFO_TO_PW]);
     float pw2_depth = clamp01(lp[0].depth2 * (float)((lfo2_dests[0] & LFO2_TO_PW) != 0) + shared_mod[DEST_LFO2_TO_PW]);
     float lfo_pw = (lfo_value(LFO_ID(0, 0), -1, (lfo_shape_t)lfo_shape[0][0]) * pw_depth
@@ -1031,6 +1171,17 @@ void synth_update(float dt)
         env_update(&x->env3, dt, &rates[l][2]);
         env_update(&x->env4, dt, &rates[l][3]);
         x->pitch += ((float)x->note - x->pitch) * q->glide_k;
+        if (drift_amount) { // a slow random walk: a new target every 0.4-2 s, approached smoothly
+            x->drift_timer -= dt;
+            if (x->drift_timer <= 0) {
+                x->drift_to[0] = random_signed();
+                x->drift_to[1] = random_signed();
+                x->drift_timer = 1.2f + 0.8f * random_signed();
+            }
+            for (int k = 0; k < 2; k++)
+                x->drift[k] += (x->drift_to[k] - x->drift[k]) * (dt > 0.5f ? 1.0f : dt * 2.0f);
+        }
+        float drift = (float)drift_amount / 99.0f;
 
         float mod[DEST_COUNT] = {0};
         evaluate_routes(l, v, mod);
@@ -1054,12 +1205,16 @@ void synth_update(float dt)
         float env_amount = (q->env_amount + mod[DEST_FIL_ENV_AMT]) * FILTER_ENV_SEMITONES;
         float pmod_env = (q->pmod_env + mod[DEST_PMOD_ENV]) * PMOD_ENV_SEMITONES;
 
-        float pitch = x->pitch + bend * (float)bend_range + q->tune + spread + lfo * to_pitch + lfo2 * to_pitch2
-                    + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
+        float pitch_mod = lfo * to_pitch + lfo2 * to_pitch2 + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
+        if (scale) // snap the note with its modulation to the scale
+            pitch_mod = quantize((float)x->note + pitch_mod) - (float)x->note;
+        float pitch = x->pitch + bend * (float)bend_range + q->tune + spread + pitch_mod
+                    + x->drift[0] * drift * DRIFT_PITCH_SEMITONES;
         float a = pitch + q->coarse_a + pmod_env * x->filter.level + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
         float b = pitch + q->coarse_b + q->fine_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
         float filter = q->cutoff + keytrack_amount * (x->pitch - 60.0f) + env_amount * x->filter.level
-                     + lfo * to_filter + lfo2 * to_filter2 + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES;
+                     + lfo * to_filter + lfo2 * to_filter2 + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES
+                     + x->drift[1] * drift * DRIFT_CUTOFF_SEMITONES;
 
         sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
         sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));
