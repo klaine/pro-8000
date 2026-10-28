@@ -30,6 +30,11 @@ void synth_aftertouch(uint8_t value); // channel pressure 0-127 (a mod source)
 void synth_poly_pressure(uint8_t note, uint8_t value); // per voice: the voices playing that note (the same source)
 // Reads the panel, advances envelopes, LFOs and glide by dt seconds, and sets every CV and gate.
 void synth_update(float dt);
+// The fast path, run between the parts of the CV refresh: advances the amp and filter envelopes by dt and sets the
+// VCA CVs, and the cutoff CVs when `cutoff`. synth_update() works out everything else once per main-loop pass.
+void synth_envelopes(float dt, int cutoff);
+unsigned synth_active_voices(void);     // bitmask: voices whose amp envelope runs (the rest are silent)
+unsigned synth_take_fresh_voices(void); // voices started since the last call: their pitch goes out before their VCA
 int synth_any_gate(void);
 
 layer_mode_t synth_layer_mode(void);

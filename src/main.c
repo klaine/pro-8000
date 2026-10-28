@@ -1362,6 +1362,31 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
         }
 }
 
+// The CV refresh with the amp and filter envelopes run in between (synth_envelopes()), so the envelope-driven CVs
+// move more often than the engine's pass: the VCAs four times a pass, the cutoffs twice, oscillator pitch and the
+// global CVs once. A voice that just started gets its pitch first, so its VCA never opens on the old note; silent
+// voices' pitch and cutoff are refreshed only every 8th pass (their S&H only has to hold).
+#define ENVELOPE_TICKS 4
+static void refresh_cvs(void)
+{
+    static uint32_t last_tick, count;
+    unsigned fresh = synth_take_fresh_voices();
+    unsigned voices = ++count % 8 ? synth_active_voices() & ~fresh : 0xFFu;
+    sh_refresh_pitch(fresh);
+    for (int k = 0; k < ENVELOPE_TICKS; k++) {
+        uint32_t now = DWT_CYCCNT;
+        float dt = (float)(now - last_tick) / (float)system_hz;
+        last_tick = now;
+        int cutoff = !(k & 1);
+        synth_envelopes(dt, cutoff);
+        if (cutoff)
+            sh_refresh_cutoff(voices | fresh);
+        sh_refresh_vca();
+        sh_refresh_pitch(voices & 3u << 2 * k); // two voices' pitch per tick
+    }
+    sh_refresh_global();
+}
+
 static void handle_midi(void)
 {
     static uint8_t sysex[SYSEX_MAX];
@@ -1528,7 +1553,10 @@ int main(void)
         cycles_display = DWT_CYCCNT - tc;
 
         t0 = DWT_CYCCNT;
-        sh_refresh();
+        if (direct_mode)
+            sh_refresh();
+        else
+            refresh_cvs();
         cycles_refresh = DWT_CYCCNT - t0;
         cycles_pass = DWT_CYCCNT - cycles;
         if (cycles_pass > cycles_pass_max)

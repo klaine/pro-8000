@@ -634,6 +634,23 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   rows, Arpeggio, Euclid fill, Record from the page's keys or the router, Reset steps; Euclid on the LFO step grid;
   Morph in the Mod matrix.
 
+## Faster envelopes: a split CV refresh (0.7.3, 2026-10-28; built, not flashed)
+
+- The 2.1 ms CV refresh was most of each pass, and the envelopes moved once per pass. Per channel: ~74 us through
+  the DAC80501 (pitch A, pitch B, cutoff: 24 channels), ~20 us through the on-chip DACs (8 VCAs, 9 global).
+- Now `refresh_cvs()` (main.c) runs the amp and filter envelopes (`synth_envelopes()`) four times per pass between
+  the parts of the refresh (`sh_refresh_pitch / cutoff / vca / global`): VCAs every tick, cutoffs every other tick,
+  pitch two voices per tick, the global CVs once. `synth_update()` still does everything else once per pass and
+  leaves each voice's VCA gain and cutoff (without the envelope) for the ticks. Envelope rates are now per second
+  (`stage_rate`, `step`), so any dt works.
+- A voice started since the last pass gets its pitch written first, so its VCA never opens on the old note. Silent
+  voices' pitch and cutoff are refreshed only every 8th pass, which makes passes shorter when few voices sound.
+- Expected with all 8 voices sounding (from the per-channel costs, not measured yet): pass ~3.4 ms (was 2.4),
+  VCAs every ~0.9 ms, cutoffs ~1.7 ms. Mac model: an instant attack is fully open after 0.8 ms (was 2.4), 12 VCA
+  steps in the first 10 ms of a decay (was 4), decay times unchanged (knob 50 %: 312 ms to -60 dB, was 314).
+- To check on the synth: `pro800 timing` with 8 notes held and with none; `play --record` with a 0 ms attack and
+  a short decay, to see how much the voice board smooths the steps.
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

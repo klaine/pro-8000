@@ -97,9 +97,10 @@ typedef struct {
     float start; // synced cycling: the level the current attack started from
 } env_t;
 
-// One envelope's settings as per-update factors, worked out once per layer and update
+// One envelope's settings, worked out once per layer and pass; the envelopes advance by any dt from them (the amp
+// and filter envelopes several times a pass: synth_envelopes())
 typedef struct {
-    float attack, decay, release; // multipliers on the distance left to go
+    float attack, decay, release; // how fast the distance left to go shrinks: log2 per second (< 0: at once)
     float sustain;
     float hold, rest;             // seconds (cycling)
     int cycle;
@@ -117,6 +118,9 @@ typedef struct {
     float pressure;   // poly aftertouch, 0..1
     float drift[2], drift_to[2], drift_timer; // pitch and cutoff wander, -1..1
     env_t amp, filter, env3, env4;
+    uint8_t fresh;                // started since the main loop last asked: write its pitch before its VCA opens
+    float vca_mod;                // from the last synth_update(): the VCA gain besides the amp envelope, 0..1
+    float cutoff_rest, cutoff_env; // and the cutoff (semitones) besides the filter envelope, and its amount
 } voice_t;
 
 static voice_t voices[VOICE_COUNT];
@@ -633,6 +637,8 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
     x->pressure = 0;
     if (was_silent)
         x->pitch = note; // glide only from a sounding note
+    if (retrigger || was_silent)
+        x->fresh = 1;
     if (retrigger) {
         x->amp.stage = ENV_ATTACK; // from the current level, so a stolen voice doesn't click
         x->filter.stage = ENV_ATTACK;
@@ -824,11 +830,16 @@ float synth_env_time(int stage, float knob, int cycling)
     }
 }
 
-// The multiplier per update that covers a stage of `time` seconds: an attack (from 0 to 1 on its way to 1.5:
-// 1/3 of the distance left at the end) or a fall (to -60 dB: 1/1000 left).
-static float step_factor(float dt, float time, float log2_left)
+// The rate that covers a stage of `time` seconds: an attack (from 0 to 1 on its way to 1.5: 1/3 of the distance
+// left at the end) or a fall (to -60 dB: 1/1000 left). step() turns it into the multiplier for dt.
+static float stage_rate(float time, float log2_left)
 {
-    return time <= 0 ? 0 : fast_exp2(-dt / time * log2_left);
+    return time <= 0 ? -1.0f : log2_left / time;
+}
+
+static float step(float rate, float dt)
+{
+    return rate < 0 ? 0 : fast_exp2(-dt * rate);
 }
 
 // A synced cycle's shares of its period, from the knobs as weights (attack, hold = SUS, fall = DEC, rest = REL)
@@ -840,13 +851,13 @@ static void cycle_shares(const float *p, const uint8_t *knobs, float share[4])
         share[i] = sum < 0.001f ? 0.25f : w[i] / sum;
 }
 
-static void env_rates(env_rates_t *r, float dt, const float *p, const uint8_t *knobs, int cycle, int sync)
+static void env_rates(env_rates_t *r, const float *p, const uint8_t *knobs, int cycle, int sync)
 {
     int att = knobs[0], dec = knobs[1], sus = knobs[2], rel = knobs[3];
     r->cycle = cycle;
-    r->attack = step_factor(dt, synth_env_time(0, p[att], cycle), 1.585f); // log2(3)
-    r->decay = step_factor(dt, synth_env_time(1, p[dec], cycle), 9.966f);  // log2(1000)
-    r->release = cycle ? r->decay : step_factor(dt, synth_env_time(3, p[rel], 0), 9.966f);
+    r->attack = stage_rate(synth_env_time(0, p[att], cycle), 1.585f); // log2(3)
+    r->decay = stage_rate(synth_env_time(1, p[dec], cycle), 9.966f);  // log2(1000)
+    r->release = cycle ? r->decay : stage_rate(synth_env_time(3, p[rel], 0), 9.966f);
     r->sustain = p[sus];
     r->hold = cycle ? synth_env_time(2, p[sus], 1) : 0;
     r->rest = cycle ? synth_env_time(3, p[rel], 1) : 0;
@@ -858,7 +869,7 @@ static void env_rates(env_rates_t *r, float dt, const float *p, const uint8_t *k
         r->a = share[0];
         r->h = share[1];
         r->f = share[2];
-        r->release = step_factor(dt, r->f * r->period, 9.966f); // key up: falls with its share of the cycle
+        r->release = stage_rate(r->f * r->period, 9.966f); // key up: falls with its share of the cycle
     }
 }
 
@@ -919,7 +930,7 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
         e->level = 0;
         break;
     case ENV_ATTACK:
-        e->level = ATTACK_OVERSHOOT - (ATTACK_OVERSHOOT - e->level) * r->attack;
+        e->level = ATTACK_OVERSHOOT - (ATTACK_OVERSHOOT - e->level) * step(r->attack, dt);
         if (e->level >= 1.0f) {
             e->level = 1.0f;
             e->stage = r->cycle ? ENV_HOLD : ENV_DECAY;
@@ -933,10 +944,10 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
         break;
     case ENV_DECAY:
         if (!r->cycle) { // then follows the sustain knob while held
-            e->level = r->sustain + (e->level - r->sustain) * r->decay;
+            e->level = r->sustain + (e->level - r->sustain) * step(r->decay, dt);
             break;
         }
-        e->level *= r->decay;
+        e->level *= step(r->decay, dt);
         if (e->level < CYCLE_FLOOR) {
             e->level = 0;
             e->stage = ENV_REST;
@@ -951,7 +962,7 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
             e->stage = ENV_ATTACK;
         break;
     case ENV_RELEASE:
-        e->level *= r->release;
+        e->level *= step(r->release, dt);
         if (e->level < ENV_FLOOR) {
             e->level = 0;
             e->stage = ENV_IDLE;
@@ -1082,6 +1093,51 @@ typedef struct {
     float coarse_a, coarse_b, fine_b, tune, glide_k, env_amount, pmod_env, cutoff, depth, depth2;
 } layer_params_t;
 
+static env_rates_t rates[LAYERS][4]; // from the last synth_update(): amp, filter, Env 3, Env 4
+
+// Voice v's envelope-driven CVs from its envelopes now: the VCA, and the cutoff when `cutoff`
+static void envelope_cvs(int v, int cutoff)
+{
+    const voice_t *x = &voices[v];
+    if (cutoff)
+        sh_set(CV_FIL1 + v, tuning_note_cv(TUNING_ROW_FILTER + v, x->cutoff_rest + x->cutoff_env * x->filter.level));
+    float gain = x->amp.level * x->vca_mod;
+    sh_set(CV_AMP1 + v, gain > 0 ? cv_from(VCA_THRESHOLD + (1.0f - VCA_THRESHOLD) * gain) : 0);
+}
+
+void synth_envelopes(float dt, int cutoff)
+{
+    if (dt > 0.05f)
+        dt = 0.05f;
+    for (int v = 0; v < VOICE_COUNT; v++) {
+        voice_t *x = &voices[v];
+        int l = layer_of(v);
+        env_update(&x->amp, dt, &rates[l][0]);
+        env_update(&x->filter, dt, &rates[l][1]);
+        envelope_cvs(v, cutoff);
+    }
+}
+
+unsigned synth_active_voices(void)
+{
+    unsigned mask = 0;
+    for (int v = 0; v < VOICE_COUNT; v++)
+        if (voices[v].amp.stage != ENV_IDLE)
+            mask |= 1u << v;
+    return mask;
+}
+
+unsigned synth_take_fresh_voices(void)
+{
+    unsigned mask = 0;
+    for (int v = 0; v < VOICE_COUNT; v++)
+        if (voices[v].fresh) {
+            voices[v].fresh = 0;
+            mask |= 1u << v;
+        }
+    return mask;
+}
+
 void synth_update(float dt)
 {
     if (dt > 0.05f)
@@ -1108,12 +1164,11 @@ void synth_update(float dt)
     }
 
     layer_params_t lp[LAYERS];
-    env_rates_t rates[LAYERS][4]; // amp, filter, Env 3, Env 4
     for (int l = 0; l < LAYERS; l++) {
         const float *p = eff[l];
         int c = env_cycle[l];
         for (int e = 0; e < 4; e++)
-            env_rates(&rates[l][e], dt, p, env_params[e], c >> e & 1, env_sync[l][e]);
+            env_rates(&rates[l][e], p, env_params[e], c >> e & 1, env_sync[l][e]);
         // LFOs (lfo.c): rate or clock division from the rate knobs; LFO_ID(0, 0) goes first
         lfo_update(LFO_ID(l, 0), dt, p[POT_LFO_FREQ], last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES);
         lfo_update(LFO_ID(l, 1), dt, p[PARAM_LFO2_RATE], last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES);
@@ -1166,9 +1221,7 @@ void synth_update(float dt)
         voice_t *x = &voices[v];
         int l = layer_of(v);
         const layer_params_t *q = &lp[l];
-        env_update(&x->amp, dt, &rates[l][0]);
-        env_update(&x->filter, dt, &rates[l][1]);
-        env_update(&x->env3, dt, &rates[l][2]);
+        env_update(&x->env3, dt, &rates[l][2]); // amp and filter: synth_envelopes()
         env_update(&x->env4, dt, &rates[l][3]);
         x->pitch += ((float)x->note - x->pitch) * q->glide_k;
         if (drift_amount) { // a slow random walk: a new target every 0.4-2 s, approached smoothly
@@ -1212,14 +1265,13 @@ void synth_update(float dt)
                     + x->drift[0] * drift * DRIFT_PITCH_SEMITONES;
         float a = pitch + q->coarse_a + pmod_env * x->filter.level + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
         float b = pitch + q->coarse_b + q->fine_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
-        float filter = q->cutoff + keytrack_amount * (x->pitch - 60.0f) + env_amount * x->filter.level
-                     + lfo * to_filter + lfo2 * to_filter2 + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES
-                     + x->drift[1] * drift * DRIFT_CUTOFF_SEMITONES;
+        x->cutoff_rest = q->cutoff + keytrack_amount * (x->pitch - 60.0f) + lfo * to_filter + lfo2 * to_filter2
+                       + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES + x->drift[1] * drift * DRIFT_CUTOFF_SEMITONES;
+        x->cutoff_env = env_amount;
+        x->vca_mod = clamp01(1.0f + mod[DEST_VCA]);
 
         sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
         sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));
-        sh_set(CV_FIL1 + v, tuning_note_cv(TUNING_ROW_FILTER + v, filter));
-        float gain = x->amp.level * clamp01(1.0f + mod[DEST_VCA]);
-        sh_set(CV_AMP1 + v, gain > 0 ? cv_from(VCA_THRESHOLD + (1.0f - VCA_THRESHOLD) * gain) : 0);
+        envelope_cvs(v, 1);
     }
 }

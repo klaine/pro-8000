@@ -92,16 +92,40 @@ void sh_set(cv_t cv, uint16_t value) { cvs[cv] = value; }
 
 void sh_gate(gate_t gate, int on) { gpio_write(GPIOE_BASE, gate_pins[gate], on); }
 
-void sh_refresh(void)
+void sh_refresh_pitch(unsigned voices)
 {
-    for (uint32_t v = 0; v < VOICE_COUNT; v++) {
-        sample(&mux_osc_a, v, cvs[CV_OSC_A1 + v]);
-        sample(&mux_osc_b, v, cvs[CV_OSC_B1 + v]);
-        sample(&mux_fil, v, cvs[CV_FIL1 + v]);
+    for (uint32_t v = 0; v < VOICE_COUNT; v++)
+        if (voices >> v & 1) {
+            sample(&mux_osc_a, v, cvs[CV_OSC_A1 + v]);
+            sample(&mux_osc_b, v, cvs[CV_OSC_B1 + v]);
+        }
+}
+
+void sh_refresh_cutoff(unsigned voices)
+{
+    for (uint32_t v = 0; v < VOICE_COUNT; v++)
+        if (voices >> v & 1)
+            sample(&mux_fil, v, cvs[CV_FIL1 + v]);
+}
+
+void sh_refresh_vca(void)
+{
+    for (uint32_t v = 0; v < VOICE_COUNT; v++)
         sample(&mux_amp, v, cvs[CV_AMP1 + v]);
-    }
+}
+
+void sh_refresh_global(void)
+{
     for (uint32_t a = 0; a <= CV_EXT_FIL - CV_PMOD_OSC_B; a++)
         sample(&mux_global, a, cvs[CV_PMOD_OSC_B + a]);
     for (uint32_t a = 0; a <= CV_RESONANCE - CV_PW_A; a++)
         sample(&mux_pw_res, a, cvs[CV_PW_A + a]);
+}
+
+void sh_refresh(void)
+{
+    sh_refresh_pitch(0xFF);
+    sh_refresh_cutoff(0xFF);
+    sh_refresh_vca();
+    sh_refresh_global();
 }
