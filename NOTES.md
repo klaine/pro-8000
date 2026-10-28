@@ -577,6 +577,25 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   swept ±2 octaves by a 2 s triangle gives cycles of 0.065 s (1/32: 0.0625) up to 0.53 s; released 0.23 of a cycle
   off the grid, back on it within a second. The user wanted smooth sweeps, not octave steps.
 
+## Sequencer with automation lanes (0.7.0, 2026-10-28)
+
+- `src/seq.c`: a step sequence per patch, played from a key (the user's choice: "play on key down, transposed from
+  the note"). Up to 64 steps (note offset + 64, velocity or the key's, gate % with 100 = tie, on/rest), step = an
+  LFO clock division at the MIDI clock tempo or its own BPM, swing, loop or once per key, keys of both layers or one
+  (notes go to the trigger key's layers: `synth_key_layers()` / `synth_note_on_layers()`). A new key transposes from
+  the next step; letting go of every key stops it.
+- Up to four automation lanes (one 7-bit value per step, optional glide), mod sources SRC_SEQ_A..D (bipolar). Steps
+  × (3 + lanes) share 240 bytes: 64 steps alone, 60 / 48 / 40 / 34 with 1-4 lanes.
+- Storage: PATCH_COUNT 400 → 200; patch n's sequence lives at 0x0C800 + 256 n ("P8S1", the stock banks C and D).
+  The user's four C patches were removed (backups exist). Saved and loaded with the patch; cleared with it.
+- SysEx 48 / 47 (settings), 46 / 45 (steps, 8 at a time); `pro800 seq` prints it. Edited only on the web page:
+  a Sequencer section with a piano-roll picture, a 16-step page grid (on, note, gate, velocity cells that drag),
+  and lanes you draw across with a destination menu each.
+- Checked on the Mac (real `seq.c` / `lfo.c`, synth stubbed): steps at 125 ms (1/16, 120 BPM), 50 % gates, rests,
+  transposing from the next step, ties legato (new note before the old one's release), layer filter, smooth lane
+  halfway 0.50. Web page checked against a simulated synth.
+- Web: the mouse wheel now adjusts only a control that has focus; scrolling over the step grid used to edit cells.
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

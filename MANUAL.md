@@ -1,16 +1,17 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.6.7. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.7.0. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
   retrigger;
 - four envelopes per voice;
 - an 8-route mod matrix per layer;
+- a step sequence per patch, played from a key and transposed by it, with up to four automation lanes;
 - autotune that keeps every oscillator within about a cent;
 - a browser editor.
 
-The internal sequencer and arpeggiator are gone; their buttons do other jobs now.
+The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 
 ## The panel at a glance
 
@@ -47,10 +48,11 @@ page's MIDI router.
 
 ## Patches
 
-There are 400 slots in four banks, shown as ` A.07`, ` b.12`, ` C.99` and so on.
+There are 200 patches in two banks, shown as ` A.07` and ` b.12`. Each has its own step sequence (from 0.7.0; the
+stock firmware's banks C and D hold the sequences).
 
 - **Load:** in preset mode (Preset LED on), type two digits to pick a patch in the current bank, or turn VALUE to
-  step through all 400. Boot loads the last patch.
+  step through all 200. Boot loads the last patch.
 - **Edit:** a loaded patch's knobs are in pickup and its buttons keep their stored state until you press them.
   Press Preset for manual mode, where the whole panel is live as it is.
 - **Save:** press Rec (it blinks), choose a slot with two digits or VALUE, then press Rec again (`donE`). Preset
@@ -65,7 +67,8 @@ A patch stores:
 - the layer mode and split;
 - both LFOs' sync, retrigger, shapes and LFO 2 routing;
 - both layers' mod routes;
-- the name.
+- the name;
+- its step sequence and automation lanes.
 
 M VOL is never stored.
 
@@ -218,6 +221,28 @@ The cycle restarts with each key and follows tempo changes, so it stays on the b
 synced amp envelope at `1-16`, with a short attack, some hold and a longer fall, is a pulsing gate with shaped
 edges. On key up it falls with its share of the cycle.
 
+## Sequencer
+
+Each patch has a step sequence that plays from a key. Edit it on the web page (Sound tab, Sequencer); the panel
+only plays it.
+
+- **Playing:** with the sequence on, pressing a key starts it at step 1, transposed so that a step of 0 plays that
+  key. It loops while keys are held (or plays once per key). Pressing another key while holding transposes it
+  from the next step without restarting. Letting go of every key stops it. The notes go through the normal
+  voices, envelopes and modulation.
+- **Steps:** up to 64. Each is on or a rest, with a note offset (semitones from the key), a gate (1-99 % of the
+  step; 100 % ties into the next step, legato) and a velocity (0 = the key's).
+- **Timing:** a step lasts a clock division (1/16, 1/8T, …) at the MIDI clock's tempo (120 BPM until a clock
+  arrives), or at the sequence's own BPM; swing makes even steps longer and odd ones shorter.
+- **Layers:** the sequence can take keys of both layers, or only those of layer 1 or layer 2. In a split, one hand
+  plays a sequenced bass and the other plays normally.
+- **Automation lanes:** up to four, one value per step (−99..+99), optionally gliding from step to step. They're
+  mod sources Seq A-D: choose a destination next to each lane (a route at depth 99 on the layer you're editing) or
+  route them in the Mod matrix with any depth. Steps and lanes share the space in the sequence's slot: 64 steps
+  with no lanes, 60 with 1, 48 with 2, 40 with 3, 34 with 4.
+- **Saving:** the sequence is saved with the patch (REC, or Save in Patches) and loaded with it. PERF's init sound
+  has none.
+
 ## Mod matrix (MOD ASSIGN)
 
 Each layer has 8 routes. A route adds source × depth (−99 to 99) to a destination.
@@ -243,6 +268,7 @@ Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn stil
 | 8 | Env 4 | `EnV4` |
 | 9 | Random, new for every note | `rAnd` |
 | 0 | Note number (centred on middle C) | `notE` |
+| (web only) | Sequence lanes A-D | |
 
 | Touch | Destination | Display | Full depth |
 |---|---|---|---|
@@ -340,7 +366,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.6.7.syx --yes
+build/pro800 install build/pro800-0.7.0.syx --yes
 ```
 
 ## Updating, recovery and going back to stock
@@ -360,7 +386,8 @@ build/pro800 install build/pro800-0.6.7.syx --yes
 
 - Waveform levels within one oscillator (e.g. saw louder than triangle on oscillator A) can't be mixed: the
   waveform buttons are on/off lines to the voice board. Put the second waveform on the other oscillator instead.
-- 5-pin MIDI in and out, the sequencer and the arpeggiator aren't implemented.
+- 5-pin MIDI in and out and an arpeggiator aren't implemented. The sequencer is edited on the web page only.
+- 200 patches (A and b): banks C and D hold the sequences.
 - The LFO routing buttons always show LFO 1's routing. LFO 2's shows on the display when toggled, and on the web
   page.
 - Going to manual mode (Preset) makes every button live, so LFO 1's routing jumps to what the buttons show.

@@ -35,6 +35,13 @@
 //   4E <layer> <lfo> <count> <p2> <p1> <p0>  set an LFO's step pattern (count 1-16, bits p2 << 14 | p1 << 7 | p0,
 //                          bit n = step n on); acknowledged
 //   4D <layer> <lfo>       its step pattern; replies 4D <layer> <lfo> <count> <p2> <p1> <p0>
+//   48                     the sequence's settings; replies 48 <length> <lanes> <division> <bpm, 2 × 7 bits> <flags>
+//                          <swing> <smooth> <max steps for these lanes>
+//   47 <length> <lanes> <division> <bpm, 2 × 7 bits> <flags> <swing> <smooth>  set them (clamped to what fits)
+//   46 <first> <n ≤ 8>     steps; replies 46 <first> <n> then per step <note offset + 64> <velocity, 0 = the key's>
+//                          <gate % (100 = tie)> <on> <lane A-D values, 64 = 0>
+//   45 <first> <n ≤ 8> <8 bytes per step, as 46 replies>  set steps; acknowledged. The sequence is saved with the
+//                          patch (REC, 5D).
 //   4C                     the buttons as the engine uses them; replies 4C <switches 0-15, 0/1 each> (switch_t order;
 //                          a loaded patch's state until the button is toggled)
 //   4B <switch> <0|1>      set a button's state (0-15), held until the button is toggled; acknowledged
@@ -67,6 +74,7 @@
 #include "tuning.h"
 #include "update.h"
 #include "usb.h"
+#include "seq.h"
 #include "synth.h"
 
 
@@ -149,7 +157,7 @@ static uint32_t typed_at;
 
 static void patch_label(int n, char *text) // " A.07"
 {
-    static const char banks[] = "AbCd";
+    static const char banks[] = "Ab";
     text[0] = ' ';
     text[1] = banks[n / 100];
     text[2] = '.';
@@ -173,7 +181,10 @@ static int load_patch(int n)
         display_until = ms_ticks + 1000;
         return 0;
     }
+    seq_stop();
     synth_apply_patch(&patch);
+    if (!store_load_sequence(n))
+        seq_clear();
     for (int i = 0; i <= PATCH_NAME; i++)
         loaded_name[i] = patch.name[i];
     current_patch = n;
@@ -207,6 +218,7 @@ static void init_patch(void)
     patch.keytrack = 2;
     patch.layer_mode = LAYER_OFF;
     patch.split = 60; // LFOs free-running triangles, LFO 2 with no routing
+    seq_clear();
     synth_apply_patch(&patch);
     for (int i = 0; i <= PATCH_NAME; i++)
         loaded_name[i] = i < (int)sizeof name ? name[i] : 0;
@@ -234,7 +246,7 @@ static int save_patch(int n)
     const char *name = store_load_patch(n, &old) && old.name[0] ? old.name : loaded_name; // the slot's, else ours
     for (int i = 0; i <= PATCH_NAME; i++)
         patch.name[i] = name[i];
-    if (!store_save_patch(n, &patch))
+    if (!store_save_patch(n, &patch) || !store_save_sequence(n))
         return 0;
     current_patch = n;
     preset_mode = 1;
@@ -907,6 +919,63 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = (uint8_t)(lfo_pattern[lfo] >> 7 & 0x7F);
         reply[n++] = (uint8_t)(lfo_pattern[lfo] & 0x7F);
     }
+    if (data_length == 1 && data[0] == 0x48) {
+        const sequence_t *q = &sequence;
+        reply[n++] = 0x48;
+        reply[n++] = q->length;
+        reply[n++] = q->lanes;
+        reply[n++] = q->division;
+        reply[n++] = (uint8_t)(q->bpm >> 7);
+        reply[n++] = q->bpm & 0x7F;
+        reply[n++] = q->flags & 0x7F;
+        reply[n++] = q->swing;
+        reply[n++] = q->smooth & 0x0F;
+        reply[n++] = (uint8_t)seq_max_steps(q->lanes);
+    }
+    if (data_length == 9 && data[0] == 0x47) {
+        sequence_t *q = &sequence;
+        q->length = data[1];
+        q->lanes = data[2];
+        q->division = data[3];
+        q->bpm = (uint8_t)(data[4] << 7 | data[5]);
+        q->flags = data[6];
+        q->swing = data[7];
+        q->smooth = data[8] & 0x0F;
+        seq_fix();
+        if (!(q->flags & SEQ_ENABLED))
+            seq_stop();
+        reply[n++] = 0x7F;
+        reply[n++] = 0x47;
+    }
+    if (data_length == 3 && data[0] == 0x46 && data[1] < SEQ_MAX_STEPS && data[2] <= 8 && data[1] + data[2] <= SEQ_MAX_STEPS) {
+        const sequence_t *q = &sequence;
+        reply[n++] = 0x46;
+        reply[n++] = data[1];
+        reply[n++] = data[2];
+        for (int i = data[1]; i < data[1] + data[2]; i++) {
+            reply[n++] = q->note[i] & 0x7F;
+            reply[n++] = q->velocity[i] & 0x7F;
+            reply[n++] = q->gate[i] & 0x7F;
+            reply[n++] = q->gate[i] >> 7;
+            for (int l = 0; l < SEQ_LANES; l++)
+                reply[n++] = q->lane[l][i] & 0x7F;
+        }
+    }
+    if (data_length >= 3 && data[0] == 0x45 && data[1] < SEQ_MAX_STEPS && data[2] <= 8 && data[1] + data[2] <= SEQ_MAX_STEPS
+        && data_length == 3 + 8 * data[2]) {
+        sequence_t *q = &sequence;
+        for (int k = 0; k < data[2]; k++) {
+            const uint8_t *x = data + 3 + 8 * k;
+            int i = data[1] + k, gate = x[2] < 1 ? 1 : x[2] > SEQ_GATE_TIE ? SEQ_GATE_TIE : x[2];
+            q->note[i] = x[0];
+            q->velocity[i] = x[1];
+            q->gate[i] = (uint8_t)(gate | (x[3] ? 0x80 : 0));
+            for (int l = 0; l < SEQ_LANES; l++)
+                q->lane[l][i] = x[4 + l];
+        }
+        reply[n++] = 0x7F;
+        reply[n++] = 0x45;
+    }
     if (data_length == 1 && data[0] == 0x4C) {
         reply[n++] = 0x4C;
         for (int i = 0; i <= SWITCH_SYNC; i++)
@@ -1136,17 +1205,21 @@ static void handle_midi(void)
             if (p[3] && menu_open && menu_page == PAGE_SPLIT) { // play a note to set the split point
                 synth_set_split_note(p[2]);
                 show_setting(PAGE_SPLIT);
-            } else if (p[3])
-                synth_note_on(p[2], p[3], p[1] & 0x0F);
-            else
+            } else if (p[3]) { // the sequence takes the key if it's on for that key's layer
+                if (!seq_key_on(p[2], p[3], synth_key_layers(p[2], p[1] & 0x0F)))
+                    synth_note_on(p[2], p[3], p[1] & 0x0F);
+            } else if (!seq_key_off(p[2]))
                 synth_note_off(p[2]);
             break;
         case 0x8:
-            synth_note_off(p[2]);
+            if (!seq_key_off(p[2]))
+                synth_note_off(p[2]);
             break;
         case 0xB:
-            if (status == 0xB0 && (p[2] == 120 || p[2] == 123)) // all sound off, all notes off
+            if (status == 0xB0 && (p[2] == 120 || p[2] == 123)) { // all sound off, all notes off
+                seq_stop();
                 synth_all_off();
+            }
             if (status == 0xB0 && p[2] == 1)
                 synth_mod_wheel(p[3]);
             break;
@@ -1204,6 +1277,7 @@ int main(void)
     store_init();
     tuning_load();
     synth_init();
+    seq_clear();
     for (int i = 0; i < 20; i++) // charge every S&H
         sh_refresh();
 
@@ -1251,8 +1325,10 @@ int main(void)
             last = DWT_CYCCNT;
         }
         uint32_t t0 = DWT_CYCCNT;
-        if (!direct_mode)
+        if (!direct_mode) {
+            seq_update(dt);
             synth_update(dt);
+        }
         cycles_engine = DWT_CYCCNT - t0;
 
         if (display_until && (int32_t)(now - display_until) > 0) {

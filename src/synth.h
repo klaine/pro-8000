@@ -19,6 +19,9 @@ typedef enum {
 
 void synth_init(void);
 void synth_note_on(uint8_t note, uint8_t velocity, int channel); // channel 0-15
+// The layers (bit 0 layer 1, bit 1 layer 2) a key would play, and playing a note on given layers (the sequencer).
+int synth_key_layers(uint8_t note, int channel);
+void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers);
 void synth_note_off(uint8_t note);
 void synth_all_off(void);
 void synth_pitch_bend(int value);   // 14-bit, centre 8192

@@ -20,7 +20,9 @@ enum {
 // Arp Up-Dn selects, and pressing it again picks the other one. Stored in patches: append only.
 typedef enum {
     SRC_NONE, SRC_LFO, SRC_FILTER_ENV, SRC_AMP_ENV, SRC_VELOCITY, SRC_MOD_WHEEL, SRC_AFTERTOUCH, SRC_ENV3, SRC_ENV4,
-    SRC_RANDOM, SRC_NOTE, SRC_LFO2, SRC_COUNT
+    SRC_RANDOM, SRC_NOTE, SRC_LFO2,
+    SRC_SEQ_A, SRC_SEQ_B, SRC_SEQ_C, SRC_SEQ_D, // the sequence's automation lanes (seq.h), bipolar; host only
+    SRC_COUNT
 } mod_source_t;
 
 // Destinations, picked by touching a knob or an LFO routing button (LFO 2's while Arp Up-Dn selects it). Most act

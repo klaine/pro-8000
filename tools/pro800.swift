@@ -65,7 +65,9 @@ Probe (our firmware 0.0.9+):
   pro800 cc <controller> <value>        send a control change (e.g. 1 = mod wheel)
   pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
   pro800 patches [--all]                list the patch slots (ours, stock, empty)
-  pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-399, A00-D99)
+  pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-199, A00-B99;
+                                        each patch has its own sequence, saved and cleared with it)
+  pro800 seq                            print the loaded patch's step sequence (firmware 0.7.0+; edit it on the web page)
   pro800 patch init                     load the basic sound (osc A saw), as PERF does
   pro800 patch rename <slot> <name>     rename a patch (up to 16 characters)
   pro800 factory                        list the stock factory bank (100 patches, kept in the EEPROM)
@@ -905,6 +907,33 @@ func param() {
     print("layer \(layer) \(args[1]) = \(args[2])")
 }
 
+// pro800 seq: the loaded patch's step sequence
+func showSequence() {
+    let midi = Midi(port: portName)
+    guard let h = midi.request([0x48], expect: [0x48], timeout: 2) else { fail("no reply (firmware 0.7.0 or later?)") }
+    let d = Array(h[(sysexHeader.count + 1)...])
+    let length = Int(d[0]), lanes = Int(d[1]), flags = Int(d[5])
+    print("\(flags & 1 != 0 ? "on" : "off"), \(length) steps of \(divisionNames[safe: Int(d[2])] ?? "?"), " +
+          (flags & 2 != 0 ? "MIDI clock" : "\(Int(d[3]) << 7 | Int(d[4])) BPM") + ", swing \(d[6]) %, " +
+          (flags & 4 != 0 ? "once per key" : "loops") + ", keys of " + ["both layers", "layer 1", "layer 2", "?"][flags >> 3 & 3] +
+          ", \(lanes) lane\(lanes == 1 ? "" : "s") (max \(d[8]) steps)")
+    var notes = [String](), gates = [String](), laneRows = [[String]](repeating: [], count: lanes)
+    for first in stride(from: 0, to: length, by: 8) {
+        guard let r = midi.request([0x46, UInt8(first), 8], expect: [0x46, UInt8(first), 8], timeout: 2) else { fail("no reply") }
+        let x = Array(r[(sysexHeader.count + 3)...])
+        for k in 0..<8 where first + k < length {
+            let s = Array(x[(8 * k)..<(8 * k + 8)])
+            let offset = Int(s[0]) - 64
+            notes.append(s[3] == 0 ? "  ." : String(format: "%+3d", offset).replacingOccurrences(of: "+0", with: " 0"))
+            gates.append(s[3] == 0 ? "  ." : s[2] >= 100 ? "tie" : String(format: "%3d", s[2]))
+            for l in 0..<lanes { laneRows[l].append(String(format: "%+3d", Int((Double(Int(s[4 + l]) - 64) / 63 * 99).rounded()))) }
+        }
+    }
+    print("note  " + notes.joined(separator: " "))
+    print("gate  " + gates.joined(separator: " "))
+    for l in 0..<lanes { print("seq \(["A", "B", "C", "D"][l]) " + laneRows[l].joined(separator: " ")) }
+}
+
 // pro800 factory [import <f> <slot> [--force]]
 func factory() {
     let midi = Midi(port: portName)
@@ -1035,7 +1064,7 @@ func importStock() {
     print("converted \(Int(b[0]) << 7 | Int(b[1])) patches, \(b[2]) errors")
 }
 
-// pro800 patch load|save|clear <slot>  (slot 0-399 or A00-D99)
+// pro800 patch load|save|clear <slot>  (slot 0-199 or A00-B99)
 func patchCommand() {
     if args.count >= 3, args[0] == "rename", let n = slotNumber(args[1]) {
         let name = Array(args[2...].joined(separator: " ").utf8.filter { $0 >= 0x20 && $0 < 0x7F }.prefix(16))
@@ -1049,7 +1078,7 @@ func patchCommand() {
         return
     }
     guard args.count == 2, ["load", "save", "clear"].contains(args[0]), let n = slotNumber(args[1]) else {
-        fail("usage: pro800 patch load|save|clear <slot 0-399 or A00-D99>  or  pro800 patch init")
+        fail("usage: pro800 patch load|save|clear <slot 0-199 or A00-B99>  or  pro800 patch init")
     }
     if args[0] == "clear" { // an empty slot is 256 zero bytes
         probeAck(Midi(port: portName), [0x4F, UInt8(n >> 7), UInt8(n & 0x7F)])
@@ -1068,7 +1097,7 @@ func patches() {
     let all = flag("--all"), midi = Midi(port: portName)
     let kinds = ["empty", "ours", "STOCK", "corrupt"]
     var counts = [0, 0, 0, 0]
-    for n in 0..<400 {
+    for n in 0..<200 { // from firmware 0.7.0 the slots from 200 on hold the sequences
         guard let reply = midi.request([0x5E, UInt8(n >> 7), UInt8(n & 0x7F)], expect: [0x5E, UInt8(n >> 7), UInt8(n & 0x7F)], timeout: 2) else {
             fail("no reply (firmware 0.4.0 or later?)")
         }
@@ -1276,6 +1305,7 @@ case "settings": settings()
 case "params": params()
 case "param": param()
 case "factory": factory()
+case "seq": showSequence()
 case "layer": layer()
 case "eeprom": eeprom()
 case "route": route()

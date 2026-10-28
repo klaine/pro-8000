@@ -1,5 +1,6 @@
 // Our layout of the patch EEPROM (the stock image in backup/ is the way back to stock firmware):
-//   0x00000-0x18FFF  400 patches (A00-D99), 256 bytes each, in the same slots as the stock firmware's
+//   0x00000-0x0C7FF  200 patches (A00-b99), 256 bytes each, in the same slots as the stock firmware's
+//   0x0C800-0x18FFF  200 sequences, 256 bytes each: patch n's at 0x0C800 + 256 n (from 0.7.0; stock banks C and D)
 //   0x19000-0x1F3FF  the stock factory bank, left as it is
 //   0x1F400          global block: last patch, preset or manual mode
 //   0x1F500-0x1FBFF  the autotune tables (tuning.c)
@@ -10,7 +11,7 @@
 #include "controls.h"
 #include "mod.h"
 
-#define PATCH_COUNT 400
+#define PATCH_COUNT 200
 #define PATCH_NAME  16
 #define FACTORY_COUNT 100
 #define STORE_TUNING_ADDRESS 0x1F500u
@@ -49,7 +50,10 @@ int store_factory_name(int f, char name[PATCH_NAME + 1]);
 int store_import_factory(int f, int n);
 // Sets the name of slot n (one of ours). Returns 0 if the slot isn't ours or the write failed.
 int store_rename(int n, const char *name);
-int store_clear(int n); // the slot becomes empty (all zeros)
+int store_clear(int n); // the slot becomes empty (all zeros), its sequence too
+// Patch n's step sequence: loading gives 0 if it has none (the caller clears it); saving writes `sequence`.
+int store_load_sequence(int n);
+int store_save_sequence(int n);
 // Writes the global block, marking the EEPROM as ours.
 int store_finish_import(void);
 int store_last_patch(void);

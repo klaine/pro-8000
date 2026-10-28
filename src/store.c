@@ -25,6 +25,12 @@
 // the stock firmware's, so an imported sound is close rather than identical.
 #include "store.h"
 #include "eeprom.h"
+#include "seq.h"
+
+// Sequence record (256 bytes): "P8S1", length, lanes, division, bpm, flags, swing, smooth, 0 (4-11), then from 12
+// each step's note, velocity, gate (length × 3 bytes) and each lane's values (length bytes each), checksum at 252.
+#define SEQ_ADDRESS 0x0C800u
+#define SEQ_MAGIC   0x31533850u // "P8S1"
 
 #define PATCH_SIZE    256u
 #define GLOBAL_ADDRESS 0x1F400u
@@ -297,7 +303,67 @@ int store_rename(int n, const char *name)
 int store_clear(int n)
 {
     uint8_t b[PATCH_SIZE] = {0};
-    return n >= 0 && n < PATCH_COUNT && eeprom_write((uint32_t)n * PATCH_SIZE, b, PATCH_SIZE);
+    return n >= 0 && n < PATCH_COUNT && eeprom_write((uint32_t)n * PATCH_SIZE, b, PATCH_SIZE)
+        && eeprom_write(SEQ_ADDRESS + (uint32_t)n * PATCH_SIZE, b, PATCH_SIZE);
+}
+
+int store_load_sequence(int n)
+{
+    uint8_t b[PATCH_SIZE];
+    if (n < 0 || n >= PATCH_COUNT)
+        return 0;
+    eeprom_read(SEQ_ADDRESS + (uint32_t)n * PATCH_SIZE, b, PATCH_SIZE);
+    if (get32(b) != SEQ_MAGIC || get32(b + OFF_CHECKSUM) != checksum(b, OFF_CHECKSUM))
+        return 0;
+    seq_clear();
+    sequence_t *s = &sequence;
+    s->length = b[4];
+    s->lanes = b[5];
+    s->division = b[6];
+    s->bpm = b[7];
+    s->flags = b[8];
+    s->swing = b[9];
+    s->smooth = b[10];
+    seq_fix();
+    const uint8_t *x = b + 12;
+    for (int i = 0; i < s->length; i++, x += 3) {
+        s->note[i] = x[0];
+        s->velocity[i] = x[1];
+        s->gate[i] = x[2];
+    }
+    for (int l = 0; l < s->lanes; l++)
+        for (int i = 0; i < s->length; i++)
+            s->lane[l][i] = *x++;
+    return 1;
+}
+
+int store_save_sequence(int n)
+{
+    uint8_t b[PATCH_SIZE] = {0};
+    if (n < 0 || n >= PATCH_COUNT)
+        return 0;
+    seq_fix();
+    const sequence_t *s = &sequence;
+    put32(b, SEQ_MAGIC);
+    b[4] = s->length;
+    b[5] = s->lanes;
+    b[6] = s->division;
+    b[7] = s->bpm;
+    b[8] = s->flags;
+    b[9] = s->swing;
+    b[10] = s->smooth;
+    uint8_t *x = b + 12;
+    for (int i = 0; i < s->length; i++, x += 3) {
+        x[0] = s->note[i];
+        x[1] = s->velocity[i];
+        x[2] = s->gate[i];
+    }
+    for (int l = 0; l < s->lanes; l++)
+        for (int i = 0; i < s->length; i++)
+            *x++ = s->lane[l][i];
+    _Static_assert(12 + SEQ_BYTES <= OFF_CHECKSUM, "sequence record overflow");
+    put32(b + OFF_CHECKSUM, checksum(b, OFF_CHECKSUM));
+    return eeprom_write(SEQ_ADDRESS + (uint32_t)n * PATCH_SIZE, b, PATCH_SIZE);
 }
 
 static int write_global(void)

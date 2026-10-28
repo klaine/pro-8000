@@ -39,6 +39,7 @@
 #include "controls.h"
 #include "fastmath.h"
 #include "lfo.h"
+#include "seq.h"
 #include "sh.h"
 #include "tuning.h"
 
@@ -595,25 +596,27 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
     last_voice[layer] = v;
 }
 
-void synth_note_on(uint8_t note, uint8_t velocity, int channel)
+int synth_key_layers(uint8_t note, int channel)
 {
     switch (layer_mode) {
-    case LAYER_OFF:
-        layer_note_on(0, note, velocity);
-        break;
-    case LAYER_SPLIT:
-        layer_note_on(note < split_note ? 0 : 1, note, velocity);
-        break;
-    case LAYER_STACK:
-        layer_note_on(0, note, velocity);
-        layer_note_on(1, note, velocity);
-        break;
-    case LAYER_CHANNEL:
-        layer_note_on(channel == 1 ? 1 : 0, note, velocity);
-        break;
-    default:
-        break;
+    case LAYER_SPLIT: return note < split_note ? 1 : 2;
+    case LAYER_STACK: return 3;
+    case LAYER_CHANNEL: return channel == 1 ? 2 : 1;
+    default: return 1;
     }
+}
+
+void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers)
+{
+    if (layers & 1)
+        layer_note_on(0, note, velocity);
+    if (layers & 2 && layer_mode != LAYER_OFF)
+        layer_note_on(1, note, velocity);
+}
+
+void synth_note_on(uint8_t note, uint8_t velocity, int channel)
+{
+    synth_note_on_layers(note, velocity, synth_key_layers(note, channel));
 }
 
 void synth_note_off(uint8_t note)
@@ -894,12 +897,16 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
     case SRC_ENV4: return x->env4.level;
     case SRC_RANDOM: return x->random;
     case SRC_NOTE: return (x->pitch - 60.0f) / 60.0f;
+    case SRC_SEQ_A: case SRC_SEQ_B: case SRC_SEQ_C: case SRC_SEQ_D: return seq_lane(source - SRC_SEQ_A);
     default: return 0;
     }
 }
 
 // Sources that swing both ways; the others run 0..1
-static int bipolar(int source) { return source == SRC_LFO || source == SRC_LFO2 || source == SRC_RANDOM || source == SRC_NOTE; }
+static int bipolar(int source)
+{
+    return source == SRC_LFO || source == SRC_LFO2 || source == SRC_RANDOM || source == SRC_NOTE || source >= SRC_SEQ_A;
+}
 
 // Adds every route of `layer` evaluated for `voice` into mod[] (DEST_COUNT entries). The VCA is a gain on the amp
 // envelope (1 + mod, 0..1): a bipolar source at depth 99 swings it from closed to open (tremolo, gates), and a 0..1

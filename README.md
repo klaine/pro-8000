@@ -17,7 +17,9 @@ firmware) as the reference for how the analog side behaves.
   - 11 sources: LFOs, envelopes, velocity, mod wheel, aftertouch, random, note.
   - 24 destinations, including the LFO rates and depths.
 - **Autotune:** within about a cent across C1-C8. The tables are stored in the EEPROM.
-- **Patches:** 400 slots with names, and the stock factory bank kept and importable.
+- **Sequencer:** a step sequence per patch, played from a key and transposed by it (up to 64 steps, gate, ties,
+  swing, clock sync), with up to four automation lanes as mod sources; edited on the web page.
+- **Patches:** 200 with names, each with its own sequence, and the stock factory bank kept and importable.
 - **USB MIDI:** firmware updates without touching the panel.
 - **A browser editor (WebMIDI):** sound, mod matrix, patches, factory bank, backup, tuning, plus a keyboard and a
   MIDI router.
@@ -47,7 +49,7 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 ## Install
 
 ```bash
-build/pro800 install build/pro800-0.6.7.syx --yes
+build/pro800 install build/pro800-0.7.0.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`

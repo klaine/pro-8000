@@ -97,17 +97,19 @@
       "osca osca osca oscb oscb oscb mix mix flt flt flt flt"
       "env0 env0 env0 env1 env1 env1 env2 env2 env2 env3 env3 env3"
       "lfo1 lfo1 lfo1 lfo1 lfo1 lfo2 lfo2 lfo2 lfo2 lfo2 pm pm"
-      "lfo1 lfo1 lfo1 lfo1 lfo1 lfo2 lfo2 lfo2 lfo2 lfo2 voice voice"; }
+      "lfo1 lfo1 lfo1 lfo1 lfo1 lfo2 lfo2 lfo2 lfo2 lfo2 voice voice"
+      "seq seq seq seq seq seq seq seq seq seq seq seq"; }
   .sec-osca { grid-area: osca; } .sec-oscb { grid-area: oscb; } .sec-mix { grid-area: mix; } .sec-flt { grid-area: flt; }
   .sec-env0 { grid-area: env1; } .sec-env1 { grid-area: env0; } .sec-env2 { grid-area: env2; } .sec-env3 { grid-area: env3; }
+  .sec-seq { grid-area: seq; }
   .sec-lfo1 { grid-area: lfo1; } .sec-lfo2 { grid-area: lfo2; } .sec-pm { grid-area: pm; } .sec-voice { grid-area: voice; }
   @media (max-width: 1360px) {
     .synth { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-areas:
       "osca osca oscb oscb mix mix" "flt flt flt flt pm pm" "env0 env0 env0 env1 env1 env1" "env2 env2 env2 env3 env3 env3"
-      "lfo1 lfo1 lfo1 lfo2 lfo2 lfo2" "voice voice voice voice voice voice"; }
+      "lfo1 lfo1 lfo1 lfo2 lfo2 lfo2" "voice voice voice voice voice voice" "seq seq seq seq seq seq"; }
   }
   @media (max-width: 760px) {
-    .synth { grid-template-columns: 1fr; grid-template-areas: "osca" "oscb" "mix" "flt" "pm" "env1" "env0" "env2" "env3" "lfo1" "lfo2" "voice"; }
+    .synth { grid-template-columns: 1fr; grid-template-areas: "osca" "oscb" "mix" "flt" "pm" "env1" "env0" "env2" "env3" "lfo1" "lfo2" "voice" "seq"; }
     main { padding: 10px; }
   }
   .sec { position: relative; min-width: 0; padding: 12px 14px 14px; border-radius: 10px;
@@ -178,6 +180,30 @@
   .step.on { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent-soft); }
   .step[disabled] { opacity: .2; }
   .step-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
+  /* sequencer */
+  .seq-top { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
+  .seq-top input[type=number] { width: 70px; }
+  canvas.viz.seq { height: 90px; }
+  .seq-pages { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .seq-grid { display: grid; grid-template-columns: 44px repeat(16, minmax(0, 1fr)); gap: 3px; }
+  .seq-labels { display: grid; grid-template-rows: 22px 46px 30px 30px; gap: 3px; align-items: center; }
+  .seq-col { display: grid; grid-template-rows: 22px 46px 30px 30px; gap: 3px; min-width: 0; }
+  .seq-col .step { font-size: 10px; color: var(--dim); }
+  .seq-col .step.on { color: #fff; }
+  .seq-col.beat .step:not(.on) { border-color: #4a4b50; }
+  .cell { position: relative; overflow: hidden; background: var(--well); border: 1px solid #000; border-radius: 4px; cursor: ns-resize;
+          touch-action: none; display: flex; align-items: center; justify-content: center; font: 10px var(--mono); color: var(--text); }
+  .cell .c-fill { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(255, 74, 54, .28); }
+  .cell.note .c-fill { background: rgba(244, 241, 234, .12); }
+  .cell span { position: relative; }
+  .cell.off { opacity: .2; cursor: default; }
+  .cell.active { outline: 1px solid var(--accent); }
+  .lane-row { display: grid; grid-template-columns: 44px 1fr; gap: 3px; align-items: stretch; }
+  .lane-head { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; }
+  .lane-head select { max-width: 260px; }
+  canvas.viz.lane { grid-column: 2; height: 52px; cursor: crosshair; touch-action: none; }
+  @media (max-width: 760px) { .seq-grid { grid-template-columns: 30px repeat(8, minmax(0, 1fr)); } .seq-col:nth-child(n+10) { display: none; } }
 
   /* ---------------------------------------------------------------- other tabs */
   .grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
@@ -254,8 +280,8 @@
 <main>
 <div class="panel" id="tab-sound">
   <div class="synth" id="synth"></div>
-  <p class="hint" style="margin-top:14px">Drag a knob or fader up and down (shift: fine), scroll over it, or use the arrow
-    keys; double-click resets it. The page follows the synth about once a second, and moving a control here puts that
+  <p class="hint" style="margin-top:14px">Drag a knob or fader up and down (shift: fine), or click it and use the scroll
+    wheel or arrow keys; double-click resets it. The page follows the synth about once a second, and moving a control here puts that
     knob in pickup on the panel, as loading a patch does. LED buttons show the panel buttons as the sound uses them; a
     click holds the state until you press that button on the panel. Depth bars are mod routes on the layer you're
     editing. ○ marks a control shared by both layers.</p>
@@ -285,15 +311,15 @@
 <div class="panel" id="tab-patches">
   <section>
     <h2>Patches</h2>
-    <p class="hint">400 slots in four banks (A-D, as on the panel). Saving takes the sound as it is now on the synth.
+    <p class="hint">200 patches in two banks (A and b, as on the panel), each with its own sequence. Saving takes the sound as it is now on the synth.
       Names travel with the sound; rename by typing in the name and pressing Enter. Export saves one patch as a
       256-byte .p8p file, which Import writes back into any slot.</p>
     <div class="row">
-      <span class="seg" id="bank"><button data-v="0">A</button><button data-v="1">b</button><button data-v="2">C</button><button data-v="3">d</button></span>
+      <span class="seg" id="bank"><button data-v="0">A</button><button data-v="1">b</button></span>
       <button id="scan">Rescan</button>
       <button id="init-sound">Load the init sound</button>
       <label><input type="checkbox" id="show-empty" checked> show empty slots</label>
-      <button id="backup-all">Back up all 400 (.bin)</button>
+      <button id="backup-all" title="all 200 patches and their sequences: the first 100 kB of the EEPROM">Back up everything (.bin)</button>
       <input type="file" id="import-file" accept=".p8p,application/octet-stream" hidden>
       <span class="msg" id="patch-msg"></span>
     </div>
@@ -870,7 +896,8 @@ let paintQueued = false;
 function paintAll() {
   if (paintQueued) return;
   paintQueued = true;
-  requestAnimationFrame(() => { paintQueued = false; for (const f of paints) f(); });
+  const run = () => { paintQueued = false; for (const f of paints) f(); };
+  document.hidden ? setTimeout(run, 50) : requestAnimationFrame(run); // animation frames stop in a hidden page
 }
 const h = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -927,7 +954,7 @@ function label(i) {
   return NAMES[i] || `#${i}`;
 }
 
-// Drag (shift: fine), wheel, arrow keys, double-click reset, on a 0..1 value.
+// Drag (shift: fine), wheel (once focused), arrow keys, double-click reset, on a 0..1 value.
 function adjustable(e, get, set, reset, { vertical = true, span = 200 } = {}) {
   let start = null;
   e.tabIndex = 0;
@@ -948,7 +975,11 @@ function adjustable(e, get, set, reset, { vertical = true, span = 200 } = {}) {
   const end = () => { start = null; e.classList.remove("active"); };
   e.addEventListener("pointerup", end);
   e.addEventListener("pointercancel", end);
-  e.addEventListener("wheel", ev => { ev.preventDefault(); set(get() + (ev.deltaY < 0 ? 1 : -1) * (ev.shiftKey ? .002 : .01)); }, { passive: false });
+  e.addEventListener("wheel", ev => { // only once clicked (focused), so scrolling the page over the panel doesn't edit it
+    if (document.activeElement !== e) return;
+    ev.preventDefault();
+    set(get() + (ev.deltaY < 0 ? 1 : -1) * (ev.shiftKey ? .002 : .01));
+  }, { passive: false });
   e.addEventListener("dblclick", reset);
   e.addEventListener("keydown", ev => {
     const step = { ArrowUp: .01, ArrowRight: .01, ArrowDown: -.01, ArrowLeft: -.01, PageUp: .1, PageDown: -.1 }[ev.key];
@@ -1283,6 +1314,230 @@ function lfoSection(which) {
     h("div", { class: "depths" }, h("span", { class: "lbl" }, "Depth (mod routes)"), LFO_TARGETS.map((_, t) => depthBar(which, t))));
 }
 
+// --- the sequencer (firmware 0.7.0+): the patch's key-triggered step sequence and its automation lanes ---
+const SEQ_MAX = 64, SEQ_BYTES = 240, LANE_NAMES = ["A", "B", "C", "D"], SEQ_SOURCE = 12; // SRC_SEQ_A
+const SEQ_ON = 1, SEQ_CLOCK = 2, SEQ_ONE_SHOT = 4;
+let seq = null, seqPage = 0, seqFor = null;
+const seqMax = lanes => Math.min(SEQ_MAX, Math.floor(SEQ_BYTES / (3 + lanes)));
+const newStep = () => ({ note: 64, vel: 0, gate: 50, on: 1, lane: [64, 64, 64, 64] });
+
+async function refreshSequence() {
+  const d = await ask([0x48], [0x48], 1000);
+  if (!d) { seq = null; paintAll(); return; }
+  const s = { length: d[1], lanes: d[2], division: d[3], bpm: d[4] << 7 | d[5], flags: d[6], swing: d[7], smooth: d[8],
+              steps: Array.from({ length: SEQ_MAX }, newStep) };
+  for (let first = 0; first < SEQ_MAX; first += 8) {
+    const r = await ask([0x46, first, 8], [0x46, first, 8], 1000);
+    if (!r) break;
+    for (let k = 0; k < 8; k++) {
+      const x = r.slice(3 + 8 * k, 11 + 8 * k);
+      s.steps[first + k] = { note: x[0], vel: x[1], gate: x[2], on: x[3], lane: x.slice(4, 8) };
+    }
+  }
+  seq = s;
+  if (seqPage * 16 >= seq.length) seqPage = 0;
+  paintAll();
+}
+function sendSeqHeader() {
+  if (!seq || offline()) return;
+  const s = seq;
+  s.length = Math.max(1, Math.min(s.length, seqMax(s.lanes)));
+  send([0x47, s.length, s.lanes, s.division, s.bpm >> 7, s.bpm & 0x7F, s.flags, s.swing, s.smooth]);
+  paintAll();
+}
+const dirtySteps = new Set();
+let stepTimer = 0;
+function sendStep(i) {
+  if (!seq || offline()) return;
+  dirtySteps.add(i);
+  paintAll();
+  clearTimeout(stepTimer);
+  stepTimer = setTimeout(() => {
+    for (const k of [...dirtySteps]) {
+      const st = seq.steps[k];
+      send([0x45, k, 1, st.note, st.vel, st.gate, st.on ? 1 : 0, ...st.lane]);
+    }
+    dirtySteps.clear();
+  }, 40);
+}
+const offsetText = n => { const o = n - 64; return o > 0 ? "+" + o : String(o); };
+
+// A small drag cell for one value of one step (note offset, gate, velocity)
+function stepCell(k, get, set, text, cls, { span = 120, min = 0, max = 127, reset } = {}) {
+  const fill = h("i", { class: "c-fill" }), val = h("span", {});
+  const cell = h("div", { class: "cell " + cls }, fill, val);
+  const step = () => seqPage * 16 + k;
+  adjustable(cell, () => seq ? (get(seq.steps[step()]) - min) / (max - min) : 0, u => {
+    if (!seq) return;
+    const st = seq.steps[step()], v = Math.round(min + Math.min(1, Math.max(0, u)) * (max - min));
+    if (v === get(st)) return;
+    set(st, v);
+    touch(`step ${step() + 1}`, text(st));
+    sendStep(step());
+  }, () => { if (seq && reset !== undefined) { set(seq.steps[step()], reset); sendStep(step()); } }, { span });
+  paints.push(() => {
+    const i = step(), live = seq && i < seq.length;
+    cell.classList.toggle("off", !live);
+    if (!live) { val.textContent = ""; fill.style.height = "0"; return; }
+    const st = seq.steps[i], u = (get(st) - min) / (max - min);
+    val.textContent = text(st);
+    fill.style.height = (u * 100).toFixed(0) + "%";
+  });
+  return cell;
+}
+
+function drawSeq(g, w, ht) {
+  if (!seq) return;
+  const n = seq.length, offs = seq.steps.slice(0, n).filter(s => s.on).map(s => s.note - 64);
+  const span = Math.max(12, ...offs.map(Math.abs)), cw = w / n, y = o => ht / 2 - o / span * (ht / 2 - 6);
+  g.fillStyle = "rgba(255,255,255,.03)";
+  for (let i = 0; i < n; i += 4) g.fillRect(i * cw, 0, Math.min(2, n - i) * cw, ht);
+  for (let i = 0; i < n; i++) {
+    const s = seq.steps[i];
+    if (!s.on) continue;
+    const len = Math.max(.08, Math.min(1, s.gate / 100)) * cw;
+    g.fillStyle = Math.floor(i / 16) === seqPage ? css("--accent") : "#7a3a30";
+    g.fillRect(i * cw + 1, y(s.note - 64) - 3, Math.max(2, len - 2), 6);
+  }
+  // lanes as thin lines
+  const colors = ["#f4f1ea", "#9ad0ff", "#b7f0a0", "#ffd479"];
+  for (let l = 0; l < seq.lanes; l++) {
+    g.beginPath();
+    for (let i = 0; i < n; i++) {
+      const v = (seq.steps[i].lane[l] - 64) / 63, yy = ht - 4 - (v + 1) / 2 * 14 - l * 0;
+      const x0 = i * cw, x1 = (i + 1) * cw;
+      i ? g.lineTo(x0, yy) : g.moveTo(x0, yy);
+      if (!(seq.smooth >> l & 1)) g.lineTo(x1, yy);
+    }
+    g.strokeStyle = colors[l]; g.globalAlpha = .55; g.lineWidth = 1; g.stroke(); g.globalAlpha = 1;
+  }
+  g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
+  g.fillText(`${n} steps · ${DIVISIONS[seq.division]} · ${seq.flags & SEQ_CLOCK ? "MIDI clock" : seq.bpm + " BPM"}` +
+    (seq.swing ? ` · swing ${seq.swing} %` : ""), 4, 12);
+}
+
+// One automation lane for the current page: drag across it to draw values
+function laneEditor(l) {
+  const c = h("canvas", { class: "viz lane" });
+  let drawing = false;
+  const setAt = ev => {
+    if (!seq) return;
+    const r = c.getBoundingClientRect(), k = Math.floor((ev.clientX - r.left) / r.width * 16);
+    const i = seqPage * 16 + Math.min(15, Math.max(0, k));
+    if (i >= seq.length) return;
+    const v = Math.round(127 - Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height)) * 127);
+    if (seq.steps[i].lane[l] === v) return;
+    seq.steps[i].lane[l] = v;
+    touch(`Seq ${LANE_NAMES[l]} step ${i + 1}`, String(Math.round((v - 64) / 63 * 99)));
+    sendStep(i);
+  };
+  c.addEventListener("pointerdown", ev => { ev.preventDefault(); c.setPointerCapture(ev.pointerId); drawing = true; setAt(ev); });
+  c.addEventListener("pointermove", ev => { if (drawing) setAt(ev); });
+  c.addEventListener("pointerup", () => { drawing = false; });
+  c.addEventListener("dblclick", () => { if (!seq) return; for (let k = 0; k < 16; k++) { const i = seqPage * 16 + k;
+    if (i < seq.length) { seq.steps[i].lane[l] = 64; sendStep(i); } } });
+  paints.push(() => {
+    const w = c.clientWidth, ht = c.clientHeight;
+    if (!w || !ht) return;
+    const dpr = window.devicePixelRatio || 1;
+    if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(ht * dpr); }
+    const g = c.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, ht);
+    g.strokeStyle = "#2e3036"; g.beginPath(); g.moveTo(0, ht / 2 + .5); g.lineTo(w, ht / 2 + .5); g.stroke();
+    if (!seq) return;
+    const cw = w / 16;
+    for (let k = 0; k < 16; k++) {
+      const i = seqPage * 16 + k;
+      if (i >= seq.length) { g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(k * cw, 0, cw, ht); continue; }
+      const v = (seq.steps[i].lane[l] - 64) / 63, y = ht / 2 - v * (ht / 2 - 2);
+      g.fillStyle = v < 0 ? css("--accent") : css("--trace");
+      g.fillRect(k * cw + 2, Math.min(y, ht / 2), cw - 4, Math.max(1, Math.abs(y - ht / 2)));
+    }
+  });
+  // where the lane goes: its mod route on the edit layer
+  const src = SEQ_SOURCE + l;
+  const dest = h("select", { title: `where Seq ${LANE_NAMES[l]} goes: a mod route on the layer you're editing (depth 99)` },
+    h("option", { value: -1 }, "→ (no route)"), DESTS.map((d, k) => h("option", { value: k }, "→ " + d)));
+  dest.onchange = async () => {
+    if (offline() || !layerRoutes) return;
+    for (const r of layerRoutes.filter(r => r.source === src)) await setRoute(paramsLayer, src, r.dest, 0);
+    if (+dest.value >= 0 && !await setRoute(paramsLayer, src, +dest.value, 99))
+      document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use`;
+    await refreshLayerRoutes();
+  };
+  paints.push(() => {
+    const r = layerRoutes && layerRoutes.find(r => r.source === src);
+    if (document.activeElement !== dest) dest.value = String(r ? r.dest : -1);
+  });
+  const smooth = led("Smooth", () => seq && seq.smooth >> l & 1, on => { if (!seq) return; seq.smooth = on ? seq.smooth | 1 << l : seq.smooth & ~(1 << l); sendSeqHeader(); },
+    "glide from step to step instead of jumping");
+  const box = h("div", { class: "lane-row" }, h("div", { class: "lane-head" }, h("span", { class: "lbl" }, `Seq ${LANE_NAMES[l]}`), smooth, dest), c);
+  paints.push(() => { box.hidden = !seq || l >= seq.lanes; });
+  return box;
+}
+
+function seqSection() {
+  const field = (text, el) => h("label", { class: "sel" }, h("span", { class: "lbl" }, text), el);
+  const pick = (options, get, set, title) => {
+    const sel = h("select", { title }, options.map((o, k) => h("option", { value: k }, o)));
+    sel.onchange = () => { if (seq) { set(+sel.value); sendSeqHeader(); } };
+    paints.push(() => { if (seq && document.activeElement !== sel) sel.value = String(get()); });
+    return sel;
+  };
+  const flag = (bit, text, title) => led(text, () => seq && seq.flags & bit, on => { if (!seq) return;
+    seq.flags = on ? seq.flags | bit : seq.flags & ~bit; touch("Sequencer " + text.toLowerCase(), on ? "on" : "off"); sendSeqHeader(); }, title);
+  const lengthSel = h("select", { title: "steps in the sequence" });
+  lengthSel.onchange = () => { if (seq) { seq.length = +lengthSel.value; sendSeqHeader(); } };
+  paints.push(() => {
+    if (!seq) return;
+    const max = seqMax(seq.lanes);
+    if (lengthSel.options.length !== max) lengthSel.replaceChildren(...Array.from({ length: max }, (_, k) => h("option", { value: k + 1 }, `${k + 1} steps`)));
+    if (document.activeElement !== lengthSel) lengthSel.value = String(seq.length);
+  });
+  const bpm = h("input", { type: "number", min: 30, max: 250, title: "tempo without MIDI clock" });
+  bpm.onchange = () => { if (seq) { seq.bpm = Math.max(30, Math.min(250, +bpm.value || 120)); sendSeqHeader(); } };
+  paints.push(() => { if (seq && document.activeElement !== bpm) bpm.value = String(seq.bpm); bpm.disabled = !seq || !!(seq.flags & SEQ_CLOCK); });
+  const swing = pick(Array.from({ length: 16 }, (_, k) => `${k * 5} %`), () => Math.round(seq.swing / 5), v => { seq.swing = v * 5; }, "even steps longer, odd shorter");
+  const pages = h("div", { class: "seg" }, [0, 1, 2, 3].map(p => {
+    const b = h("button", { type: "button", class: "seg-b" }, `${p * 16 + 1}–${p * 16 + 16}`);
+    b.onclick = () => { seqPage = p; paintAll(); };
+    paints.push(() => { b.hidden = !seq || p * 16 >= seq.length; b.setAttribute("aria-pressed", String(seqPage === p)); });
+    return b;
+  }));
+  const columns = Array.from({ length: 16 }, (_, k) => {
+    const st = () => seq && seq.steps[seqPage * 16 + k];
+    const on = h("button", { type: "button", class: "step", title: "on / rest" });
+    on.onclick = () => { const s = st(); if (!s || seqPage * 16 + k >= seq.length) return; s.on = s.on ? 0 : 1; sendStep(seqPage * 16 + k); };
+    paints.push(() => { const s = st(), live = s && seqPage * 16 + k < seq.length; on.classList.toggle("on", !!(live && s.on)); on.disabled = !live; on.textContent = seqPage * 16 + k + 1; });
+    return h("div", { class: "seq-col" + (k % 4 ? "" : " beat") }, on,
+      stepCell(k, s => s.note, (s, v) => { s.note = v; }, s => offsetText(s.note), "note", { span: 160, min: 28, max: 100, reset: 64 }),
+      stepCell(k, s => s.gate, (s, v) => { s.gate = v; }, s => s.gate >= 100 ? "tie" : s.gate + "%", "gate", { min: 1, max: 100, reset: 50 }),
+      stepCell(k, s => s.vel, (s, v) => { s.vel = v; }, s => s.vel ? String(s.vel) : "key", "vel", { reset: 0 }));
+  });
+  return sec("seq", "Sequencer",
+    h("div", { class: "seq-top" },
+      flag(SEQ_ON, "On", "play the sequence from a key (transposed from it) while keys are held"),
+      field("Play", pick(["Loop while held", "Once per key"], () => seq.flags & SEQ_ONE_SHOT ? 1 : 0,
+        v => { seq.flags = v ? seq.flags | SEQ_ONE_SHOT : seq.flags & ~SEQ_ONE_SHOT; }, "")),
+      field("Keys of", pick(["Both layers", "Layer 1", "Layer 2"], () => seq.flags >> 3 & 3, v => { seq.flags = seq.flags & ~0x18 | v << 3; },
+        "which keys start the sequence; it plays on that layer")),
+      field("Step", pick(DIVISIONS, () => seq.division, v => { seq.division = v; }, "the length of a step")),
+      flag(SEQ_CLOCK, "MIDI clock", "tempo from MIDI clock (120 BPM until one arrives); off: the BPM here"),
+      field("BPM", bpm), field("Swing", swing), field("Length", lengthSel),
+      field("Lanes", pick(["None (64 steps)", "1 (60 steps)", "2 (48 steps)", "3 (40 steps)", "4 (34 steps)"],
+        () => seq.lanes, v => { seq.lanes = v; }, "automation lanes: mod sources Seq A-D; each takes room from the steps")),
+      h("button", { type: "button", class: "chip", title: "read the sequence from the synth again", onclick: refreshSequence }, "↻")),
+    viz("seq", drawSeq),
+    h("div", { class: "seq-pages" }, pages, h("span", { class: "dim small" },
+      "Note: drag up/down for semitones from the key · Gate: 100 % ties into the next step · Vel: 0 = the key's · double-click resets")),
+    h("div", { class: "seq-grid" }, h("div", { class: "seq-labels" }, h("span", { class: "lbl" }, "Step"), h("span", { class: "lbl" }, "Note"),
+      h("span", { class: "lbl" }, "Gate"), h("span", { class: "lbl" }, "Vel")), ...columns),
+    ...[0, 1, 2, 3].map(laneEditor),
+    h("p", { class: "dim small", style: "margin:0" }, "Saved with the patch (REC on the panel, or Save in Patches). Lanes are " +
+      "mod sources Seq A-D: pick where each goes here, or in the Mod matrix with any depth."));
+}
+
 function buildPanel() {
   const box = document.getElementById("synth");
   box.append(
@@ -1304,7 +1559,8 @@ function buildPanel() {
       settingSelect("Layers", ["Off: one sound, 8 voices", "Split", "Stack", "By MIDI channel (ch 2 = layer 2)"],
         () => settings && settings.layers, v => setSetting(SET_ID.layers, v)),
       settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
-        () => settings && settings.split, v => setSetting(SET_ID.split, v))));
+        () => settings && settings.split, v => setSetting(SET_ID.split, v))),
+    seqSection());
   // layer buttons in the header
   document.querySelectorAll("#layers .led").forEach(b => {
     const v = +b.dataset.v;
@@ -1341,6 +1597,8 @@ async function refreshSettings() {
     const info = await slotInfo(s.patch);
     patchName = info ? info.name : "";
   }
+  const key = `${s.presetMode}:${s.patch}`;
+  if (key !== seqFor) { seqFor = key; await refreshSequence(); } // another patch: its sequence
   paintSettings();
   return true;
 }
@@ -1459,7 +1717,7 @@ setInterval(async () => {
 
 // --- mod matrix ---
 const SOURCES = ["", "LFO 1", "Filter envelope", "Amp envelope", "Velocity", "Mod wheel", "Aftertouch", "Env 3", "Env 4",
-  "Random (per note)", "Note number", "LFO 2"];
+  "Random (per note)", "Note number", "LFO 2", "Seq A", "Seq B", "Seq C", "Seq D"];
 const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount", "Poly-mod env amount", "LFO 1 amount",
   "LFO 1 → pitch", "LFO 1 → filter", "VCA", "Osc A level", "Osc B level", "Noise", "Resonance", "A pulse width",
   "B pulse width", "Poly-mod osc B", "LFO 1 → PW", "LFO 1 rate", "LFO 2 amount", "LFO 2 rate", "LFO 2 → pitch",
@@ -1525,7 +1783,7 @@ document.getElementById("add-route").onclick = async () => {
 // --- patches ---
 const KINDS = ["empty", "ours", "stock", "corrupt"];
 let slots = [], bank = 0;
-function slotLabel(n) { return "AbCd"[Math.floor(n / 100)] + "." + String(n % 100).padStart(2, "0"); }
+function slotLabel(n) { return "Ab"[Math.floor(n / 100)] + "." + String(n % 100).padStart(2, "0"); }
 async function slotInfo(n) {
   const d = await ask([0x5E, n >> 7, n & 0x7F], [0x5E, n >> 7, n & 0x7F], 2000);
   if (!d) return null;
@@ -1534,11 +1792,11 @@ async function slotInfo(n) {
 async function scanSlots() {
   if (offline()) return;
   slots = [];
-  for (let n = 0; n < 400; n++) {
+  for (let n = 0; n < 200; n++) {
     const info = await slotInfo(n);
     if (!info) { msg("patch-msg", "No answer (firmware 0.4.0 or later?)", "bad"); return; }
     slots[n] = info;
-    if (n % 25 === 24) { msg("patch-msg", `reading slots… ${n + 1} / 400`); paintSlots(); }
+    if (n % 25 === 24) { msg("patch-msg", `reading slots… ${n + 1} / 200`); paintSlots(); }
   }
   const count = k => slots.filter(x => x.kind === k).length;
   msg("patch-msg", `${count(1)} patches, ${count(0)} empty${count(2) ? `, ${count(2)} still in the stock format` : ""}`);
