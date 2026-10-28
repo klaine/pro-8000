@@ -97,15 +97,15 @@
      mod matrix) follow below it. */
   .synth { display: flex; flex-direction: column; gap: 30px; }
   .face { --plate: #111214; --silk: #f1f1ec; --frame: #deded8;
-    background: var(--plate); border: 1px solid #000; border-radius: 12px; padding: 26px 18px 18px;
+    background: var(--plate); border: 1px solid #000; border-radius: 12px; padding: 20px 16px 14px;
     box-shadow: 0 12px 34px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .06), inset 0 0 0 6px #0b0b0c;
-    display: grid; gap: 22px 14px; align-items: stretch;
+    display: grid; gap: 15px 12px; align-items: stretch;
     grid-template-columns: minmax(0, 7fr) minmax(0, 1.2fr) minmax(0, 5.4fr) minmax(0, 1.25fr);
     grid-template-areas: "osca osca brand brand" "oscb oscb flt tune" "pm noise flt tune" "lfo glide amp vol"; }
   .ps-osca { grid-area: osca; } .ps-oscb { grid-area: oscb; } .ps-pm { grid-area: pm; } .ps-noise { grid-area: noise; }
   .ps-lfo { grid-area: lfo; } .ps-glide { grid-area: glide; } .ps-flt { grid-area: flt; } .ps-amp { grid-area: amp; }
   .brandplate { grid-area: brand; } .loose-tune { grid-area: tune; } .loose-vol { grid-area: vol; }
-  @media (max-width: 1280px) {
+  @media (max-width: 960px) {
     .face { grid-template-columns: minmax(0, 5fr) minmax(0, 1fr);
       grid-template-areas: "brand brand" "osca osca" "oscb oscb" "pm noise" "lfo glide" "flt tune" "amp vol"; }
   }
@@ -113,22 +113,22 @@
     .face { grid-template-columns: 1fr; padding: 22px 10px 12px;
       grid-template-areas: "brand" "osca" "oscb" "pm" "noise" "lfo" "glide" "flt" "tune" "amp" "vol"; }
   }
-  .ps { position: relative; min-width: 0; border: 1.5px solid var(--frame); border-radius: 10px; padding: 16px 8px 8px;
-        display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-around; gap: 6px 4px; }
+  .ps { position: relative; min-width: 0; border: 1.5px solid var(--frame); border-radius: 9px; padding: 10px 6px 5px;
+        display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-around; gap: 2px 4px; }
   .ps > h3 { position: absolute; top: 0; left: 50%; transform: translate(-50%, -56%); margin: 0; padding: 0 8px;
-             background: var(--plate); color: var(--silk); font: 800 12.5px/1 var(--sans); letter-spacing: .07em;
+             background: var(--plate); color: var(--silk); font: 800 11.5px/1 var(--sans); letter-spacing: .07em;
              text-transform: uppercase; white-space: nowrap; }
   .ps-noise, .ps-glide { justify-content: center; }
   .ps-flt { flex-direction: column; align-items: stretch; justify-content: space-around; }
-  .prow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; align-items: end; gap: 6px 2px; }
-  .grp { display: flex; flex-direction: column; align-items: stretch; gap: 3px; }
+  .prow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; align-items: end; gap: 2px; }
+  .grp { display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
   .grp-in { display: flex; gap: 4px; align-items: flex-end; justify-content: center; }
   .cap { display: flex; align-items: center; gap: 6px; color: var(--silk); font: 800 9.5px/1 var(--sans); letter-spacing: .06em;
          text-transform: uppercase; white-space: nowrap; }
   .cap::before, .cap::after { content: ""; flex: 1; min-width: 8px; height: 1.5px; background: var(--frame); }
-  .loose { display: flex; flex-direction: column; align-items: center; justify-content: space-around; gap: 10px; }
+  .loose { display: flex; flex-direction: column; align-items: center; justify-content: space-around; gap: 6px; }
   .brandplate { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0 6px; min-width: 0; }
-  .brandplate .model { font: 800 34px/1 var(--sans); letter-spacing: .14em; color: var(--silk); }
+  .brandplate .model { font: 800 30px/1 var(--sans); letter-spacing: .14em; color: var(--silk); }
   .brandplate .sub { font: 800 10px/1.3 var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--silk); }
   .brandplate .sub.dim { color: var(--dim); margin-top: 4px; }
   .power { display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--silk); font: 800 9.5px var(--sans); letter-spacing: .06em; }
@@ -136,8 +136,8 @@
   .power.on i { background: #ff3b2b; box-shadow: 0 0 10px #ff3b2b, 0 0 3px #fff inset; }
 
   /* knobs: knurled black, white pointer, printed scale */
-  .knob { display: flex; flex-direction: column; align-items: center; width: 76px; min-width: 0; }
-  .knob .dial { width: 74px; height: 64px; cursor: ns-resize; touch-action: none; border-radius: 12px; }
+  .knob { display: flex; flex-direction: column; align-items: center; width: 68px; min-width: 0; }
+  .knob .dial { width: 64px; height: 50px; cursor: ns-resize; touch-action: none; border-radius: 12px; }
   .knob svg { width: 100%; height: 100%; overflow: visible; display: block; }
   .k-scale line { stroke: var(--silk, #eee); stroke-width: 1; }
   .k-scale text { fill: var(--silk, #eee); font: 700 7px var(--sans); text-anchor: middle; dominant-baseline: central; }
@@ -148,33 +148,37 @@
   .k-ptr { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
   .knob .dial:hover .k-grip, .knob .dial.active .k-grip, .knob .dial:focus-visible .k-grip { stroke: #56565c; }
   .knob .dial:focus-visible { outline-offset: -2px; }
-  .knob .lbl { margin-top: -3px; color: var(--silk, var(--label)); font: 800 9.5px/1.15 var(--sans); letter-spacing: .04em;
+  .knob .lbl { margin-top: 1px; color: var(--silk, var(--label)); font: 800 9px/1.15 var(--sans); letter-spacing: .04em;
                text-align: center; white-space: normal; }
-  .knob .val { margin-top: 2px; min-height: 13px; font: 10px/1.2 var(--mono); color: var(--dim); }
-  .face:not(.values) .knob .val { visibility: hidden; }
-  .face .knob:hover .val, .face .knob:focus-within .val, .face .knob .dial.active ~ .val { visibility: visible; }
+  .knob .val { margin-top: 1px; min-height: 12px; font: 10px/1.2 var(--mono); color: var(--dim); }
+  /* on the faceplate the value takes the label's place under the pointer, unless Values shows them all */
+  .face:not(.values) .knob { display: grid; justify-items: center; align-content: end; }
+  .face:not(.values) .knob .lbl, .face:not(.values) .knob .val { grid-row: 2; grid-column: 1; align-self: center; }
+  .face:not(.values) .knob .val { visibility: hidden; color: var(--silk); margin: 1px 0 0; min-height: 0; }
+  .face:not(.values) .knob:is(:hover, :focus-within) .val { visibility: visible; }
+  .face:not(.values) .knob:is(:hover, :focus-within) .lbl { visibility: hidden; }
   i.shared { display: inline-block; width: 5px; height: 5px; border-radius: 50%; border: 1px solid var(--dim); margin-left: 4px;
              vertical-align: 1px; }
 
   /* bat-lever switches: up is on */
-  .lever { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 38px; padding: 2px 2px 4px; border: 0;
+  .lever { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 34px; padding: 1px 2px 2px; border: 0;
            border-radius: 6px; background: transparent; cursor: pointer; color: var(--silk, var(--text)); }
   .lever:hover:not(:disabled) { background: rgba(255, 255, 255, .04); }
   .lever .pos { font: 800 9px/1.1 var(--sans); letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; min-height: 10px; }
   .lever .ico svg { width: 24px; height: 13px; display: block; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
-  .slot { position: relative; display: block; width: 15px; height: 36px; border-radius: 3px; border: 1px solid #45454a;
+  .slot { position: relative; display: block; width: 14px; height: 30px; border-radius: 3px; border: 1px solid #45454a;
           background: linear-gradient(90deg, #000, #1c1c1f 50%, #000); box-shadow: inset 0 1px 4px #000; }
-  .bat { position: absolute; left: 1px; right: 1px; height: 16px; top: 17px; border-radius: 2px;
+  .bat { position: absolute; left: 1px; right: 1px; height: 13px; top: 14px; border-radius: 2px;
          background: linear-gradient(#fbfbf7, #b9b9b3); box-shadow: 0 2px 3px rgba(0, 0, 0, .8), inset 0 -2px 0 #8d8d88; transition: top .07s; }
   .lever[aria-pressed="true"] .bat { top: 1px; }
   .lever3 { display: flex; gap: 6px; align-items: center; }
-  .lever3 .slot { height: 46px; cursor: pointer; }
-  .lever3 .bat { height: 14px; }
-  .lever3 .names { display: flex; flex-direction: column; justify-content: space-between; height: 46px; }
+  .lever3 .slot { height: 40px; cursor: pointer; }
+  .lever3 .bat { height: 12px; }
+  .lever3 .names { display: flex; flex-direction: column; justify-content: space-between; height: 40px; }
   .lever3 .names button { padding: 0 2px; border: 0; background: transparent; color: var(--silk); font: 800 9px/1 var(--sans);
                           letter-spacing: .04em; text-align: left; border-radius: 3px; }
   .lever3 .names button[aria-pressed="true"] { color: #ff4a36; }
-  .lever3-box { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .lever3-box { display: flex; flex-direction: column; align-items: center; gap: 3px; }
   .lever3-box .lbl { color: var(--silk); font: 800 9.5px var(--sans); letter-spacing: .04em; }
 
   /* ---------------------------------------------------------------- the extras below the faceplate */
@@ -1236,7 +1240,7 @@ function adjustable(e, get, set, reset, { vertical = true, span = 200, unit = 0 
 // The knob face: a knurled black knob with a white pointer, in a printed scale (0-10, -5..+5 when bipolar) or, for a
 // selector, its named positions. turn(u) points it at u (0..1); mark(k) lights selector position k.
 function dial(scale) {
-  const s = svgEl("svg", { viewBox: "0 0 80 70", "aria-hidden": "true" });
+  const s = svgEl("svg", { viewBox: "0 3 80 62", "aria-hidden": "true" });
   const names = Array.isArray(scale) ? scale : null, n = names ? names.length : 11;
   const g = svgEl("g", { class: "k-scale" + (names ? " names" : "") }), texts = [];
   const at = (a, r) => [40 + r * Math.sin(a * Math.PI / 180), 38 - r * Math.cos(a * Math.PI / 180)];
@@ -1336,7 +1340,7 @@ function lever3(text, names, get, set, title) {
   paints.push(() => {
     const k = get();
     if (k === undefined) return;
-    bat.style.top = `${1 + k * (46 - 2 - 14 - 2) / (names.length - 1)}px`;
+    bat.style.top = `${1 + k * (40 - 2 - 12 - 2) / (names.length - 1)}px`;
     picks.forEach((b, j) => b.setAttribute("aria-pressed", String(j === k)));
   });
   return h("div", { class: "lever3-box", title }, h("div", { class: "lever3" }, slot, h("div", { class: "names" }, picks)), h("span", { class: "lbl" }, text));

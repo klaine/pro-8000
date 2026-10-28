@@ -641,10 +641,22 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
 - Hardware SPI to the DAC80501 (fails above 0.33 MHz; so does 1 MHz bit-banging: probably the board).
 - Patch names from the panel (the keypad as a multi-tap keyboard?); today: the web page or `pro800 patch rename`.
 - LFO fade-in / delay per LFO (today: Env 3 → LFO amount in the matrix does it per voice).
-- MIDI CC map for the parameters (so a DAW or the Move can automate them), and program change → patch.
 - MPE / 8-channel mono mode on top of the mod matrix (per-voice pitch bend and pressure).
-- Arpeggiator? (Arp Up-Dn is LFO select now; Arp Assign is MOD ASSIGN.)
-- More matrix sources: LFO 1 / LFO 2 unipolar, key-down gate, poly pressure per voice.
+- More matrix sources: LFO 1 / LFO 2 unipolar, key-down gate.
+- **Virtual PRO-800 on the Mac (nice to have).** Not chip emulation: QEMU's STM32F4 has no USB OTG, and Renode
+  would need models of the whole board (bit-banged DAC, S&H muxes, HT16K33, pot muxes, EEPROM, comparator) and
+  still says nothing about timing. Instead:
+  1. Build the firmware for macOS with only the drivers swapped (the Mac tests already stub the engine's): USB →
+     a CoreMIDI virtual port named "PRO 800" (the web page and `build/pro800` work unchanged), EEPROM → a 128 kB
+     file seeded from a backup, DAC / S&H → a timestamped CV log per channel, panel → scripts or the web page,
+     the main loop on a 2.3 ms timer. Catches SysEx, layout, storage and modulation bugs; about two days. Code in
+     `main.c` that touches registers directly has to move behind the drivers first.
+  2. Then the circuitry as behavioural models fed by those CVs, out through CoreAudio: S&H droop, exponential
+     VCOs with the measured per-oscillator offsets, mixer and noise, a 4-pole low-pass with resonance, the VCA
+     with its measured 7-9 % dead zone, and the tuning comparator (so `tune.c` runs). Calibrated from our
+     measurements and the schematic; good for hearing routes, envelopes and sequences, not for judging tone.
+     SPICE on single stages offline at most.
+  Stays hardware-only: timing headroom, the bootloader / flash path, the real sound.
 
 ## Plan
 
