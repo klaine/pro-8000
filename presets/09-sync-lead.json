@@ -10,7 +10,8 @@
   "a-saw",
   "b-saw",
   "sync",
-  "lfo-freq"
+  "lfo-freq",
+  "pmod-freq-a"
  ],
  "params": {
   "shared": {

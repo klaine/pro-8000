@@ -9,7 +9,8 @@
  "buttons": [
   "a-saw",
   "b-saw",
-  "sync"
+  "sync",
+  "pmod-freq-a"
  ],
  "params": {
   "shared": {
