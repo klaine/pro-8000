@@ -238,8 +238,9 @@ that was the pitch estimator's 4 kHz limit, since raised to 10 kHz.)
 - **Hardware SPI3 to the DAC80501 doesn't work** above APB1/128 (0.33 MHz): from 0.66 to 10.5 MHz the DAC gets
   wrong data (the voice plays a ~10 Hz sawtooth at −44 dB), while bit-banging at the same 168 MHz core clock
   works (0.0.5 A/B test, 0.0.6 speed scan). The first suspected cause, raising SYNC on BSY before the frame
-  finished, was real and fixed (wait for RXNE per byte) but wasn't the whole story. Not a plain edge-rate limit,
-  since 0.0.2's ~1 MHz bit-bang worked. Unresolved: probably data/clock timing at the DAC; needs a scope.
+  finished, was real and fixed (wait for RXNE per byte) but wasn't the whole story. (Corrected 2026-10-28: 0.0.2's
+  bit-bang was 500 kHz, two 1 us half-bits, not 1 MHz, so every test agrees: fine up to ~0.5 MHz, wrong from
+  0.66 MHz, whatever drives it.) Unresolved; see "The CV path's speed" (0.7.4).
   `src/dac.c` bit-bangs at ~250 kHz for now (~50 µs per write, ~1.2 ms of each refresh).
 - All-voices test (0.0.7): every channel maps as the schematic says. At CV 0x8000, untrimmed:
 
@@ -650,6 +651,30 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   steps in the first 10 ms of a decay (was 4), decay times unchanged (knob 50 %: 312 ms to -60 dB, was 314).
 - To check on the synth: `pro800 timing` with 8 notes held and with none; `play --record` with a 0 ms attack and
   a short decay, to see how much the voice board smooths the steps.
+
+## The CV path's speed, and a probe for it (0.7.4, 2026-10-28; built, not flashed)
+
+Compared with p600fw: its 2 kHz timer interrupt advances every envelope and the LFO and writes every voice's four
+CVs each 0.5 ms (vibrato, PW, glide, MIDI at 500 Hz), cheap because the Prophet-600's DAC is a parallel bus. Ours
+(0.7.3, 8 voices sounding): VCAs ~0.9 ms, cutoffs ~1.7 ms, pitch and LFOs ~3.4 ms. The engine isn't the limit
+(0.23 ms a pass): a pitch or cutoff write is ~74 us, 48 of them the 24-bit DAC80501 frame at 500 kHz, plus 6 us
+settle and 12 us sample. The DAC is rated tens of times faster, so the limit is something not found yet.
+
+- 0.7.4 adds a probe (SysEx 6C / 6D, RAM only, back to the default on reboot): bus bit-bang or hardware SPI3,
+  bit-bang data change at SCLK rising (mode 0, as before) or just after it falls (mode 1: a full low time of setup),
+  SCLK high/low times, SPI mode and divider, GPIO speed, SYNC wait, and the S&H settle/sample waits.
+- `pro800 dac-test` sweeps it in direct mode, silent: 36 bit-bang buses (0.5-10 MHz, both modes, GPIO speed 0 and
+  3) and 28 SPI ones (modes 0-3, 0.16-10.5 MHz), each judged by oscillator A1's pitch at three CVs against the
+  default (good within 3 cents); then S&H waits from 6/12 us down to 0.5/1 us on the fastest good bus, judged by
+  how much FIL8 (the DAC80501's previous write) pulls A1's pitch. A few minutes.
+- What the result decides:
+  - A frame of ~3-6 us (SPI or bit-bang at 4-8 MHz) and waits around 2-4 us: a channel ~10 us, all 40 in ~0.5 ms.
+    Then the refresh moves into a 2 kHz timer interrupt like p600fw: envelopes, LFO output and every CV each
+    0.5 ms; routes and the rest of the engine at 0.5-1 kHz in the main loop. The interrupt and the main loop then
+    share voice state, so note-on / off and the envelope ticks need a short critical section.
+  - Still ~0.5 MHz: keep 0.7.3's split refresh; only shorter S&H waits help (each us is ~40 us a refresh).
+- If nothing faster works, the next suspects need a scope: SCLK/SDIN edges at U46, and whether anything else
+  hangs on PC10 / PB0 / PA15.
 
 ## Backlog
 

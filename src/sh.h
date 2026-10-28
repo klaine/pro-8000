@@ -39,6 +39,10 @@ typedef enum {
 void sh_safe(void);
 void sh_init(void);
 void sh_set(cv_t cv, uint16_t value);
+// The waits per channel, in tenths of a microsecond: for the DAC to settle, then for the S&H to sample. 0 = the
+// default (6 us, 12 us). A probe: not stored.
+void sh_set_timing(uint32_t settle, uint32_t sample);
+void sh_timing(uint32_t *settle, uint32_t *sample);
 void sh_gate(gate_t gate, int on);
 // Writes every CV to its S&H once. The hold capacitors droop, so this has to run continuously.
 void sh_refresh(void);

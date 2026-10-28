@@ -11,6 +11,11 @@
 //                          time up to p1 << 7 | p0 periods of TUNE_CPR (falling edges, or rising), timeout
 //                          t1 << 7 | t0 ms; replies 73 <ok> <periods, 2 × 7 bits> <cycles, 5 × 7 bits>
 //                          <system_hz / 1000, 3 × 7 bits>
+//   6C <bus> <mode> <h1> <h0> <l1> <l0> <speed> <sync us> <settle> <sample>
+//                          probe the CV path (until reboot; dac.h): the DAC80501 bus (bit-bang / SPI3, mode, high
+//                          and low cycles or SPI divider, GPIO speed, SYNC wait) and the S&H waits in tenths of a us
+//                          (0 = default); acknowledged with 7F 6C <1 if taken>
+//   6D                     the probe settings; replies 6D <the same 10 bytes as 6C>
 //   75                     run autotune (about 25 s) and save it; replies 76 <rows measured, of 24>
 //   77 <row>               tuning table row (osc A 1-8, osc B 1-8, filter 1-8); replies
 //                          77 <row> <points> <centihertz, 4 × 7 bits, per point; 0 = not measured>
@@ -73,6 +78,7 @@
 #include "lfo.h"
 #include "panel.h"
 #include "regs.h"
+#include "dac.h"
 #include "sh.h"
 #include "tune.h"
 #include "tuning.h"
@@ -988,6 +994,32 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = (r.cycles >> shift) & 0x7F;
         for (int shift = 14; shift >= 0; shift -= 7)
             reply[n++] = (khz >> shift) & 0x7F;
+    }
+    if (data_length == 11 && data[0] == 0x6C) {
+        dac_config_t c = {.bus = data[1], .mode = data[2], .high = (uint16_t)(data[3] << 7 | data[4]),
+                          .low = (uint16_t)(data[5] << 7 | data[6]), .speed = data[7], .sync_us = data[8]};
+        int ok = dac_configure(&c);
+        if (ok)
+            sh_set_timing(data[9], data[10]);
+        reply[n++] = 0x7F;
+        reply[n++] = 0x6C;
+        reply[n++] = (uint8_t)ok;
+    }
+    if (data_length == 1 && data[0] == 0x6D) {
+        const dac_config_t *c = dac_config();
+        uint32_t settle, sample;
+        sh_timing(&settle, &sample);
+        reply[n++] = 0x6D;
+        reply[n++] = c->bus;
+        reply[n++] = c->mode;
+        reply[n++] = (c->high >> 7) & 0x7F;
+        reply[n++] = c->high & 0x7F;
+        reply[n++] = (c->low >> 7) & 0x7F;
+        reply[n++] = c->low & 0x7F;
+        reply[n++] = c->speed;
+        reply[n++] = c->sync_us;
+        reply[n++] = (uint8_t)(settle & 0x7F);
+        reply[n++] = (uint8_t)(sample & 0x7F);
     }
     if (data_length == 2 && data[0] == 0x7A) {
         report_mode = data[1] != 0;

@@ -29,7 +29,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     has no MIDI): tabs Sound (the faceplate on top, then the extras and the mod matrix), Device cheat sheet (keep it in
     step with `MANUAL.md`), Patches, Play, System, Panel mapping (map in `tools/web/panel-map.json`).
   - Probe commands for our firmware: `direct on|off`, `cv`, `gate`, `measure` (the tuning comparator),
-    `tune`, `tuning` (print the tables), `check` (cents error of every oscillator through the tables).
+    `tune`, `tuning` (print the tables), `check` (cents error of every oscillator through the tables),
+    `dac-test` (sweeps the DAC80501 bus and the S&H waits, 0.7.4+; RAM-only probe, silent).
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
 - `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, because the bootloader takes it as XYZ.

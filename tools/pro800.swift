@@ -45,6 +45,9 @@ Probe (our firmware 0.0.9+):
   pro800 tune                           run autotune in the synth (about 25 s) and save it
   pro800 tuning                         print the tuning tables (Hz per CV point)
   pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
+  pro800 dac-test [--bus-only|--timing-only]
+                                        sweep DAC80501 buses and S&H waits, checked by osc A1's pitch (0.7.4+;
+                                        silent; changes nothing stored)
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
   pro800 state                          print every pot (0-99) and switch as the firmware reads them
   pro800 set <setting> <value>          lfo-sync / lfo2-sync free|clock, lfo-trigger / lfo2-trigger
@@ -654,6 +657,97 @@ func check() {
     }
     ack([0x74, 0])
     print(String(format: "worst: %.1f cents", worst))
+}
+
+// Sweeps the CV path's speed (firmware 0.7.4): DAC80501 buses and S&H waits, each checked by oscillator A1's pitch
+// through the tuning comparator against the safe default. pro800 dac-test [--bus-only | --timing-only]
+// Everything is a probe: the synth goes back to the default at the end, and on any reboot.
+func dacTest() {
+    let midi = Midi(port: portName)
+    func ack(_ data: [UInt8]) { probeAck(midi, data) }
+    func setCV(_ name: String, _ value: Int) {
+        ack([0x70, UInt8(cvNames.firstIndex(of: name)!), UInt8(value >> 14), UInt8((value >> 7) & 0x7F), UInt8(value & 0x7F)])
+    }
+    struct Bus { var bus = 0, mode = 0, high = 168, low = 168, speed = 0, sync = 1 }
+    func configure(_ b: Bus, settle: Int = 0, sample: Int = 0) -> Bool {
+        let data: [UInt8] = [0x6C, UInt8(b.bus), UInt8(b.mode), UInt8(b.high >> 7), UInt8(b.high & 0x7F), UInt8(b.low >> 7),
+                             UInt8(b.low & 0x7F), UInt8(b.speed), UInt8(b.sync), UInt8(settle), UInt8(sample)]
+        guard let r = midi.request(data, expect: [0x7F, 0x6C], timeout: 2) else { fail("no reply (firmware 0.7.4 or later?)") }
+        return r[sysexHeader.count + 2] == 1
+    }
+    // the bus's time for one 24-bit frame plus the SYNC waits, in µs
+    func frameUs(_ b: Bus) -> Double {
+        b.bus == 1 ? 24 / (42.0 / pow(2, Double(b.high + 1))) + 2 * Double(b.sync)
+                   : 24 * Double(b.high + b.low) / 168 + 2 * Double(b.sync)
+    }
+    func describe(_ b: Bus) -> String {
+        b.bus == 1 ? String(format: "SPI mode %d, %5.2f MHz, GPIO speed %d", b.mode, 42 / pow(2, Double(b.high + 1)), b.speed)
+                   : String(format: "bit-bang mode %d, %5.2f MHz (%d/%d cycles), GPIO speed %d", b.mode,
+                            168 / Double(b.high + b.low), b.high, b.low, b.speed)
+    }
+    func hz(_ cv: Int) -> Double? {
+        setCV("osca1", cv)
+        pump(0.05)
+        var readings: [Double] = []
+        for _ in 0..<3 { if let (f, _) = measureOnce(midi, periods: 32, timeoutMs: 1500) { readings.append(f) } }
+        return readings.isEmpty ? nil : readings.sorted()[readings.count / 2]
+    }
+    let points = [0x5000, 0x8000, 0xB000]
+    defer { _ = configure(Bus()); ack([0x74, 0]) }
+
+    ack([0x74, 1])
+    setCV("master", 0); setCV("res", 0); setCV("pwa", 0xFFFF); setCV("pwb", 0); setCV("volb", 0); setCV("vola", 0xFFFF)
+    for v in 1...8 { setCV("amp\(v)", 0); setCV("fil\(v)", 0xFFFF) }
+    setCV("amp1", 0xFFFF)
+    ack([0x71, 0, 1]); ack([0x71, 3, 0])
+    _ = configure(Bus())
+    let reference = points.map { hz($0) }
+    guard reference.allSatisfy({ $0 != nil }) else { fail("no signal from oscillator A1 on the default bus") }
+    print("default bus: " + zip(points, reference).map { String(format: "%04X %.2f Hz", $0, $1!) }.joined(separator: ", "))
+
+    var best = Bus()
+    if !flag("--timing-only") {
+        var buses: [Bus] = []
+        for mode in 0...1 { for speed in [0, 3] { for h in [168, 112, 84, 56, 42, 28, 21, 14, 8] {
+            buses.append(Bus(bus: 0, mode: mode, high: h, low: h, speed: speed))
+        } } }
+        for mode in 0...3 { for div in (1...7).reversed() { buses.append(Bus(bus: 1, mode: mode, high: div, low: 0, speed: 2)) } }
+        print("\nbus                                                  frame   worst error")
+        for b in buses {
+            guard configure(b) else { print(describe(b).padding(toLength: 52, withPad: " ", startingAt: 0) + "  rejected"); continue }
+            var worst = 0.0, silent = false
+            for (i, cv) in points.enumerated() {
+                guard let f = hz(cv) else { silent = true; break }
+                worst = max(worst, abs(1200 * log2(f / reference[i]!)))
+            }
+            let ok = !silent && worst < 3
+            print(describe(b).padding(toLength: 52, withPad: " ", startingAt: 0) + String(format: " %5.1f µs  ", frameUs(b)) +
+                  (silent ? "no signal" : String(format: "%7.1f cents %@", worst, ok ? "ok" : "BAD")))
+            if ok && frameUs(b) < frameUs(best) { best = b }
+        }
+        _ = configure(Bus())
+        print("\nfastest good bus: \(describe(best)), \(String(format: "%.1f", frameUs(best))) µs a frame (default \(String(format: "%.1f", frameUs(Bus()))) µs)")
+    }
+    if !flag("--bus-only") {
+        // The DAC80501's previous write in the refresh order is FIL8: a settle time that's too short lets FIL8's
+        // value leak into OSC1A's pitch, so measure A1 with FIL8 at both ends.
+        print("\nS&H waits on \(describe(best))")
+        print("settle  sample   per channel   A1 shift with FIL8 0 → max   A1 vs default")
+        for (settle, sample) in [(60, 120), (40, 80), (30, 60), (20, 40), (20, 20), (10, 20), (10, 10), (5, 10)] {
+            guard configure(best, settle: settle, sample: sample) else { continue }
+            setCV("fil8", 0)
+            let low = hz(0x8000)
+            setCV("fil8", 0xFFFF)
+            let high = hz(0x8000)
+            let line = String(format: "%4.1f µs %5.1f µs  %7.1f µs  ", Double(settle) / 10, Double(sample) / 10,
+                              frameUs(best) + Double(settle + sample) / 10)
+            if let l = low, let h = high {
+                print(line + String(format: "%15.2f cents %18.2f cents", 1200 * log2(h / l), 1200 * log2(h / reference[1]!)))
+            } else {
+                print(line + "no signal")
+            }
+        }
+    }
 }
 
 // Live panel events: pro800 panel [seconds]
@@ -1334,6 +1428,7 @@ case "measure": measure()
 case "tune": tune()
 case "tuning": tuning()
 case "check": check()
+case "dac-test": dacTest()
 case "panel": panel()
 case "state": state()
 case "set": setSetting()

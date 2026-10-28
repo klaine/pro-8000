@@ -15,9 +15,13 @@
 #define SH_PINS_B (1u << 5 | 1u << 9 | 1u << 10) // SH0, SH1, SH2
 #define GATE_PINS_E (1u << 7 | 1u << 8 | 1u << 10 | 1u << 12 | 1u << 13 | 1u << 14 | 1u << 15)
 
-// DAC80501 settling plus the U47A/U16 buffers, then the time the 4051 needs to charge 10 nF to within 16 bits.
-#define DAC_SETTLE_US 6
-#define SAMPLE_US     12
+// DAC80501 settling plus the U47A/U16 buffers, then the time the 4051 needs to charge 10 nF to within 16 bits, in
+// tenths of a microsecond. The host can change them (sh_set_timing()) to find out how short they can be.
+#define DAC_SETTLE_DEFAULT 60
+#define SAMPLE_DEFAULT     120
+static uint32_t settle_tenths = DAC_SETTLE_DEFAULT, sample_tenths = SAMPLE_DEFAULT;
+
+static uint32_t tenths_to_cycles(uint32_t tenths) { return tenths * (system_hz / 1000u) / 10000u; }
 
 typedef enum { SRC_DAC16, SRC_DAC12_1, SRC_DAC12_2 } source_t;
 
@@ -61,9 +65,9 @@ static void sample(const mux_t *mux, uint32_t address, uint16_t value)
     case SRC_DAC12_2: dac12_write(2, value); break;
     }
     select_address(address);
-    delay_us(DAC_SETTLE_US);
+    delay_cycles(tenths_to_cycles(settle_tenths));
     gpio_write(mux->en_port, mux->en_pin, 0);
-    delay_us(SAMPLE_US);
+    delay_cycles(tenths_to_cycles(sample_tenths));
     gpio_write(mux->en_port, mux->en_pin, 1);
 }
 
@@ -89,6 +93,18 @@ void sh_init(void)
 }
 
 void sh_set(cv_t cv, uint16_t value) { cvs[cv] = value; }
+
+void sh_set_timing(uint32_t settle, uint32_t sample)
+{
+    settle_tenths = settle ? settle : DAC_SETTLE_DEFAULT;
+    sample_tenths = sample ? sample : SAMPLE_DEFAULT;
+}
+
+void sh_timing(uint32_t *settle, uint32_t *sample)
+{
+    *settle = settle_tenths;
+    *sample = sample_tenths;
+}
 
 void sh_gate(gate_t gate, int on) { gpio_write(GPIOE_BASE, gate_pins[gate], on); }
 

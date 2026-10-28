@@ -86,6 +86,7 @@
 #define SPI_CR1_CPHA    (1u << 0)
 #define SPI_CR1_MSTR    (1u << 2)
 #define SPI_CR1_BR_DIV4 (1u << 3)
+#define SPI_CR1_BR_SHIFT 3
 #define SPI_CR1_SPE     (1u << 6)
 #define SPI_CR1_SSI     (1u << 8)
 #define SPI_CR1_SSM     (1u << 9)
