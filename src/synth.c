@@ -46,15 +46,15 @@
 #define OSC_RANGE_SEMITONES   36.0f // frequency knobs: ± this, in semitone steps
 #define FINE_SEMITONES        1.0f  // oscillator B fine: ± (100 cents)
 #define MASTER_TUNE_SEMITONES 1.0f  // ±
-#define BEND_SEMITONES        2.0f  // ±
+#define BEND_DEFAULT          2     // ± semitones, when the patch doesn't set it
 #define CUTOFF_LOW_NOTE       12.0f // cutoff knob at minimum (about 16 Hz)
 #define CUTOFF_SPAN           120.0f
-#define FILTER_ENV_SEMITONES  72.0f // envelope amount at either end
-#define PMOD_ENV_SEMITONES    48.0f // poly-mod filter envelope → frequency A, at maximum
+#define FILTER_ENV_SEMITONES  72.0f // envelope amount at either end (squared: 25 % = 4.5, 50 % = 18 semitones)
+#define PMOD_ENV_SEMITONES    48.0f // poly-mod filter envelope → frequency A, at maximum (squared: 50 % = 12)
 #define LFO_PITCH_SEMITONES   12.0f
 #define LFO_FILTER_SEMITONES  48.0f
 #define LFO_PW_DEPTH          0.45f
-#define UNISON_SPREAD         0.02f // semitones between neighbouring voices
+#define DETUNE_DEFAULT        14    // unison: cents between the outermost voices, when the patch doesn't set it
 #define POT_SMOOTHING_S       0.01f
 #define PICKUP_WINDOW         0.015f // a knob this close to the stored value picks it up
 // what a route of depth 99 does at full source (pitch on a squared curve: depth 10 is 0.24 semitones, 50 is 6.1)
@@ -109,7 +109,8 @@ typedef struct {
 
 static voice_t voices[VOICE_COUNT];
 static uint32_t allocations, random_state = 0x2545F491u;
-static float bend, mod_wheel, aftertouch;
+static float bend, mod_wheel, aftertouch; // bend -1..1
+static int bend_range = BEND_DEFAULT, detune = DETUNE_DEFAULT;
 static int last_voice[2] = {-1, -1}; // per layer: the most recently played voice, for the single-wire destinations
 
 // the panel's pots, smoothed (0..1), and each layer's parameters (the knobs, then Env 3 and Env 4)
@@ -445,6 +446,10 @@ void synth_apply_patch(const patch_t *patch)
                                                                      : LFO_TRIGGER_FREE;
     }
     unison = sw(SWITCH_UNISON);
+    bend_range = patch->bend_range ? patch->bend_range : BEND_DEFAULT; // 0: not stored (before 0.7.1)
+    detune = patch->detune ? patch->detune - 1 : DETUNE_DEFAULT;
+    synth_set_bend_range(bend_range);
+    synth_set_detune(detune);
 }
 
 void synth_capture_patch(patch_t *patch)
@@ -478,6 +483,8 @@ void synth_capture_patch(patch_t *patch)
     patch->keytrack = (uint8_t)keytrack_setting;
     patch->layer_mode = (uint8_t)layer_mode;
     patch->split = (uint8_t)split_note;
+    patch->bend_range = (uint8_t)bend_range;
+    patch->detune = (uint8_t)(detune + 1); // 0 means "not stored"
     for (int w = 0; w < 2; w++) {
         patch->lfo_sync[w] = (uint8_t)lfo_sync[w];
         patch->lfo_trigger[w] = (uint8_t)lfo_trigger[w];
@@ -650,7 +657,12 @@ void synth_all_off(void)
         gate_off(&voices[v]);
 }
 
-void synth_pitch_bend(int value) { bend = (float)(value - 8192) / 8192.0f * BEND_SEMITONES; }
+void synth_pitch_bend(int value) { bend = (float)(value - 8192) / 8192.0f; }
+
+int synth_bend_range(void) { return bend_range; }
+void synth_set_bend_range(int semitones) { bend_range = semitones < 1 ? 1 : semitones > 12 ? 12 : semitones; }
+int synth_detune(void) { return detune; }
+void synth_set_detune(int cents) { detune = cents < 0 ? 0 : cents > 50 ? 50 : cents; }
 
 void synth_mod_wheel(uint8_t value) { mod_wheel = (float)value / 127.0f; }
 
@@ -829,6 +841,12 @@ static float semitone_steps(float knob)
 
 int synth_knob_semitones(float knob) { return (int)semitone_steps(knob); }
 
+static float env_amount_of(float knob) { float x = (knob - 0.5f) * 2; return x * (x < 0 ? -x : x); } // -1..1, squared
+float synth_knob_env_amount(float knob) { return env_amount_of(knob) * FILTER_ENV_SEMITONES; }
+float synth_knob_pmod(float knob) { return knob * knob * PMOD_ENV_SEMITONES; }
+float synth_knob_cutoff_hz(float knob) { return 440.0f * fast_exp2((CUTOFF_LOW_NOTE + knob * CUTOFF_SPAN - 69.0f) / 12.0f); }
+float synth_knob_glide_s(float knob) { return knob < 0.02f ? 0 : 0.002f * fast_exp2(knob * 10.0f); }
+
 int synth_knob_cents(float knob)
 {
     float cents = (knob - 0.5f) * 2 * FINE_SEMITONES * 100;
@@ -959,15 +977,15 @@ void synth_update(float dt)
         // LFOs (lfo.c): rate or clock division from the rate knobs; LFO_ID(0, 0) goes first
         lfo_update(LFO_ID(l, 0), dt, p[POT_LFO_FREQ], last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES);
         lfo_update(LFO_ID(l, 1), dt, p[PARAM_LFO2_RATE], last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES);
-        float glide = p[POT_GLIDE] < 0.02f ? 0 : 0.002f * fast_exp2(p[POT_GLIDE] * 10.0f); // time constant, s
+        float glide = synth_knob_glide_s(p[POT_GLIDE]); // time constant, s
         lp[l] = (layer_params_t){
             .coarse_a = semitone_steps(p[POT_FREQ_A]),
             .coarse_b = semitone_steps(p[POT_FREQ_B]),
             .fine_b = (p[POT_FINE] - 0.5f) * 2 * FINE_SEMITONES,
             .tune = (p[POT_MASTER_TUNE] - 0.5f) * 2 * MASTER_TUNE_SEMITONES,
             .glide_k = glide > 0 ? 1.0f - fast_exp2(-dt / glide * 1.4427f) : 1.0f,
-            .env_amount = (p[POT_FIL_ENV_AMT] - 0.5f) * 2, // -1..1
-            .pmod_env = pmod_freq_a ? p[POT_PMOD_FIL_ENV] : 0,
+            .env_amount = env_amount_of(p[POT_FIL_ENV_AMT]), // -1..1
+            .pmod_env = pmod_freq_a ? p[POT_PMOD_FIL_ENV] * p[POT_PMOD_FIL_ENV] : 0,
             .cutoff = CUTOFF_LOW_NOTE + p[POT_CUTOFF] * CUTOFF_SPAN,
             .depth = p[POT_LFO_AMOUNT] * p[POT_LFO_AMOUNT] + mod_wheel,
             .depth2 = p[PARAM_LFO2_AMOUNT] * p[PARAM_LFO2_AMOUNT],
@@ -1021,7 +1039,8 @@ void synth_update(float dt)
 
         int first, end;
         layer_voices(l, &first, &end);
-        float spread = unison ? ((float)(v - first) - (float)(end - first - 1) / 2) * UNISON_SPREAD : 0;
+        int n = end - first;
+        float spread = unison && n > 1 ? ((float)(v - first) / (float)(n - 1) - 0.5f) * (float)detune / 100.0f : 0;
         float lfo = lfo_value(LFO_ID(l, 0), v, (lfo_shape_t)lfo_shape[l][0]);
         float lfo2 = lfo_value(LFO_ID(l, 1), v, (lfo_shape_t)lfo_shape[l][1]);
         float depth = clamp01(q->depth + mod[DEST_LFO_AMOUNT]);
@@ -1035,7 +1054,7 @@ void synth_update(float dt)
         float env_amount = (q->env_amount + mod[DEST_FIL_ENV_AMT]) * FILTER_ENV_SEMITONES;
         float pmod_env = (q->pmod_env + mod[DEST_PMOD_ENV]) * PMOD_ENV_SEMITONES;
 
-        float pitch = x->pitch + bend + q->tune + spread + lfo * to_pitch + lfo2 * to_pitch2
+        float pitch = x->pitch + bend * (float)bend_range + q->tune + spread + lfo * to_pitch + lfo2 * to_pitch2
                     + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
         float a = pitch + q->coarse_a + pmod_env * x->filter.level + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
         float b = pitch + q->coarse_b + q->fine_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;

@@ -109,6 +109,8 @@ void lfo_clock_start(void)
 
 void lfo_clock_stop(void) {}
 
+float lfo_rate_hz(float knob) { return 0.05f * fast_exp2(knob * 10.0f); }
+
 int lfo_division(float knob)
 {
     int i = (int)(knob * (float)(DIVISION_COUNT - 1) + 0.5f);
@@ -148,7 +150,7 @@ void lfo_update(int lfo, float dt, float knob, float octaves)
                 position = (float)ticks + 1; // clock running: don't get ahead of the next tick
         }
     } else {
-        rate = 0.05f * fast_exp2(knob * 10.0f); // 0.05-51 Hz
+        rate = lfo_rate_hz(knob);
     }
     lfos[lfo].rate = rate;
 

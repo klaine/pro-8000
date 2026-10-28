@@ -50,6 +50,7 @@ Probe (our firmware 0.0.9+):
   pro800 set <setting> <value>          lfo-sync / lfo2-sync free|clock, lfo-trigger / lfo2-trigger
                                         free|first|every|voice, layers off|split|stack|channel, split <note>,
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
+                                        bend <1-12> (semitones), detune <0-50> (unison, cents),
                                         shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
                                         lfo2-dests <layer> none|pitch,filter,pw,
                                         cycle <layer> none|amp,filter,env3,env4 (cycling envelopes),
@@ -746,7 +747,7 @@ let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "l
                     "lfo", "shape 1 1", "shape 1 2", "shape 2 1", "shape 2 2", "lfo2-dests 1", "lfo2-dests 2",
                     "cycle 1", "cycle 2", "cycle-sync 1 amp", "cycle-sync 1 filter", "cycle-sync 1 env3",
                     "cycle-sync 1 env4", "cycle-sync 2 amp", "cycle-sync 2 filter", "cycle-sync 2 env3",
-                    "cycle-sync 2 env4", "env-select", "preset-mode", "patch"]
+                    "cycle-sync 2 env4", "bend", "detune", "env-select", "preset-mode", "patch"]
 let cycleNames = ["amp", "filter", "env3", "env4"]
 let divisionNames = ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
                      "1/16T", "1/32"]
@@ -775,6 +776,10 @@ func setSetting() {
     var id: UInt8, v: Int
     if args.count == 2, args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
         (id, v) = (3, note)
+    } else if args.count == 2, args[0] == "bend", let st = Int(args[1]), (1...12).contains(st) {
+        (id, v) = (25, st)
+    } else if args.count == 2, args[0] == "detune", let ct = Int(args[1]), (0...50).contains(ct) {
+        (id, v) = (26, ct)
     } else if args.count == 2, let (i, values) = table[args[0]], let index = values.firstIndex(of: args[1]) {
         (id, v) = (i, index)
     } else if args.count == 4, args[0] == "shape", let layer = Int(args[1]), (1...2).contains(layer),
@@ -841,8 +846,10 @@ func settings() {
             let on = cycleNames.indices.filter { v >> $0 & 1 != 0 }.map { cycleNames[$0] }
             text = on.isEmpty ? "none" : on.joined(separator: ",")
         case 17...24: text = v == 0 ? "free" : divisionNames[safe: v - 1] ?? text
-        case 25: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
-        case 27: text = slotName(v)
+        case 25: text = "±\(v) semitones"
+        case 26: text = "\(v) cents"
+        case 27: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
+        case 29: text = slotName(v)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")

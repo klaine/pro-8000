@@ -45,6 +45,7 @@ void lfo_update_voice(int lfo, int voice, float dt, float octaves);
 float lfo_value(int lfo, int voice, lfo_shape_t shape);
 
 #define LFO_DIVISIONS 15 // 8 bars .. 1/32
+float lfo_rate_hz(float knob); // a free-running LFO's rate knob: 0.05-51 Hz
 int lfo_division(float knob);
 const char *lfo_division_name(int division); // 4 display characters
 float lfo_division_quarters(int division);   // its length in quarter notes

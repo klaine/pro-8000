@@ -24,7 +24,8 @@
 //                          note, 4 keyboard tracking, 5 LFO 2 sync, 6 LFO 2 retrigger, 7 edit layer, 8 selected LFO,
 //                          9-12 LFO shapes (layer 1 LFO 1, LFO 2, layer 2 LFO 1, LFO 2), 13-14 LFO 2 routing per layer,
 //                          15-16 cycling envelopes per layer, 17-24 synced cycling per envelope: layer 1 amp,
-//                          filter, Env 3, Env 4, then layer 2; 0 free, else clock division + 1)
+//                          filter, Env 3, Env 4, then layer 2; 0 free, else clock division + 1), 25 bend range
+//                          (1-12 semitones), 26 unison detune (0-50 cents)
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
 //   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
@@ -258,9 +259,10 @@ static int save_patch(int n)
 // Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value. The
 // LFO pages set the LFO that Arp Up-Dn selects ("SYn2" / "trI2" for LFO 2).
 // Key 6 sets cycling for one envelope of the edit layer: pressing 6 again moves to the next envelope.
-enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_CYCLE, PAGE_COUNT };
+enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_CYCLE, PAGE_BEND, PAGE_DETUNE,
+       PAGE_COUNT };
 
-static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC", ""}; // keys 1-6
+static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC", "", "bEnd", "dEtU"}; // keys 1-8
 static const char cycle_names[4][6] = {"CY.A", "CY.F", "CY.3", "CY.4"}; // amp, filter, Env 3, Env 4
 static int cycle_env; // the envelope page 6 shows
 
@@ -281,7 +283,8 @@ static uint32_t show_value_at; // ms_ticks to replace the page name with its val
 static int setting_count(int page)
 {
     static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3,
-                                           2 + LFO_DIVISIONS}; // cycle: OFF, FrEE, a clock division
+                                           2 + LFO_DIVISIONS, // cycle: OFF, FrEE, a clock division
+                                           12, 51};           // bend 1-12 semitones, detune 0-50 cents
     return counts[page];
 }
 
@@ -292,6 +295,8 @@ static int setting_get(int page)
     case PAGE_LFO_TRIGGER: return (int)lfo_trigger[synth_lfo_select()];
     case PAGE_LAYERS: return (int)synth_layer_mode();
     case PAGE_KEYTRACK: return synth_keytrack();
+    case PAGE_BEND: return synth_bend_range() - 1;
+    case PAGE_DETUNE: return synth_detune();
     case PAGE_CYCLE:
         if (!(synth_env_cycle(synth_edit_layer()) >> cycle_env & 1))
             return 0;
@@ -307,6 +312,8 @@ static void setting_set(int page, int value)
     case PAGE_LFO_TRIGGER: lfo_trigger[synth_lfo_select()] = (lfo_trigger_t)value; break;
     case PAGE_LAYERS: synth_set_layer_mode((layer_mode_t)value); break;
     case PAGE_KEYTRACK: synth_set_keytrack(value); break;
+    case PAGE_BEND: synth_set_bend_range(value + 1); break;
+    case PAGE_DETUNE: synth_set_detune(value); break;
     case PAGE_CYCLE: {
         int bits = synth_env_cycle(synth_edit_layer());
         synth_set_env_cycle(synth_edit_layer(), value ? bits | 1 << cycle_env : bits & ~(1 << cycle_env));
@@ -325,6 +332,10 @@ static void show_setting(int page)
     int cycle = page == PAGE_CYCLE ? setting_get(page) : 0;
     if (page == PAGE_SPLIT)
         display_number(synth_split_note());
+    else if (page == PAGE_BEND)
+        display_number(synth_bend_range());
+    else if (page == PAGE_DETUNE)
+        display_number(synth_detune());
     else if (cycle >= 2)
         display_text(lfo_division_name(cycle - 2));
     else if (page == PAGE_CYCLE)
@@ -481,6 +492,63 @@ static float env_knob_time(int pot, float knob)
     return synth_env_time(stage, knob, (synth_env_cycle(synth_edit_layer()) >> env) & 1);
 }
 
+// 4 digits for a quantity: " 0.05", " 1.60", " 51.2", " 737"; from 1000 on in thousands with a point (" 1.24",
+// " 16.7"), so a cutoff of 1.24 kHz shows as 1.24
+static void format_quantity(float v, char *text)
+{
+    if (v >= 999.5f)
+        v /= 1000.0f;
+    int n = 0;
+    text[n++] = ' ';
+    if (v < 9.995f) {
+        int c = (int)(v * 100.0f + 0.5f);
+        text[n++] = (char)('0' + c / 100);
+        text[n++] = '.';
+        text[n++] = (char)('0' + c / 10 % 10);
+        text[n++] = (char)('0' + c % 10);
+    } else if (v < 99.95f) {
+        int d = (int)(v * 10.0f + 0.5f);
+        text[n++] = (char)('0' + d / 100);
+        text[n++] = (char)('0' + d / 10 % 10);
+        text[n++] = '.';
+        text[n++] = (char)('0' + d % 10);
+    } else {
+        int i = (int)(v + 0.5f);
+        text[n++] = (char)('0' + i / 100 % 10);
+        text[n++] = (char)('0' + i / 10 % 10);
+        text[n++] = (char)('0' + i % 10);
+    }
+    text[n] = 0;
+}
+
+// Signed, right-aligned (a 7-segment digit can't show '+'): one decimal under 10 ("-4.5", " 0.7"), else whole
+// ("-36", "  72")
+static void format_signed(float v, char *text)
+{
+    float a = v < 0 ? -v : v;
+    int n = 0;
+    int d = (int)(a * 10.0f + 0.5f);
+    if (a < 9.95f && d % 10) { // a tenth to show (whole numbers, and what rounds to 0, take the plain path)
+        text[n++] = ' ';
+        text[n++] = v < 0 ? '-' : ' ';
+        text[n++] = (char)('0' + d / 10);
+        text[n++] = '.';
+        text[n++] = (char)('0' + d % 10);
+        text[n] = 0;
+        return;
+    }
+    int i = (int)(a + 0.5f), k = 4;
+    text[4] = 0;
+    do {
+        text[--k] = (char)('0' + i % 10);
+        i /= 10;
+    } while (i && k > 0);
+    if (k > 0)
+        text[--k] = v < 0 && (int)(a + 0.5f) ? '-' : ' ';
+    while (k > 0)
+        text[--k] = ' ';
+}
+
 // 4 digits: milliseconds as a whole number ("  15", " 150"), seconds with a point (" 1.25", " 12.5")
 static void format_time(float s, char *text)
 {
@@ -600,19 +668,23 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             text[4] = 0;
         } else if (env_knob_time(index, knob) >= 0) {
             format_time(env_knob_time(index, knob), text);
-        } else if (index == POT_FREQ_A || index == POT_FREQ_B || index == POT_FINE) {
-            // signed, right-aligned: semitones for the frequencies, cents for fine
-            int v = index == POT_FINE ? synth_knob_cents(knob) : synth_knob_semitones(knob);
-            int a = v < 0 ? -v : v, n = 4;
-            text[4] = 0;
-            do {
-                text[--n] = (char)('0' + a % 10);
-                a /= 10;
-            } while (a && n > 0);
-            if (n > 0)
-                text[--n] = v < 0 ? '-' : ' '; // a 7-segment digit can't show '+'
-            while (n > 0)
-                text[--n] = ' ';
+        } else if (index == POT_FREQ_A || index == POT_FREQ_B) {
+            format_signed((float)synth_knob_semitones(knob), text);
+        } else if (index == POT_FINE || index == POT_MASTER_TUNE) {
+            format_signed((float)synth_knob_cents(knob), text);
+        } else if (index == POT_FIL_ENV_AMT) {
+            format_signed(synth_knob_env_amount(knob), text); // semitones
+        } else if (index == POT_PMOD_FIL_ENV) {
+            format_quantity(synth_knob_pmod(knob), text); // semitones
+        } else if (index == POT_CUTOFF) {
+            format_quantity(synth_knob_cutoff_hz(knob), text); // Hz; with a point from 1 kHz on: kHz
+        } else if (index == POT_LFO_FREQ) {
+            format_quantity(lfo_rate_hz(knob), text); // Hz
+        } else if (index == POT_GLIDE) {
+            if (synth_knob_glide_s(knob) > 0)
+                format_time(synth_knob_glide_s(knob), text);
+            else
+                text[0] = 'O', text[1] = 'F', text[2] = 'F', text[3] = 0;
         } else {
             int v = (int)(knob * 99.0f + 0.5f);
             text[0] = ' ';
@@ -746,7 +818,8 @@ typedef enum {
     SET_EDIT_LAYER, SET_LFO_SELECT, SET_SHAPE_L1_LFO1, SET_SHAPE_L1_LFO2, SET_SHAPE_L2_LFO1, SET_SHAPE_L2_LFO2,
     SET_LFO2_DESTS_L1, SET_LFO2_DESTS_L2, SET_CYCLE_L1, SET_CYCLE_L2,
     SET_CYCLE_SYNC, // 8 of them: layer 1 amp, filter, Env 3, Env 4, then layer 2 (0 free, else division + 1)
-    SET_WRITABLE = SET_CYCLE_SYNC + 8,                                        // read-only from here
+    SET_BEND = SET_CYCLE_SYNC + 8, SET_DETUNE, // bend range (semitones), unison detune (cents)
+    SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_COUNT
 } host_setting_t;
 
@@ -767,6 +840,8 @@ static int host_setting_get(int id)
     case SET_CYCLE_SYNC: case SET_CYCLE_SYNC + 1: case SET_CYCLE_SYNC + 2: case SET_CYCLE_SYNC + 3:
     case SET_CYCLE_SYNC + 4: case SET_CYCLE_SYNC + 5: case SET_CYCLE_SYNC + 6: case SET_CYCLE_SYNC + 7:
         return synth_env_sync((id - SET_CYCLE_SYNC) / 4, (id - SET_CYCLE_SYNC) % 4);
+    case SET_BEND: return synth_bend_range();
+    case SET_DETUNE: return synth_detune();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
     case SET_CURRENT_PATCH: return current_patch;
@@ -779,7 +854,7 @@ static int host_setting_set(int id, int value)
     static const uint8_t counts[SET_WRITABLE] = {
         LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, 2, 2,
         LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8, 16, 16,
-        [SET_CYCLE_SYNC ... SET_WRITABLE - 1] = LFO_DIVISIONS + 1,
+        [SET_CYCLE_SYNC ... SET_CYCLE_SYNC + 7] = LFO_DIVISIONS + 1, [SET_BEND] = 13, [SET_DETUNE] = 51,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -797,6 +872,8 @@ static int host_setting_set(int id, int value)
     case SET_CYCLE_SYNC + 4: case SET_CYCLE_SYNC + 5: case SET_CYCLE_SYNC + 6: case SET_CYCLE_SYNC + 7:
         synth_set_env_sync((id - SET_CYCLE_SYNC) / 4, (id - SET_CYCLE_SYNC) % 4, value);
         break;
+    case SET_BEND: synth_set_bend_range(value); break;
+    case SET_DETUNE: synth_set_detune(value); break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;

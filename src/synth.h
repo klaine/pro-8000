@@ -97,6 +97,17 @@ float synth_pot_value(int pot);
 // What a knob position means for FREQ A / B (whole semitones, ±36) and FINE (cents, ±100).
 int synth_knob_semitones(float knob);
 int synth_knob_cents(float knob);
+// ... and the other knobs with units: filter env amount and poly-mod filter env (semitones), cutoff (Hz), glide
+// (time constant in seconds, 0 = off). LFO rates: lfo.h.
+float synth_knob_env_amount(float knob);
+float synth_knob_pmod(float knob);
+float synth_knob_cutoff_hz(float knob);
+float synth_knob_glide_s(float knob);
+// Per patch: pitch bend range (1-12 semitones) and unison detune (0-50 cents between the outermost voices).
+int synth_bend_range(void);
+void synth_set_bend_range(int semitones);
+int synth_detune(void);
+void synth_set_detune(int cents);
 int synth_pot_pending(int pot);
 
 // Patches: applying one puts every stored knob in pickup and holds each button's stored state until that button

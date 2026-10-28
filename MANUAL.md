@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.7.0. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.7.1. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -32,7 +32,21 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Settings | Opens the settings menu (keys 1-5). |
 | Tune | Autotune (about 25 s, silent). |
 
-The display shows a knob's value (0-99, or semitones / cents for FREQ and FINE) while you turn it. A dot after the value means the knob hasn't
+The display shows a knob's value while you turn it, in real units where it has one:
+
+| Knob | Shows | Range and curve |
+|---|---|---|
+| FREQ A / B | semitones (`-12`, `  7`) | ±36, whole semitones |
+| FINE, M TUNE | cents | ±100 |
+| CUTOFF | Hz; with a point from 1 kHz on, kHz (` 737`, ` 1.24`, ` 16.7`) | 16 Hz-16.7 kHz, exponential |
+| FIL ENV AMT | semitones, signed (`-4.5`, `  18`) | ±72, squared: fine near the centre (25 % from the centre = 4.5, half = 18) |
+| PMOD FIL ENV | semitones (` 3.00`, ` 12.0`) | 0-48, squared (a quarter = 3, half = 12) |
+| LFO FREQ | Hz (` 1.60`), or the clock division when synced | 0.05-51 Hz, exponential |
+| GLIDE | time constant (` 150` ms, ` 1.25` s), `OFF` at the bottom | 2 ms-2 s |
+| Envelope times | ms / s (see Envelopes) | |
+| everything else | 0-99 | |
+
+A digit display can't show a plus sign, so positive values have none. A dot after the value means the knob hasn't
 **picked up** the stored value yet. Turn it past the stored value (or onto it) and it takes over. This happens:
 
 - after loading a patch;
@@ -41,7 +55,7 @@ The display shows a knob's value (0-99, or semitones / cents for FREQ and FINE) 
 
 ## Playing
 
-Play over USB MIDI, on any channel. Pitch bend is ±2 semitones. The mod wheel adds LFO 1 depth and is also a mod
+Play over USB MIDI, on any channel. Pitch bend is ±2 semitones by default (Settings key 7, per patch). The mod wheel adds LFO 1 depth and is also a mod
 source. Channel pressure and poly pressure act as aftertouch, also a mod source. The firmware follows MIDI clock
 (Start, Stop and Clock) for LFO sync. The 5-pin MIDI input isn't supported yet: use USB, or route through the web
 page's MIDI router.
@@ -331,6 +345,8 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 | 4 | `SPLt`: split note | 0-127, or play a note |
 | 5 | `trAC`: keyboard tracking | `OFF`, `HALF`, `FULL` |
 | 6 | `CY.A` / `CY.F` / `CY.3` / `CY.4`: cycling envelope (6 again: next one) | `OFF`, `FrEE`, `8bAr` … `1-32` |
+| 7 | `bEnd`: pitch bend range | 1-12 semitones (default 2) |
+| 8 | `dEtU`: unison detune, cents between the outermost voices | 0-50 (default 14) |
 
 Settings live in the patch, so save the patch to keep them.
 
@@ -366,7 +382,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.7.0.syx --yes
+build/pro800 install build/pro800-0.7.1.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

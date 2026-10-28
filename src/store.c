@@ -17,7 +17,7 @@
 //   242 step counts[2][2]  0 = not stored: the default pattern
 //   246 synced cycling[2][4], a nibble each (0 free, else the clock division + 1): layer 1 amp | filter << 4,
 //                        Env 3 | Env 4 << 4, then layer 2
-//   250..251             reserved, zero (patches saved before 0.5.0 have zeros from 136: no routes)
+//   250 bend range (semitones; 0 = 2), 251 unison detune + 1 (cents; 0 = 14) (patches saved before 0.5.0 have zeros from 136: no routes)
 //   252 checksum (u32)
 // Zeros in a newer field always mean what older firmware did.
 // Stock patches start with a5 16 61 00 and the format byte 0x6D or 0x6F; their fields are documented in
@@ -51,6 +51,8 @@
 #define OFF_STEPS 234
 #define OFF_STEP_COUNTS 242
 #define OFF_ENV_SYNC 246
+#define OFF_BEND 250
+#define OFF_DETUNE 251
 #define OFF_CHECKSUM 252
 #define EXTRA_FIRST 8 // extra params stored at OFF_EXTRA; the rest at OFF_EXTRA2
 #define FACTORY_ADDRESS 0x19000u
@@ -133,6 +135,8 @@ int store_load_patch(int n, patch_t *patch)
     patch->lfo_trigger[1] = b[OFF_LFO2 + 1];
     patch->switches = get32(b + OFF_SWITCHES);
     patch->keytrack = b[OFF_KEYTRACK];
+    patch->bend_range = b[OFF_BEND];
+    patch->detune = b[OFF_DETUNE];
     for (int l = 0; l < 2; l++) {
         for (int i = 0; i < POT_COUNT; i++)
             patch->pots[l][i] = get16(b + OFF_POTS + 2 * (l * POT_COUNT + i));
@@ -175,6 +179,8 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_LFO2 + 1] = patch->lfo_trigger[1];
     put32(b + OFF_SWITCHES, patch->switches);
     b[OFF_KEYTRACK] = patch->keytrack;
+    b[OFF_BEND] = patch->bend_range;
+    b[OFF_DETUNE] = patch->detune;
     for (int l = 0; l < 2; l++) {
         for (int i = 0; i < POT_COUNT; i++)
             put16(b + OFF_POTS + 2 * (l * POT_COUNT + i), patch->pots[l][i]);
@@ -202,7 +208,7 @@ int store_save_patch(int n, const patch_t *patch)
     _Static_assert(OFF_EXTRA2 + (EXTRA_PARAMS - EXTRA_FIRST) * 2 * 2 <= OFF_CYCLE, "extra params overflow");
     _Static_assert(OFF_CYCLE + 2 <= OFF_STEPS && OFF_STEPS + 8 <= OFF_STEP_COUNTS, "steps overflow");
     _Static_assert(OFF_STEP_COUNTS + 4 <= OFF_ENV_SYNC, "steps overflow");
-    _Static_assert(OFF_ENV_SYNC + 4 <= OFF_CHECKSUM, "patch record overflow");
+    _Static_assert(OFF_ENV_SYNC + 4 <= OFF_BEND && OFF_DETUNE + 1 <= OFF_CHECKSUM, "patch record overflow");
     put32(b + OFF_CHECKSUM, checksum(b, OFF_CHECKSUM));
     return eeprom_write((uint32_t)n * PATCH_SIZE, b, PATCH_SIZE);
 }

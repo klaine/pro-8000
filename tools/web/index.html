@@ -787,7 +787,7 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab
 const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo2Sync", "lfo2Trigger", "editLayer",
   "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2",
   "cycleSync1_0", "cycleSync1_1", "cycleSync1_2", "cycleSync1_3", "cycleSync2_0", "cycleSync2_1", "cycleSync2_2",
-  "cycleSync2_3", "envSelect",
+  "cycleSync2_3", "bend", "detune", "envSelect",
   "presetMode", "patch"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 let settings = null, params = null, paramsLayer = 0;
@@ -875,7 +875,11 @@ function format(i, v) {
   const signed = x => (x > 0 ? "+" : "") + x;
   if (i === P.FREQ_A || i === P.FREQ_B) return signed(Math.floor((v - 0.5) * 72 + 36.5) - 36) + " st";
   if (i === P.FINE || i === P.TUNE) return signed(Math.round((v - 0.5) * 200)) + " ct";
-  if (i === P.ENV_AMT) return signed(Math.round((v - 0.5) * 198));
+  if (i === P.ENV_AMT) { const x = (v - 0.5) * 2, st = 72 * x * Math.abs(x); // squared, ±72 semitones
+    return (Math.abs(st) < 9.95 ? signed(+st.toFixed(1)) : signed(Math.round(st))) + " st"; }
+  if (i === P.PMOD_ENV) { const st = 48 * v * v; return (st < 9.95 ? st.toFixed(1) : Math.round(st)) + " st"; }
+  if (i === P.CUTOFF) { const hz = 440 * 2 ** ((12 + v * 120 - 69) / 12);
+    return hz < 1000 ? Math.round(hz) + " Hz" : (hz / 1000).toFixed(hz < 9995 ? 2 : 1) + " kHz"; }
   if (ENV_KNOB[i] && cycleSync(ENV_KNOB[i][0])) return Math.round(cycleShare(ENV_KNOB[i][0], ENV_KNOB[i][1]) * 100) + " %";
   if (ENV_KNOB[i]) {
     const t = envTime(ENV_KNOB[i][1], v, cycling(ENV_KNOB[i][0]));
@@ -1559,7 +1563,11 @@ function buildPanel() {
       settingSelect("Layers", ["Off: one sound, 8 voices", "Split", "Stack", "By MIDI channel (ch 2 = layer 2)"],
         () => settings && settings.layers, v => setSetting(SET_ID.layers, v)),
       settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
-        () => settings && settings.split, v => setSetting(SET_ID.split, v))),
+        () => settings && settings.split, v => setSetting(SET_ID.split, v)),
+      row(settingSelect("Bend", Array.from({ length: 12 }, (_, k) => `±${k + 1} st`),
+          () => settings && settings.bend - 1, v => setSetting(SET_ID.bend, v + 1), "pitch bend range (per patch)"),
+        settingSelect("Unison detune", Array.from({ length: 51 }, (_, k) => `${k} ct`),
+          () => settings && settings.detune, v => setSetting(SET_ID.detune, v), "cents between the outermost voices in unison (per patch)"))),
     seqSection());
   // layer buttons in the header
   document.querySelectorAll("#layers .led").forEach(b => {

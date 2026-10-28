@@ -596,6 +596,19 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   halfway 0.50. Web page checked against a simulated synth.
 - Web: the mouse wheel now adjusts only a control that has focus; scrolling over the step grid used to edit cells.
 
+## Knob ranges, curves and units review (0.7.1, 2026-10-28)
+
+- Reviewed every knob. Changed: FIL ENV AMT squared around the centre (±72 st kept: half-way 18, a quarter 4.5;
+  was linear, 1.45 st per knob step) and PMOD FIL ENV squared (48 st kept: half 12; the useful 0-12 st was the
+  bottom quarter). Saved patches' amounts come out smaller except at zero and the ends.
+- Panel display units: M TUNE cents, FIL ENV AMT signed semitones, PMOD FIL ENV semitones, CUTOFF Hz / kHz (a point
+  from 1 kHz on), LFO FREQ Hz, GLIDE time or OFF. Web editor matches (cutoff in Hz/kHz, amounts in semitones).
+- New per-patch settings (patch bytes 250 / 251, 0 = old behaviour): pitch bend range 1-12 semitones (default 2)
+  and unison detune 0-50 cents between the outermost voices (default 14 = the old fixed 2 cents between 8
+  neighbours). Settings keys 7 `bEnd` / 8 `dEtU`, host settings 25 / 26, web Voice section, `pro800 set bend|detune`.
+- Not changed, need measuring (group B): resonance (self-oscillation point), mixer levels and noise (dead zone,
+  taper), M VOL (taper), PW (duty against the knob, silent ends), PMOD OSC B (depth curve).
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic
