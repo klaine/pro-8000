@@ -51,7 +51,8 @@ static struct {
     phase_t shared, voice[VOICE_COUNT];
     float rate; // Hz, from the last lfo_update()
 } lfos[LFO_COUNT];
-// written by the USB interrupt (lfo_clock_tick(), lfo_clock_start()), read by the main loop (clock_update())
+// written by the USB or DIN interrupt (lfo_clock_tick(), lfo_clock_start(); same priority, so never both at once),
+// read by the main loop (clock_update())
 static volatile uint32_t ticks, last_tick, starts; // ticks: timing clocks since Start, 0 = the downbeat is next
 static volatile float tick_interval;               // seconds; 0 until two ticks have arrived
 static uint32_t seen_ticks, seen_starts;

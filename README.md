@@ -23,7 +23,8 @@ firmware) as the reference for how the analog side behaves.
   pedal, a MIDI CC for every knob, program change, analog-style drift, scale quantize, and patch morph (any mod
   source fades every knob towards another patch). The sequencer has probability, ratchets and an arpeggiator.
 - **Patches:** 200 with names, each with its own sequence, and the stock factory bank kept and importable.
-- **USB MIDI:** firmware updates without touching the panel.
+- **MIDI:** USB MIDI (also firmware updates without touching the panel) and the 5-pin MIDI IN socket for notes,
+  controllers and clock.
 - **A browser editor (WebMIDI):** sound, mod matrix, patches, factory bank, backup, tuning, plus a keyboard and a
   MIDI router.
 
@@ -52,7 +53,7 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 ## Install
 
 ```bash
-build/pro800 install build/pro800-0.7.5.syx --yes
+build/pro800 install build/pro800-0.7.6.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`
@@ -62,7 +63,7 @@ Recovery is always possible through the bootloader: hold buttons 0 and 7 at powe
 
 | Path | Contents |
 |---|---|
-| `src/` | The firmware: drivers (DAC, S&H, panel, controls, EEPROM, USB MIDI, tuning comparator), the engine (`synth.c`, `lfo.c`, `mod.h`), patch storage (`store.c`) and `main.c` (panel UI, SysEx). |
+| `src/` | The firmware: drivers (DAC, S&H, panel, controls, EEPROM, USB MIDI, 5-pin MIDI in, tuning comparator), the engine (`synth.c`, `lfo.c`, `mod.h`), patch storage (`store.c`) and `main.c` (panel UI, SysEx). |
 | `tools/pro800.swift` | The command-line tool (CoreMIDI). |
 | `tools/web/` | The WebMIDI editor (one HTML file) and the panel map. |
 | `reference/`, `backup/` | Third-party material and the synth's own backups, not in git. |

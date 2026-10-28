@@ -33,7 +33,7 @@ panel edits, internal sequencer dropped) and a **tempo-syncable, retriggerable L
 | Panel LEDs / buttons / display | HT16K33-style driver (`HT1_COM0-7`, `HT1_K1-13`) on I2C1 (PB6/PB7) |
 | Autotune | `TUNE_SIG` PA6 (TIM3_CH1 input capture), `TUNE_CPR` PB3, `CAL_HOOK` from the voice board |
 | Patch storage | SPI EEPROM: `EEP_SCK/MISO/MOSI/CS/HOLD/WP` on PE1–PE6 |
-| MIDI | DIN in (opto), `MIDI_SEL`, `MIDI_THRU`; MIDI channel DIP `MIDI_CH_0..3` PD9–PD12 |
+| MIDI | DIN in (opto U3) → PA1 = UART4_RX; `MIDI_THRU` from PA0 = UART4_TX and the input, gated by `MIDI_SEL` PB4 (0.7.6); MIDI channel DIP `MIDI_CH_0..3` PD9–PD12 |
 | USB | PA11/PA12 (USB FS), `USB_DEVICE_VBUS_IN` PA9 |
 | Rear | `SYNC IN` jack via 74HC14 → PD14/PD15, `SYNC_SEL` PD8, sustain `BACKPANEL_PEDAL_SW`, expression `BACKPANEL_PEDAL`/`_DT` PA7, `BACKPANEL_PRESENCE` PD13 |
 
@@ -708,6 +708,25 @@ settle and 12 us sample. The DAC is rated tens of times faster, so the limit is 
   | 38.5 ms stall in a 3 ms decay | VCA at 0 for the rest of the held note | at sustain |
   | Channel mode, C3 on channels 1 and 2, channel 2 lets go | both stop | channel 1's sounds on |
   | ... with the sequence on layer 1's C3 | the sequence stops, channel 2's C3 sticks | both right |
+
+## 5-pin MIDI in (0.7.6, 2026-10-28; built, not flashed)
+
+- Sheet 1: the MIDI IN socket's opto-isolator U3 (TLP2368, output pulled up by R10, 4k7) drives PA1, which is UART4_RX
+  (AF8). `MIDI_THRU` comes from U4A (74LVC1G08), the AND of PA0 (UART4_TX) and the input through U5A (74LVC1G125,
+  output enable = `MIDI_SEL` on PB4, active low; R15 pulls its output high while disabled): THRU echoes the input while
+  `MIDI_SEL` is low, and PA0 can send on it. Neither is driven yet.
+- `src/din.c`: UART4 at 31250 baud (BRR 1344 from the 42 MHz APB1), RXNE interrupt (IRQ 52) at USB's priority 0x80,
+  so the two interrupts that feed `lfo_clock_tick()` never nest. Realtime bytes go straight to main.c's `realtime()`
+  with the cycle counter, as from USB; other bytes queue in a 256-byte ring (about 80 ms of a full stream). The main
+  loop parses them, with running status, into USB MIDI event packets, and `handle_midi()` reads USB first, then DIN.
+  Channel messages only: SysEx and system common are skipped, so the editor, the tool and updates stay on USB. A
+  framing error drops the byte; tuning flushes the ring with USB's.
+- USB stays a device (`GUSBCFG_FDMOD`) on a USB-B socket with VBUS in, so a USB keyboard can't plug in directly: the
+  DIN socket is the way to play without a computer.
+- Checked on the Mac (the real `din.c`, registers stubbed): BRR 1344; running status, velocity-0 note-ons, program
+  change and channel pressure (one data byte), bend, CCs, poly pressure; a clock tick inside a note-on goes to the
+  handler and the note still completes; SysEx and song position skipped; a framing error drops the byte; an overflow
+  keeps the first 255 bytes; flush clears running status. Build 48,376 bytes. Not flashed or played from a keyboard yet.
 
 ## Backlog
 

@@ -29,7 +29,7 @@ extern uint8_t lfo_step_count[LFO_COUNT];
 extern lfo_sync_t lfo_sync[2];       // per LFO 1 / LFO 2
 extern lfo_trigger_t lfo_trigger[2];
 
-// MIDI realtime, called from the USB interrupt: timing clock (24 per quarter note, `cycles` = cycle counter at
+// MIDI realtime, called from the USB or DIN interrupt: timing clock (24 per quarter note, `cycles` = cycle counter at
 // arrival), start (the next timing clock is the downbeat), stop
 void lfo_clock_tick(uint32_t cycles);
 void lfo_clock_start(void);

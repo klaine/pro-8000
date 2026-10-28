@@ -79,6 +79,7 @@
 #include "panel.h"
 #include "regs.h"
 #include "dac.h"
+#include "din.h"
 #include "sh.h"
 #include "tune.h"
 #include "tuning.h"
@@ -937,6 +938,7 @@ static uint8_t sustained[128];
 static void drop_stale_midi(void)
 {
     usb_midi_flush();
+    din_midi_flush();
     seq_stop();
     sustain = 0;
     for (int n = 0; n < 128; n++)
@@ -1436,7 +1438,8 @@ static void refresh_cvs(void)
     sh_refresh_global();
 }
 
-// MIDI realtime, straight from the USB interrupt (usb_midi_realtime()): the clock the LFOs and the sequence follow
+// MIDI realtime, straight from the USB and DIN interrupts (usb_midi_realtime(), din_init()): the clock the LFOs and
+// the sequence follow
 static void realtime(uint8_t status, uint32_t cycles)
 {
     if (status == 0xF8)
@@ -1453,7 +1456,7 @@ static void handle_midi(void)
     static int sysex_length;
     uint8_t p[4];
 
-    while (usb_midi_read(p)) {
+    while (usb_midi_read(p) || din_midi_read(p)) { // USB first, then the 5-pin socket
         uint8_t cin = p[0] & 0x0F;
         uint8_t status = p[1] & 0xF0;
         switch (cin) {
@@ -1561,6 +1564,7 @@ int main(void)
         }
     }
     usb_midi_realtime(realtime);
+    din_init(realtime);
     usb_init();
 
     uint32_t last = DWT_CYCCNT;

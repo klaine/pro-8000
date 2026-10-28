@@ -60,6 +60,7 @@
 #define RCC_AHB1ENR_GPIOE (1u << 4)
 #define RCC_AHB2ENR_OTGFS (1u << 7)
 #define RCC_APB1ENR_SPI3  (1u << 15)
+#define RCC_APB1ENR_UART4 (1u << 19)
 #define RCC_APB1ENR_DAC   (1u << 29)
 #define RCC_APB2ENR_ADC1  (1u << 8)
 #define RCC_APB2ENR_SYSCFG (1u << 14)

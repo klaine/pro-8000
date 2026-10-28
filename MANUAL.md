@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.7.5. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.7.6. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -55,10 +55,15 @@ A digit display can't show a plus sign, so positive values have none. A dot afte
 
 ## Playing
 
-Play over USB MIDI, on any channel. Pitch bend is ±2 semitones by default (Settings key 7, per patch). The mod wheel adds LFO 1 depth and is also a mod
+Play over USB MIDI or the 5-pin MIDI IN socket, on any channel. Pitch bend is ±2 semitones by default (Settings key 7, per patch). The mod wheel adds LFO 1 depth and is also a mod
 source. Aftertouch is a mod source too, and it's per voice: poly pressure (the Move's pads send it) moves only the
 voice playing that note; channel pressure moves them all. The firmware follows MIDI clock (Start, Stop and Clock)
-for LFO sync. The 5-pin MIDI input isn't supported yet: use USB, or route through the web page's MIDI router.
+for LFO sync.
+
+The 5-pin MIDI IN socket (from 0.7.6) takes the same notes, controllers, pressure, bend, program changes and clock,
+so a keyboard with a MIDI out plays the synth without a computer. SysEx (the web page, the tool, updates) needs USB.
+The USB socket is a device port, so a USB-only keyboard needs a computer or a USB MIDI host box in between (or the
+web page's MIDI router).
 
 - **Sustain pedal** (CC 64): keys let go while it's down keep sounding (and keep a sequence running) until it's
   released.
@@ -428,7 +433,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.7.5.syx --yes
+build/pro800 install build/pro800-0.7.6.syx --yes
 ```
 
 ## Updating, recovery and going back to stock
@@ -448,8 +453,8 @@ build/pro800 install build/pro800-0.7.5.syx --yes
 
 - Waveform levels within one oscillator (e.g. saw louder than triangle on oscillator A) can't be mixed: the
   waveform buttons are on/off lines to the voice board. Put the second waveform on the other oscillator instead.
-- 5-pin MIDI in and out aren't implemented. The sequencer, scale, morph and note priority are set on the web page
-  only.
+- MIDI OUT / THRU isn't implemented, and SysEx works over USB only. The sequencer, scale, morph and note priority
+  are set on the web page only.
 - 200 patches (A and b): banks C and D hold the sequences.
 - The LFO routing buttons always show LFO 1's routing. LFO 2's shows on the display when toggled, and on the web
   page.
