@@ -27,15 +27,18 @@ void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers);
 void synth_note_off_layers(uint8_t note, int layers);
 int synth_channel_layers(int channel);
 void synth_all_off(void);
-void synth_pitch_bend(int value);   // 14-bit, centre 8192
-void synth_mod_wheel(uint8_t value); // 0-127, adds LFO depth (and is a mod source)
-void synth_aftertouch(uint8_t value); // channel pressure 0-127 (a mod source)
-void synth_poly_pressure(uint8_t note, uint8_t value); // per voice: the voices playing that note (the same source)
-// Reads the panel, advances envelopes, LFOs and glide by dt seconds, and sets every CV and gate.
+// Controllers, for the layers a channel plays (synth_channel_layers(): both, but in channel mode the channel's)
+void synth_pitch_bend(int value, int layers);   // 14-bit, centre 8192
+void synth_mod_wheel(uint8_t value, int layers); // 0-127, adds LFO depth (and is a mod source)
+void synth_aftertouch(uint8_t value, int layers); // channel pressure 0-127 (a mod source)
+void synth_poly_pressure(uint8_t note, uint8_t value, int layers); // per voice: those playing the note
+// Reads the panel, advances glide and drift by dt seconds, works out what the ticks build on (synth_tick()), and sets
+// every CV and gate.
 void synth_update(float dt);
-// The fast path, run between the parts of the CV refresh: advances the amp and filter envelopes by dt and sets the
-// VCA CVs, and the cutoff CVs when `cutoff`. synth_update() works out everything else once per main-loop pass.
-void synth_envelopes(float dt, int cutoff);
+// The fast path, run between the parts of the CV refresh: advances the envelopes and LFOs by dt and sets the VCA CVs,
+// the cutoff CVs when `cutoff` and the pitch CVs of `pitch_voices` (a bitmask), with the envelopes, LFOs and the
+// routes from them into pitch, cutoff and the VCA as they are now. synth_update() works out the rest once a pass.
+void synth_tick(float dt, int cutoff, unsigned pitch_voices);
 unsigned synth_active_voices(void);     // bitmask: voices whose amp envelope runs (the rest are silent)
 unsigned synth_take_fresh_voices(void); // voices started since the last call: their pitch goes out before their VCA
 int synth_any_gate(void);
@@ -111,9 +114,9 @@ const route_t *synth_routes(int layer); // ROUTES entries; source SRC_NONE = unu
 // What touching a control means in MOD ASSIGN (DEST_NONE if it isn't a destination).
 int synth_dest_for_pot(int pot);
 int synth_dest_for_switch(int s);
-// MOD ASSIGN: every knob goes into pickup (so touching one doesn't change it); a button toggled while assigning
-// keeps its routing.
-void synth_freeze_knobs(void);
+// MOD ASSIGN: on puts every knob in pickup and keeps it there, however close it is to its value, so touching one
+// only chooses a destination; off lets them pick up as usual. A button toggled while assigning keeps its routing.
+void synth_freeze_knobs(int on);
 // A latching button's state as the engine uses it (a loaded patch's, until the button is toggled), and setting it
 // from the host, which holds the same way.
 int synth_switch(int s);
@@ -122,6 +125,9 @@ void synth_hold_switch(int s);
 
 // For the display: the edit layer's value of a pot (0..1), and whether the knob is still waiting to pick it up.
 float synth_pot_value(int pot);
+// A stepped knob's reading (FREQ A / B; LFO FREQ while its LFO is synced) as the engine takes it: the middle of its
+// step, which changes with some hysteresis against pot noise. Other knobs' readings come back as they are.
+float synth_knob_snap(int pot, float knob);
 // What a knob position means for FREQ A / B (whole semitones, ±36) and FINE (cents, ±100).
 int synth_knob_semitones(float knob);
 int synth_knob_cents(float knob);

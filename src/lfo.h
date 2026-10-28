@@ -30,10 +30,13 @@ extern lfo_sync_t lfo_sync[2];       // per LFO 1 / LFO 2
 extern lfo_trigger_t lfo_trigger[2];
 
 // MIDI realtime, called from the USB or DIN interrupt: timing clock (24 per quarter note, `cycles` = cycle counter at
-// arrival), start (the next timing clock is the downbeat), stop
+// arrival), start (the next timing clock is the downbeat), continue (from the song position, if one came, else from
+// where the clock stopped), stop; and Song Position Pointer (in sixteenths), for the next continue
 void lfo_clock_tick(uint32_t cycles);
 void lfo_clock_start(void);
+void lfo_clock_continue(void);
 void lfo_clock_stop(void);
+void lfo_clock_song_position(uint16_t sixteenths);
 
 // A note started on `voice` of the LFO's layer; `first` when no other key of that layer was held.
 void lfo_note_on(int lfo, int voice, int first);

@@ -24,7 +24,10 @@ void dac_init(void);
 // Switches the bus and sets the DAC up again through it (a probe: not stored). Returns 0 for a config out of range.
 int dac_configure(const dac_config_t *config);
 const dac_config_t *dac_config(void);
-void dac16_write(uint16_t value);
+// Writes the DAC80501. Its output only changes as the frame ends, so the S&H channel it feeds can keep sampling while
+// the next frame clocks in: `before_update` (may be 0) runs just before the last two bits, to end that sample. On the
+// SPI probe bus it runs before the frame.
+void dac16_write(uint16_t value, void (*before_update)(void));
 void dac12_write(int channel, uint16_t value); // channel 1 or 2; value is 16-bit, the top 12 bits are used
 
 #endif

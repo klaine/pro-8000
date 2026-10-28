@@ -728,6 +728,73 @@ settle and 12 us sample. The DAC is rated tens of times faster, so the limit is 
   handler and the note still completes; SysEx and song position skipped; a framing error drops the byte; an overflow
   keeps the first 255 bytes; flush clears running status. Build 48,376 bytes. Not flashed or played from a keyboard yet.
 
+## Second review: knobs, channel mode, Song Position, a pipelined S&H refresh (0.7.7, 2026-10-28; built, not flashed)
+
+From a second review, each point checked against the code first.
+
+- MOD ASSIGN: `synth_freeze_knobs()` put the knobs in pickup, but `read_panel()` took any knob within 1.5 % of its
+  value back on the next pass, so in manual mode turning a knob to choose a destination also changed it. Now no knob
+  picks up while assigning (`synth_freeze_knobs(1)`); leaving MOD ASSIGN lets them pick up as usual.
+- Channel mode: pitch bend, mod wheel, channel and poly pressure and the sustain pedal reach only the layer their
+  channel plays (`synth_channel_layers()`); the other modes as before.
+- `send_sysex()`: a write that can't go out within 20 ms (was 100 ms per chunk) drops the message, and later ones at
+  once until a write goes through. Checking `configured` wouldn't do: with no VBUS sensing or suspend interrupt it
+  stays set when the cable is pulled; it's `tx_busy` that sticks.
+- The LFO clock position runs modulo 2304 ticks (24 bars, a whole number of cycles of every division; 768 would
+  break the dotted ones), so the grid keeps its precision however long the clock runs.
+- Song Position Pointer (USB CIN 3, and parsed in the DIN interrupt; both drivers' clock handler now takes a data
+  word) and Continue: the count resumes at the song position, or where the clock stopped. After Start or Continue the
+  LFOs on the grid hold where the next clock lands, for two intervals at most (in case no clock follows): before, a
+  synced LFO ran on while it waited and then slid back.
+- `CLoC` before any clock runs its division at 120 BPM (`lfo_quarter_seconds()`), as the cycling envelopes and the
+  sequence do. It ran free at the knob read as Hz, while the display showed a division.
+- Stepped knobs (FREQ A / B; LFO FREQ while its LFO is synced): `synth_knob_snap()` changes the step only a quarter
+  step past the half-way point and reads the knob as the middle of its step, so the engine, the display and a saved
+  patch round it the same way. A first try kept the hysteresis on the parameter: the step then depended on the
+  direction the knob came from and on the patch loaded before.
+- Voice stealing takes the quietest released voice (was the oldest). A "VCA dip" for a stolen voice wasn't done:
+  closing the VCA for a tick is a step in amplitude, a click of its own, and the pitch change of a stolen voice with
+  its VCA open sounds like legato.
+- Panel switches count after 15 ms steady (was two reads a pass apart, about 1 ms with no voice sounding); the MIDI
+  channel, pedal and SYNC IN lines as before.
+- The display writes only the bytes that changed (`panel_write_range()`): a digit is 2 bytes plus the address, about
+  0.8 ms, instead of 16 (3.5 ms); an LED blink 1.
+- CUTOFF and NOISE (direct ADC inputs) are read at every poll. The muxed pots, read every 32 ms, glide to each reading
+  over 32 ms instead of stepping.
+- S&H pipelining (`sh.c`): a channel keeps sampling while the next DAC80501 frame clocks in; `dac16_write()` calls a
+  hook two bits before the frame ends, which holds it. At each DAC80501 channel's address the VCA there (DAC2) and a
+  global CV due there (DAC1) sample alongside. `sh_refresh_vca(skip)` and `sh_refresh_global()` write only what wasn't
+  written alongside; `sh_hold()` before the bus probe drives the DAC.
+- The fast ticks (`synth_tick()`, was `synth_envelopes()`) also advance the LFOs and Env 3 / 4, and evaluate the
+  routes from envelopes and LFOs into pitch, cutoff and the VCA (`fast_route()`). The pitch of the two voices written
+  in a tick is worked out in that tick. `synth_update()` keeps the slower terms per voice.
+- Checked on the Mac. S&H simulator (GPIO B / D pins, a 50 us DAC80501 frame whose output changes at 48 us, both
+  on-chip DACs, in 168 MHz cycles), one pass with 8 voices: 0.7.6 2914 us, 0.7.7 1836 us. Every channel held the
+  value it was loaded with; no DAC changed while a channel it feeds sampled, the address never moved during a sample,
+  no two muxes of one DAC sampled at once; the shortest sample on a settled DAC was 18.0 us (0.7.6: 12 us after a 6 us
+  settle). VCAs are written 5-6 times a pass (were 4), cutoffs twice, pitch and the globals once. Engine (the real
+  synth.c, lfo.c and seq.c, hardware stubbed), against 0.7.6:
+
+  | Case | 0.7.6 | 0.7.7 |
+  |---|---|---|
+  | MOD ASSIGN in manual mode, a knob touched | cutoff 0.50 → 0.73 | stays 0.50; picks up after |
+  | Channel mode, channel 2 bends up | both layers +2 st | layer 1 0, layer 2 +2 |
+  | All 8 releasing, a 9th note | takes the oldest (loud) | takes the quietest |
+  | FREQ A on a step's edge, ±10 LSB noise, 10 s | 159 semitone jumps | 0 |
+  | LFO FREQ (synced) on a division's edge, same noise | 148 rate changes | 0 |
+  | LFO (18 Hz) → cutoff at 99 | a new cutoff once a pass, steps up to 23.6 st | twice a pass, up to 11.8 st |
+  | Stop, Song Position 66, Continue; a 1-4 LFO | 51 ms off on average, 250 at worst | 0.0 ms |
+  | `CLoC` at 1-16 before any clock | 19 Hz (the knob as Hz) | 8 Hz (120 BPM) |
+  | 3 hours of clock, a 1/32 LFO's steps | off by up to 0.0017 cycle | 0.0001 |
+  | A plain held chord | | the same CVs |
+
+  The 0.7.5 grid checks still give 0.00 ms. Build 51,056 bytes.
+- Expected on the synth with 8 voices (from the model, not measured): a pass of about 2.3 ms (was about 3.4), VCAs
+  about every 0.5 ms, cutoffs about every 1.2 ms. To check: `pro800 timing` with 8 notes held, and `pro800 check`:
+  if the bus toggling during a sample pulled the held CV, the oscillators would read off.
+- Not done: the sequencer and MIDI between the ticks (note timing still moves by up to a pass, now about 2.3 ms),
+  hardware I2C1 / SPI4 for the panel and the EEPROM, the panel ideas (tap tempo, compare, Sync buttons).
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

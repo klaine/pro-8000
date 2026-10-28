@@ -31,12 +31,14 @@ static dac_config_t config = {.bus = DAC_BUS_BITBANG, .mode = 0, .high = 168, .l
 
 // 24-bit frame: command byte then 16 data bits, MSB first. The DAC latches SDIN on the falling edge of SCLK.
 // Mode 0 changes SDIN as SCLK rises (setup = the high time), mode 1 just after SCLK falls (setup = the low time,
-// and the bit is stable through the whole next edge).
-static void bitbang_frame(uint32_t frame)
+// and the bit is stable through the whole next edge). `before_update` runs before the last two bits (dac16_write()).
+static void bitbang_frame(uint32_t frame, void (*before_update)(void))
 {
     uint32_t high = config.high, low = config.low;
     if (config.mode == 0)
         for (int bit = 23; bit >= 0; bit--) {
+            if (bit == 1 && before_update)
+                before_update();
             gpio_write(SCLK_PORT, SCLK_PIN, 1);
             gpio_write(SDIN_PORT, SDIN_PIN, (frame >> bit) & 1);
             delay_cycles(high);
@@ -45,6 +47,8 @@ static void bitbang_frame(uint32_t frame)
         }
     else
         for (int bit = 23; bit >= 0; bit--) {
+            if (bit == 1 && before_update)
+                before_update();
             gpio_write(SDIN_PORT, SDIN_PIN, (frame >> bit) & 1);
             delay_cycles(low);
             gpio_write(SCLK_PORT, SCLK_PIN, 1);
@@ -67,15 +71,17 @@ static void spi_frame(uint32_t frame)
         ;
 }
 
-static void dac80501_write(uint8_t command, uint16_t data)
+static void dac80501_write(uint8_t command, uint16_t data, void (*before_update)(void))
 {
     uint32_t frame = (uint32_t)command << 16 | data;
+    if (config.bus == DAC_BUS_SPI && before_update)
+        before_update();
     gpio_write(SYNC_PORT, SYNC_PIN, 0);
     delay_us(config.sync_us);
     if (config.bus == DAC_BUS_SPI)
         spi_frame(frame);
     else
-        bitbang_frame(frame);
+        bitbang_frame(frame, before_update);
     gpio_write(SYNC_PORT, SYNC_PIN, 1);
     delay_us(config.sync_us);
 }
@@ -112,11 +118,11 @@ static void apply(void)
         gpio_output(SDIN_PORT, SDIN_PIN);
     }
 
-    dac80501_write(DAC80501_TRIGGER, DAC80501_SOFT_RESET);
+    dac80501_write(DAC80501_TRIGGER, DAC80501_SOFT_RESET, 0);
     delay_us(100);
-    dac80501_write(DAC80501_CONFIG, 0); // internal reference and DAC powered
-    dac80501_write(DAC80501_GAIN, DAC80501_REF_DIV_GAIN2);
-    dac80501_write(DAC80501_DATA, 0);
+    dac80501_write(DAC80501_CONFIG, 0, 0); // internal reference and DAC powered
+    dac80501_write(DAC80501_GAIN, DAC80501_REF_DIV_GAIN2, 0);
+    dac80501_write(DAC80501_DATA, 0, 0);
 }
 
 void dac_init(void)
@@ -143,7 +149,7 @@ int dac_configure(const dac_config_t *c)
 
 const dac_config_t *dac_config(void) { return &config; }
 
-void dac16_write(uint16_t value) { dac80501_write(DAC80501_DATA, value); }
+void dac16_write(uint16_t value, void (*before_update)(void)) { dac80501_write(DAC80501_DATA, value, before_update); }
 
 void dac12_write(int channel, uint16_t value)
 {

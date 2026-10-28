@@ -62,7 +62,8 @@
 #define LFO_FILTER_SEMITONES  48.0f
 #define LFO_PW_DEPTH          0.45f
 #define DETUNE_DEFAULT        14    // unison: cents between the outermost voices, when the patch doesn't set it
-#define POT_SMOOTHING_S       0.01f
+#define POT_SMOOTHING_S       0.01f  // CUTOFF and NOISE, read every pass
+#define MUX_SCAN_S            0.032f // the other pots, read every 32 ms (controls.c): each reading is glided to
 #define PICKUP_WINDOW         0.015f // a knob this close to the stored value picks it up
 // what a route of depth 99 does at full source (pitch on a squared curve: depth 10 is 0.24 semitones, 50 is 6.1)
 #define MOD_PITCH_SEMITONES   24.0f
@@ -119,13 +120,21 @@ typedef struct {
     float drift[2], drift_to[2], drift_timer; // pitch and cutoff wander, -1..1
     env_t amp, filter, env3, env4;
     uint8_t fresh;                // started since the main loop last asked: write its pitch before its VCA opens
-    float vca_mod;                // from the last synth_update(): the VCA gain besides the amp envelope, 0..1
-    float cutoff_rest, cutoff_env; // and the cutoff (semitones) besides the filter envelope, and its amount
+    // From the last synth_update(), for the ticks (voice_cvs()), which add the envelopes, the LFOs and the fast
+    // routes; in semitones but vca_slow
+    float pitch_base;              // the gliding note with bend, tune, unison spread and drift
+    float pitch_a, pitch_b;        // oscillator A's and B's offsets from it
+    float pitch_slow;              // the slower routes into pitch A + B (scale quantize takes them with the LFOs)
+    float to_pitch[2], to_filter[2]; // LFO 1 / LFO 2 depths into pitch and cutoff
+    float pmod_env;                // filter envelope → oscillator A, at full level
+    float cutoff_rest, cutoff_env; // the cutoff besides the envelope, LFOs and fast routes, and the envelope amount
+    float vca_slow;                // the slower routes into the VCA gain
+    float lfo_octaves[2];          // rate modulation of this voice's own LFO phases
 } voice_t;
 
 static voice_t voices[VOICE_COUNT];
 static uint32_t allocations, random_state = 0x2545F491u;
-static float bend, mod_wheel, aftertouch; // bend -1..1
+static float bend[LAYERS], mod_wheel[LAYERS], aftertouch[LAYERS]; // per layer, for channel mode; bend -1..1
 static int bend_range = BEND_DEFAULT, detune = DETUNE_DEFAULT;
 static uint8_t voice_mode[LAYERS], priority[LAYERS]; // VOICE_* and PRIORITY_* (synth.h)
 static int drift_amount;                             // 0..99
@@ -136,11 +145,13 @@ static int last_voice[2] = {-1, -1}; // per layer: the most recently played voic
 
 // the panel's pots, smoothed (0..1), and each layer's parameters (the knobs, then Env 3 and Env 4)
 static float panel[POT_COUNT];
+static float pot_reading[POT_COUNT], pot_slope[POT_COUNT]; // the muxed pots' latest reading, and the glide to it
 static float layer_param[LAYERS][PARAM_COUNT] = {[0][PARAM_LFO2_RATE] = 0.5f, [1][PARAM_LFO2_RATE] = 0.5f};
 static int pots_primed;
 static int edit_layer;
 static uint8_t latched[PARAM_COUNT]; // its knob controls the value (per-layer parameters: the edit layer's)
 static int8_t pickup_side[PARAM_COUNT]; // which side of the stored value the knob started on: -1, +1 (0 = unknown)
+static int frozen; // MOD ASSIGN: no knob picks up, however close it is to its value
 static int env_select = -1; // which envelope the filter ADSR knobs edit: 0 filter, 1 Env 3, 2 Env 4
 static int lfo_select;      // which LFO the LFO knobs, the shape button and the routing buttons edit: 0 or 1
 static uint8_t lfo_shape[LAYERS][2]; // lfo_shape_t, per layer and LFO
@@ -313,12 +324,17 @@ void synth_set_keytrack(int amount) { keytrack_setting = amount < 0 ? 0 : amount
 
 int synth_env_select(void) { return env_select < 0 ? 0 : env_select; }
 
-void synth_aftertouch(uint8_t value) { aftertouch = (float)value / 127.0f; }
+void synth_aftertouch(uint8_t value, int layers)
+{
+    for (int l = 0; l < LAYERS; l++)
+        if (layers >> l & 1)
+            aftertouch[l] = (float)value / 127.0f;
+}
 
-void synth_poly_pressure(uint8_t note, uint8_t value)
+void synth_poly_pressure(uint8_t note, uint8_t value, int layers)
 {
     for (int v = 0; v < VOICE_COUNT; v++)
-        if (voices[v].gate && voices[v].note == note)
+        if (voices[v].gate && voices[v].note == note && layers >> layer_of(v) & 1)
             voices[v].pressure = (float)value / 127.0f;
 }
 
@@ -450,9 +466,10 @@ int synth_dest_for_switch(int s)
     }
 }
 
-void synth_freeze_knobs(void)
+void synth_freeze_knobs(int on)
 {
-    for (int i = 0; i < PARAM_COUNT; i++)
+    frozen = on;
+    for (int i = 0; on && i < PARAM_COUNT; i++)
         if (i != POT_MASTER_VOL)
             unlatch(i);
 }
@@ -599,8 +616,8 @@ void synth_manual(void)
 
 // --- notes ---
 
-// Within one layer's voices: the voice already on this note, then a silent one, then the oldest released, then
-// the oldest.
+// Within one layer's voices: the voice already on this note, then the oldest silent one, then the quietest released
+// (so a long tail plays on while a nearly silent one is taken), then the oldest.
 static int allocate(int layer, uint8_t note)
 {
     int first, end, best = -1;
@@ -612,7 +629,8 @@ static int allocate(int layer, uint8_t note)
         for (int v = first; v < end; v++) {
             voice_t *x = &voices[v];
             int ok = pass == 0 ? !x->gate && x->amp.stage == ENV_IDLE : pass == 1 ? !x->gate : 1;
-            if (ok && (best < 0 || x->started < voices[best].started))
+            if (ok && (best < 0 || (pass == 1 ? x->amp.level < voices[best].amp.level
+                                               : x->started < voices[best].started)))
                 best = v;
         }
     return best;
@@ -798,14 +816,24 @@ void synth_all_off(void)
         gate_off(&voices[v]);
 }
 
-void synth_pitch_bend(int value) { bend = (float)(value - 8192) / 8192.0f; }
+void synth_pitch_bend(int value, int layers)
+{
+    for (int l = 0; l < LAYERS; l++)
+        if (layers >> l & 1)
+            bend[l] = (float)(value - 8192) / 8192.0f;
+}
 
 int synth_bend_range(void) { return bend_range; }
 void synth_set_bend_range(int semitones) { bend_range = semitones < 1 ? 1 : semitones > 12 ? 12 : semitones; }
 int synth_detune(void) { return detune; }
 void synth_set_detune(int cents) { detune = cents < 0 ? 0 : cents > 50 ? 50 : cents; }
 
-void synth_mod_wheel(uint8_t value) { mod_wheel = (float)value / 127.0f; }
+void synth_mod_wheel(uint8_t value, int layers)
+{
+    for (int l = 0; l < LAYERS; l++)
+        if (layers >> l & 1)
+            mod_wheel[l] = (float)value / 127.0f;
+}
 
 int synth_any_gate(void)
 {
@@ -985,6 +1013,31 @@ static float semitone_steps(float knob)
     return (float)(int)((knob - 0.5f) * 2 * OSC_RANGE_SEMITONES + OSC_RANGE_SEMITONES + 0.5f) - OSC_RANGE_SEMITONES;
 }
 
+// Stepped knobs (FREQ A / B; LFO FREQ while its LFO is clock-synced): how many steps, 0 for the others
+static int knob_steps(int pot)
+{
+    if (pot == POT_FREQ_A || pot == POT_FREQ_B)
+        return (int)(2 * OSC_RANGE_SEMITONES);
+    return pot == POT_LFO_FREQ && lfo_sync[lfo_select] == LFO_SYNC_CLOCK ? LFO_DIVISIONS - 1 : 0;
+}
+
+// A stepped knob's step moves only STEP_HYSTERESIS of a step past the half-way point, so pot noise at an edge can't
+// flip it back and forth; the knob then reads as the middle of its step, so the engine, the display and a saved
+// patch all round it the same way.
+#define STEP_HYSTERESIS 0.25f
+static int knob_held[POT_COUNT]; // each stepped knob's step
+
+float synth_knob_snap(int pot, float knob)
+{
+    int steps = knob_steps(pot);
+    if (!steps)
+        return knob;
+    float x = knob * (float)steps;
+    if (x > (float)knob_held[pot] + 0.5f + STEP_HYSTERESIS || x < (float)knob_held[pot] - 0.5f - STEP_HYSTERESIS)
+        knob_held[pot] = (int)(x + 0.5f);
+    return (float)knob_held[pot] / (float)steps;
+}
+
 int synth_knob_semitones(float knob) { return (int)semitone_steps(knob); }
 
 static float env_amount_of(float knob) { float x = (knob - 0.5f) * 2; return x * (x < 0 ? -x : x); } // -1..1, squared
@@ -1013,7 +1066,19 @@ static void read_panel(float dt)
 
     float k = dt >= POT_SMOOTHING_S || !pots_primed ? 1.0f : dt / POT_SMOOTHING_S;
     for (int i = 0; i < POT_COUNT; i++) {
-        panel[i] += ((float)controls_pot(i) / 4095.0f - panel[i]) * k;
+        float raw = (float)controls_pot(i) / 4095.0f;
+        if (knob_steps(i)) { // stepped: the hysteresis takes the noise, no smoothing
+            panel[i] = synth_knob_snap(i, raw);
+        } else if (i >= POT_CUTOFF || !pots_primed) { // read every pass: smoothed a little
+            panel[i] += (raw - panel[i]) * k;
+        } else { // behind the muxes, a new reading every MUX_SCAN_S: glide to it over that time instead of stepping
+            if (raw != pot_reading[i]) {
+                pot_reading[i] = raw;
+                pot_slope[i] = (raw - panel[i]) / MUX_SCAN_S;
+            }
+            float step = pot_slope[i] * dt, left = raw - panel[i];
+            panel[i] = (left < 0 ? -left : left) <= (step < 0 ? -step : step) ? raw : panel[i] + step;
+        }
         int p = param_of_pot(i);
         if (!pots_primed) { // both layers start from the panel
             layer_param[0][p] = layer_param[1][p] = panel[i];
@@ -1021,7 +1086,7 @@ static void read_panel(float dt)
             continue;
         }
         int layer = per_layer[p] ? edit_layer : 0; // shared knobs keep one value, in both layers
-        if (!latched[p]) {
+        if (!latched[p] && !frozen) {
             float diff = panel[i] - layer_param[layer][p];
             int8_t side = diff < 0 ? -1 : 1;
             if (diff < PICKUP_WINDOW && diff > -PICKUP_WINDOW)
@@ -1055,8 +1120,8 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
     case SRC_FILTER_ENV: return x->filter.level;
     case SRC_AMP_ENV: return x->amp.level;
     case SRC_VELOCITY: return (float)x->velocity / 127.0f;
-    case SRC_MOD_WHEEL: return mod_wheel;
-    case SRC_AFTERTOUCH: return x->pressure > aftertouch ? x->pressure : aftertouch; // poly, else channel
+    case SRC_MOD_WHEEL: return mod_wheel[layer];
+    case SRC_AFTERTOUCH: return x->pressure > aftertouch[layer] ? x->pressure : aftertouch[layer]; // poly, channel
     case SRC_ENV3: return x->env3.level;
     case SRC_ENV4: return x->env4.level;
     case SRC_RANDOM: return x->random;
@@ -1072,14 +1137,25 @@ static int bipolar(int source)
     return source == SRC_LFO || source == SRC_LFO2 || source == SRC_RANDOM || source == SRC_NOTE || source >= SRC_SEQ_A;
 }
 
-// Adds every route of `layer` evaluated for `voice` into mod[] (DEST_COUNT entries). The VCA is a gain on the amp
-// envelope (1 + mod, 0..1): a bipolar source at depth 99 swings it from closed to open (tremolo, gates), and a 0..1
-// source counts down from full (source - 1), so velocity → VCA at 99 is plain velocity sensitivity.
-static void evaluate_routes(int layer, int voice, float *mod)
+// The routes the fast ticks evaluate (synth_tick()): from the envelopes and LFOs into pitch, cutoff and the VCA.
+// The rest, slower sources and fast ones into depths, rates and the single wires, go once per pass.
+static int fast_route(const route_t *r)
+{
+    int source = r->source;
+    int fast_source = source == SRC_LFO || source == SRC_LFO2 || source == SRC_FILTER_ENV || source == SRC_AMP_ENV
+                   || source == SRC_ENV3 || source == SRC_ENV4;
+    return fast_source && (r->dest <= DEST_CUTOFF || r->dest == DEST_VCA);
+}
+
+// Adds the routes of `layer` evaluated for `voice` into mod[] (DEST_COUNT entries): the fast ones (fast_route()) or
+// the others. The VCA is a gain on the amp envelope (1 + mod, 0..1): a bipolar source at depth 99 swings it from
+// closed to open (tremolo, gates), and a 0..1 source counts down from full (source - 1), so velocity → VCA at 99 is
+// plain velocity sensitivity.
+static void evaluate_routes(int layer, int voice, float *mod, int fast)
 {
     for (int r = 0; r < ROUTES; r++) {
         const route_t *x = &routes[layer][r];
-        if (x->source == SRC_NONE || x->dest >= DEST_COUNT)
+        if (x->source == SRC_NONE || x->dest >= DEST_COUNT || fast_route(x) != fast)
             continue;
         float value = source_value(&voices[voice], voice, layer, x->source);
         if (x->dest == DEST_VCA && !bipolar(x->source))
@@ -1097,28 +1173,57 @@ typedef struct {
     float coarse_a, coarse_b, fine_b, tune, glide_k, env_amount, pmod_env, cutoff, depth, depth2;
 } layer_params_t;
 
-static env_rates_t rates[LAYERS][4]; // from the last synth_update(): amp, filter, Env 3, Env 4
+// From the last synth_update(), for the ticks: each envelope's rates, and each LFO's rate knob and rate modulation
+static env_rates_t rates[LAYERS][4]; // amp, filter, Env 3, Env 4
+static float lfo_knob[LAYERS][2], lfo_octaves[LAYERS][2];
 
-// Voice v's envelope-driven CVs from its envelopes now: the VCA, and the cutoff when `cutoff`
-static void envelope_cvs(int v, int cutoff)
+// Voice v's CVs from the last synth_update()'s terms plus its envelopes, LFOs and fast routes now: the VCA, the
+// cutoff when `cutoff`, the pitch when `pitch`
+static void voice_cvs(int v, int cutoff, int pitch)
 {
     const voice_t *x = &voices[v];
-    if (cutoff)
-        sh_set(CV_FIL1 + v, tuning_note_cv(TUNING_ROW_FILTER + v, x->cutoff_rest + x->cutoff_env * x->filter.level));
-    float gain = x->amp.level * x->vca_mod;
+    int l = layer_of(v);
+    float mod[DEST_COUNT] = {0};
+    evaluate_routes(l, v, mod, 1);
+    float lfo = lfo_value(LFO_ID(l, 0), v, (lfo_shape_t)lfo_shape[l][0]);
+    float lfo2 = lfo_value(LFO_ID(l, 1), v, (lfo_shape_t)lfo_shape[l][1]);
+    if (cutoff) {
+        float note = x->cutoff_rest + lfo * x->to_filter[0] + lfo2 * x->to_filter[1]
+                   + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES + x->cutoff_env * x->filter.level;
+        sh_set(CV_FIL1 + v, tuning_note_cv(TUNING_ROW_FILTER + v, note));
+    }
+    float gain = x->amp.level * clamp01(1.0f + x->vca_slow + mod[DEST_VCA]);
     sh_set(CV_AMP1 + v, gain > 0 ? cv_from(VCA_THRESHOLD + (1.0f - VCA_THRESHOLD) * gain) : 0);
+    if (pitch) {
+        float pitch_mod = lfo * x->to_pitch[0] + lfo2 * x->to_pitch[1] + x->pitch_slow
+                        + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
+        if (scale) // snap the note with its modulation to the scale
+            pitch_mod = quantize((float)x->note + pitch_mod) - (float)x->note;
+        float common = x->pitch_base + pitch_mod;
+        float a = common + x->pitch_a + x->pmod_env * x->filter.level + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
+        float b = common + x->pitch_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
+        sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
+        sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));
+    }
 }
 
-void synth_envelopes(float dt, int cutoff)
+void synth_tick(float dt, int cutoff, unsigned pitch_voices)
 {
     if (dt > 0.05f)
         dt = 0.05f;
+    for (int l = 0; l < LAYERS; l++) // LFO_ID(0, 0) first: it moves the clock position
+        for (int w = 0; w < 2; w++)
+            lfo_update(LFO_ID(l, w), dt, lfo_knob[l][w], lfo_octaves[l][w]);
     for (int v = 0; v < VOICE_COUNT; v++) {
         voice_t *x = &voices[v];
         int l = layer_of(v);
+        for (int w = 0; w < 2; w++)
+            lfo_update_voice(LFO_ID(l, w), v, dt, x->lfo_octaves[w]);
         env_update(&x->amp, dt, &rates[l][0]);
         env_update(&x->filter, dt, &rates[l][1]);
-        envelope_cvs(v, cutoff);
+        env_update(&x->env3, dt, &rates[l][2]);
+        env_update(&x->env4, dt, &rates[l][3]);
+        voice_cvs(v, cutoff, pitch_voices >> v & 1);
     }
 }
 
@@ -1156,7 +1261,7 @@ void synth_update(float dt)
     float last_mod[LAYERS][DEST_COUNT] = {{0}};
     for (int l = 0; l < LAYERS; l++)
         if (last_voice[l] >= 0 && (layer_mode != LAYER_OFF || l == 0))
-            evaluate_routes(l, last_voice[l], last_mod[l]);
+            evaluate_routes(l, last_voice[l], last_mod[l], 0);
 
     // the knob values as heard: morphed towards the morph target by the Morph destination
     static float eff[LAYERS][PARAM_COUNT];
@@ -1173,9 +1278,11 @@ void synth_update(float dt)
         int c = env_cycle[l];
         for (int e = 0; e < 4; e++)
             env_rates(&rates[l][e], p, env_params[e], c >> e & 1, env_sync[l][e]);
-        // LFOs (lfo.c): rate or clock division from the rate knobs; LFO_ID(0, 0) goes first
-        lfo_update(LFO_ID(l, 0), dt, p[POT_LFO_FREQ], last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES);
-        lfo_update(LFO_ID(l, 1), dt, p[PARAM_LFO2_RATE], last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES);
+        // LFOs (lfo.c, advanced in the ticks): rate or clock division from the rate knobs
+        lfo_knob[l][0] = p[POT_LFO_FREQ];
+        lfo_knob[l][1] = p[PARAM_LFO2_RATE];
+        lfo_octaves[l][0] = last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES;
+        lfo_octaves[l][1] = last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES;
         float glide = synth_knob_glide_s(p[POT_GLIDE]); // time constant, s
         lp[l] = (layer_params_t){
             .coarse_a = semitone_steps(p[POT_FREQ_A]),
@@ -1186,7 +1293,7 @@ void synth_update(float dt)
             .env_amount = env_amount_of(p[POT_FIL_ENV_AMT]), // -1..1
             .pmod_env = pmod_freq_a ? p[POT_PMOD_FIL_ENV] * p[POT_PMOD_FIL_ENV] : 0,
             .cutoff = CUTOFF_LOW_NOTE + p[POT_CUTOFF] * CUTOFF_SPAN,
-            .depth = p[POT_LFO_AMOUNT] * p[POT_LFO_AMOUNT] + mod_wheel,
+            .depth = p[POT_LFO_AMOUNT] * p[POT_LFO_AMOUNT] + mod_wheel[l],
             .depth2 = p[PARAM_LFO2_AMOUNT] * p[PARAM_LFO2_AMOUNT],
         };
     }
@@ -1225,8 +1332,6 @@ void synth_update(float dt)
         voice_t *x = &voices[v];
         int l = layer_of(v);
         const layer_params_t *q = &lp[l];
-        env_update(&x->env3, dt, &rates[l][2]); // amp and filter: synth_envelopes()
-        env_update(&x->env4, dt, &rates[l][3]);
         x->pitch += ((float)x->note - x->pitch) * q->glide_k;
         if (drift_amount) { // a slow random walk: a new target every 0.4-2 s, approached smoothly
             x->drift_timer -= dt;
@@ -1240,42 +1345,34 @@ void synth_update(float dt)
         }
         float drift = (float)drift_amount / 99.0f;
 
+        // the terms the ticks build on (voice_cvs()); the fast routes they evaluate themselves
         float mod[DEST_COUNT] = {0};
-        evaluate_routes(l, v, mod);
-        lfo_update_voice(LFO_ID(l, 0), v, dt, mod[DEST_LFO_RATE] * MOD_LFO_OCTAVES);
-        lfo_update_voice(LFO_ID(l, 1), v, dt, mod[DEST_LFO2_RATE] * MOD_LFO_OCTAVES);
+        evaluate_routes(l, v, mod, 0);
+        x->lfo_octaves[0] = mod[DEST_LFO_RATE] * MOD_LFO_OCTAVES;
+        x->lfo_octaves[1] = mod[DEST_LFO2_RATE] * MOD_LFO_OCTAVES;
 
         int first, end;
         layer_voices(l, &first, &end);
         int n = end - first;
         float spread = unison && n > 1 ? ((float)(v - first) / (float)(n - 1) - 0.5f) * (float)detune / 100.0f : 0;
-        float lfo = lfo_value(LFO_ID(l, 0), v, (lfo_shape_t)lfo_shape[l][0]);
-        float lfo2 = lfo_value(LFO_ID(l, 1), v, (lfo_shape_t)lfo_shape[l][1]);
         float depth = clamp01(q->depth + mod[DEST_LFO_AMOUNT]);
         float depth2 = clamp01(q->depth2 + mod[DEST_LFO2_AMOUNT]);
-        float to_pitch = clamp01(depth * lfo_to_pitch + mod[DEST_LFO_TO_PITCH]) * LFO_PITCH_SEMITONES;
-        float to_filter = clamp01(depth * lfo_to_filter + mod[DEST_LFO_TO_FILTER]) * LFO_FILTER_SEMITONES;
-        float to_pitch2 = clamp01(depth2 * (float)((lfo2_dests[l] & LFO2_TO_PITCH) != 0) + mod[DEST_LFO2_TO_PITCH])
-                        * LFO_PITCH_SEMITONES;
-        float to_filter2 = clamp01(depth2 * (float)((lfo2_dests[l] & LFO2_TO_FILTER) != 0)
-                                   + mod[DEST_LFO2_TO_FILTER]) * LFO_FILTER_SEMITONES;
-        float env_amount = (q->env_amount + mod[DEST_FIL_ENV_AMT]) * FILTER_ENV_SEMITONES;
-        float pmod_env = (q->pmod_env + mod[DEST_PMOD_ENV]) * PMOD_ENV_SEMITONES;
-
-        float pitch_mod = lfo * to_pitch + lfo2 * to_pitch2 + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
-        if (scale) // snap the note with its modulation to the scale
-            pitch_mod = quantize((float)x->note + pitch_mod) - (float)x->note;
-        float pitch = x->pitch + bend * (float)bend_range + q->tune + spread + pitch_mod
-                    + x->drift[0] * drift * DRIFT_PITCH_SEMITONES;
-        float a = pitch + q->coarse_a + pmod_env * x->filter.level + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
-        float b = pitch + q->coarse_b + q->fine_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
-        x->cutoff_rest = q->cutoff + keytrack_amount * (x->pitch - 60.0f) + lfo * to_filter + lfo2 * to_filter2
-                       + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES + x->drift[1] * drift * DRIFT_CUTOFF_SEMITONES;
-        x->cutoff_env = env_amount;
-        x->vca_mod = clamp01(1.0f + mod[DEST_VCA]);
-
-        sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
-        sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));
-        envelope_cvs(v, 1);
+        x->to_pitch[0] = clamp01(depth * lfo_to_pitch + mod[DEST_LFO_TO_PITCH]) * LFO_PITCH_SEMITONES;
+        x->to_filter[0] = clamp01(depth * lfo_to_filter + mod[DEST_LFO_TO_FILTER]) * LFO_FILTER_SEMITONES;
+        x->to_pitch[1] = clamp01(depth2 * (float)((lfo2_dests[l] & LFO2_TO_PITCH) != 0) + mod[DEST_LFO2_TO_PITCH])
+                       * LFO_PITCH_SEMITONES;
+        x->to_filter[1] = clamp01(depth2 * (float)((lfo2_dests[l] & LFO2_TO_FILTER) != 0)
+                                  + mod[DEST_LFO2_TO_FILTER]) * LFO_FILTER_SEMITONES;
+        x->pmod_env = (q->pmod_env + mod[DEST_PMOD_ENV]) * PMOD_ENV_SEMITONES;
+        x->pitch_slow = mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
+        x->pitch_base = x->pitch + bend[l] * (float)bend_range + q->tune + spread
+                      + x->drift[0] * drift * DRIFT_PITCH_SEMITONES;
+        x->pitch_a = q->coarse_a + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
+        x->pitch_b = q->coarse_b + q->fine_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
+        x->cutoff_rest = q->cutoff + keytrack_amount * (x->pitch - 60.0f) + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES
+                       + x->drift[1] * drift * DRIFT_CUTOFF_SEMITONES;
+        x->cutoff_env = (q->env_amount + mod[DEST_FIL_ENV_AMT]) * FILTER_ENV_SEMITONES;
+        x->vca_slow = mod[DEST_VCA];
+        voice_cvs(v, 1, 1);
     }
 }

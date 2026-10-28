@@ -25,7 +25,13 @@ static const struct { uint8_t address, bit; } leds[LED_COUNT] = {
 
 static uint8_t ram[PANEL_RAM_BYTES];
 static uint8_t digits[4];
-static int dirty = 1;
+static int dirty_first = 0, dirty_end = PANEL_RAM_BYTES; // the RAM bytes to write (none when first >= end)
+
+static void mark(int address)
+{
+    dirty_first = address < dirty_first ? address : dirty_first;
+    dirty_end = address + 1 > dirty_end ? address + 1 : dirty_end;
+}
 
 static uint8_t glyph(char c)
 {
@@ -75,7 +81,8 @@ static void set_digits(const uint8_t segments[4])
         if (segments[i] != digits[i]) {
             digits[i] = segments[i];
             place(i, segments[i]);
-            dirty = 1;
+            mark(digit_address[i]);
+            mark(digit_address[i] + 1);
         }
 }
 
@@ -126,20 +133,22 @@ void display_led(led_t led, int on)
     uint8_t next = on ? (uint8_t)(*byte | mask) : (uint8_t)(*byte & ~mask);
     if (next != *byte) {
         *byte = next;
-        dirty = 1;
+        mark(leds[led].address);
     }
 }
 
 void display_update(void)
 {
-    if (!dirty)
+    if (dirty_first >= dirty_end)
         return;
-    panel_write(ram);
-    dirty = 0;
+    panel_write_range(ram, dirty_first, dirty_end - dirty_first);
+    dirty_first = PANEL_RAM_BYTES;
+    dirty_end = 0;
 }
 
 void display_redraw(void)
 {
-    dirty = 1;
+    mark(0);
+    mark(PANEL_RAM_BYTES - 1);
     display_update();
 }

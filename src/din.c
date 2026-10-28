@@ -1,8 +1,9 @@
 // 5-pin MIDI in. The DIN socket's opto-isolator (U3, TLP2368, sheet 1) drives PA1, which is UART4's RX (AF8), so this
-// is a plain 31250 baud receiver. The UART interrupt hands realtime bytes straight to the clock handler with the cycle
-// counter at arrival, as the USB driver does, and queues every other byte. The main loop turns the queue into USB
-// MIDI event packets, running status included, so main.c parses both inputs the same way. Only channel messages
-// come through: SysEx and the other system common messages are skipped (the editor and updates stay on USB).
+// is a plain 31250 baud receiver. The UART interrupt hands realtime bytes and Song Position Pointer straight to the
+// clock handler with the cycle counter at arrival, as the USB driver does, and queues every other byte. The main loop
+// turns the queue into USB MIDI event packets, running status included, so main.c parses both inputs the same way.
+// Only channel messages come through: SysEx and the other system common messages are skipped (the editor and updates
+// stay on USB).
 // PA0 (UART4 TX) and MIDI_SEL feed the MIDI THRU socket through U4A / U5A; they're left alone.
 #include "din.h"
 #include "clock.h"
@@ -28,7 +29,8 @@
 #define RX_BYTES 256
 static uint8_t rx_ring[RX_BYTES];
 static volatile uint32_t rx_head, rx_tail;
-static void (*realtime)(uint8_t status, uint32_t cycles);
+static void (*realtime)(uint8_t status, uint16_t data, uint32_t cycles);
+static uint8_t song_bytes, song_lsb; // Song Position Pointer, parsed in the interrupt: 1 or 2 = that data byte next
 
 // The parser, in the main loop: the channel status in force (0 = none) and the data bytes so far
 static uint8_t running, data[2], count;
@@ -43,8 +45,18 @@ void UART4_IRQHandler(void)
         return; // a broken byte (a cable plugged in mid-stream): running status recovers at the next status
     if (byte >= 0xF8) {
         if (realtime)
-            realtime(byte, DWT_CYCCNT);
+            realtime(byte, 0, DWT_CYCCNT);
         return;
+    }
+    if (byte & 0x80) {
+        song_bytes = byte == 0xF2;
+    } else if (song_bytes == 1) {
+        song_lsb = byte;
+        song_bytes = 2;
+    } else if (song_bytes == 2) {
+        song_bytes = 0;
+        if (realtime)
+            realtime(0xF2, (uint16_t)(song_lsb | byte << 7), DWT_CYCCNT);
     }
     uint32_t next = (rx_head + 1) % RX_BYTES;
     if (next != rx_tail) {
@@ -53,7 +65,7 @@ void UART4_IRQHandler(void)
     }
 }
 
-void din_init(void (*handler)(uint8_t status, uint32_t cycles))
+void din_init(void (*handler)(uint8_t status, uint16_t data, uint32_t cycles))
 {
     realtime = handler;
     RCC_AHB1ENR |= RCC_AHB1ENR_GPIOA;

@@ -128,7 +128,7 @@ static void make_serial(void)
 #define RX_PACKETS 64
 static uint8_t rx_ring[RX_PACKETS][4];
 static volatile uint32_t rx_head, rx_tail;
-static void (*realtime)(uint8_t status, uint32_t cycles); // realtime bytes, from the interrupt
+static void (*realtime)(uint8_t status, uint16_t data, uint32_t cycles); // clock messages, from the interrupt
 
 static uint32_t setup[2];
 static volatile int configured;
@@ -306,7 +306,12 @@ static void read_packet(uint32_t status)
             continue;
         if ((word & 0x0F) == 0xF && (word >> 8 & 0xFF) >= 0xF8) { // single byte, realtime
             if (realtime)
-                realtime((uint8_t)(word >> 8), DWT_CYCCNT);
+                realtime((uint8_t)(word >> 8), 0, DWT_CYCCNT);
+            continue;
+        }
+        if ((word & 0x0F) == 0x3 && (word >> 8 & 0xFF) == 0xF2) { // Song Position Pointer
+            if (realtime)
+                realtime(0xF2, (uint16_t)((word >> 16 & 0x7F) | (word >> 24 & 0x7F) << 7), DWT_CYCCNT);
             continue;
         }
         uint32_t next = (rx_head + 1) % RX_PACKETS;
@@ -412,7 +417,7 @@ int usb_midi_read(uint8_t packet[4])
 
 void usb_midi_flush(void) { rx_tail = rx_head; }
 
-void usb_midi_realtime(void (*handler)(uint8_t status, uint32_t cycles)) { realtime = handler; }
+void usb_midi_realtime(void (*handler)(uint8_t status, uint16_t data, uint32_t cycles)) { realtime = handler; }
 
 int usb_midi_write(const uint8_t *packets, int count)
 {

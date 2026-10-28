@@ -46,11 +46,14 @@ void sh_timing(uint32_t *settle, uint32_t *sample);
 void sh_gate(gate_t gate, int on);
 // Writes every CV to its S&H once. The hold capacitors droop, so this has to run continuously.
 void sh_refresh(void);
-// The same in parts, so the main loop can write the envelope-driven CVs more often than the rest. A channel costs
-// about 74 us through the DAC80501 (pitch, cutoff) and about 20 us through the on-chip DACs (VCA, global).
+// The same in parts, so the main loop can write the envelope-driven CVs more often than the rest. A channel through
+// the DAC80501 (pitch, cutoff) costs about 50 us, its frame, and writes the VCA at its address alongside (and a global
+// CV there that is due); one through an on-chip DAC alone (VCA, global) about 18 us.
 void sh_refresh_pitch(unsigned voices);  // oscillator A and B of the voices in the bitmask
 void sh_refresh_cutoff(unsigned voices);
-void sh_refresh_vca(void);               // all 8
-void sh_refresh_global(void);            // levels, noise, master volume, PW, resonance
+void sh_refresh_vca(unsigned skip);      // every VCA but those in `skip` (written alongside already)
+void sh_refresh_global(void);            // levels, noise, master volume, PW, resonance: those not written alongside
+// Ends the sample in progress: before anything else drives the DACs or the address lines (the bus probe).
+void sh_hold(void);
 
 #endif

@@ -12,7 +12,7 @@ void display_clear(void);
 void display_text(const char *text);
 void display_number(int value); // right-aligned, -999..9999
 void display_led(led_t led, int on);
-// Writes the display RAM if anything changed (an I2C transfer of about 3 ms).
+// Writes the display RAM bytes that changed (an I2C transfer of about 0.2 ms a byte, 3.5 ms for all 16).
 void display_update(void);
 // Writes it regardless, after something else (raw RAM writes) changed the display.
 void display_redraw(void);

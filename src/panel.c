@@ -114,13 +114,15 @@ uint8_t panel_init(void)
     return ht_addr;
 }
 
-void panel_write(const uint8_t ram[PANEL_RAM_BYTES])
+void panel_write(const uint8_t ram[PANEL_RAM_BYTES]) { panel_write_range(ram, 0, PANEL_RAM_BYTES); }
+
+void panel_write_range(const uint8_t ram[PANEL_RAM_BYTES], int first, int count)
 {
-    if (!ht_addr)
+    if (!ht_addr || count <= 0)
         return;
     i2c_start();
-    if (i2c_write((uint8_t)(ht_addr << 1)) && i2c_write(HT_ADDR_RAM))
-        for (int i = 0; i < PANEL_RAM_BYTES; i++)
+    if (i2c_write((uint8_t)(ht_addr << 1)) && i2c_write((uint8_t)(HT_ADDR_RAM + first))) // the address auto-increments
+        for (int i = first; i < first + count; i++)
             i2c_write(ram[i]);
     i2c_stop();
 }

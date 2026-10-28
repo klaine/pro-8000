@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.7.6. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.7.7. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -57,8 +57,9 @@ A digit display can't show a plus sign, so positive values have none. A dot afte
 
 Play over USB MIDI or the 5-pin MIDI IN socket, on any channel. Pitch bend is ±2 semitones by default (Settings key 7, per patch). The mod wheel adds LFO 1 depth and is also a mod
 source. Aftertouch is a mod source too, and it's per voice: poly pressure (the Move's pads send it) moves only the
-voice playing that note; channel pressure moves them all. The firmware follows MIDI clock (Start, Stop and Clock)
-for LFO sync.
+voice playing that note; channel pressure moves them all. In channel mode (`CHAn`) each channel's bend, mod wheel,
+pressure and sustain pedal reach only the layer it plays. The firmware follows MIDI clock (Start, Stop, Continue, Song
+Position and Clock) for LFO sync.
 
 The 5-pin MIDI IN socket (from 0.7.6) takes the same notes, controllers, pressure, bend, program changes and clock,
 so a keyboard with a MIDI out plays the synth without a computer. SysEx (the web page, the tool, updates) needs USB.
@@ -207,7 +208,8 @@ semitones and filter ±48 at full depth.
 
 **Sync** (Settings → key 1, `SYnC`, or `SYn2` for LFO 2): `FrEE` or `CLoC`. With the clock, LFO FREQ chooses a
 division (shown while turning): `8bAr`, `4bAr`, `2bAr`, `1bAr`, `1-2`, `1-4d`, `1-4`, `1-4t`, `1-8d`, `1-8`,
-`1-8t`, `16d`, `1-16`, `16t`, `1-32`. MIDI Start lines the LFO up with the bar.
+`1-8t`, `16d`, `1-16`, `16t`, `1-32`. MIDI Start lines the LFO up with the bar; Continue picks up where Song Position
+put it (or where the clock stopped). Until a clock arrives, `CLoC` runs the division at 120 BPM.
 
 **Retrigger** (Settings → key 2, `trIG` / `trI2`):
 
@@ -236,10 +238,11 @@ point (` 1.25`, ` 12.5`).
 
 Decay and release times are how long the fall takes to reach −60 dB, so a release showing 2 s is gone at 2 s.
 The attack has the concave shape of an analog envelope: it shoots up first and eases into the top. Decay and
-release fall exponentially. Sustain is a level, 0-99. The amp envelope reaches the VCAs about every 0.9 ms and the
-filter envelope the cutoff about every 1.7 ms (with all 8 voices sounding; faster with fewer), so attacks below
-about 1 ms all sound like an instant attack. Everything else (pitch, LFOs, routes) updates about every 3.4 ms, or
-faster with fewer voices sounding.
+release fall exponentially. Sustain is a level, 0-99. With all 8 voices sounding (faster with fewer), the VCAs get
+a new value about every 0.5 ms and the cutoffs about every 1.2 ms, so attacks below about 0.5 ms all sound like an
+instant attack. The LFOs and the routes from envelopes and LFOs into pitch, cutoff and the VCA move at that rate too;
+each voice's pitch goes out about every 2.3 ms with its value at that moment, and the knobs and other routes update
+once in that time.
 
 ### Cycling envelopes
 
@@ -308,8 +311,8 @@ only plays it.
 
 Each layer has 8 routes. A route adds source × depth (−99 to 99) to a destination.
 
-1. Press **Arp Assign** (LED blinks, display `SrC`). The knobs go into pickup, so touching one won't change the
-   sound.
+1. Press **Arp Assign** (LED blinks, display `SrC`). The knobs go into pickup and stay there until you leave MOD
+   ASSIGN, so touching one won't change the sound.
 2. Press a **number key** for the source.
 3. **Touch the destination:** turn its knob a little, or press its LFO routing button.
 4. Turn **VALUE** to set the depth for the edit layer. 0 removes the route; `FULL` means all 8 are in use.
@@ -433,7 +436,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.7.6.syx --yes
+build/pro800 install build/pro800-0.7.7.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

@@ -2,7 +2,8 @@
 //   U22 → VMUX1 (PC0, ADC IN10), U21 → VMUX2 (PC1, IN11), U42 → VMUX3 (PC2, IN12)
 // plus CUTOFF_ADC (PC3, IN13) and NOISE_ADC (PA2, IN2) wired directly. Each pot has 100 nF at the mux input and
 // each VMUX another 100 nF at the MCU, so after an address change the output needs about 4 ms (a few times
-// 10 kΩ pot × 200 nF) to settle: the scan steps one address per 4 ms, 32 ms for all.
+// 10 kΩ pot × 200 nF) to settle: the scan steps one address per 4 ms, 32 ms for all. CUTOFF and NOISE need no
+// settling, so they're read at every poll.
 //
 // Switches are plain inputs (pulled up here). The VALUE knob is an encoder without detents, quadrature on PE9 (A)
 // and PE11 (B) through 74HC14s: clockwise runs AB 11 → 01 → 00 → 10, four transitions per cycle, with some contact
@@ -15,6 +16,7 @@
 #define MUX_SETTLE_MS 4
 #define KEY_SCAN_MS   40
 #define POT_HYSTERESIS 24 // of 4095: reports changes beyond the noise
+#define SWITCH_DEBOUNCE_MS 15 // a panel switch's new level counts once it has held this long
 
 typedef struct {
     uint32_t port;
@@ -66,6 +68,7 @@ static const struct { uint8_t byte, bit; } button_keys[BUTTON_COUNT] = {
 
 static uint16_t pots[POT_COUNT], reported_pots[POT_COUNT];
 static uint8_t switches[SWITCH_COUNT], switch_candidate[SWITCH_COUNT];
+static uint32_t switch_since[SWITCH_COUNT]; // when switch_candidate last changed
 static uint8_t keys[KEY_BYTES];
 static uint32_t address, address_set_ms, last_key_scan;
 static uint8_t encoder_state;
@@ -138,13 +141,13 @@ void controls_poll(uint32_t now_ms, control_event_t event)
             event(CONTROL_ENCODER, 0, encoder_steps);
     }
 
-    // pots behind the muxes
+    // pots: the direct ones every poll, those behind the muxes one address per MUX_SETTLE_MS
+    pot_changed(POT_CUTOFF, adc_read(13), event);
+    pot_changed(POT_NOISE, adc_read(2), event);
     if (now_ms - address_set_ms >= MUX_SETTLE_MS) {
         pot_changed(0 * 8 + (int)address, adc_read(10), event);
         pot_changed(1 * 8 + (int)address, adc_read(11), event);
         pot_changed(2 * 8 + (int)address, adc_read(12), event);
-        pot_changed(24, adc_read(13), event);
-        pot_changed(25, adc_read(2), event);
         address = (address + 1) % 8;
         GPIO_BSRR(GPIOD_BASE) = (address & 7) | (~address & 7) << 16;
         address_set_ms = now_ms;
@@ -152,15 +155,18 @@ void controls_poll(uint32_t now_ms, control_event_t event)
             first_poll = 0;
     }
 
-    // switches: a new level counts once it reads the same twice in a row
+    // switches: a panel switch's new level counts once it has held SWITCH_DEBOUNCE_MS (one bounce must not step the
+    // LFO shape twice, however short the passes get); the other inputs' once it reads the same twice in a row
     for (int i = 0; i < SWITCH_COUNT; i++) {
         uint8_t level = (uint8_t)read_pin(&switch_pins[i]);
-        if (level != switches[i] && level == switch_candidate[i]) {
+        if (level != switch_candidate[i]) {
+            switch_candidate[i] = level;
+            switch_since[i] = now_ms;
+        } else if (level != switches[i] && (i >= SWITCH_MIDI_CH_0 || now_ms - switch_since[i] >= SWITCH_DEBOUNCE_MS)) {
             switches[i] = level;
             if (event)
                 event(CONTROL_SWITCH, i, level);
         }
-        switch_candidate[i] = level;
     }
 
     // buttons: the one-byte key flag first; the six key bytes only when a key is down now or was last time (so

@@ -1,8 +1,9 @@
 // Clock sync: the USB interrupt counts the timing clocks and stamps each with the cycle counter, so none is lost and
 // none is late while the main loop is busy. The interval between them is averaged, and the position in ticks is the
 // count plus the time since the last one (at most a tick ahead), so the LFO moves smoothly but stays on the grid.
-// After Start the next clock is the downbeat, tick 0, so the phase lines up with the bar. If the clock stops, the
-// LFO carries on at the last tempo.
+// After Start the next clock is the downbeat, tick 0, so the phase lines up with the bar; after Continue it's where
+// Song Position Pointer put it (or where the clock stopped), and the LFOs on the grid jump there. If the clock
+// stops, the LFO carries on at the last tempo. Before any clock, a synced LFO runs its division at 120 BPM.
 //
 // Retrigger: the shared phase resets on the first key after all were released, or on every key; in per-voice
 // mode each voice runs its own phase from its note-on. With the clock and no retrigger, the phase follows the
@@ -18,6 +19,9 @@
 #include "sh.h"
 
 #define TICKS_PER_QUARTER 24
+// The position wraps at 24 bars, a whole number of cycles of every division (the dotted ones too), so it keeps its
+// precision in a float however long the clock runs
+#define LOOP_TICKS 2304
 // Rate modulation on a grid-locked LFO (clock sync, free retrigger) lets it run off the grid; when the modulation is
 // back under this (octaves), the LFO runs up to REGRID_PULL × its phase error faster or slower until it's back.
 #define RATE_MOD_THRESHOLD 0.01f
@@ -51,13 +55,15 @@ static struct {
     phase_t shared, voice[VOICE_COUNT];
     float rate; // Hz, from the last lfo_update()
 } lfos[LFO_COUNT];
-// written by the USB or DIN interrupt (lfo_clock_tick(), lfo_clock_start(); same priority, so never both at once),
-// read by the main loop (clock_update())
-static volatile uint32_t ticks, last_tick, starts; // ticks: timing clocks since Start, 0 = the downbeat is next
-static volatile float tick_interval;               // seconds; 0 until two ticks have arrived
-static uint32_t seen_ticks, seen_starts;
-static int clock_running;
-static float position; // in ticks from the downbeat, continuous
+// Written by the USB or DIN interrupt (lfo_clock_tick() and the others; same priority, so never two at once), read
+// by the main loop (clock_update()). `ticks` is the song position of the next timing clock: after Start 0, the
+// downbeat; `waiting` until that clock comes after Start or Continue.
+static volatile uint32_t ticks, last_tick, starts, jumps, song_ticks;
+static volatile uint8_t waiting, song_set;
+static volatile float tick_interval; // seconds; 0 until two ticks have arrived
+static uint32_t seen_ticks, seen_starts, seen_jumps, wait_began;
+static int clock_running, hold; // hold: after Start or Continue, the LFOs on the grid wait where the next clock lands
+static float position;          // in ticks from the downbeat, continuous, modulo LOOP_TICKS
 static uint32_t random_state = 0x9E3779B9u;
 
 static float random_value(void) // xorshift32, -1..1
@@ -100,13 +106,31 @@ void lfo_clock_tick(uint32_t cycles)
                           : measured;
     }
     last_tick = cycles;
+    waiting = 0;
     ticks++;
 }
 
 void lfo_clock_start(void)
 {
     ticks = 0; // the next timing clock is the downbeat
-    starts++;  // clock_update() resets the phases
+    waiting = 1;
+    song_set = 0;
+    starts++; // clock_update() resets the phases
+}
+
+void lfo_clock_continue(void)
+{
+    if (song_set) // from where Song Position Pointer put it, else from where the clock stopped
+        ticks = song_ticks;
+    song_set = 0;
+    waiting = 1;
+    jumps++; // clock_update() puts the LFOs on the grid there
+}
+
+void lfo_clock_song_position(uint16_t sixteenths)
+{
+    song_ticks = (uint32_t)sixteenths * (TICKS_PER_QUARTER / 4);
+    song_set = 1;
 }
 
 void lfo_clock_stop(void) {}
@@ -117,16 +141,19 @@ void lfo_clock_stop(void) {}
 static void clock_update(float dt)
 {
     uint32_t stamp, count;
+    int wait;
     do {
         stamp = last_tick;
         count = ticks;
-    } while (stamp != last_tick); // a tick came in between
-    if (starts != seen_starts) {
-        seen_starts = starts;
-        position = 0;
+        wait = waiting;
+    } while (stamp != last_tick || count != ticks); // a tick or a Start came in between
+    if (starts != seen_starts || jumps != seen_jumps)
+        wait_began = DWT_CYCCNT;
+    if (starts != seen_starts)
         for (int i = 0; i < LFO_COUNT; i++)
             lfos[i].shared.phase = 0;
-    }
+    seen_starts = starts;
+    seen_jumps = jumps;
     float interval = tick_interval, since = (float)(DWT_CYCCNT - stamp) / (float)system_hz;
     if (count != seen_ticks) {
         seen_ticks = count;
@@ -134,10 +161,14 @@ static void clock_update(float dt)
     } else if (since > 2 * interval) {
         clock_running = 0;
     }
-    if (clock_running) // before the downbeat (count 0) it waits on it
-        position = count ? (float)(count - 1) + (since < interval ? since / interval : 1.0f) : 0;
-    else if (interval > 0)
-        position += dt / interval;
+    // after Start or Continue, wait where the next clock lands (two intervals at most, in case none comes)
+    hold = wait && (float)(DWT_CYCCNT - wait_began) / (float)system_hz < 2 * interval;
+    if (hold)
+        position = (float)(count % LOOP_TICKS);
+    else if (clock_running && count)
+        position = (float)((count - 1) % LOOP_TICKS) + (since < interval ? since / interval : 1.0f);
+    else if (interval > 0 && (position += dt / interval) >= (float)LOOP_TICKS)
+        position -= (float)LOOP_TICKS;
 }
 
 float lfo_rate_hz(float knob) { return 0.05f * fast_exp2(knob * 10.0f); }
@@ -171,14 +202,13 @@ void lfo_update(int lfo, float dt, float knob, float octaves)
     int which = lfo / 2;
     if (lfo == 0)
         clock_update(dt);
-    float interval = tick_interval;
-    int synced = lfo_sync[which] == LFO_SYNC_CLOCK && interval > 0;
+    int synced = lfo_sync[which] == LFO_SYNC_CLOCK;
     float quarters = divisions[lfo_division(knob)].quarters;
-    float rate = synced ? 1.0f / (interval * TICKS_PER_QUARTER * quarters) : lfo_rate_hz(knob);
+    float rate = synced ? 1.0f / (lfo_quarter_seconds() * quarters) : lfo_rate_hz(knob); // 120 BPM until a clock
     lfos[lfo].rate = rate;
 
     phase_t *p = &lfos[lfo].shared;
-    if (synced && lfo_trigger[which] == LFO_TRIGGER_FREE) { // on the grid
+    if (synced && tick_interval > 0 && lfo_trigger[which] == LFO_TRIGGER_FREE) { // on the grid
         float cycles = position / (TICKS_PER_QUARTER * quarters);
         float grid = cycles - (float)(int)cycles;
         float step = rate * dt;
@@ -186,7 +216,7 @@ void lfo_update(int lfo, float dt, float knob, float octaves)
         error -= error > 0.5f ? 1.0f : error < -0.5f ? -1.0f : 0.0f; // -0.5..0.5 of a cycle
         if (octaves > RATE_MOD_THRESHOLD || octaves < -RATE_MOD_THRESHOLD) {
             advance(p, step * fast_exp2(octaves)); // swept: smoothly off the grid
-        } else if (error < 0.002f && error > -0.002f) {
+        } else if (hold || (error < 0.002f && error > -0.002f)) {
             if (grid < p->phase - 0.5f)
                 new_cycle(p);
             p->phase = grid;

@@ -115,13 +115,19 @@ static void send_sysex(const uint8_t *message, int length)
         p[2] = left > 1 ? message[i + 1] : 0;
         p[3] = left > 2 ? message[i + 2] : 0;
     }
-    // the endpoint takes 16 packets (64 bytes) at a time
+    // The endpoint takes 16 packets (64 bytes) at a time. A write that can't go out within 20 ms means the host isn't
+    // reading (or the cable is out, which the device can't tell without VBUS sensing): drop the message, and the next
+    // ones at once until a write goes through again, rather than stall the CV refresh.
+    static int stalled;
     for (int sent = 0; sent < count;) {
         int chunk = count - sent > 16 ? 16 : count - sent;
         uint32_t start = ms_ticks;
         while (!usb_midi_write(&packets[4 * sent], chunk))
-            if (ms_ticks - start > 100)
+            if (stalled || ms_ticks - start > 20) {
+                stalled = 1;
                 return;
+            }
+        stalled = 0;
         sent += chunk;
     }
 }
@@ -424,6 +430,7 @@ static void show_route(void)
 static void assign_end(void)
 {
     assigning = 0;
+    synth_freeze_knobs(0);
     display_led(LED_ARP_ASSIGN, 0);
     display_until = 0;
 }
@@ -632,7 +639,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             assigning = 1;
             assign_source = 0;
             assign_dest = DEST_NONE;
-            synth_freeze_knobs();
+            synth_freeze_knobs(1);
             display_text("SrC");
             display_until = 0;
         }
@@ -683,7 +690,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     if (kind == CONTROL_POT) {
         // a per-layer knob still in pickup shows the edit layer's value, with a dot
         int pending = synth_pot_pending(index);
-        float knob = pending ? synth_pot_value(index) : (float)value / 4095.0f;
+        float knob = pending ? synth_pot_value(index) : synth_knob_snap(index, (float)value / 4095.0f);
         char text[8];
         int env, stage;
         if (index == POT_LFO_FREQ && lfo_sync[synth_lfo_select()] == LFO_SYNC_CLOCK) {
@@ -928,7 +935,8 @@ static int host_setting_set(int id, int value)
     return 1;
 }
 
-// The sustain pedal, and the keys let go while it was down: the layers each one's note-off releases
+// The sustain pedal, per layer (bits: in channel mode each channel's pedal holds its own layer), and the keys let go
+// while it was down: the layers each one's note-off releases
 static int sustain, bank;
 static uint8_t sustained[128];
 
@@ -1017,6 +1025,7 @@ static void handle_sysex(const uint8_t *message, int length)
     if (data_length == 11 && data[0] == 0x6C) {
         dac_config_t c = {.bus = data[1], .mode = data[2], .high = (uint16_t)(data[3] << 7 | data[4]),
                           .low = (uint16_t)(data[5] << 7 | data[6]), .speed = data[7], .sync_us = data[8]};
+        sh_hold();
         int ok = dac_configure(&c);
         if (ok)
             sh_set_timing(data[9], data[10]);
@@ -1380,25 +1389,28 @@ static const struct { uint8_t cc, param; } cc_map[] = {
 // A key let go: `layers` are the ones its note-off may release (synth_channel_layers())
 static void key_off(uint8_t note, int layers)
 {
-    if (sustain) {
-        sustained[note & 0x7F] |= (uint8_t)layers;
-        return;
-    }
-    if (!seq_key_off(note, layers))
+    int held = layers & sustain; // the pedal holds these
+    sustained[note & 0x7F] |= (uint8_t)held;
+    layers &= ~held;
+    if (layers && !seq_key_off(note, layers))
         synth_note_off_layers(note, layers);
 }
 
 static void control_change(uint8_t cc, uint8_t value, int channel)
 {
-    if (cc == 64) { // sustain pedal
-        sustain = value >= 64;
-        if (!sustain)
-            for (int n = 0; n < 128; n++)
-                if (sustained[n]) {
-                    int layers = sustained[n];
-                    sustained[n] = 0;
-                    key_off((uint8_t)n, layers);
-                }
+    if (cc == 64) { // sustain pedal, for the layers the channel plays
+        int layers = synth_channel_layers(channel);
+        if (value >= 64) {
+            sustain |= layers;
+            return;
+        }
+        sustain &= ~layers;
+        for (int n = 0; n < 128; n++)
+            if (sustained[n] & layers) {
+                int off = sustained[n] & layers;
+                sustained[n] &= (uint8_t)~off;
+                key_off((uint8_t)n, off);
+            }
         return;
     }
     if (cc == 0 || cc == 32) {
@@ -1413,41 +1425,47 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
         }
 }
 
-// The CV refresh with the amp and filter envelopes run in between (synth_envelopes()), so the envelope-driven CVs
-// move more often than the engine's pass: the VCAs four times a pass, the cutoffs twice, oscillator pitch and the
-// global CVs once. A voice that just started gets its pitch first, so its VCA never opens on the old note; silent
-// voices' pitch and cutoff are refreshed only every 8th pass (their S&H only has to hold).
-#define ENVELOPE_TICKS 4
+// The CV refresh with the fast ticks run in between (synth_tick(): envelopes, LFOs and the routes from them), so
+// those move more often than the engine's pass. Each tick writes two voices' pitch, every other tick the cutoffs, and
+// every tick the VCAs (alongside the DAC80501 channels at their address, the rest on their own); the global CVs go
+// once a pass, mostly alongside too. A voice that just started gets its pitch first, so its VCA never opens on the old
+// note; silent voices' pitch and cutoff are refreshed only every 8th pass (their S&H only has to hold).
+#define TICKS 4
 static void refresh_cvs(void)
 {
     static uint32_t last_tick, count;
     unsigned fresh = synth_take_fresh_voices();
     unsigned voices = ++count % 8 ? synth_active_voices() & ~fresh : 0xFFu;
     sh_refresh_pitch(fresh);
-    for (int k = 0; k < ENVELOPE_TICKS; k++) {
+    for (int k = 0; k < TICKS; k++) {
         uint32_t now = DWT_CYCCNT;
         float dt = (float)(now - last_tick) / (float)system_hz;
         last_tick = now;
         int cutoff = !(k & 1);
-        synth_envelopes(dt, cutoff);
+        unsigned pitch = voices & 3u << 2 * k; // two voices' pitch per tick
+        synth_tick(dt, cutoff, pitch);
+        sh_refresh_pitch(pitch);
         if (cutoff)
             sh_refresh_cutoff(voices | fresh);
-        sh_refresh_vca();
-        sh_refresh_pitch(voices & 3u << 2 * k); // two voices' pitch per tick
+        sh_refresh_vca((cutoff ? voices | fresh : 0) | pitch);
     }
     sh_refresh_global();
 }
 
-// MIDI realtime, straight from the USB and DIN interrupts (usb_midi_realtime(), din_init()): the clock the LFOs and
-// the sequence follow
-static void realtime(uint8_t status, uint32_t cycles)
+// MIDI realtime and Song Position Pointer, straight from the USB and DIN interrupts (usb_midi_realtime(), din_init()):
+// the clock the LFOs and the sequence follow
+static void realtime(uint8_t status, uint16_t data, uint32_t cycles)
 {
     if (status == 0xF8)
         lfo_clock_tick(cycles);
     else if (status == 0xFA)
         lfo_clock_start();
+    else if (status == 0xFB)
+        lfo_clock_continue();
     else if (status == 0xFC)
         lfo_clock_stop();
+    else if (status == 0xF2)
+        lfo_clock_song_position(data); // for the next Continue
 }
 
 static void handle_midi(void)
@@ -1486,18 +1504,18 @@ static void handle_midi(void)
                 synth_all_off();
             }
             if (status == 0xB0 && p[2] == 1)
-                synth_mod_wheel(p[3]);
+                synth_mod_wheel(p[3], synth_channel_layers(p[1] & 0x0F));
             if (status == 0xB0)
                 control_change(p[2], p[3], p[1] & 0x0F);
             break;
         case 0xE:
-            synth_pitch_bend(p[2] | p[3] << 7);
+            synth_pitch_bend(p[2] | p[3] << 7, synth_channel_layers(p[1] & 0x0F));
             break;
         case 0xD: // channel pressure
-            synth_aftertouch(p[2]);
+            synth_aftertouch(p[2], synth_channel_layers(p[1] & 0x0F));
             break;
         case 0xA: // poly pressure: the voices playing that note
-            synth_poly_pressure(p[2], p[3]);
+            synth_poly_pressure(p[2], p[3], synth_channel_layers(p[1] & 0x0F));
             break;
         case 0x4: case 0x5: case 0x6: case 0x7: {
             int n = cin == 0x4 ? 3 : cin - 0x4;
