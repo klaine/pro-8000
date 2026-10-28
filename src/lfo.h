@@ -60,6 +60,7 @@ const char *lfo_division_name(int division); // 4 display characters
 float lfo_division_quarters(int division);   // its length in quarter notes
 // Seconds per quarter note from the MIDI clock (the last tempo once it stops; 120 BPM before any clock).
 float lfo_quarter_seconds(void);
+float lfo_beat_phase(void); // 0..1 through the current quarter note (the clock position), for a beat light
 const char *lfo_shape_name(lfo_shape_t shape); // for the display
 
 #endif

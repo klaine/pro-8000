@@ -77,7 +77,8 @@
 static struct {
     int valid;
     uint16_t last_patch;
-    uint8_t preset_mode, format, cc[2];
+    uint8_t preset_mode, format, cc[2], clock_source;
+    uint16_t bpm; // ×10
 } global;
 
 static uint32_t get32(const uint8_t *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24; }
@@ -97,7 +98,7 @@ static int is_stock(const uint8_t *b) { return b[0] == 0xA5 && b[1] == 0x16 && b
 
 static int write_global(void)
 {
-    uint8_t b[16] = {0};
+    uint8_t b[20] = {0};
     put32(b, GLOBAL_MAGIC);
     put16(b + 4, global.last_patch);
     b[6] = global.preset_mode;
@@ -105,6 +106,8 @@ static int write_global(void)
     b[8] = global.cc[0];
     b[9] = global.cc[1];
     put32(b + 12, checksum(b, 12));
+    put16(b + 16, global.bpm); // the clock, outside the checksum (older blocks have anything here: range-checked)
+    b[18] = global.clock_source;
     if (!eeprom_write(GLOBAL_ADDRESS, b, sizeof b))
         return 0;
     global.valid = 1;
@@ -128,7 +131,7 @@ static int formatted;
 
 void store_init(void)
 {
-    uint8_t b[16];
+    uint8_t b[20];
     eeprom_read(GLOBAL_ADDRESS, b, sizeof b);
     global.valid = get32(b) == GLOBAL_MAGIC && get32(b + 12) == checksum(b, 12);
     global.last_patch = global.valid ? get16(b + 4) : 0;
@@ -136,6 +139,12 @@ void store_init(void)
     global.format = global.valid ? b[7] : 0;
     global.cc[0] = global.valid ? b[8] : 0;
     global.cc[1] = global.valid ? b[9] : 0;
+    global.bpm = get16(b + 16);
+    global.clock_source = b[18];
+    if (!global.valid || global.bpm < 300 || global.bpm > 3000) // 30-300 BPM
+        global.bpm = 1200;
+    if (!global.valid || global.clock_source > 2)
+        global.clock_source = 0;
     if (global.last_patch >= PATCH_COUNT)
         global.last_patch = 0;
     if (global.valid && global.format != FORMAT) // our older layout: the patches can't be read, so start clean
@@ -149,6 +158,21 @@ int store_formatted(void) { return formatted; }
 int store_format(void) { return format_patches(); }
 
 int store_cc_number(int which) { return global.cc[which & 1]; }
+
+int store_clock_source(void) { return global.clock_source; }
+int store_bpm_tenths(void) { return global.bpm; }
+
+void store_set_clock(int source, int bpm_tenths)
+{
+    if (source < 0 || source > 2 || bpm_tenths < 300 || bpm_tenths > 3000)
+        return;
+    if (global.clock_source == source && global.bpm == bpm_tenths)
+        return;
+    global.clock_source = (uint8_t)source;
+    global.bpm = (uint16_t)bpm_tenths;
+    if (global.valid)
+        write_global();
+}
 
 void store_set_cc_number(int which, int number)
 {

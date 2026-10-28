@@ -35,7 +35,8 @@
 //                          1 mono 2 legato | priority 0 last 1 low 2 high << 2), 29 drift (0-99), 30 scale (0 off,
 //                          synth.h SCALE_*), 31 root (0-11), 32-35 LFO 1 delay, LFO 1 fade, LFO 2 delay, LFO 2 fade
 //                          (0-99), 36-37 CC A / CC B source numbers (1-127, system-wide), 38-41 macro offsets
-//                          (layer 1 macro 1, 2, layer 2 macro 1, 2; the offset + 99); read-only after: env select,
+//                          (layer 1 macro 1, 2, layer 2 macro 1, 2; the offset + 99), 42 clock source (0 MIDI,
+//                          1 internal, 2 SYNC IN), 43 internal tempo (30-300 BPM); read-only after: env select,
 //                          preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
@@ -667,6 +668,7 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
 // while held), + Perf undoes the last load, + Preset saves to the current slot, + Seq 1 / 2 copies the edit layer
 // there, + a number key opens that Settings page, + 0 is a panic.
 static int shift_held, shift_latched;
+static uint32_t sync_press_at; // the Sync Clock button: when it went down (0 = up, or the hold has fired)
 static int adsr_pot_index(int pot) { return (pot >= POT_AMP_REL && pot <= POT_AMP_ATT) || (pot >= POT_FIL_REL && pot <= POT_FIL_ATT); }
 static uint32_t shift_tap_at;
 static int shift_pot_last[POT_COUNT];
@@ -746,6 +748,91 @@ static void compare_end(void)
     synth_apply_patch(&compare_copy);
     display_text("EdIt");
     display_until = ms_ticks + 800;
+}
+
+// The clock source: MIDI clock as it comes, or our own 24 ppq generator at `clock_bpm` (the Sync Clock button: taps
+// set the tempo, a hold restarts the bar; Shift + Sync Clock cycles the source), or the generator with its tempo and
+// phase taken from the SYNC IN jack's pulses (2 per quarter note, as Korg's). The generator stamps each tick with its
+// scheduled time, so the clock is as steady as the crystal whatever the main loop is doing.
+enum { CLOCK_MIDI, CLOCK_INTERNAL, CLOCK_SYNC_IN };
+static int clock_source;
+static float clock_bpm = 120.0f;
+static uint32_t clock_next, clock_period;
+static int clock_primed;
+static uint32_t tap_at[4];
+static int taps;
+static uint32_t sync_pulse_at;
+
+static void clock_set_bpm(float bpm)
+{
+    clock_bpm = bpm < 30 ? 30 : bpm > 300 ? 300 : bpm;
+    clock_period = (uint32_t)((float)system_hz * 60.0f / (clock_bpm * 24.0f));
+    store_set_clock(clock_source, (int)(clock_bpm * 10.0f + 0.5f));
+}
+
+static void clock_restart(void) // the next tick is the downbeat, now
+{
+    lfo_clock_start();
+    clock_next = DWT_CYCCNT;
+    clock_primed = 1;
+}
+
+// Runs the generator up to now: from the main loop, before each tick of the refresh
+static void clock_run(void)
+{
+    if (clock_source == CLOCK_MIDI)
+        return;
+    uint32_t now = DWT_CYCCNT;
+    if (!clock_primed) {
+        clock_next = now;
+        clock_primed = 1;
+    }
+    for (int n = 0; (int32_t)(now - clock_next) >= 0 && n < 4; n++) {
+        lfo_clock_tick(clock_next);
+        clock_next += clock_period;
+    }
+}
+
+static void clock_tap(void)
+{
+    uint32_t now = ms_ticks;
+    if (taps && now - tap_at[taps - 1] > 2000)
+        taps = 0; // a new series
+    if (taps == 4) {
+        for (int i = 0; i < 3; i++)
+            tap_at[i] = tap_at[i + 1];
+        taps = 3;
+    }
+    tap_at[taps++] = now;
+    if (taps >= 2) {
+        float interval = (float)(tap_at[taps - 1] - tap_at[0]) / (float)(taps - 1) / 1000.0f;
+        clock_set_bpm(60.0f / interval);
+        clock_next = DWT_CYCCNT; // the tap is on the beat
+    }
+    display_text("tAP");
+    display_until = 0;
+    shift_value = (int)(clock_bpm + 0.5f);
+    shift_value_at = ms_ticks + 500;
+}
+
+static void clock_set_source(int source)
+{
+    clock_source = source;
+    clock_primed = 0;
+    store_set_clock(clock_source, (int)(clock_bpm * 10.0f + 0.5f));
+}
+
+static void sync_in_pulse(void) // a rising edge on the jack: 2 pulses per quarter note
+{
+    uint32_t now = DWT_CYCCNT, since = now - sync_pulse_at;
+    sync_pulse_at = now;
+    float s = (float)since / (float)system_hz;
+    if (s > 0.04f && s < 1.0f) { // 30-750 BPM at 2 ppq
+        clock_bpm = 30.0f / s;
+        clock_period = (uint32_t)((float)system_hz * 60.0f / (clock_bpm * 24.0f));
+    }
+    clock_next = now; // the pulse is a tick
+    clock_primed = 1;
 }
 
 // What the display shows when nothing transient is on it.
@@ -914,6 +1001,22 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index == BUTTON_REC && !value)
         compare_end(); // (whether or not Shift is still down)
+    if (kind == CONTROL_BUTTON && index == BUTTON_SYNC_CLOCK) {
+        if (shift_active() && value) { // the clock source
+            static const char names[3][5] = {"nIdI", "Int", "SYnC"};
+            clock_set_source((clock_source + 1) % 3);
+            display_text(names[clock_source]);
+            display_until = ms_ticks + 1000;
+        } else if (value)
+            sync_press_at = ms_ticks ? ms_ticks : 1;
+        else if (sync_press_at) { // released before the hold: a tap
+            sync_press_at = 0;
+            clock_tap();
+        }
+        return;
+    }
+    if (kind == CONTROL_SWITCH && index == SWITCH_SYNC_IN_A && value && clock_source == CLOCK_SYNC_IN)
+        sync_in_pulse();
     if (shift_active() && kind == CONTROL_POT && !adsr_pot_index(index)) { // the ADSR knobs: Env 3 / 4, by the engine
         if (shift_pot_last[index] >= 0)
             shift_turn(index, (int)value - shift_pot_last[index]);
@@ -1207,6 +1310,7 @@ typedef enum {
     SET_LFO1_DELAY, SET_LFO1_FADE, SET_LFO2_DELAY, SET_LFO2_FADE, // 0-99 (lfo.h)
     SET_CC_A, SET_CC_B,                                  // the CC A / B mod sources' controller numbers (1-127)
     SET_MACRO_L1_1, SET_MACRO_L1_2, SET_MACRO_L2_1, SET_MACRO_L2_2, // the macros' offsets + 99 (0-198)
+    SET_CLOCK_SOURCE, SET_BPM,                           // 0 MIDI, 1 internal, 2 SYNC IN; 30-300 (system-wide)
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1239,6 +1343,8 @@ static int host_setting_get(int id)
     case SET_CC_A: case SET_CC_B: return synth_cc_number(id == SET_CC_B);
     case SET_MACRO_L1_1: case SET_MACRO_L1_2: case SET_MACRO_L2_1: case SET_MACRO_L2_2:
         return synth_macro_offset((id - SET_MACRO_L1_1) / 2, (id - SET_MACRO_L1_1) % 2) + 99;
+    case SET_CLOCK_SOURCE: return clock_source;
+    case SET_BPM: return (int)(clock_bpm + 0.5f);
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -1249,13 +1355,13 @@ static int host_setting_get(int id)
 
 static int host_setting_set(int id, int value)
 {
-    static const uint8_t counts[SET_WRITABLE] = {
+    static const uint16_t counts[SET_WRITABLE] = {
         LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, 2, 2,
         LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8, 16, 16,
         [SET_CYCLE_SYNC ... SET_CYCLE_SYNC + 7] = LFO_DIVISIONS + 1, [SET_BEND] = 13, [SET_DETUNE] = 51,
         [SET_VOICE_L1] = 11, [SET_VOICE_L2] = 11, [SET_DRIFT] = 100, [SET_SCALE] = SCALE_COUNT, [SET_ROOT] = 12,
         [SET_LFO1_DELAY ... SET_LFO2_FADE] = 100, [SET_CC_A] = 128, [SET_CC_B] = 128,
-        [SET_MACRO_L1_1 ... SET_MACRO_L2_2] = 199,
+        [SET_MACRO_L1_1 ... SET_MACRO_L2_2] = 199, [SET_CLOCK_SOURCE] = 3, [SET_BPM] = 301,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1289,6 +1395,12 @@ static int host_setting_set(int id, int value)
         break;
     case SET_MACRO_L1_1: case SET_MACRO_L1_2: case SET_MACRO_L2_1: case SET_MACRO_L2_2:
         synth_set_macro_offset((id - SET_MACRO_L1_1) / 2, (id - SET_MACRO_L1_1) % 2, value - 99);
+        break;
+    case SET_CLOCK_SOURCE: clock_set_source(value); break;
+    case SET_BPM:
+        if (value < 30)
+            return 0;
+        clock_set_bpm((float)value);
         break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
@@ -1835,6 +1947,7 @@ static void refresh_cvs(void)
         last_tick = now;
         if (k) { // (the pass began with these)
             handle_midi();
+            clock_run();
             advance_sequence();
             unsigned started = synth_take_fresh_voices();
             if (started) {
@@ -1860,6 +1973,8 @@ static void refresh_cvs(void)
 // the clock the LFOs and the sequence follow
 static void realtime(uint8_t status, uint16_t data, uint32_t cycles)
 {
+    if (clock_source != CLOCK_MIDI)
+        return; // the generator owns the clock
     if (status == 0xF8)
         lfo_clock_tick(cycles);
     else if (status == 0xFA)
@@ -1996,6 +2111,9 @@ int main(void)
     for (int k = 0; k < 2; k++)
         if (store_cc_number(k))
             synth_set_cc_number(k, store_cc_number(k));
+    clock_source = store_clock_source();
+    clock_bpm = (float)store_bpm_tenths() / 10.0f;
+    clock_period = (uint32_t)((float)system_hz * 60.0f / (clock_bpm * 24.0f));
     if (store_formatted()) {
         display_text("ForM"); // an older layout of ours was wiped: every slot is empty now
         display_update();
@@ -2032,6 +2150,7 @@ int main(void)
         }
         uint32_t t0 = DWT_CYCCNT;
         if (!direct_mode) {
+            clock_run();
             advance_sequence();
             synth_update(dt);
         }
@@ -2047,6 +2166,13 @@ int main(void)
         }
         if (saving)
             display_led(LED_REC, (now / 250) & 1);
+        display_led(LED_SYNC_CLOCK, lfo_beat_phase() < 0.12f); // the beat, from whichever clock
+        if (sync_press_at && now - sync_press_at >= 600) {
+            sync_press_at = 0;
+            clock_restart();
+            display_text("StAr");
+            display_until = now + 600;
+        }
         if (shift_value_at && (int32_t)(now - shift_value_at) > 0) {
             shift_value_at = 0;
             display_number(shift_value);

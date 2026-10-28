@@ -398,6 +398,7 @@
         <tr><td><kbd>Arp Assign</kbd></td><td>Mod assign: the mod matrix (LED blinks) <code class="lcd">SrC</code></td></tr>
         <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways</td></tr>
         <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
+        <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
         <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers. With Rec: compare; Perf: undo; Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
         <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live)</td></tr>
         <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
@@ -515,7 +516,7 @@
     <section class="cs">
       <h3>MIDI</h3>
       <ul>
-        <li>USB MIDI or the 5-pin MIDI IN, on any channel (SysEx over USB only). MIDI clock drives sync; Start lines up the bar, Continue picks up at Song Position; <code class="lcd">CLoC</code> runs at 120 BPM until a clock arrives.</li>
+        <li>USB MIDI or the 5-pin MIDI IN, on any channel (SysEx over USB only). MIDI clock drives sync; Start lines up the bar, Continue picks up at Song Position. Or the internal clock (tap Sync Clock) or the SYNC IN jack: Shift + Sync Clock picks the source.</li>
         <li>Sustain (CC 64), pitch bend (range: <kbd>Settings</kbd> <kbd>7</kbd>), mod wheel, poly and channel aftertouch; in channel mode each channel's reach only its layer.</li>
         <li>Program change 0-127 picks patch 1-128; bank select is ignored.</li>
         <li>CCs: 74 cutoff, 71 resonance, 5 glide, 14 / 15 FREQ A / B, 16 FINE, 17 / 18 PW, 19 / 20 levels, 21 noise, 22 filter env amount, 23-26 filter ADSR, 73 / 75 / 70 / 72 amp A / D / S / R, 76 / 77 LFO 1, 27 / 28 LFO 2, 29 / 30 poly-mod, 31 tune, 85-90 + 102-103 Env 3 / 4.</li>
@@ -1044,7 +1045,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2",
   "cycleSync1_0", "cycleSync1_1", "cycleSync1_2", "cycleSync1_3", "cycleSync2_0", "cycleSync2_1", "cycleSync2_2",
   "cycleSync2_3", "bend", "detune", "voice1", "voice2", "drift", "scale", "root", "lfoDelay1", "lfoFade1", "lfoDelay2", "lfoFade2",
-  "ccA", "ccB", "macro11", "macro12", "macro21", "macro22", "envSelect",
+  "ccA", "ccB", "macro11", "macro12", "macro21", "macro22", "clockSource", "bpm", "envSelect",
   "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 let settings = null, params = null, paramsLayer = 0;
@@ -2052,6 +2053,10 @@ function buildPanel() {
           v => setSetting(SET_ID["voice" + (paramsLayer + 1)], settings["voice" + (paramsLayer + 1)] & ~3 | v), "the layer you're editing"),
         settingSelect("Priority", ["Last note", "Low note", "High note"], () => settings && settings["voice" + (paramsLayer + 1)] >> 2 & 3,
           v => setSetting(SET_ID["voice" + (paramsLayer + 1)], settings["voice" + (paramsLayer + 1)] & 3 | v << 2), "which held note mono, legato and unison play")),
+      row(settingSelect("Clock", ["MIDI clock", "Internal", "SYNC IN jack (2 pulses a quarter)"], () => settings && settings.clockSource,
+            v => setSetting(SET_ID.clockSource, v), "what the synced LFOs, cycling envelopes and the sequence follow (system-wide; on the synth: Shift + Sync Clock)"),
+        settingSelect("Tempo", Array.from({ length: 301 }, (_, n) => n < 30 ? "—" : `${n} BPM`), () => settings && settings.bpm,
+            v => v >= 30 && setSetting(SET_ID.bpm, v), "the internal clock's tempo (on the synth: tap Sync Clock; hold it to restart the bar)")),
       row(settingSelect("CC A source", Array.from({ length: 128 }, (_, n) => n ? `CC ${n}` : "—"), () => settings && settings.ccA,
             v => v && setSetting(SET_ID.ccA, v), "the controller the mod source CC A follows (system-wide; 11 = expression)"),
         settingSelect("CC B source", Array.from({ length: 128 }, (_, n) => n ? `CC ${n}` : "—"), () => settings && settings.ccB,

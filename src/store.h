@@ -56,6 +56,10 @@ int store_formatted(void); // 1 if store_init() just did that (an older format o
 // The CC A / CC B mod source numbers (0 = the default), kept in the global block
 int store_cc_number(int which);
 void store_set_cc_number(int which, int number);
+// The clock source (0 MIDI, 1 internal, 2 SYNC IN) and the internal tempo in tenths of a BPM, kept in the global block
+int store_clock_source(void);
+int store_bpm_tenths(void);
+void store_set_clock(int source, int bpm_tenths);
 // The stock factory bank (100 patches, left in place at 0x19000): its name, or 0 if that slot isn't a stock patch.
 int store_factory_name(int f, char name[PATCH_NAME + 1]);
 // Converts factory patch f into slot n. Returns 0 if f isn't a stock patch, -1 on a write error, else 1.

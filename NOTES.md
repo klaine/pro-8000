@@ -982,7 +982,27 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   itself, the switch and the shifted buttons need hands on the panel.
 - Build 62108 bytes of 65,536.
 
+## Internal clock, tap tempo, clock source, the beat light (0.8.2, 2026-10-28)
+
+- `main.c`: a 24 ppq generator (`clock_run()`, called before each tick and pass) stamps every tick with its
+  scheduled cycle count and feeds `lfo_clock_tick()` exactly as the interrupts do, so the LFO clock, the cycling
+  envelopes and the sequence see a crystal-steady clock whatever the loop is doing (up to four catch-up ticks a
+  call). Sources: MIDI (the handler ignores realtime otherwise), internal, SYNC IN (`SWITCH_SYNC_IN_A` rising
+  edges at 2 ppq set the tempo and re-phase the generator; untested, the lines have never been seen moving). Tap
+  tempo on Sync Clock (2-4 taps within 2 s, the last tap is a beat), a hold restarts the bar
+  (`lfo_clock_start()` and a tick now), Shift + Sync Clock cycles the source. The LED blinks on the beat from
+  `lfo_beat_phase()`, whichever source. Source and tempo (tenths of a BPM) live in the global block at 16-18,
+  outside its checksum and range-checked; settings 42-43 (the read-only ones moved to 44-47).
+- Checked: LFO 1 synced at 1/16 into the VCA, internal clock, recorded through the Move: the envelope spectrum's
+  line at 8.1 Hz at 120 BPM and 6.1 Hz at 90 (8 and 6 expected).
+- **Flash: 63,552 of 65,536 bytes.** Sector 4 is nearly full. The tuning tables moved to the EEPROM in 0.6.x, so
+  sector 5 (128 kB at 0x08020000) is free: `link.ld` could extend the app over it if the bootloader programs an
+  image longer than 64 kB (to check with a padded build before relying on it; our update path erases sector 4
+  only, `src/update.c`). Otherwise: drop the hardware-SPI probe path, trim the SysEx tables, or `-Os` already.
+
 ## Backlog
+
+- **Flash room**: 2 kB left in sector 4. Try the bootloader with an image into sector 5 (see 0.8.2), or trim.
 
 Nothing here is needed for the synth to work; this is what's open, consolidated 2026-10-28 after the review, the
 0.7.7 / 0.7.8 measurements and the dac-test sweep. What each buys is in its line.
@@ -1009,8 +1029,6 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 
 **Panel**
 
-- Internal clock and tap tempo on the unused Sync Clock / Sync Source buttons, clock source MIDI / internal / SYNC
-  IN; today synced LFOs and cycling envelopes sit at 120 BPM until a DAW sends clock.
 - Sequencer transport and step recording from the panel (web-only today).
 - Compare / undo: hold Preset to hear the stored patch; make Perf's init a hold or double press.
 - Scroll the patch name across the display on load; show the pickup direction (top / bottom segment); a velocity
@@ -1022,7 +1040,7 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 
 - MPE: the RPNs for the member bend range and zone layout (fixed at the lower zone, channels 2-9, 48 semitones).
 - LFO delay / fade per layer (today per LFO, shared by both layers; the format-2 record has room).
-- Sync Clock is the last free button: the internal clock and tap tempo (clock source MIDI / internal / SYNC IN).
+- SYNC IN with a real clock source (2 ppq assumed), and a pulses-per-quarter setting if it isn't.
 - Shift + Arp Up-Dn to swap the two LFOs, Shift + Tune for the last tune's result: not done (LFO 1's routing
   lives in the panel switches, so a swap isn't symmetric; the tune result isn't kept).
 - A converter for the 0.7.x patch records (the backups), if the old sounds are wanted back.

@@ -203,6 +203,12 @@ float lfo_division_quarters(int division) { return divisions[division].quarters;
 
 float lfo_quarter_seconds(void) { return tick_interval > 0 ? tick_interval * TICKS_PER_QUARTER : 0.5f; }
 
+float lfo_beat_phase(void)
+{
+    float q = position / TICKS_PER_QUARTER;
+    return q - (float)(int)q;
+}
+
 _Static_assert(DIVISION_COUNT == LFO_DIVISIONS, "LFO_DIVISIONS");
 
 const char *lfo_shape_name(lfo_shape_t shape) { return shape_names[shape < LFO_SHAPE_COUNT ? shape : 0]; }

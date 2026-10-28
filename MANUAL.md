@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.8.0. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.8.2. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -22,6 +22,7 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
 | Keyboard-tracking switch | Keyboard tracking, as printed: off, half, full. A loaded patch's setting holds until you move the switch. |
 | Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |
+| Sync Clock | The clock: tap the tempo (its LED blinks on the beat of whichever clock is in use), hold it to restart the bar, Shift + press to cycle the clock source. |
 | LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`. |
 | VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. |
 | Seq 1 / Seq 2 | Choose the layer the knobs edit (LED). |
@@ -464,6 +465,21 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 
 When Shift is released the knobs go into pickup, as after loading a patch, so letting go doesn't move anything.
 
+## Clock
+
+Synced LFOs, cycling envelopes and the sequence follow one clock, chosen with Shift + Sync Clock (`nIdI`, `Int`,
+`SYnC`; also the web page's Voice section or `pro800 set clock`), a system setting that survives power-off:
+
+- **MIDI** (the default): MIDI clock, Start, Continue and Song Position as they come, from USB or the 5-pin
+  socket. Without a clock the synced things run at the internal tempo.
+- **Internal**: the firmware's own clock, 30-300 BPM. **Tap Sync Clock** two or more times to set it (`tAP`, then
+  the BPM; the last tap is a beat), or `pro800 set bpm`, or the web page. **Hold Sync Clock** half a second to
+  restart the bar (`StAr`): the next tick is the downbeat, so synced LFOs line up. The tempo is remembered.
+- **SYNC IN**: the rear jack's pulses set the tempo and the phase, two pulses per quarter note (Korg-style). Not
+  yet tried with a real clock source.
+
+The Sync Clock LED blinks on the beat of whichever clock is in use, so a missing MIDI clock shows at once.
+
 ## Settings menu
 
 Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the value, and Settings closes it.
@@ -517,7 +533,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.8.0.syx --yes
+build/pro800 install build/pro800-0.8.2.syx --yes
 ```
 
 ## Updating, recovery and going back to stock
