@@ -220,7 +220,18 @@ void synth_init(void)
 static int one_layer(void) { return layer_mode == LAYER_OFF || layer_mode >= LAYER_VOICE_PER_CHANNEL; }
 static int per_channel(void) { return layer_mode >= LAYER_VOICE_PER_CHANNEL; }
 
-static int layer_of(int voice) { return one_layer() || voice < VOICE_COUNT / 2 ? 0 : 1; }
+// Layer 1's share of the voices in the two-layer modes: 4 + 4, or 7 + 1 (1 + 7) when exactly one layer plays mono or
+// legato without unison, since that layer only ever sounds its first voice (a pad with one arp or lead voice on
+// top). Voice mode, unison and layer mode changes all go through synth_all_off(), so a voice never changes layer
+// while it's gated.
+static int lone_mono(int layer) { return !unison && voice_mode[layer] != VOICE_POLY; }
+static int voice_split(void)
+{
+    int m1 = lone_mono(0), m2 = lone_mono(1);
+    return m1 == m2 ? VOICE_COUNT / 2 : m1 ? 1 : VOICE_COUNT - 1;
+}
+
+static int layer_of(int voice) { return one_layer() || voice < voice_split() ? 0 : 1; }
 
 static void layer_voices(int layer, int *first, int *end)
 {
@@ -228,8 +239,9 @@ static void layer_voices(int layer, int *first, int *end)
         *first = 0;
         *end = VOICE_COUNT;
     } else {
-        *first = layer ? VOICE_COUNT / 2 : 0;
-        *end = layer ? VOICE_COUNT : VOICE_COUNT / 2;
+        int split = voice_split();
+        *first = layer ? split : 0;
+        *end = layer ? VOICE_COUNT : split;
     }
 }
 
@@ -903,6 +915,8 @@ void synth_copy_layer(int from, int to)
     env_cycle[to] = env_cycle[from];
     for (int e = 0; e < 4; e++)
         env_sync[to][e] = env_sync[from][e];
+    if (voice_mode[to] != voice_mode[from])
+        synth_all_off(); // the voice split may change (voice_split())
     voice_mode[to] = voice_mode[from];
     priority[to] = priority[from];
     if (to == edit_layer)

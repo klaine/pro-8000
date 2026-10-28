@@ -89,7 +89,8 @@ web page's MIDI router).
 - **Voice mode** (per layer; Settings key 9 `UOIC`, or the web page): `POLY`, mono (`nono`: one voice, every new
   note retriggers the envelopes) or legato (`LEG`: one voice, retriggers only after all keys are up). Note priority
   (web page): last, low or high note; it also applies to unison, which plays the same line on all the layer's
-  voices.
+  voices. In the two-layer modes, a layer in mono or legato (without unison) takes one voice and the other layer
+  gets the other seven (from 0.8.3; otherwise four each).
 - **Drift** (Settings key 0 `drFt`, 0-99): each voice's pitch (up to 15 cents) and cutoff (up to a semitone) wander
   slowly at random, so stacked notes and unison breathe like an old poly.
 - **Scale** (web page: scale and root): the pitch of each voice, with its common pitch modulation (LFO → Freq, LFO
@@ -136,9 +137,9 @@ Settings → key 3 (`LAYr`) has six modes:
 | Mode | Voices | Notes |
 |---|---|---|
 | `OFF` | Layer 1 on all 8 voices | — |
-| `SPLt` | 4 each | Layer 1 below the split note, layer 2 from it up. Set the note with Settings → key 4, VALUE, or by playing it while that page shows. |
-| `StAC` | 4 each | Both layers on every note. |
-| `CHAn` | 4 each | MIDI channel 2 plays layer 2, every other channel layer 1. |
+| `SPLt` | 4 each (7 + 1 with one layer mono) | Layer 1 below the split note, layer 2 from it up. Set the note with Settings → key 4, VALUE, or by playing it while that page shows. |
+| `StAC` | 4 each (7 + 1 with one layer mono) | Both layers on every note. A sequence on one layer's keys plays that layer while the other plays the keys: a pad with an arpeggio on top. |
+| `CHAn` | 4 each (7 + 1 with one layer mono) | MIDI channel 2 plays layer 2, every other channel layer 1. |
 | `8CH` | Layer 1, one voice per MIDI channel | Channels 1-8 each play one voice, mono, with their own pitch bend (the bend-range setting), pressure and CC 74. Channels 9-16 play nothing. For sequencers that drive eight mono lines. |
 | `nPE` | Layer 1, one voice per member channel | MPE, lower zone: channel 1 is the master (its bend, mod wheel, pressure and pedal reach every voice, its notes play polyphonically), channels 2-9 each play one voice with 48 semitones of bend, their own pressure and CC 74. The usual MPE controller default; the firmware doesn't read the RPNs that change it. |
 
@@ -313,7 +314,10 @@ only plays it.
 - **Timing:** a step lasts a clock division (1/16, 1/8T, …) at the MIDI clock's tempo (120 BPM until a clock
   arrives), or at the sequence's own BPM; swing makes even steps longer and odd ones shorter.
 - **Layers:** the sequence can take keys of both layers, or only those of layer 1 or layer 2. In a split, one hand
-  plays a sequenced bass and the other plays normally.
+  plays a sequenced bass and the other plays normally. In a stack, the sequence plays its layer and the other
+  layer plays the keys as usual (from 0.8.3; before, the other layer stayed silent): for a pad with an arpeggio
+  on top, put the pad on layer 1 (poly), the arp sound on layer 2 in mono, and the sequence on layer 2's keys
+  with an arp mode. The pad then has seven voices and the arp one.
 - **Automation lanes:** up to four, one value per step (−99..+99), optionally gliding from step to step. They're
   mod sources Seq A-D: choose a destination next to each lane (a route at depth 99 on the layer you're editing) or
   route them in the Mod matrix with any depth. Steps and lanes share the space in the sequence's slot: 60 steps

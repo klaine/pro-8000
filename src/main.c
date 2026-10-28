@@ -1852,8 +1852,11 @@ static const struct { uint8_t cc, param; } cc_map[] = {
 // A note let go on `layers` (the pedal's release): the sequence's key, else the engine's
 static void release_key(uint8_t note, int layers)
 {
-    if (layers && !seq_key_off(note, layers))
-        synth_note_off_layers(note, layers);
+    if (!layers)
+        return;
+    int rest = layers & ~seq_key_off(note, layers);
+    if (rest)
+        synth_note_off_layers(note, rest);
 }
 
 // A key let go on a MIDI channel: the pedal holds it on the layers the pedal is down for; in the per-channel modes
@@ -2010,8 +2013,11 @@ static void handle_midi(void)
                 sustained[p[2] & 0x7F] &= (uint8_t)~synth_channel_layers(channel);
                 if (pv >= 0)
                     synth_voice_note_on(pv, p[2], p[3]);
-                else if (!seq_key_on(p[2], p[3], synth_key_layers(p[2], channel)))
-                    synth_note_on(p[2], p[3], channel);
+                else {
+                    int layers = synth_key_layers(p[2], channel), rest = layers & ~seq_key_on(p[2], p[3], layers);
+                    if (rest)
+                        synth_note_on_layers(p[2], p[3], rest);
+                }
             } else
                 key_off(p[2], channel);
             break;

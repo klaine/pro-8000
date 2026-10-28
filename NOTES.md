@@ -1074,6 +1074,24 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   tune column, which match the hardware panel. The macro knobs had been throwing on a missing helper, so their
   values never showed; fixed.
 
+## A pad with an arp on top: the stack-mode key fix and the 7 + 1 voice split (0.8.3, 2026-10-29)
+
+- In stack mode a sequence on one layer's keys took the whole key (`seq_key_on` returned 1 whenever the key reached
+  its layer), so the other layer never played it: the user's P65, a slow pad on layer 1 with the arp on layer 2,
+  played only the arp. `seq_key_on` / `seq_key_off` now return the layers they took and `main.c` plays or releases
+  the rest on the engine. The pedal works per layer as before (a key let go under the pedal on layer 1 releases
+  the sequence's layer 2 at once and layer 1 at the pedal's release). Host test with the engine stubbed: stack
+  on and off, an arp chord, the pedal on one layer, split, the sequence on both layers, the sequence off.
+- `voice_split()` in `synth.c`: in the two-layer modes a layer in mono or legato without unison (which only ever
+  sounds its first voice) gets one voice and the other layer seven; otherwise four each. Every change of voice
+  mode, unison or layer mode goes through `synth_all_off()` (copying a layer now too), so no voice changes layer
+  while gated.
+- Checked on the synth with P65 (recordings at 1-1.5 kHz, above the music the user was playing on top): C#6 held,
+  the note's line reaches −22 dB as the pad opens, against −33 to −52 dB with layer 1 silenced (the arp alone);
+  a held seven-note cluster C6-F#6 with layer 2 mono keeps all seven pad notes at −22 to −29 dB, and with layer 2
+  poly (4 + 4) the first three fall to −33..−86 dB between the arp's visits. Eight voices on the init sound: 2423 µs
+  a pass, the ticks 102 µs (no change). Build 64,352 bytes of 65,536: 1.2 kB left in sector 4.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

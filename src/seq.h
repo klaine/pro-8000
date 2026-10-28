@@ -48,8 +48,10 @@ int seq_max_steps(int lanes); // what fits in SEQ_BYTES
 void seq_clear(void);         // empty and off (the init sound)
 void seq_fix(void);           // clamps the header to what fits
 
-// MIDI keys: 1 if the sequence took the key (the caller doesn't play it). `layers` is where the key would go
-// (synth_key_layers()) for a key-on, and what a key-off may release (synth_channel_layers()).
+// MIDI keys: the layers the sequence took the key for (the caller plays or releases it on the rest; 0: none).
+// `layers` is where the key would go (synth_key_layers()) for a key-on, and what a key-off may release
+// (synth_channel_layers()). A sequence on one layer's keys takes only that layer: in stack mode the other layer
+// plays the key itself.
 int seq_key_on(uint8_t note, uint8_t velocity, int layers);
 int seq_key_off(uint8_t note, int layers);
 void seq_stop(void); // releases what's sounding

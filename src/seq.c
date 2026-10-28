@@ -150,34 +150,35 @@ static void play_step(void)
 
 int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
 {
-    int target = sequence.flags >> SEQ_LAYER_SHIFT & 3;
-    if (!(sequence.flags & SEQ_ENABLED) || (target && !(key_layers & target)))
+    int target = sequence.flags >> SEQ_LAYER_SHIFT & 3, taken = target ? key_layers & target : key_layers;
+    if (!(sequence.flags & SEQ_ENABLED) || !taken)
         return 0;
     if (held_count == HELD_MAX)
-        return 1;
+        return taken;
     held[held_count].note = note;
     held[held_count].velocity = velocity;
-    held[held_count].layers = (uint8_t)key_layers;
+    held[held_count].layers = (uint8_t)taken;
     held_count++;
     base_note = note;
     base_velocity = velocity;
     if (!playing || (sequence.arp && step == 0 && in_step < CHORD_WINDOW_S)) {
         // a chord's notes arrive a few ms apart: an arpeggio restarts its first step until the chord is in
         if (!playing)
-            layers = target ? target : key_layers;
+            layers = taken;
         playing = 1;
         step = 0;
         in_step = 0;
         arp_index = 0;
         play_step();
     }
-    return 1;
+    return taken;
 }
 
 int seq_key_off(uint8_t note, int key_layers)
 {
     for (int i = 0; i < held_count; i++)
         if (held[i].note == note && held[i].layers & key_layers) {
+            int taken = held[i].layers;
             for (int j = i; j < held_count - 1; j++)
                 held[j] = held[j + 1];
             held_count--;
@@ -188,7 +189,7 @@ int seq_key_off(uint8_t note, int key_layers)
                 release();
                 playing = 0;
             }
-            return 1;
+            return taken;
         }
     return 0;
 }

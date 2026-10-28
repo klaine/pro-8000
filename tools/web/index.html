@@ -1999,7 +1999,7 @@ function seqSection() {
       field("Play", pick(["Loop while held", "Once per key"], () => seq.flags & SEQ_ONE_SHOT ? 1 : 0,
         v => { seq.flags = v ? seq.flags | SEQ_ONE_SHOT : seq.flags & ~SEQ_ONE_SHOT; }, "")),
       field("Keys of", pick(["Both layers", "Layer 1", "Layer 2"], () => seq.flags >> 3 & 3, v => { seq.flags = seq.flags & ~0x18 | v << 3; },
-        "which keys start the sequence; it plays on that layer")),
+        "which keys start the sequence; it plays on that layer, and in a stack the other layer plays the keys as usual")),
       field("Step", pick(DIVISIONS, () => seq.division, v => { seq.division = v; }, "the length of a step")),
       flag(SEQ_CLOCK, "MIDI clock", "tempo from MIDI clock (120 BPM until one arrives); off: the BPM here"),
       field("BPM", bpm), field("Swing", swing), field("Length", lengthSel),
