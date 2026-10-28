@@ -676,6 +676,39 @@ settle and 12 us sample. The DAC is rated tens of times faster, so the limit is 
 - If nothing faster works, the next suspects need a scope: SCLK/SDIN edges at U46, and whether anything else
   hangs on PC10 / PB0 / PA15.
 
+## Fixes from a code review (0.7.5, 2026-10-28; built, not flashed)
+
+- Clock: the USB interrupt takes the realtime bytes (`usb_midi_realtime()`) and counts and stamps every timing clock.
+  The stamps were up to a pass late, so the tempo estimate wandered by up to 0.9 %. Ticks could also be lost: the
+  64-packet ring overflowed during Tune, which shifted the grid until the next Start.
+- `clock_update()` (run from LFO 0's update) works out the position from the count and the time since the last tick.
+  It runs whichever LFOs are synced: before, a synced LFO 2 with a free LFO 1 only moved once per tick.
+- After Start, the next clock is the downbeat, tick 0. It used to be tick 1: 21 ms early at 120 BPM.
+- The clock counts as stopped two intervals after its last tick, and the main loop decides that, so the cycle
+  counter's 25.6 s wrap no longer pulls a free-running synced LFO back.
+- The grid-following LFO compared the new grid with the last update's phase and so settled up to a pass (3.4 ms)
+  ahead; now it compares the grid with where the phase lands.
+- `fast_exp2()` returned -inf or huge negatives below -127 (the exponent field wrapped). An envelope step after a
+  stall of 38 ms or more, with a decay under 4 ms, then dropped the VCA to 0, pinned it at full or left it stuck.
+  It's now 0 below -126 and at most 2^127.
+- After Tune (panel or SysEx 75) the ring held only the first packets that came in meanwhile, so note-offs could be
+  missing. They're all dropped now (`usb_midi_flush()`), and the sequence's keys and the sustain pedal let go.
+- Channel mode: a note-off releases only its channel's layer (`synth_note_off_layers()`, `synth_channel_layers()`).
+  The sequence keeps each key's layers and releases only its own notes; sustained keys remember their layers.
+- Checked on the Mac against 0.7.4's sources (real lfo.c, synth.c, seq.c and fastmath.c, hardware stubbed, 120 BPM,
+  3.4 ms passes):
+
+  | Case | 0.7.4 | 0.7.5 |
+  |---|---|---|
+  | LFO 2 at 1/16, LFO 1 free | 102 frozen passes, 15 ms off the grid | none, 0.00 ms |
+  | Both synced | 24.7 ms early on average | 0.00 ms |
+  | After a 2.5 s stall | 59 ms off | 0.00 ms |
+  | Clock stopped, 35 s on | a 62 ms jump at the wrap | none (drifts 19 ms: float position) |
+  | Quarter note estimate | 0.4965-0.5046 s | 0.5000 s |
+  | 38.5 ms stall in a 3 ms decay | VCA at 0 for the rest of the held note | at sustain |
+  | Channel mode, C3 on channels 1 and 2, channel 2 lets go | both stop | channel 1's sounds on |
+  | ... with the sequence on layer 1's C3 | the sequence stops, channel 2's C3 sticks | both right |
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

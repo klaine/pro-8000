@@ -128,6 +128,7 @@ static void make_serial(void)
 #define RX_PACKETS 64
 static uint8_t rx_ring[RX_PACKETS][4];
 static volatile uint32_t rx_head, rx_tail;
+static void (*realtime)(uint8_t status, uint32_t cycles); // realtime bytes, from the interrupt
 
 static uint32_t setup[2];
 static volatile int configured;
@@ -303,6 +304,11 @@ static void read_packet(uint32_t status)
         uint32_t word = FIFO(0);
         if (ep != MIDI_EP || 4 * i + 4 > count || (word & 0x0F) == 0) // skip padding and empty events
             continue;
+        if ((word & 0x0F) == 0xF && (word >> 8 & 0xFF) >= 0xF8) { // single byte, realtime
+            if (realtime)
+                realtime((uint8_t)(word >> 8), DWT_CYCCNT);
+            continue;
+        }
         uint32_t next = (rx_head + 1) % RX_PACKETS;
         if (next == rx_tail)
             continue; // full: drop
@@ -403,6 +409,10 @@ int usb_midi_read(uint8_t packet[4])
     rx_tail = (rx_tail + 1) % RX_PACKETS;
     return 1;
 }
+
+void usb_midi_flush(void) { rx_tail = rx_head; }
+
+void usb_midi_realtime(void (*handler)(uint8_t status, uint32_t cycles)) { realtime = handler; }
 
 int usb_midi_write(const uint8_t *packets, int count)
 {

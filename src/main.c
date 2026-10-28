@@ -927,6 +927,22 @@ static int host_setting_set(int id, int value)
     return 1;
 }
 
+// The sustain pedal, and the keys let go while it was down: the layers each one's note-off releases
+static int sustain, bank;
+static uint8_t sustained[128];
+
+// After tuning (25 s or so) the USB ring holds only the first packets that came in meanwhile, so note-offs may be
+// missing: drop them all, and let go of the keys the sequence holds and of the pedal. (The clock ticks didn't go
+// through the ring.)
+static void drop_stale_midi(void)
+{
+    usb_midi_flush();
+    seq_stop();
+    sustain = 0;
+    for (int n = 0; n < 128; n++)
+        sustained[n] = 0;
+}
+
 static void run_tuning(void)
 {
     synth_all_off();
@@ -934,6 +950,7 @@ static void run_tuning(void)
     display_update();
     tuning_run();
     synth_init();
+    drop_stale_midi();
     display_clear();
 }
 
@@ -1314,6 +1331,7 @@ static void handle_sysex(const uint8_t *message, int length)
         synth_all_off();
         int rows = tuning_run();
         synth_init();
+        drop_stale_midi();
         if (direct_mode)
             sh_set(CV_MASTER_VOL, 0); // otherwise the engine sets it from M VOL
         reply[n++] = 0x76;
@@ -1357,17 +1375,15 @@ static const struct { uint8_t cc, param; } cc_map[] = {
     {31, POT_MASTER_TUNE}, {85, PARAM_ENV3_ATT}, {86, PARAM_ENV3_DEC}, {87, PARAM_ENV3_SUS}, {88, PARAM_ENV3_REL},
     {89, PARAM_ENV4_ATT}, {90, PARAM_ENV4_DEC}, {102, PARAM_ENV4_SUS}, {103, PARAM_ENV4_REL},
 };
-static int sustain, bank;
-static uint8_t sustained[128]; // keys let go while the pedal was down
-
-static void key_off(uint8_t note)
+// A key let go: `layers` are the ones its note-off may release (synth_channel_layers())
+static void key_off(uint8_t note, int layers)
 {
     if (sustain) {
-        sustained[note & 0x7F] = 1;
+        sustained[note & 0x7F] |= (uint8_t)layers;
         return;
     }
-    if (!seq_key_off(note))
-        synth_note_off(note);
+    if (!seq_key_off(note, layers))
+        synth_note_off_layers(note, layers);
 }
 
 static void control_change(uint8_t cc, uint8_t value, int channel)
@@ -1377,8 +1393,9 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
         if (!sustain)
             for (int n = 0; n < 128; n++)
                 if (sustained[n]) {
+                    int layers = sustained[n];
                     sustained[n] = 0;
-                    key_off((uint8_t)n);
+                    key_off((uint8_t)n, layers);
                 }
         return;
     }
@@ -1419,6 +1436,17 @@ static void refresh_cvs(void)
     sh_refresh_global();
 }
 
+// MIDI realtime, straight from the USB interrupt (usb_midi_realtime()): the clock the LFOs and the sequence follow
+static void realtime(uint8_t status, uint32_t cycles)
+{
+    if (status == 0xF8)
+        lfo_clock_tick(cycles);
+    else if (status == 0xFA)
+        lfo_clock_start();
+    else if (status == 0xFC)
+        lfo_clock_stop();
+}
+
 static void handle_midi(void)
 {
     static uint8_t sysex[SYSEX_MAX];
@@ -1436,14 +1464,14 @@ static void handle_midi(void)
                 synth_set_split_note(p[2]);
                 show_setting(PAGE_SPLIT);
             } else if (p[3]) { // the sequence takes the key if it's on for that key's layer
-                sustained[p[2] & 0x7F] = 0;
+                sustained[p[2] & 0x7F] &= (uint8_t)~synth_channel_layers(p[1] & 0x0F);
                 if (!seq_key_on(p[2], p[3], synth_key_layers(p[2], p[1] & 0x0F)))
                     synth_note_on(p[2], p[3], p[1] & 0x0F);
             } else
-                key_off(p[2]);
+                key_off(p[2], synth_channel_layers(p[1] & 0x0F));
             break;
         case 0x8:
-            key_off(p[2]);
+            key_off(p[2], synth_channel_layers(p[1] & 0x0F));
             break;
         case 0xC: // program change: patch n of the bank chosen by bank select (CC 0 / 32: 0 = A, 1 = b)
             if (bank * 100 + p[2] < PATCH_COUNT)
@@ -1467,14 +1495,6 @@ static void handle_midi(void)
             break;
         case 0xA: // poly pressure: the voices playing that note
             synth_poly_pressure(p[2], p[3]);
-            break;
-        case 0xF: // single-byte messages: realtime
-            if (p[1] == 0xF8)
-                lfo_clock_tick(DWT_CYCCNT);
-            else if (p[1] == 0xFA)
-                lfo_clock_start();
-            else if (p[1] == 0xFC)
-                lfo_clock_stop();
             break;
         case 0x4: case 0x5: case 0x6: case 0x7: {
             int n = cin == 0x4 ? 3 : cin - 0x4;
@@ -1540,6 +1560,7 @@ int main(void)
             load_patch(current_patch);
         }
     }
+    usb_midi_realtime(realtime);
     usb_init();
 
     uint32_t last = DWT_CYCCNT;

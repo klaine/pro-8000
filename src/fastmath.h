@@ -3,6 +3,6 @@
 #define FASTMATH_H
 
 float fast_log2(float x); // x > 0
-float fast_exp2(float x); // -126 < x < 128
+float fast_exp2(float x); // 0 below 2^-126, at most 2^127
 
 #endif

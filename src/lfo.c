@@ -1,7 +1,8 @@
-// Clock sync: the interval between timing clocks is averaged, and a position in ticks advances continuously
-// between them (snapped to the count on every tick, and held back from running more than a tick ahead while the
-// clock runs), so the LFO moves smoothly but stays on the grid. Start resets the count, so the phase lines up with
-// the bar. If the clock stops, the LFO carries on at the last tempo.
+// Clock sync: the USB interrupt counts the timing clocks and stamps each with the cycle counter, so none is lost and
+// none is late while the main loop is busy. The interval between them is averaged, and the position in ticks is the
+// count plus the time since the last one (at most a tick ahead), so the LFO moves smoothly but stays on the grid.
+// After Start the next clock is the downbeat, tick 0, so the phase lines up with the bar. If the clock stops, the
+// LFO carries on at the last tempo.
 //
 // Retrigger: the shared phase resets on the first key after all were released, or on every key; in per-voice
 // mode each voice runs its own phase from its note-on. With the clock and no retrigger, the phase follows the
@@ -50,9 +51,12 @@ static struct {
     phase_t shared, voice[VOICE_COUNT];
     float rate; // Hz, from the last lfo_update()
 } lfos[LFO_COUNT];
-static uint32_t ticks, last_tick;
-static float tick_interval; // seconds; 0 until two ticks have arrived
-static float position;       // in ticks, continuous
+// written by the USB interrupt (lfo_clock_tick(), lfo_clock_start()), read by the main loop (clock_update())
+static volatile uint32_t ticks, last_tick, starts; // ticks: timing clocks since Start, 0 = the downbeat is next
+static volatile float tick_interval;               // seconds; 0 until two ticks have arrived
+static uint32_t seen_ticks, seen_starts;
+static int clock_running;
+static float position; // in ticks from the downbeat, continuous
 static uint32_t random_state = 0x9E3779B9u;
 
 static float random_value(void) // xorshift32, -1..1
@@ -96,18 +100,44 @@ void lfo_clock_tick(uint32_t cycles)
     }
     last_tick = cycles;
     ticks++;
-    position = (float)ticks;
 }
 
 void lfo_clock_start(void)
 {
-    ticks = 0;
-    position = 0;
-    for (int i = 0; i < LFO_COUNT; i++)
-        lfos[i].shared.phase = 0;
+    ticks = 0; // the next timing clock is the downbeat
+    starts++;  // clock_update() resets the phases
 }
 
 void lfo_clock_stop(void) {}
+
+// Once per update (from LFO 0's, whichever LFOs are synced): the position from the interrupt's count and the time
+// since the last tick. The clock counts as stopped two intervals after its last tick, which the main loop sees long
+// before the cycle counter wraps; then the position carries on at the last tempo.
+static void clock_update(float dt)
+{
+    uint32_t stamp, count;
+    do {
+        stamp = last_tick;
+        count = ticks;
+    } while (stamp != last_tick); // a tick came in between
+    if (starts != seen_starts) {
+        seen_starts = starts;
+        position = 0;
+        for (int i = 0; i < LFO_COUNT; i++)
+            lfos[i].shared.phase = 0;
+    }
+    float interval = tick_interval, since = (float)(DWT_CYCCNT - stamp) / (float)system_hz;
+    if (count != seen_ticks) {
+        seen_ticks = count;
+        clock_running = 1;
+    } else if (since > 2 * interval) {
+        clock_running = 0;
+    }
+    if (clock_running) // before the downbeat (count 0) it waits on it
+        position = count ? (float)(count - 1) + (since < interval ? since / interval : 1.0f) : 0;
+    else if (interval > 0)
+        position += dt / interval;
+}
 
 float lfo_rate_hz(float knob) { return 0.05f * fast_exp2(knob * 10.0f); }
 
@@ -138,36 +168,29 @@ void lfo_note_on(int lfo, int voice, int first)
 void lfo_update(int lfo, float dt, float knob, float octaves)
 {
     int which = lfo / 2;
-    int synced = lfo_sync[which] == LFO_SYNC_CLOCK && tick_interval > 0;
+    if (lfo == 0)
+        clock_update(dt);
+    float interval = tick_interval;
+    int synced = lfo_sync[which] == LFO_SYNC_CLOCK && interval > 0;
     float quarters = divisions[lfo_division(knob)].quarters;
-    float rate;
-    if (synced) {
-        rate = 1.0f / (tick_interval * TICKS_PER_QUARTER * quarters);
-        if (lfo == 0) { // the clock position advances once per update
-            float since_tick = (float)(DWT_CYCCNT - last_tick) / (float)system_hz;
-            position += dt / tick_interval;
-            if (since_tick < 2 * tick_interval && position > (float)ticks + 1)
-                position = (float)ticks + 1; // clock running: don't get ahead of the next tick
-        }
-    } else {
-        rate = lfo_rate_hz(knob);
-    }
+    float rate = synced ? 1.0f / (interval * TICKS_PER_QUARTER * quarters) : lfo_rate_hz(knob);
     lfos[lfo].rate = rate;
 
     phase_t *p = &lfos[lfo].shared;
     if (synced && lfo_trigger[which] == LFO_TRIGGER_FREE) { // on the grid
         float cycles = position / (TICKS_PER_QUARTER * quarters);
         float grid = cycles - (float)(int)cycles;
-        float error = grid - p->phase; // -0.5..0.5 of a cycle
-        error -= error > 0.5f ? 1.0f : error < -0.5f ? -1.0f : 0.0f;
+        float step = rate * dt;
+        float error = grid - (p->phase + step); // against where the phase lands now, else it settles a pass ahead
+        error -= error > 0.5f ? 1.0f : error < -0.5f ? -1.0f : 0.0f; // -0.5..0.5 of a cycle
         if (octaves > RATE_MOD_THRESHOLD || octaves < -RATE_MOD_THRESHOLD) {
-            advance(p, rate * dt * fast_exp2(octaves)); // swept: smoothly off the grid
+            advance(p, step * fast_exp2(octaves)); // swept: smoothly off the grid
         } else if (error < 0.002f && error > -0.002f) {
             if (grid < p->phase - 0.5f)
                 new_cycle(p);
             p->phase = grid;
         } else {
-            advance(p, rate * dt * (1.0f + REGRID_PULL * error)); // back onto the grid, about a cycle
+            advance(p, step * (1.0f + REGRID_PULL * error)); // back onto the grid, about a cycle
         }
     } else {
         advance(p, rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f));

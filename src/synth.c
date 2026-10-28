@@ -758,9 +758,13 @@ void synth_note_on(uint8_t note, uint8_t velocity, int channel)
     synth_note_on_layers(note, velocity, synth_key_layers(note, channel));
 }
 
-void synth_note_off(uint8_t note)
+int synth_channel_layers(int channel) { return layer_mode != LAYER_CHANNEL ? 3 : channel == 1 ? 2 : 1; }
+
+void synth_note_off_layers(uint8_t note, int layers)
 {
     for (int layer = 0; layer < LAYERS; layer++) {
+        if (!(layers >> layer & 1) || (layer && layer_mode == LAYER_OFF))
+            continue; // (with layers off, layer 1 has every voice)
         int first, end;
         layer_voices(layer, &first, &end);
         if (mono(layer)) {

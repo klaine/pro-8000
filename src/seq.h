@@ -49,9 +49,9 @@ void seq_clear(void);         // empty and off (the init sound)
 void seq_fix(void);           // clamps the header to what fits
 
 // MIDI keys: 1 if the sequence took the key (the caller doesn't play it). `layers` is where the key would go
-// (synth_key_layers()).
+// (synth_key_layers()) for a key-on, and what a key-off may release (synth_channel_layers()).
 int seq_key_on(uint8_t note, uint8_t velocity, int layers);
-int seq_key_off(uint8_t note);
+int seq_key_off(uint8_t note, int layers);
 void seq_stop(void); // releases what's sounding
 void seq_update(float dt);
 float seq_lane(int lane); // -1..1 while playing, else 0

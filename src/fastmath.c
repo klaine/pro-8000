@@ -17,9 +17,15 @@ float fast_log2(float x)
     return (float)exponent + 2.0f * series * 1.44269504f;
 }
 
-// Integer part into the exponent bits, fraction (in [-0.5, 0.5]) by a Taylor series of e^(f·ln 2).
+// Integer part into the exponent bits, fraction (in [-0.5, 0.5]) by a Taylor series of e^(f·ln 2). Outside
+// -126..127 the exponent field would wrap (-128 gave -inf, -166 a huge negative), so below it's 0 and above 2^127:
+// an envelope's step over a long pass, dt × rate, can reach -166.
 float fast_exp2(float x)
 {
+    if (x < -126.0f)
+        return 0;
+    if (x > 127.0f)
+        x = 127.0f;
     int whole = (int)(x >= 0 ? x + 0.5f : x - 0.5f);
     float f = (x - (float)whole) * 0.69314718f;
     float frac = 1.0f + f * (1.0f + f * (0.5f + f * (1.0f / 6 + f * (1.0f / 24 + f * (1.0f / 120 + f * (1.0f / 720))))));

@@ -22,7 +22,10 @@ void synth_note_on(uint8_t note, uint8_t velocity, int channel); // channel 0-15
 // The layers (bit 0 layer 1, bit 1 layer 2) a key would play, and playing a note on given layers (the sequencer).
 int synth_key_layers(uint8_t note, int channel);
 void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers);
-void synth_note_off(uint8_t note);
+// A note-off on given layers, and the layers a note-off on `channel` releases: the channel's layer in channel mode,
+// else both (a key's voices stay on the layer they started on, wherever the split is now).
+void synth_note_off_layers(uint8_t note, int layers);
+int synth_channel_layers(int channel);
 void synth_all_off(void);
 void synth_pitch_bend(int value);   // 14-bit, centre 8192
 void synth_mod_wheel(uint8_t value); // 0-127, adds LFO depth (and is a mod source)

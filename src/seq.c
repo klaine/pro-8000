@@ -12,7 +12,7 @@
 sequence_t sequence;
 
 static struct {
-    uint8_t note, velocity;
+    uint8_t note, velocity, layers; // layers: where the key would have played (synth_key_layers())
 } held[HELD_MAX]; // keys the sequence took, the latest last
 static int held_count;
 static int playing, step, layers, sounding = -1, tied, ratchet, skipped, arp_index;
@@ -68,7 +68,7 @@ void seq_clear(void)
 static void release(void)
 {
     if (sounding >= 0)
-        synth_note_off((uint8_t)sounding);
+        synth_note_off_layers((uint8_t)sounding, layers);
     sounding = -1;
     tied = 0;
 }
@@ -126,7 +126,7 @@ static void play_note(int retrigger)
         int previous = sounding;
         synth_note_on_layers((uint8_t)note, velocity, layers);
         if (previous >= 0 && previous != note)
-            synth_note_off((uint8_t)previous); // after the new note: legato when tied
+            synth_note_off_layers((uint8_t)previous, layers); // after the new note: legato when tied
         sounding = note;
     }
 }
@@ -157,6 +157,7 @@ int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
         return 1;
     held[held_count].note = note;
     held[held_count].velocity = velocity;
+    held[held_count].layers = (uint8_t)key_layers;
     held_count++;
     base_note = note;
     base_velocity = velocity;
@@ -173,10 +174,10 @@ int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
     return 1;
 }
 
-int seq_key_off(uint8_t note)
+int seq_key_off(uint8_t note, int key_layers)
 {
     for (int i = 0; i < held_count; i++)
-        if (held[i].note == note) {
+        if (held[i].note == note && held[i].layers & key_layers) {
             for (int j = i; j < held_count - 1; j++)
                 held[j] = held[j + 1];
             held_count--;
