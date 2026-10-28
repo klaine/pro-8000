@@ -745,7 +745,8 @@ From a second review, each point checked against the code first.
 - Song Position Pointer (USB CIN 3, and parsed in the DIN interrupt; both drivers' clock handler now takes a data
   word) and Continue: the count resumes at the song position, or where the clock stopped. After Start or Continue the
   LFOs on the grid hold where the next clock lands, for two intervals at most (in case no clock follows): before, a
-  synced LFO ran on while it waited and then slid back.
+  synced LFO ran on while it waited and then slid back. (Fixed after the review: the window is one-shot. It used to be
+  judged from the elapsed cycles alone, and with no clock following a Start the cycle counter's 25 s wrap reopened it.)
 - `CLoC` before any clock runs its division at 120 BPM (`lfo_quarter_seconds()`), as the cycling envelopes and the
   sequence do. It ran free at the knob read as Hz, while the display showed a division.
 - Stepped knobs (FREQ A / B; LFO FREQ while its LFO is synced): `synth_knob_snap()` changes the step only a quarter

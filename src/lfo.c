@@ -63,6 +63,7 @@ static volatile uint8_t waiting, song_set;
 static volatile float tick_interval; // seconds; 0 until two ticks have arrived
 static uint32_t seen_ticks, seen_starts, seen_jumps, wait_began;
 static int clock_running, hold; // hold: after Start or Continue, the LFOs on the grid wait where the next clock lands
+static int wait_open;           // the hold window since the last Start or Continue hasn't expired yet
 static float position;          // in ticks from the downbeat, continuous, modulo LOOP_TICKS
 static uint32_t random_state = 0x9E3779B9u;
 
@@ -147,8 +148,10 @@ static void clock_update(float dt)
         count = ticks;
         wait = waiting;
     } while (stamp != last_tick || count != ticks); // a tick or a Start came in between
-    if (starts != seen_starts || jumps != seen_jumps)
+    if (starts != seen_starts || jumps != seen_jumps) {
         wait_began = DWT_CYCCNT;
+        wait_open = 1;
+    }
     if (starts != seen_starts)
         for (int i = 0; i < LFO_COUNT; i++)
             lfos[i].shared.phase = 0;
@@ -161,8 +164,12 @@ static void clock_update(float dt)
     } else if (since > 2 * interval) {
         clock_running = 0;
     }
-    // after Start or Continue, wait where the next clock lands (two intervals at most, in case none comes)
-    hold = wait && (float)(DWT_CYCCNT - wait_began) / (float)system_hz < 2 * interval;
+    // after Start or Continue, wait where the next clock lands (two intervals at most, in case none comes). The window
+    // closes for good once it has expired: `waiting` stays set until a clock comes, and the cycle counter wraps every
+    // 25 s, so the elapsed time alone would open it again.
+    if (wait_open && (float)(DWT_CYCCNT - wait_began) / (float)system_hz >= 2 * interval)
+        wait_open = 0;
+    hold = wait && wait_open;
     if (hold)
         position = (float)(count % LOOP_TICKS);
     else if (clock_running && count)
