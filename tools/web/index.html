@@ -48,6 +48,11 @@
   #scr-top { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; opacity: .7; }
   #scr-big { font-size: 19px; font-weight: 600; letter-spacing: .03em; margin: 1px 0; }
   #scr-sub { font-size: 10px; opacity: .55; }
+  #scr-big.renamable { cursor: text; }
+  #scr-big.renamable:hover { text-decoration: underline dotted; text-underline-offset: 4px; }
+  #scr-editrow:not([hidden]) { display: flex; gap: 12px; align-items: baseline; margin: 1px 0; font-size: 19px; font-weight: 600; letter-spacing: .03em; }
+  #scr-edit { flex: 1; min-width: 0; padding: 0; border: 0; border-bottom: 1px dashed currentColor; border-radius: 0; background: none;
+              color: inherit; font: inherit; letter-spacing: inherit; text-shadow: inherit; outline: none; }
   .hdr-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   #status { color: var(--dim); font-size: 12px; max-width: 280px; }
   #status.ok { color: var(--ok); }
@@ -135,6 +140,7 @@
   .face .env-tools select { padding: 2px 5px; font-size: 11px; background: #0b0b0c; }
   .face .env-tools .chip { padding: 2px 7px; font-size: 10.5px; white-space: nowrap; }
   .ps-amp > .pflex { flex: 1; }
+  .face .ps-flt > canvas.viz.flt { flex: none; width: calc(100% - 8px); min-width: 0; height: 58px; align-self: center; margin: 2px 0 0; }
   .ps-flt { flex-direction: column; align-items: stretch; justify-content: space-around; }
   .prow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; align-items: end; gap: 2px; }
   .grp { display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
@@ -387,7 +393,7 @@
 <body class="offline">
 <header>
   <div class="brand"><span class="logo">PRO·800</span><span class="tagline">custom firmware</span></div>
-  <div class="screen" aria-live="polite"><div id="scr-top">pro 800</div><div id="scr-big">not connected</div><div id="scr-sub"></div></div>
+  <div class="screen" aria-live="polite"><div id="scr-top">pro 800</div><div id="scr-big">not connected</div><div id="scr-editrow" hidden><span id="scr-label"></span><input id="scr-edit" maxlength="16" spellcheck="false" autocomplete="off" aria-label="Patch name" placeholder="(no name)"></div><div id="scr-sub"></div></div>
   <div class="hdr-group" id="layers">
     <button type="button" class="led" data-v="0" title="edit layer 1 (Seq 1 on the panel)"><i class="lamp"></i><span>Layer 1</span></button>
     <button type="button" class="led" data-v="1" title="edit layer 2 (Seq 2 on the panel)"><i class="lamp"></i><span>Layer 2</span></button>
@@ -599,7 +605,7 @@
   <section>
     <h2>Patches</h2>
     <p class="hint">128 patches (P1-P128, program change 0-127), each with its own sequence. Saving takes the sound as it is now on the synth.
-      Names travel with the sound; rename by typing in the name and pressing Enter. Export saves one patch as a
+      Names travel with the sound; rename by typing in the name and pressing Enter (or click the loaded patch's name on the screen at the top). Export saves one patch as a
       256-byte .p8p file, which Import writes back into any slot.</p>
     <div class="row">
       <button id="scan">Rescan</button>
@@ -1243,10 +1249,15 @@ const svgEl = (tag, attrs = {}) => {
 // --- the screen: the last control touched, else the patch ---
 let touched = null, touchedAt = 0, patchName = "", patchNameFor = -1;
 function touch(label, value) { touched = { label, value }; touchedAt = Date.now(); paintAll(); }
+let renaming = false; // the screen's name field is open
 paints.push(() => {
   const top = document.getElementById("scr-top"), big = document.getElementById("scr-big"), sub = document.getElementById("scr-sub");
   const patch = settings ? (settings.presetMode ? `${slotLabel(settings.patch)}${patchName ? "  " + patchName : ""}` : "manual (panel live)") : "";
-  if (touched && Date.now() - touchedAt < 2500) {
+  const showing = !(touched && Date.now() - touchedAt < 2500);
+  big.classList.toggle("renamable", !!(settings && settings.presetMode && showing));
+  big.title = settings && settings.presetMode ? "click to rename this patch" : "";
+  if (renaming) return;
+  if (!showing) {
     top.textContent = `layer ${paramsLayer + 1}`;
     big.textContent = `${touched.label}  ${touched.value}`;
     sub.textContent = patch;
@@ -1257,6 +1268,33 @@ paints.push(() => {
   }
 });
 setInterval(() => { if (touched && Date.now() - touchedAt >= 2500 && Date.now() - touchedAt < 3500) paintAll(); }, 500);
+// Rename the loaded patch on the screen: click its name, type, Enter or click away to save, Escape to leave it
+{
+  const big = document.getElementById("scr-big"), row = document.getElementById("scr-editrow");
+  const field = document.getElementById("scr-edit"), label = document.getElementById("scr-label");
+  let slot = -1, cancelled = false;
+  const close = () => { renaming = false; row.hidden = true; big.hidden = false; paintAll(); };
+  big.addEventListener("click", () => {
+    if (renaming || !settings || !settings.presetMode || offline()) return;
+    slot = settings.patch; cancelled = false; renaming = true;
+    label.textContent = slotLabel(slot); field.value = patchName;
+    big.hidden = true; row.hidden = false; field.focus(); field.select();
+  });
+  field.addEventListener("keydown", e => {
+    if (e.key === "Enter") field.blur();
+    else if (e.key === "Escape") { cancelled = true; field.blur(); }
+  });
+  field.addEventListener("blur", async () => {
+    if (!renaming) return;
+    const name = field.value.trim();
+    if (cancelled || name === patchName) { close(); return; }
+    const ok = await renameSlot(slot, name);
+    if (ok && settings && settings.patch === slot) patchName = name;
+    const status = document.getElementById("status");
+    status.textContent = ok ? `Renamed ${slotLabel(slot)} to “${name || "(no name)"}”` : "Renaming failed"; status.className = ok ? "ok" : "bad";
+    close();
+  });
+}
 
 // --- sending a parameter: the model changes at once, the synth gets it throttled ---
 const editedAt = {}, sendTimers = {};
@@ -2150,11 +2188,11 @@ function buildPanel() {
         panelLever(10, "LFO → Filter", { top: "FILTER" }))),
     ps("glide", "", knob(P.GLIDE, "Glide")),
     ps("flt", "Filter",
-      pflex(prow(knob(P.CUTOFF, "Cutoff"), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Envelope amount"),
+      viz("flt", drawFilter),
+      prow(knob(P.CUTOFF, "Cutoff"), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Envelope amount"),
         lever3("Keyboard tracking", ["FULL", "HALF", "OFF"], () => settings ? 2 - settings.keytrack : undefined, k => {
           touch("Keyboard tracking", ["Off", "Half", "Full"][2 - k]); setSetting(SET_ID.keytrack, 2 - k);
         }, "how far the cutoff follows the key; on the synth, the switch (a loaded patch's value holds until it moves)")),
-        viz("flt", drawFilter)),
       h("div", { class: "grp" },
         pflex(prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))),
           h("div", { class: "env-side" }, viz("env", (g, w, ht) => drawEnv(selectedEnv()[1])(g, w, ht)), envTools(selectedEnv))),
@@ -2484,8 +2522,11 @@ function paintSlots() {
 async function refreshSlot(n) { const info = await slotInfo(n); if (info) slots[n] = info; paintSlots(); }
 async function renameSlot(n, name) {
   const bytes = Array.from(name.slice(0, 16)).map(c => c.charCodeAt(0)).filter(c => c >= 0x20 && c < 0x7F);
-  result("patch-msg", await ack([0x59, n >> 7, n & 0x7F, ...bytes], 3000), `renamed ${slotLabel(n)}`, "rename failed");
+  const ok = await ack([0x59, n >> 7, n & 0x7F, ...bytes], 3000);
+  result("patch-msg", ok, `renamed ${slotLabel(n)}`, "rename failed");
+  if (ok && settings && settings.presetMode && settings.patch === n) patchName = name.slice(0, 16);
   refreshSlot(n);
+  return ok;
 }
 async function readBytes(address, count) {
   const out = [];
