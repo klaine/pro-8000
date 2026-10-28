@@ -1015,7 +1015,7 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 
 ## Modulation range arcs on the web page's knobs (2026-10-28)
 
-- `dial()` draws an arc (`.k-mod`, radius 19.4 between the grip and the scale) from `modRange(knob)`: the edit
+- `dial()` draws an arc (`.k-mod`, radius 22.2, under the tick scale, 3.2 wide) from `modRange(knob)`: the edit
   layer's routes into that knob's destination, each route's full-depth swing scaled to the knob's own range
   (`DEST_SCALE`: pitch 24 of 72 semitones with the squared depth, cutoff 96 of 120, PW 0.5, LFO rates and glide
   4 of 10 octaves, envelope stages 4 of 12, the rest the full travel), summed; sources that swing either side of

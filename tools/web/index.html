@@ -156,7 +156,7 @@
               box-shadow: 0 0 0 2px #3a2606, 0 0 0 3px #e39a1c; }
   .k-ptr { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
   /* the modulation range: an arc just inside the scale, in the panel's red */
-  .k-mod { fill: none; stroke: #ff4a36; stroke-opacity: .75; stroke-width: 2; stroke-linecap: round; }
+  .k-mod { fill: none; stroke: #ff4a36; stroke-opacity: .9; stroke-width: 3.2; stroke-linecap: round; }
   .knob.shared .k-mod { stroke: #ffb347; }
   .knob .dial:hover .k-grip, .knob .dial.active .k-grip, .knob .dial:focus-visible .k-grip { stroke: #56565c; }
   .knob .dial:focus-visible { outline-offset: -2px; }
@@ -1317,7 +1317,7 @@ function dial(scale) {
     // the range the mod routes can move the value over: lo..hi in knob units around u (none: hidden)
     range: (u, lo, hi) => {
       const a = Math.max(0, u - lo), b = Math.min(1, u + hi);
-      ring.setAttribute("d", b - a > 0.002 ? arc(a, b, 19.4) : "");
+      ring.setAttribute("d", b - a > 0.002 ? arc(a, b, 22.2) : "");
     },
   };
 }
