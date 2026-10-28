@@ -853,6 +853,13 @@ From a second review, each point checked against the code first.
   about 0.3 ms a pass with eight voices; the 8th-pass refresh of idle voices (the "longest pass") could be spread
   over passes too.
 - The longest-pass figures above are the every-8th pass that refreshes idle voices plus a display write.
+- 0.7.2 measured the same way (flashed back for it, then 0.7.8 again; each boot re-tuned): idle engine 221 µs,
+  refresh 845 µs, 1416 µs a pass on average, longest 5339 µs; eight voices engine 246 µs, refresh 3290 µs, pass
+  3542-3586 µs, 3663 on average, longest 5417 µs, 273 passes a second. Everything moved once a pass then. So
+  against the firmware the synth ran before today: idle 1416 → 1044 µs, eight voices 3663 → 2935 µs; the VCAs move
+  every 0.73 ms instead of every 3.7 (5×), the cutoffs every 1.5 ms (2.5×), the LFOs and fast routes every tick,
+  and pitch and MIDI once a 2.9 ms pass instead of a 3.7 ms one. (The 2.3 ms pass of 0.5.6 in the notes above
+  predates the sequencer, the second LFO and the 0.7.x engine.)
 
 ## Backlog
 
