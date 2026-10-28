@@ -145,15 +145,15 @@
   .k-scale text.on { fill: #ff4a36; }
   .k-grip { fill: #070708; stroke: #35353a; stroke-width: 3; stroke-dasharray: 1.3 1.25; }
   .k-cap { fill: url(#k-cap-fill); stroke: #000; stroke-width: .6; }
-  /* grey knobs: parameters both layers share (one wire on the voice board, or one panel control) */
-  .knob.shared .k-grip { fill: #3c3d42; stroke: #8b8c93; }
+  /* amber knobs: parameters both layers share (one wire on the voice board, or one panel control) */
+  .knob.shared .k-grip { fill: #3a2606; stroke: #e39a1c; }
   .knob.shared .k-cap { fill: url(#k-cap-shared); }
-  .knob.shared .k-ptr { stroke: #0b0b0c; }
-  .knob.shared .dial:hover .k-grip, .knob.shared .dial.active .k-grip, .knob.shared .dial:focus-visible .k-grip { stroke: #b3b4ba; }
+  .knob.shared .k-ptr { stroke: #140c00; }
+  .knob.shared .dial:hover .k-grip, .knob.shared .dial.active .k-grip, .knob.shared .dial:focus-visible .k-grip { stroke: #ffc35a; }
   .legend { display: flex; align-items: center; gap: 6px; color: var(--silk); font: 800 9px/1 var(--sans); letter-spacing: .06em;
             text-transform: uppercase; white-space: nowrap; }
-  .legend i { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 42% 34%, #a3a4a9, #55565b 70%);
-              box-shadow: 0 0 0 2px #3c3d42, 0 0 0 3px #8b8c93; }
+  .legend i { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 42% 34%, #ffd27a, #d98a10 70%);
+              box-shadow: 0 0 0 2px #3a2606, 0 0 0 3px #e39a1c; }
   .k-ptr { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
   .knob .dial:hover .k-grip, .knob .dial.active .k-grip, .knob .dial:focus-visible .k-grip { stroke: #56565c; }
   .knob .dial:focus-visible { outline-offset: -2px; }
@@ -376,14 +376,14 @@
 <div class="panel" id="tab-sound">
   <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
     <radialGradient id="k-cap-fill" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#2e2e31"/><stop offset="1" stop-color="#09090a"/></radialGradient>
-    <radialGradient id="k-cap-shared" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#a3a4a9"/><stop offset="1" stop-color="#55565b"/></radialGradient>
+    <radialGradient id="k-cap-shared" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#ffd27a"/><stop offset="1" stop-color="#c97a08"/></radialGradient>
   </defs></svg>
   <div class="synth" id="synth"></div>
   <p class="hint" style="margin-top:14px">Drag a knob up and down (shift: fine), or click it and use the scroll
     wheel or arrow keys; double-click resets it. The page follows the synth about once a second, and moving a control here puts that
     knob in pickup on the panel, as loading a patch does. Switches show the panel buttons as the sound uses them; a
     click holds the state until you press that button on the panel. Knobs, depth bars and the mod matrix edit the
-    layer you're editing (Layer 1 / 2 at the top). Grey knobs are shared by both layers.</p>
+    layer you're editing (Layer 1 / 2 at the top). Amber knobs are shared by both layers.</p>
 </div>
 
 <div class="panel" id="tab-device">
@@ -1274,23 +1274,27 @@ function dial(scale) {
 }
 
 // A rotary knob for parameter i
+// A rotary knob for parameter i, or for whichever parameter i() names now (the faceplate's filter ADSR follows the
+// envelope switch); scale, colour and defaults come from the first one
 function knob(i, text) {
-  const d = dial(BIPOLAR.has(i) ? "bi" : "uni");
+  const I = typeof i === "function" ? i : () => i, i0 = I();
+  const d = dial(BIPOLAR.has(i0) ? "bi" : "uni");
   const val = h("span", { class: "val" }, "–");
-  const dl = h("div", { class: "dial", role: "slider", "aria-label": NAMES[i] || text }, d.svg);
+  const dl = h("div", { class: "dial", role: "slider", "aria-label": NAMES[i0] || text }, d.svg);
   const lbl = h("span", { class: "lbl" }, text);
-  const e = h("div", { class: "knob" + (SHARED.has(i) ? " shared" : ""), title: (NAMES[i] || text) + (SHARED.has(i) ? " (shared by both layers)" : "") },
+  const e = h("div", { class: "knob" + (SHARED.has(i0) ? " shared" : ""), title: (NAMES[i0] || text) + (SHARED.has(i0) ? " (shared by both layers)" : "") },
     dl, lbl, val);
-  adjustable(dl, () => params ? params[i] : 0, v => { setParam(i, v); paintAll(); },
-    () => { if (i in DEFAULTS) { setParam(i, DEFAULTS[i]); paintAll(); } });
-  dl.addEventListener("focus", () => params && touch(label(i), format(i, params[i])));
+  adjustable(dl, () => params ? params[I()] : 0, v => { setParam(I(), v); paintAll(); },
+    () => { if (I() in DEFAULTS) { setParam(I(), DEFAULTS[I()]); paintAll(); } });
+  dl.addEventListener("focus", () => params && touch(label(I()), format(I(), params[I()])));
   paints.push(() => {
     if (!params) return;
-    const u = params[i];
+    const n = I(), u = params[n];
     d.turn(u);
-    val.textContent = format(i, u);
+    val.textContent = format(n, u);
     dl.setAttribute("aria-valuetext", val.textContent);
-    if (ENV_KNOB[i]) { const [bit, stage] = ENV_KNOB[i]; lbl.firstChild.textContent = (cycling(bit) ? CYCLE_LABELS : ADSR_LABELS)[stage]; }
+    if (typeof i === "function") e.title = label(n);
+    if (ENV_KNOB[n]) { const [bit, stage] = ENV_KNOB[n]; lbl.firstChild.textContent = (cycling(bit) ? CYCLE_LABELS : ADSR_LABELS)[stage]; }
   });
   return e;
 }
@@ -1551,8 +1555,8 @@ function envSection(env) {
     await setSetting(SET_ID[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`], v >= 2 ? v - 1 : 0);
     await setSetting(SET_ID[key], v ? bits | bit : bits & ~bit);
   }, "ADSR, or cycling while a key is held: attack, hold, fall, rest; synced cycles share a clock division");
-  const note = h("span", { class: "dim small" }, bit < 4 ? `knobs: ${bit === 2 ? "Filter" : "Amplifier"} on the panel above` :
-    `on the synth: the filter ADSR knobs, with the keytrack switch ${bit === 4 ? "in the middle" : "up"}`);
+  const note = h("span", { class: "dim small" }, bit === 1 ? "knobs: Amplifier on the panel above" :
+    `knobs: Filter on the panel above, Env select ${bit === 2 ? "down" : bit === 4 ? "in the middle" : "up"}`);
   return sec(`env${envIndex(bit)}`, title,
     h("div", { class: "sec-tools" }, mode, copyButton(`copy this envelope from the other layer`, () => copyEnvelope(bit, title))),
     viz("env", drawEnv(bit)),
@@ -1945,6 +1949,7 @@ function mutateControls() {
   return [h("button", { type: "button", class: "chip", title: "nudge every knob of the layer you're editing at random (not saved until you save)", onclick: go }, "Mutate"), amount];
 }
 
+const ENV_SELECT_NAMES = ["Filter envelope", "Env 3", "Env 4"];
 const LFO_SHAPE_NAMES = [["TRI", "Triangle"], ["SQR", "Square"], ["UP", "Ramp up"], ["DN", "Ramp down"], ["SIN", "Sine"],
   ["S&H", "Sample & hold"], ["DRF", "Drift"], ["STP", "Steps"]];
 function buildPanel() {
@@ -1958,6 +1963,17 @@ function buildPanel() {
   const power = h("div", { class: "power", title: "lit while the page talks to the synth" }, h("i"), "POWER");
   paints.push(() => power.classList.toggle("on", !offline()));
   const lfoShape = () => settings ? settings[`shape${paramsLayer + 1}1`] : undefined;
+  // The filter ADSR knobs edit the filter envelope, Env 3 or Env 4, as the synth's keyboard-tracking switch says. The
+  // host can't move that switch, so a pick here holds until the switch moves.
+  let envPicked = null, envSeen = null;
+  const envSelect = () => {
+    if (!settings) return 0;
+    if (settings.envSelect !== envSeen) { envSeen = settings.envSelect; envPicked = null; }
+    return envPicked ?? settings.envSelect;
+  };
+  const envSelectKnobs = () => ENVS[[0, 2, 3][envSelect()]].slice(2);
+  const envCaption = h("div", { class: "cap" }, "Filter envelope");
+  paints.push(() => { envCaption.textContent = ENV_SELECT_NAMES[envSelect()]; });
   // the faceplate, as on the synth
   face.append(
     h("div", { class: "brandplate" },
@@ -1990,9 +2006,11 @@ function buildPanel() {
     ps("glide", "", knob(P.GLIDE, "Glide")),
     ps("flt", "Filter",
       prow(knob(P.CUTOFF, "Cutoff"), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Envelope amount"),
-        lever3("Keyboard", ["FULL", "1/2", "OFF"], () => settings ? 2 - settings.keytrack : undefined,
-          k => setSetting(SET_ID.keytrack, 2 - k), "filter keytracking")),
-      prow(knob(P.FIL_ATT, "Attack"), knob(P.FIL_DEC, "Decay"), knob(P.FIL_SUS, "Sustain"), knob(P.FIL_REL, "Release"))),
+        lever3("Env select", ["ENV 4", "ENV 3", "FILTER"], () => settings ? 2 - envSelect() : undefined, k => {
+          envPicked = 2 - k; touch("Filter ADSR knobs", ENV_SELECT_NAMES[envPicked]); paintAll();
+        }, "what the four ADSR knobs below edit; on the synth, the keyboard-tracking switch (a click here holds until you move it)")),
+      h("div", { class: "grp" },
+        prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))), envCaption)),
     h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Master tune"), power),
     ps("amp", "Amplifier", knob(P.AMP_ATT, "Attack"), knob(P.AMP_DEC, "Decay"), knob(P.AMP_SUS, "Sustain"), knob(P.AMP_REL, "Release")),
     h("div", { class: "loose loose-vol" }, knob(P.VOL, "Volume")));
@@ -2013,6 +2031,8 @@ function buildPanel() {
         () => settings && settings.layers, v => setSetting(SET_ID.layers, v)),
       settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
         () => settings && settings.split, v => setSetting(SET_ID.split, v)),
+      settingSelect("Filter keytracking", ["Off", "Half", "Full"], () => settings && settings.keytrack, v => setSetting(SET_ID.keytrack, v),
+        "how far the cutoff follows the key (on the synth: Settings 5)"),
       row(settingSelect("Voice", ["Poly", "Mono (retrigger)", "Legato"], () => settings && settings["voice" + (paramsLayer + 1)] & 3,
           v => setSetting(SET_ID["voice" + (paramsLayer + 1)], settings["voice" + (paramsLayer + 1)] & ~3 | v), "the layer you're editing"),
         settingSelect("Priority", ["Last note", "Low note", "High note"], () => settings && settings["voice" + (paramsLayer + 1)] >> 2 & 3,
