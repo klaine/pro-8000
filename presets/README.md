@@ -84,7 +84,7 @@ presets/` prints the plan on its own.
 | P18 | Poly Brass | Saws 8 cents apart, a 40 ms attack into a 30-semitone sweep. Velocity and aftertouch on the filter. |
 | P19 | Combo Organ | Two squares an octave apart, filter wide open, instant envelopes; the filter envelope clicks 40 ms at each key, LFO 2 tremolo, a vibrato that fades in late. LFO 2 → VCA, LFO 1 delay and fade. |
 | P20 | Poly Sync | Synced saws with a 10-semitone poly-mod sweep, deeper on hard notes. Velocity → poly-mod env amount. |
-| P21 | E Piano | Triangles, B at +19 FM-ing A while Env 4 decays: tine over body. FM through poly-mod shaped by Env 4 and velocity. |
+| P21 | E Piano | Soft triangles with a quiet octave for the tine, a fast filter bark over a long decay; harder notes bark brighter, a slow tremolo deepens with pressure. Velocity to three destinations, LFO 2 tremolo. |
 | P22 | Poly Press | Saws, closed filter; pressing a key opens that voice and adds its own vibrato. Poly aftertouch, per-voice LFOs. |
 | P23 | Old Poly | Heavy drift and a per-voice drift LFO on pitch and cutoff. Drift at 70. |
 | P24 | Cycling Wah | Env 3 cycles in quarter notes from the clock: each note its own wah. A synced cycling envelope → cutoff. |

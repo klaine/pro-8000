@@ -3,38 +3,37 @@
  "name": "E Piano",
  "group": "poly",
  "notes": {
-  "sound": "Triangles, oscillator B at +19 (a 3:1 ratio) frequency-modulating A through poly-mod while Env 4 decays: a tine attack over a soft body, long decay.",
-  "shows": "FM through poly-mod shaped by Env 4 and velocity; velocity sensitivity on VCA and filter."
+  "sound": "Soft triangles, B an octave up and quiet for the tine; a fast filter bark (+24 semitones, 300 ms decay to a closed sustain) over a long amp decay. Harder notes bark brighter and louder; a slow sine tremolo under it, deeper with pressure.",
+  "shows": "Velocity into cutoff, filter envelope amount and the VCA at once; LFO 2 as tremolo with aftertouch on its depth; full keytracking; a little drift."
  },
  "buttons": [
   "a-tri",
-  "b-tri",
-  "pmod-freq-a"
+  "b-tri"
  ],
  "params": {
   "shared": {
    "a-level": 80,
-   "b-level": 30,
+   "b-level": 22,
    "noise": 0,
-   "resonance": 5,
+   "resonance": 14,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
   },
   "1": {
    "freq-a": 50,
-   "freq-b": 76,
+   "freq-b": 66,
    "fine": 50,
-   "cutoff": 65,
-   "fil-env-amt": 67,
+   "cutoff": 52,
+   "fil-env-amt": 79,
    "fil-att": 0,
-   "fil-dec": 63,
-   "fil-sus": 20,
-   "fil-rel": 52,
+   "fil-dec": 46,
+   "fil-sus": 8,
+   "fil-rel": 42,
    "amp-att": 0,
-   "amp-dec": 70,
-   "amp-sus": 35,
-   "amp-rel": 58,
+   "amp-dec": 62,
+   "amp-sus": 32,
+   "amp-rel": 44,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -45,10 +44,10 @@
    "env3-sus": 0,
    "env3-rel": 0,
    "env4-att": 0,
-   "env4-dec": 52,
+   "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 60,
    "lfo2-amount": 0
   }
  },
@@ -61,7 +60,7 @@
   "lfo2-sync": "free",
   "lfo2-trigger": "free",
   "shape 1 1": "tri",
-  "shape 1 2": "tri",
+  "shape 1 2": "sine",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -72,7 +71,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 6,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -87,23 +86,28 @@
  "routes": {
   "1": [
    [
-    "env4",
-    "pmod-osc-b",
+    "velocity",
+    "cutoff",
     45
    ],
    [
     "velocity",
-    "pmod-osc-b",
+    "filter-env-amount",
     30
    ],
    [
     "velocity",
     "vca",
-    65
+    60
    ],
    [
-    "velocity",
-    "cutoff",
+    "lfo2",
+    "vca",
+    12
+   ],
+   [
+    "aftertouch",
+    "lfo2-amount",
     30
    ]
   ]
