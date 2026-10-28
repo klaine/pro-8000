@@ -821,12 +821,17 @@ From a second review, each point checked against the code first.
 - Audio through the Move (`pro800 play --record`): notes at about -28 dBFS over a -58 dBFS floor; the mix of A + B
   reads 2 to 5 cents flat at the output with the knobs centred, while the comparator check is within a cent per
   oscillator (the comparator is the reference; the output figure averages the two oscillators and the recording).
-- Recording analysis of the pitch staircase (a 5 Hz, ±1 semitone vibrato at C7, pitch per period from zero
-  crossings, pure Python): not conclusive. The period-to-period track jitters by ±20-30 cents from the recording
-  chain (mains harmonics at 350 / 700 / 1400 Hz about -60 dBFS, and the saw's second harmonic), which hides steps
-  shorter than about 3 ms; the zipper sidebands of the stepping sit below those lines (under -40 dB against the
-  carrier band). The step rates above come from the timing probe instead. The scripts stayed in the session's
-  scratchpad.
+- Recording analysis of the pitch staircase (a 5 Hz, ±1 semitone vibrato at C7, pitch per period from the zero
+  crossings of the band-limited fundamental, pure Python): the staircase is below what the chain can show. Done
+  first on the patch that happened to be loaded, then on the init sound (osc A saw only, filter open) with 0.7.8,
+  one voice and eight, plus a steady C7 as the control. The control has the same period-to-period jitter as the
+  vibrato takes (±20 cents, a 3-period pattern, about 350 Hz) and the same lines in its spectrum (670 and 350 Hz
+  either side of the carrier, -30 and -37 dB against the carrier band; -22.8 dB all together between 150 and 800
+  Hz, against -22.5 to -22.8 with the vibrato): the oscillator and the recording chain, not the stepping. So the
+  zipper sidebands of a pass-rate staircase are below -23 dB relative to the carrier band and below the chain's own
+  lines, and steps shorter than about 3 ms can't be resolved period by period. The step rates come from the timing
+  probe. On init the output reads 130.81 / 261.59 / 523.37 / 1046.94 Hz for C2-C6 (within 0.7 cents); the
+  2-5 cents flat measured earlier was that patch's A + B mix. The scripts stayed in the session's scratchpad.
 - 0.7.8: the timing reply carries an eighth value, the pass's four `synth_tick()` calls together, so the tick cost
   can be read directly. Trims in the ticks: a silent voice (amp envelope idle) only gets its VCA CV set to 0; each
   LFO's value is taken once per layer per tick when its phase is shared (per voice only in per-voice trigger mode);
