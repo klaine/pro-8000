@@ -1057,6 +1057,23 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   response curve and the envelope the ADSR knobs edit (following Env select), the amplifier its envelope. The Scope
   section is gone and the Filter env / Amp env sections below keep only their mode menu and copy button.
 
+## The web page's layout pass (2026-10-29)
+
+- The filter and amp envelopes' Mode menus and copy buttons moved onto the faceplate, under each envelope picture
+  (the filter one follows Env select, so it can set Env 3 / 4's mode too); their sections below are gone.
+- The sections below: LFO 1 and LFO 2 side by side with Env 3 over Env 4 beside them at full width (their heights
+  match), then Voice across the page as an even grid of labelled controls, then the mod matrix and the sequencer
+  each across the page. The matrix grows with its routes, so nothing shares a row with it. LFO 1 got the shape
+  buttons, rate, amount and routing (the LFO-MOD switches) that LFO 2 has, so the two read the same.
+- The faceplate's four-column layout now needs 1280 px (the displays beside their knobs need the width; columns
+  6.4 / 1.2 / 5.85 / 1.4); narrower, the oscillators go over the filter as before. Displays that take a section's
+  spare height sit in a stretching box with the canvas absolutely filling it: a canvas sized from its own height
+  feeds back into the row and grows on every repaint.
+- Checked with a script measuring every section at 1800, 1500, 1290, 1200, 1100, 900, 600 and 420 px, with 0, 10
+  and 16 routes: no overflow or sideways scroll, no blank area over 45 px except the Noise knob's box and the master
+  tune column, which match the hardware panel. The macro knobs had been throwing on a missing helper, so their
+  values never showed; fixed.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.
