@@ -145,6 +145,15 @@
   .k-scale text.on { fill: #ff4a36; }
   .k-grip { fill: #070708; stroke: #35353a; stroke-width: 3; stroke-dasharray: 1.3 1.25; }
   .k-cap { fill: url(#k-cap-fill); stroke: #000; stroke-width: .6; }
+  /* grey knobs: parameters both layers share (one wire on the voice board, or one panel control) */
+  .knob.shared .k-grip { fill: #3c3d42; stroke: #8b8c93; }
+  .knob.shared .k-cap { fill: url(#k-cap-shared); }
+  .knob.shared .k-ptr { stroke: #0b0b0c; }
+  .knob.shared .dial:hover .k-grip, .knob.shared .dial.active .k-grip, .knob.shared .dial:focus-visible .k-grip { stroke: #b3b4ba; }
+  .legend { display: flex; align-items: center; gap: 6px; color: var(--silk); font: 800 9px/1 var(--sans); letter-spacing: .06em;
+            text-transform: uppercase; white-space: nowrap; }
+  .legend i { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 42% 34%, #a3a4a9, #55565b 70%);
+              box-shadow: 0 0 0 2px #3c3d42, 0 0 0 3px #8b8c93; }
   .k-ptr { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
   .knob .dial:hover .k-grip, .knob .dial.active .k-grip, .knob .dial:focus-visible .k-grip { stroke: #56565c; }
   .knob .dial:focus-visible { outline-offset: -2px; }
@@ -157,8 +166,6 @@
   .face:not(.values) .knob .val { visibility: hidden; color: var(--silk); margin: 1px 0 0; min-height: 0; }
   .face:not(.values) .knob:is(:hover, :focus-within) .val { visibility: visible; }
   .face:not(.values) .knob:is(:hover, :focus-within) .lbl { visibility: hidden; }
-  i.shared { display: inline-block; width: 5px; height: 5px; border-radius: 50%; border: 1px solid var(--dim); margin-left: 4px;
-             vertical-align: 1px; }
 
   /* bat-lever switches: up is on */
   .lever { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 34px; padding: 1px 2px 2px; border: 0;
@@ -369,13 +376,14 @@
 <div class="panel" id="tab-sound">
   <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
     <radialGradient id="k-cap-fill" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#2e2e31"/><stop offset="1" stop-color="#09090a"/></radialGradient>
+    <radialGradient id="k-cap-shared" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#a3a4a9"/><stop offset="1" stop-color="#55565b"/></radialGradient>
   </defs></svg>
   <div class="synth" id="synth"></div>
   <p class="hint" style="margin-top:14px">Drag a knob up and down (shift: fine), or click it and use the scroll
     wheel or arrow keys; double-click resets it. The page follows the synth about once a second, and moving a control here puts that
     knob in pickup on the panel, as loading a patch does. Switches show the panel buttons as the sound uses them; a
     click holds the state until you press that button on the panel. Knobs, depth bars and the mod matrix edit the
-    layer you're editing (Layer 1 / 2 at the top). ○ marks a control shared by both layers.</p>
+    layer you're editing (Layer 1 / 2 at the top). Grey knobs are shared by both layers.</p>
 </div>
 
 <div class="panel" id="tab-device">
@@ -1271,8 +1279,8 @@ function knob(i, text) {
   const val = h("span", { class: "val" }, "–");
   const dl = h("div", { class: "dial", role: "slider", "aria-label": NAMES[i] || text }, d.svg);
   const lbl = h("span", { class: "lbl" }, text);
-  const e = h("div", { class: "knob", title: (NAMES[i] || text) + (SHARED.has(i) ? " (shared by both layers)" : "") }, dl, lbl, val);
-  if (SHARED.has(i)) lbl.append(h("i", { class: "shared", title: "shared by both layers" }));
+  const e = h("div", { class: "knob" + (SHARED.has(i) ? " shared" : ""), title: (NAMES[i] || text) + (SHARED.has(i) ? " (shared by both layers)" : "") },
+    dl, lbl, val);
   adjustable(dl, () => params ? params[i] : 0, v => { setParam(i, v); paintAll(); },
     () => { if (i in DEFAULTS) { setParam(i, DEFAULTS[i]); paintAll(); } });
   dl.addEventListener("focus", () => params && touch(label(i), format(i, params[i])));
@@ -1955,6 +1963,8 @@ function buildPanel() {
     h("div", { class: "brandplate" },
       h("div", {}, h("div", { class: "sub" }, "Analog 8-voice polyphonic synthesizer"), h("div", { class: "model" }, "PRO-800"),
         h("div", { class: "sub dim" }, "custom firmware")),
+      h("span", { class: "legend", title: "one wire on the voice board, or one control on the panel: the same for both layers" },
+        h("i"), "Shared by both layers"),
       lever("Values", () => showValues, on => {
         showValues = on; face.classList.toggle("values", on);
         try { localStorage.setItem("pro800-values", on ? "1" : "0"); } catch (e) {}
