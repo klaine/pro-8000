@@ -892,21 +892,71 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 
 ## Backlog
 
-- **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic
-  lines to the voice board. Workaround: put the second waveform on the other oscillator and use its level.
-- Hardware SPI to the DAC80501 (fails above 0.33 MHz; so does 1 MHz bit-banging: probably the board).
-- Patch names from the panel (the keypad as a multi-tap keyboard?); today: the web page or `pro800 patch rename`.
+Nothing here is needed for the synth to work; this is what's open, consolidated 2026-10-28 after the review, the
+0.7.7 / 0.7.8 measurements and the dac-test sweep. What each buys is in its line.
+
+**Timing and engine**
+
+- **MIDI and the sequencer between the ticks.** Both run once a pass, so note-on latency and step timing move by up
+  to a pass: 1.3 ms with one voice, 2.9 with eight. Handling MIDI and advancing the sequencer before each tick
+  brings that under a millisecond. The one timing item still worth doing for players; everything else is at or
+  below what's audible.
+- **The DAC80501 frame's overhead.** A frame measures about 60 µs for 48 µs of bits: time each bit from the cycle
+  counter instead of delaying after each GPIO write, drop the SYNC wait (works at 0.5 MHz), and perhaps 154/154
+  cycles (0.55 MHz, with 0.60 the measured edge). About 46 µs a frame, about 0.45 ms off the eight-voice pass.
+  The bus itself is closed: everything above 0.6 MHz fails whatever drives it (the sweep); a scope on SCLK / SDIN
+  at U46 is the only way to learn why, and the 2 kHz every-CV refresh plan waits on that.
+- **Spread the 8th-pass refresh.** The pass that refreshes idle voices is the longest (4.2-4.7 ms); refreshing one
+  idle voice a pass instead keeps every pass near the average.
+- **The S&H waits for the channels written alone** (VCAs, globals): still 6 + 12 µs. The sweep can't judge them any
+  more (it measures a pipelined channel), so shortening them needs a VCA measurement through the Move.
+- **Commit the Mac simulation.** The S&H model and the engine checks behind the 0.7.7 table exist only in that
+  session; under `tools/` they would rerun for the next change to `sh.c` or the ticks.
+
+**Hardware drivers**
+
+- **Hardware I2C1 for the panel** (PB6 / PB7) with interrupts, or at least non-blocking writes: a digit change
+  still stalls the loop 0.8 ms, a full redraw 3.5.
+- **Hardware SPI4 for the EEPROM** (PE2 / PE5 / PE6), or at least dropping the 1 µs half-bit delays: a patch load
+  blocks about 25 ms today. With a fast load, **seamless patch change** (no `synth_all_off()` in
+  `synth_apply_patch()`) becomes possible.
+- **MIDI THRU** (PA0 / MIDI_SEL on PB4) is mapped but not driven.
+
+**Panel**
+
+- Internal clock and tap tempo on the unused Sync Clock / Sync Source buttons, clock source MIDI / internal / SYNC
+  IN; today synced LFOs and cycling envelopes sit at 120 BPM until a DAW sends clock.
+- Sequencer transport and step recording from the panel (web-only today).
+- Compare / undo: hold Preset to hear the stored patch; make Perf's init a hold or double press.
+- Scroll the patch name across the display on load; show the pickup direction (top / bottom segment); a velocity
+  and aftertouch amount page in Settings; layer copy (Seq 1 + Seq 2); Tune progress on the display; a panic
+  combination; hold a Settings key to reset it.
+- Patch names from the keypad (multi-tap); today the web page or `pro800 patch rename`.
+
+**Features**
+
 - LFO fade-in / delay per LFO (today: Env 3 → LFO amount in the matrix does it per voice).
 - MPE / 8-channel mono mode on top of the mod matrix (per-voice pitch bend and pressure).
 - More matrix sources: LFO 1 / LFO 2 unipolar, key-down gate.
-- **Virtual PRO-800 on the Mac (nice to have).** Not chip emulation: QEMU's STM32F4 has no USB OTG, and Renode
-  would need models of the whole board (bit-banged DAC, S&H muxes, HT16K33, pot muxes, EEPROM, comparator) and
-  still says nothing about timing. Instead:
+- Voice stealing: a one-tick VCA dip for a stolen voice was considered and rejected (a step of its own); the pitch
+  jump with the VCA open sounds like legato.
+
+**Not possible from firmware**
+
+- Per-waveform levels within an oscillator: the waveform switches are on/off logic lines to the voice board.
+  Workaround: the second waveform on the other oscillator, with its level.
+
+**Nice to have**
+
+- **Virtual PRO-800 on the Mac.** Not chip emulation: QEMU's STM32F4 has no USB OTG, and Renode would need models
+  of the whole board (bit-banged DAC, S&H muxes, HT16K33, pot muxes, EEPROM, comparator) and still says nothing
+  about timing. Instead:
   1. Build the firmware for macOS with only the drivers swapped (the Mac tests already stub the engine's): USB →
      a CoreMIDI virtual port named "PRO 800" (the web page and `build/pro800` work unchanged), EEPROM → a 128 kB
      file seeded from a backup, DAC / S&H → a timestamped CV log per channel, panel → scripts or the web page,
-     the main loop on a 2.3 ms timer. Catches SysEx, layout, storage and modulation bugs; about two days. Code in
-     `main.c` that touches registers directly has to move behind the drivers first.
+     the main loop on a timer. Catches SysEx, layout, storage and modulation bugs (it would have caught the stale
+     tuning tables if the tables' format were part of it); about two days. Code in `main.c` that touches
+     registers directly has to move behind the drivers first.
   2. Then the circuitry as behavioural models fed by those CVs, out through CoreAudio: S&H droop, exponential
      VCOs with the measured per-oscillator offsets, mixer and noise, a 4-pole low-pass with resonance, the VCA
      with its measured 7-9 % dead zone, and the tuning comparator (so `tune.c` runs). Calibrated from our
