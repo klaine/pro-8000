@@ -1,0 +1,101 @@
+{
+ "slot": 30,
+ "name": "Dark Choir",
+ "group": "pad",
+ "notes": {
+  "sound": "A narrow pulse (18 %) slowly width-modulated over a saw an octave down, a low resonant filter; a slow vibrato fades in late on each voice.",
+  "shows": "Narrow PWM, LFO 2 vibrato with a long delay and fade per voice."
+ },
+ "buttons": [
+  "a-square",
+  "b-saw",
+  "lfo-pw"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 75,
+   "b-level": 55,
+   "noise": 0,
+   "resonance": 30,
+   "a-pw": 18,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 33,
+   "fine": 50,
+   "cutoff": 47,
+   "fil-env-amt": 64,
+   "fil-att": 63,
+   "fil-dec": 65,
+   "fil-sus": 55,
+   "fil-rel": 65,
+   "amp-att": 67,
+   "amp-dec": 60,
+   "amp-sus": 85,
+   "amp-rel": 76,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 23,
+   "lfo-amount": 45,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 66,
+   "lfo2-amount": 11
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "half",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "voice",
+  "shape 1 1": "tri",
+  "shape 1 2": "sine",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "pitch",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "poly last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 60,
+  "lfo-fade 2": 65,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "velocity",
+    "vca",
+    25
+   ],
+   [
+    "aftertouch",
+    "cutoff",
+    30
+   ]
+  ]
+ }
+}

@@ -1,0 +1,106 @@
+{
+ "slot": 59,
+ "name": "Wheel Morph",
+ "group": "other",
+ "notes": {
+  "sound": "A dry saw pluck that the mod wheel turns, knob by knob, into P25 Warm Pad (same oscillators, so only the sound moves); LFO 2 (one bar of clock) keeps it drifting a little between the two on its own.",
+  "shows": "The Morph destination: mod wheel and a synced LFO morphing towards another patch of the set by slot number."
+ },
+ "buttons": [
+  "a-saw",
+  "b-saw"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 70,
+   "b-level": 70,
+   "noise": 0,
+   "resonance": 8,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 50,
+   "fine": 54,
+   "cutoff": 44,
+   "fil-env-amt": 78,
+   "fil-att": 0,
+   "fil-dec": 50,
+   "fil-sus": 0,
+   "fil-rel": 47,
+   "amp-att": 0,
+   "amp-dec": 58,
+   "amp-sus": 0,
+   "amp-rel": 52,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 50,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 21,
+   "lfo2-amount": 0
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "clock",
+  "lfo2-trigger": "free",
+  "shape 1 1": "tri",
+  "shape 1 2": "sine",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "none",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "poly last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "mod-wheel",
+    "morph",
+    99
+   ],
+   [
+    "lfo2",
+    "morph",
+    25
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ]
+  ]
+ },
+ "morph": 25
+}

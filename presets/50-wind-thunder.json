@@ -1,0 +1,104 @@
+{
+ "slot": 50,
+ "name": "Wind & Thunder",
+ "group": "fx",
+ "notes": {
+  "sound": "Noise alone through a resonant filter wandered by two drift LFOs; low keys rumble, high keys whistle. Press to bring the storm closer.",
+  "shows": "Noise as the only source, the drift shape on both LFOs, Note into cutoff, aftertouch."
+ },
+ "buttons": [
+  "lfo-filter"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 0,
+   "b-level": 0,
+   "noise": 99,
+   "resonance": 60,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 50,
+   "fine": 50,
+   "cutoff": 42,
+   "fil-env-amt": 50,
+   "fil-att": 0,
+   "fil-dec": 52,
+   "fil-sus": 99,
+   "fil-rel": 70,
+   "amp-att": 76,
+   "amp-dec": 60,
+   "amp-sus": 90,
+   "amp-rel": 78,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 26,
+   "lfo-amount": 78,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 10,
+   "lfo2-amount": 45
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "off",
+  "lfo-sync": "free",
+  "lfo-trigger": "voice",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 1": "drift",
+  "shape 1 2": "drift",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "filter",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "poly last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "note",
+    "cutoff",
+    40
+   ],
+   [
+    "aftertouch",
+    "cutoff",
+    40
+   ],
+   [
+    "aftertouch",
+    "resonance",
+    20
+   ]
+  ]
+ }
+}

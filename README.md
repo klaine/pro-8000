@@ -31,7 +31,8 @@ firmware) as the reference for how the analog side behaves.
 - **Expression and play:** per-voice poly aftertouch, mono / legato / poly per layer with note priority, a sustain
   pedal, a MIDI CC for every knob, program change, analog-style drift, scale quantize, and patch morph (any mod
   source fades every knob towards another patch). The sequencer has probability, ratchets and an arpeggiator.
-- **Patches:** 128 with names, each with its own sequence, and the stock factory bank kept and importable.
+- **Patches:** 128 with names, each with its own sequence, and the stock factory bank kept and importable. A
+  64-sound bank for slots 1-64 is in `presets/` (`presets/install.sh`), built to show the engine off.
 - **MIDI:** USB MIDI (also firmware updates without touching the panel) and the 5-pin MIDI IN socket for notes,
   controllers and clock. Or an internal clock with tap tempo, or the SYNC IN jack; the Sync Clock LED shows the beat.
 - **A browser editor (WebMIDI):** sound, mod matrix, patches, factory bank, backup, tuning, plus a keyboard and a

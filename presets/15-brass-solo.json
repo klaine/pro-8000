@@ -1,0 +1,111 @@
+{
+ "slot": 15,
+ "name": "Brass Solo",
+ "group": "lead",
+ "notes": {
+  "sound": "Two saws 7 cents apart, the filter envelope opening over 60 ms into a 30-semitone sweep: a solo brass line with a vibrato that arrives late.",
+  "shows": "Delayed, faded vibrato; velocity shortening the filter attack; CC B (breath, CC 2) opening the filter."
+ },
+ "buttons": [
+  "a-saw",
+  "b-saw",
+  "lfo-freq"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 80,
+   "b-level": 75,
+   "noise": 0,
+   "resonance": 12,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 50,
+   "fine": 53,
+   "cutoff": 44,
+   "fil-env-amt": 81,
+   "fil-att": 38,
+   "fil-dec": 61,
+   "fil-sus": 35,
+   "fil-rel": 47,
+   "amp-att": 28,
+   "amp-dec": 58,
+   "amp-sus": 85,
+   "amp-rel": 50,
+   "glide": 33,
+   "master-tune": 50,
+   "lfo-freq": 66,
+   "lfo-amount": 14,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 50,
+   "lfo2-amount": 0
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 1": "sine",
+  "shape 1 2": "tri",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "none",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "mono last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 50,
+  "lfo-fade 1": 50,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "aftertouch",
+    "cutoff",
+    35
+   ],
+   [
+    "velocity",
+    "fil-att",
+    -30
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ],
+   [
+    "cc-b",
+    "cutoff",
+    30
+   ]
+  ]
+ }
+}

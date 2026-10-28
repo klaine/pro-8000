@@ -1,0 +1,101 @@
+{
+ "slot": 27,
+ "name": "Slow Evolve",
+ "group": "pad",
+ "notes": {
+  "sound": "Saw with a narrow pulse an octave down; LFO 1 (sine, 4 bars of clock) sweeps the filter 20 semitones while LFO 2, a very slow ramp, widens the pulse and raises the resonance, then drops back.",
+  "shows": "A clock-synced 4-bar sine on the filter, the ramp-up shape on PW and resonance."
+ },
+ "buttons": [
+  "a-saw",
+  "b-square",
+  "lfo-filter"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 70,
+   "b-level": 65,
+   "noise": 0,
+   "resonance": 35,
+   "a-pw": 50,
+   "b-pw": 30,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 33,
+   "fine": 50,
+   "cutoff": 42,
+   "fil-env-amt": 64,
+   "fil-att": 72,
+   "fil-dec": 70,
+   "fil-sus": 60,
+   "fil-rel": 70,
+   "amp-att": 74,
+   "amp-dec": 60,
+   "amp-sus": 85,
+   "amp-rel": 76,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 7,
+   "lfo-amount": 64,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 7,
+   "lfo2-amount": 60
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "clock",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 1": "sine",
+  "shape 1 2": "ramp-up",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "pw",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "poly last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "lfo2",
+    "resonance",
+    20
+   ],
+   [
+    "velocity",
+    "vca",
+    25
+   ]
+  ]
+ }
+}

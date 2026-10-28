@@ -1,0 +1,106 @@
+{
+ "slot": 26,
+ "name": "Analog Strings",
+ "group": "pad",
+ "notes": {
+  "sound": "A width-modulated pulse with a saw 11 cents away, 250 ms attack: an ensemble without a chorus. Each voice's vibrato (LFO 2) comes in late and on its own.",
+  "shows": "LFO 1 PWM, LFO 2 vibrato with delay and fade per voice, the sustain pedal opening the filter."
+ },
+ "buttons": [
+  "a-square",
+  "b-saw",
+  "lfo-pw"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 75,
+   "b-level": 70,
+   "noise": 0,
+   "resonance": 5,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 50,
+   "fine": 55,
+   "cutoff": 57,
+   "fil-env-amt": 64,
+   "fil-att": 57,
+   "fil-dec": 65,
+   "fil-sus": 60,
+   "fil-rel": 65,
+   "amp-att": 55,
+   "amp-dec": 60,
+   "amp-sus": 90,
+   "amp-rel": 72,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 38,
+   "lfo-amount": 35,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 67,
+   "lfo2-amount": 13
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "half",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "voice",
+  "shape 1 1": "tri",
+  "shape 1 2": "sine",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "pitch",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "poly last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 55,
+  "lfo-fade 2": 60,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "velocity",
+    "vca",
+    30
+   ],
+   [
+    "aftertouch",
+    "lfo2-amount",
+    30
+   ],
+   [
+    "pedal",
+    "cutoff",
+    20
+   ]
+  ]
+ }
+}

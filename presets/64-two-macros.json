@@ -1,0 +1,141 @@
+{
+ "slot": 64,
+ "name": "Two Macros",
+ "group": "other",
+ "notes": {
+  "sound": "Saw and pulse. Macro 1 is 'brightness': the wheel feeds it (from a hand-set -20 offset) and it opens the cutoff, adds resonance and narrows pulse B. Macro 2 is 'motion': pressure and CC A (expression, CC 11) feed it, and it brings in vibrato, detunes B and adds noise.",
+  "shows": "Both macros as sums of several sources (with a per-layer offset) fanning out to three destinations each."
+ },
+ "buttons": [
+  "a-saw",
+  "b-square",
+  "lfo-freq"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 70,
+   "b-level": 65,
+   "noise": 0,
+   "resonance": 10,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 50,
+   "fine": 52,
+   "cutoff": 42,
+   "fil-env-amt": 70,
+   "fil-att": 0,
+   "fil-dec": 60,
+   "fil-sus": 40,
+   "fil-rel": 50,
+   "amp-att": 9,
+   "amp-dec": 58,
+   "amp-sus": 85,
+   "amp-rel": 52,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 67,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 50,
+   "lfo2-amount": 0
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 1": "sine",
+  "shape 1 2": "tri",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "none",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "poly last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": -20,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "mod-wheel",
+    "macro1",
+    99
+   ],
+   [
+    "macro1",
+    "cutoff",
+    45
+   ],
+   [
+    "macro1",
+    "resonance",
+    30
+   ],
+   [
+    "macro1",
+    "b-pw",
+    -35
+   ],
+   [
+    "aftertouch",
+    "macro2",
+    99
+   ],
+   [
+    "cc-a",
+    "macro2",
+    60
+   ],
+   [
+    "macro2",
+    "lfo-amount",
+    40
+   ],
+   [
+    "macro2",
+    "pitch-b",
+    8
+   ],
+   [
+    "macro2",
+    "noise",
+    30
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ]
+  ]
+ }
+}

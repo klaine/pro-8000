@@ -1,0 +1,107 @@
+{
+ "slot": 55,
+ "name": "Seismic Drone",
+ "group": "fx",
+ "notes": {
+  "sound": "All eight voices in unison, saws an octave apart 45 cents spread, drift on top, a slow triangle on the filter and a per-voice drift LFO on pitch; 2 s swell. The wheel spreads the detune further.",
+  "shows": "Unison with detune, drift, LFO 2 drift per voice, the wheel into the Detune destination."
+ },
+ "buttons": [
+  "a-saw",
+  "b-saw",
+  "unison",
+  "lfo-filter"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 80,
+   "b-level": 80,
+   "noise": 0,
+   "resonance": 60,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 33,
+   "fine": 55,
+   "cutoff": 32,
+   "fil-env-amt": 50,
+   "fil-att": 0,
+   "fil-dec": 52,
+   "fil-sus": 99,
+   "fil-rel": 60,
+   "amp-att": 80,
+   "amp-dec": 52,
+   "amp-sus": 99,
+   "amp-rel": 81,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 10,
+   "lfo-amount": 57,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 20,
+   "lfo2-amount": 20
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "voice",
+  "shape 1 1": "tri",
+  "shape 1 2": "drift",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "pitch",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "mono low",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 45,
+  "drift": 60,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "aftertouch",
+    "cutoff",
+    40
+   ],
+   [
+    "aftertouch",
+    "resonance",
+    20
+   ],
+   [
+    "mod-wheel",
+    "detune",
+    50
+   ]
+  ]
+ }
+}

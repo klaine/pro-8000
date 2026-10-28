@@ -1,0 +1,100 @@
+{
+ "slot": 1,
+ "name": "Deep Sub",
+ "group": "bass",
+ "notes": {
+  "sound": "A triangle an octave down with a hollow square two octaves down; legato glide; round and short in the filter.",
+  "shows": "Legato voice mode, keyboard tracking at half, velocity opening the filter a little."
+ },
+ "buttons": [
+  "a-tri",
+  "b-square"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 85,
+   "b-level": 45,
+   "noise": 0,
+   "resonance": 5,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 33,
+   "freq-b": 16,
+   "fine": 50,
+   "cutoff": 36,
+   "fil-env-amt": 74,
+   "fil-att": 0,
+   "fil-dec": 50,
+   "fil-sus": 20,
+   "fil-rel": 47,
+   "amp-att": 0,
+   "amp-dec": 55,
+   "amp-sus": 80,
+   "amp-rel": 44,
+   "glide": 43,
+   "master-tune": 50,
+   "lfo-freq": 50,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 50,
+   "lfo2-amount": 0
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "half",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 1": "tri",
+  "shape 1 2": "tri",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "none",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "legato last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "velocity",
+    "cutoff",
+    25
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ]
+  ]
+ }
+}

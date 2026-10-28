@@ -1,0 +1,101 @@
+{
+ "slot": 53,
+ "name": "Siren",
+ "group": "fx",
+ "notes": {
+  "sound": "Two squares an octave apart; LFO 1's triangle swings the pitch a full octave each way at 0.5 Hz, restarting with the first key. The wheel speeds it, pressure tames it.",
+  "shows": "A full-depth triangle LFO on pitch, retrigger on the first key, the wheel into the rate, aftertouch reducing depth."
+ },
+ "buttons": [
+  "a-square",
+  "b-square",
+  "lfo-freq"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 80,
+   "b-level": 40,
+   "noise": 0,
+   "resonance": 20,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 66,
+   "fine": 50,
+   "cutoff": 65,
+   "fil-env-amt": 50,
+   "fil-att": 0,
+   "fil-dec": 52,
+   "fil-sus": 99,
+   "fil-rel": 44,
+   "amp-att": 44,
+   "amp-dec": 52,
+   "amp-sus": 99,
+   "amp-rel": 58,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 33,
+   "lfo-amount": 99,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 50,
+   "lfo2-amount": 0
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "free",
+  "lfo-trigger": "first",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 1": "tri",
+  "shape 1 2": "tri",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "none",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "mono last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "mod-wheel",
+    "lfo-rate",
+    40
+   ],
+   [
+    "aftertouch",
+    "lfo-amount",
+    -40
+   ]
+  ]
+ }
+}

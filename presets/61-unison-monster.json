@@ -1,0 +1,111 @@
+{
+ "slot": 61,
+ "name": "Unison Monster",
+ "group": "other",
+ "notes": {
+  "sound": "All eight voices on one note, saws an octave apart spread 45 cents with drift and a per-voice drift LFO; legato with glide. The wheel pulls the voices even further apart.",
+  "shows": "Unison (8 voices), detune, drift, legato glide, the wheel into Detune."
+ },
+ "buttons": [
+  "a-saw",
+  "b-saw",
+  "unison"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 80,
+   "b-level": 80,
+   "noise": 0,
+   "resonance": 15,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 33,
+   "fine": 54,
+   "cutoff": 46,
+   "fil-env-amt": 74,
+   "fil-att": 0,
+   "fil-dec": 55,
+   "fil-sus": 30,
+   "fil-rel": 47,
+   "amp-att": 0,
+   "amp-dec": 58,
+   "amp-sus": 85,
+   "amp-rel": 52,
+   "glide": 39,
+   "master-tune": 50,
+   "lfo-freq": 50,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 26,
+   "lfo2-amount": 13
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "voice",
+  "shape 1 1": "tri",
+  "shape 1 2": "drift",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "pitch",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "legato last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 45,
+  "drift": 40,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "aftertouch",
+    "cutoff",
+    40
+   ],
+   [
+    "mod-wheel",
+    "detune",
+    40
+   ],
+   [
+    "velocity",
+    "vca",
+    35
+   ],
+   [
+    "velocity",
+    "cutoff",
+    25
+   ]
+  ]
+ }
+}

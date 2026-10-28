@@ -1,0 +1,107 @@
+{
+ "slot": 63,
+ "name": "Self Player",
+ "group": "other",
+ "notes": {
+  "sound": "Hold a key or a chord and it plays itself: the amp and filter envelopes cycle in eighths from the clock, and each voice's own S&H LFO picks a new pitch every eighth, snapped to C minor pentatonic; a drift LFO moves the filter. Pressure speeds the dice.",
+  "shows": "Generative: S&H LFO into pitch with scale quantize, per-voice LFOs, synced cycling amp and filter envelopes, aftertouch into the LFO rate."
+ },
+ "buttons": [
+  "a-saw",
+  "b-tri"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 70,
+   "b-level": 50,
+   "noise": 0,
+   "resonance": 35,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 66,
+   "fine": 50,
+   "cutoff": 49,
+   "fil-env-amt": 70,
+   "fil-att": 5,
+   "fil-dec": 50,
+   "fil-sus": 10,
+   "fil-rel": 35,
+   "amp-att": 5,
+   "amp-dec": 50,
+   "amp-sus": 25,
+   "amp-rel": 20,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 64,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 16,
+   "lfo2-amount": 50
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "clock",
+  "lfo-trigger": "voice",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 1": "sh",
+  "shape 1 2": "drift",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "filter",
+  "lfo2-dests 2": "none",
+  "cycle 1": "amp,filter",
+  "cycle 2": "none",
+  "voice 1": "poly last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "pentatonic-minor",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0,
+  "cycle-sync 1 amp": "1/8",
+  "cycle-sync 1 filter": "1/8"
+ },
+ "routes": {
+  "1": [
+   [
+    "lfo",
+    "pitch",
+    53
+   ],
+   [
+    "velocity",
+    "vca",
+    30
+   ],
+   [
+    "aftertouch",
+    "lfo-rate",
+    30
+   ]
+  ]
+ }
+}

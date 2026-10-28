@@ -1000,8 +1000,23 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   image longer than 64 kB (to check with a padded build before relying on it; our update path erases sector 4
   only, `src/update.c`). Otherwise: drop the hardware-SPI probe path, trim the SysEx tables, or `-Os` already.
 
+## The preset bank, and the tool writes sequences (2026-10-28)
+
+- `presets/`: 64 patches as JSON (slot, name, group, notes, buttons, params per layer, settings, routes, sequence,
+  morph), `install.sh` (one `build/pro800` command per step, from `lib/plan.py`, which validates every name and
+  range against the tool's tables; `--dry-run`, `--only`), and a README with a line per patch. Designed from the
+  manual's curves by a subagent, not auditioned: levels and cutoffs may want a pass on the synth. Eight groups:
+  basses, leads, polys, pads, plucks, arps / sequences, FX, and curiosities (8CH, MPE, a wheel morph to P25, a
+  split, a unison stack, a trance gate, a self-player on a scale, a two-macro patch).
+- The tool gained `seq set key=value…` (SysEx 47 after reading 48), `seq step <n> …` (45) and `set morph <slot>`
+  (44), which the installer detects in the help text; `slotNumber()` takes P1-P128 or 0-127.
+- Installing the bank is about 5,600 commands, each a process that opens MIDI and waits for an ack: minutes. A
+  `pro800 batch` mode reading commands from stdin on one connection would cut that; backlog.
+
 ## Backlog
 
+- `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.
+- Audition the preset bank on the synth and tune levels and cutoffs.
 - **Flash room**: 2 kB left in sector 4. Try the bootloader with an image into sector 5 (see 0.8.2), or trim.
 
 Nothing here is needed for the synth to work; this is what's open, consolidated 2026-10-28 after the review, the

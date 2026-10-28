@@ -75,7 +75,11 @@ Probe (our firmware 0.0.9+):
   pro800 patches [--all]                list the patch slots (ours, stock, empty)
   pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-199, A00-B99;
                                         each patch has its own sequence, saved and cleared with it)
-  pro800 seq                            print the loaded patch's step sequence (firmware 0.7.0+; edit it on the web page)
+  pro800 seq                            print the loaded patch's step sequence (firmware 0.7.0+)
+  pro800 seq set key=value…             its header: on, length, step (division), clock, bpm, swing, once, keys, arp,
+                                        lanes, smooth (e.g. seq set on=1 length=16 step=1/16 clock=1 lanes=1 smooth=A)
+  pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob>] [x<ratchets>] [a<v>]…  one step (a-d: lanes, -99..99)
+  pro800 set morph <slot|none>          the morph target patch
   pro800 patch init                     load the basic sound (osc A saw), as PERF does
   pro800 patch rename <slot> <name>     rename a patch (up to 16 characters)
   pro800 factory                        list the stock factory bank (100 patches, kept in the EEPROM)
@@ -903,6 +907,13 @@ func setSetting() {
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
         "button \(buttonNames.values.sorted().joined(separator: "|")) on|off"
     var id: UInt8, v: Int
+    if args.count == 2, args[0] == "morph" { // the morph target: a slot, or none (SysEx 44)
+        let t = args[1] == "none" ? 0 : (slotNumber(args[1]).map { $0 + 1 } ?? -1)
+        guard t >= 0 else { fail("usage: pro800 set morph <slot 1-128|P1-P128|none>") }
+        probeAck(Midi(port: portName), [0x44, UInt8(t >> 7), UInt8(t & 0x7F)])
+        print("morph target: " + (t == 0 ? "none" : patchLabel(t - 1)))
+        return
+    }
     if args.count == 2, args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
         (id, v) = (3, note)
     } else if args.count == 2, args[0] == "bend", let st = Int(args[1]), (1...12).contains(st) {
@@ -1074,6 +1085,80 @@ func param() {
 }
 
 // pro800 seq: the loaded patch's step sequence
+let arpModeNames = ["off", "up", "down", "updown", "random", "played"]
+
+// pro800 seq set key=value…: the sequence's header, read first, the given keys changed (SysEx 47)
+func seqSet() {
+    let midi = Midi(port: portName)
+    guard let h = midi.request([0x48], expect: [0x48], timeout: 2) else { fail("no reply (firmware 0.7.0 or later?)") }
+    let d = Array(h[(sysexHeader.count + 1)...])
+    var length = Int(d[0]), lanes = Int(d[1]), division = Int(d[2]), bpm = Int(d[3]) << 7 | Int(d[4]), flags = Int(d[5])
+    var swing = Int(d[6]), smooth = Int(d[7]), arp = Int(d[9])
+    let usage = "usage: pro800 seq set on=0|1 length=1-64 step=<division> clock=0|1 bpm=30-300 swing=0-75 once=0|1 " +
+                "keys=both|1|2 arp=\(arpModeNames.joined(separator: "|")) lanes=0-4 smooth=none|A..D"
+    for kv in args.dropFirst() {
+        let parts = kv.split(separator: "=", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { fail(usage) }
+        let (key, value) = (parts[0], parts[1])
+        func bit(_ mask: Int) { if let v = Int(value), v == 0 || v == 1 { flags = v == 1 ? flags | mask : flags & ~mask } else { fail(usage) } }
+        switch key {
+        case "on": bit(1)
+        case "clock": bit(2)
+        case "once": bit(4)
+        case "length": guard let v = Int(value), (1...64).contains(v) else { fail(usage) }; length = v
+        case "step": guard let i = divisionNames.firstIndex(of: value) else { fail(usage) }; division = i
+        case "bpm": guard let v = Int(value), (30...300).contains(v) else { fail(usage) }; bpm = v
+        case "swing": guard let v = Int(value), (0...75).contains(v) else { fail(usage) }; swing = v
+        case "keys": guard let i = ["both", "1", "2"].firstIndex(of: value) else { fail(usage) }; flags = flags & ~(3 << 3) | i << 3
+        case "arp": guard let i = arpModeNames.firstIndex(of: value) else { fail(usage) }; arp = i
+        case "lanes": guard let v = Int(value), (0...4).contains(v) else { fail(usage) }; lanes = v
+        case "smooth":
+            smooth = 0
+            for ch in value.uppercased() where ch != "N" && ch != "O" && ch != "E" {
+                guard let i = ["A", "B", "C", "D"].firstIndex(of: String(ch)) else { fail(usage) }
+                smooth |= 1 << i
+            }
+        default: fail(usage)
+        }
+    }
+    probeAck(midi, [0x47, UInt8(length), UInt8(lanes), UInt8(division), UInt8(bpm >> 7), UInt8(bpm & 0x7F), UInt8(flags & 0x7F),
+                    UInt8(swing), UInt8(smooth), UInt8(arp)])
+    print("sequence: \(flags & 1 != 0 ? "on" : "off"), \(length) steps of \(divisionNames[division]), " +
+          (flags & 2 != 0 ? "MIDI clock" : "\(bpm) BPM") + ", \(lanes) lanes")
+}
+
+// pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob 1-8>] [x<ratchets 1-4>] [a<-99..99>] … [d<..>] (SysEx 45)
+func seqStep() {
+    let usage = "usage: pro800 seq step <1-64> <+offset|-offset|.> <gate 1-99|tie> [v0-127] [p1-8] [x1-4] [a-99..99] [b..] [c..] [d..]"
+    let a = Array(args.dropFirst())
+    guard a.count >= 2, let n = Int(a[0]), (1...64).contains(n) else { fail(usage) }
+    var on: UInt8 = 1, note = 64, gate = 50, velocity = 0, probability = 8, ratchets = 1, lanes = [64, 64, 64, 64]
+    var options = 2
+    if a[1] == "." {
+        on = 0
+        if a.count >= 3, a[2] == "tie" || Int(a[2]) != nil { options = 3 } // a rest may still carry its gate
+    } else {
+        guard let off = Int(a[1]), (-64...63).contains(off), a.count >= 3 else { fail(usage) }
+        note = 64 + off
+        if a[2] == "tie" { gate = 100 } else { guard let g = Int(a[2]), (1...99).contains(g) else { fail(usage) }; gate = g }
+        options = 3
+    }
+    for opt in a.dropFirst(options) {
+        guard let first = opt.first, let v = Int(opt.dropFirst()) else { fail(usage) }
+        switch first {
+        case "v": guard (0...127).contains(v) else { fail(usage) }; velocity = v
+        case "p": guard (1...8).contains(v) else { fail(usage) }; probability = v
+        case "x": guard (1...4).contains(v) else { fail(usage) }; ratchets = v
+        case "a", "b", "c", "d":
+            guard (-99...99).contains(v) else { fail(usage) }
+            lanes[Int(first.asciiValue! - Character("a").asciiValue!)] = 64 + Int((Double(v) * 63 / 99).rounded())
+        default: fail(usage)
+        }
+    }
+    let extra = UInt8((8 - probability) | (ratchets - 1) << 3)
+    probeAck(Midi(port: portName), [0x45, UInt8(n - 1), 1, UInt8(note), UInt8(velocity), UInt8(gate), on, extra] + lanes.map { UInt8($0) })
+}
+
 func arpText(_ d: [UInt8]) -> String {
     guard d.count > 10, d[9] != 0 else { return "" }
     return ", arp " + (["off", "up", "down", "up-down", "random", "played"][safe: Int(d[9])] ?? "?")
@@ -1197,7 +1282,7 @@ func eeprom() {
 
 func slotNumber(_ text: String) -> Int? {
     let t = text.uppercased()
-    if let n = Int(t), (0..<400).contains(n) { return n }
+    if let n = Int(t), (0..<128).contains(n) { return n }
     if let first = t.first, first == "P" || first == "p", let p = Int(t.dropFirst()), (1...128).contains(p) {
         return p - 1 // "P7": patch 7 = slot 6
     }
@@ -1497,7 +1582,7 @@ case "settings": settings()
 case "params": params()
 case "param": param()
 case "factory": factory()
-case "seq": showSequence()
+case "seq": args.first == "set" ? seqSet() : args.first == "step" ? seqStep() : showSequence()
 case "layer": layer()
 case "eeprom": eeprom()
 case "route": route()

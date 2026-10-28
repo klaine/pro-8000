@@ -1,0 +1,106 @@
+{
+ "slot": 54,
+ "name": "Glitch Steps",
+ "group": "fx",
+ "notes": {
+  "sound": "Saw and pulse; LFO 1's step pattern (one bar of clock) jumps the pitch an octave between its high and low steps, snapped to minor pentatonic, while LFO 2 (S&H in 16ths) picks a new cutoff every step.",
+  "shows": "The Steps shape on pitch (via a route), S&H synced to 1/16 on the filter, scale quantize."
+ },
+ "buttons": [
+  "a-saw",
+  "b-square"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 70,
+   "b-level": 60,
+   "noise": 0,
+   "resonance": 50,
+   "a-pw": 50,
+   "b-pw": 30,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 33,
+   "fine": 50,
+   "cutoff": 46,
+   "fil-env-amt": 70,
+   "fil-att": 0,
+   "fil-dec": 52,
+   "fil-sus": 60,
+   "fil-rel": 44,
+   "amp-att": 0,
+   "amp-dec": 52,
+   "amp-sus": 90,
+   "amp-rel": 44,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 21,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 85,
+   "lfo2-amount": 70
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "clock",
+  "lfo-trigger": "first",
+  "lfo2-sync": "clock",
+  "lfo2-trigger": "free",
+  "shape 1 1": "steps",
+  "shape 1 2": "sh",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "filter",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "poly last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "pentatonic-minor",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0,
+  "steps 1 1": "x..x.x.xx.x..x.x"
+ },
+ "routes": {
+  "1": [
+   [
+    "lfo",
+    "pitch",
+    50
+   ],
+   [
+    "mod-wheel",
+    "lfo2-amount",
+    40
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ]
+  ]
+ }
+}

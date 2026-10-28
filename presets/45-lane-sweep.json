@@ -1,0 +1,264 @@
+{
+ "slot": 45,
+ "name": "Lane Sweep",
+ "group": "arp",
+ "notes": {
+  "sound": "A 32-step 16th riff with rests; lane A glides the cutoff up and back over the two bars, lane B steps the pulse width every beat.",
+  "shows": "Two automation lanes: one smooth (Seq A into cutoff), one stepped (Seq B into PW A)."
+ },
+ "buttons": [
+  "a-square",
+  "b-saw"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 70,
+   "b-level": 65,
+   "noise": 0,
+   "resonance": 40,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 33,
+   "fine": 50,
+   "cutoff": 36,
+   "fil-env-amt": 70,
+   "fil-att": 0,
+   "fil-dec": 52,
+   "fil-sus": 30,
+   "fil-rel": 44,
+   "amp-att": 0,
+   "amp-dec": 58,
+   "amp-sus": 80,
+   "amp-rel": 44,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 50,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 50,
+   "lfo2-amount": 0
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 1": "tri",
+  "shape 1 2": "tri",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "none",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "mono last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "seq-a",
+    "cutoff",
+    40
+   ],
+   [
+    "seq-b",
+    "a-pw",
+    40
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ]
+  ]
+ },
+ "sequence": {
+  "on": true,
+  "length": 32,
+  "step": "1/16",
+  "clock": true,
+  "bpm": 120,
+  "swing": 0,
+  "once": false,
+  "keys": "both",
+  "arp": "off",
+  "lanes": 2,
+  "smooth": "A",
+  "steps": [
+   {
+    "note": 0,
+    "a": -60,
+    "b": -50
+   },
+   {
+    "rest": true,
+    "a": -48
+   },
+   {
+    "note": 0,
+    "a": -36,
+    "b": 20
+   },
+   {
+    "note": 12,
+    "a": -24
+   },
+   {
+    "rest": true,
+    "a": -13,
+    "b": -50
+   },
+   {
+    "note": 0,
+    "a": -2
+   },
+   {
+    "note": 10,
+    "a": 9,
+    "b": 20
+   },
+   {
+    "rest": true,
+    "a": 18
+   },
+   {
+    "note": 0,
+    "a": 27,
+    "b": -50
+   },
+   {
+    "rest": true,
+    "a": 35
+   },
+   {
+    "note": 0,
+    "a": 42,
+    "b": 20
+   },
+   {
+    "note": 7,
+    "a": 48
+   },
+   {
+    "rest": true,
+    "a": 53,
+    "b": -50
+   },
+   {
+    "note": 0,
+    "a": 56
+   },
+   {
+    "note": 12,
+    "a": 59,
+    "b": 20
+   },
+   {
+    "rest": true,
+    "a": 60
+   },
+   {
+    "note": 0,
+    "a": 60,
+    "b": -50
+   },
+   {
+    "rest": true,
+    "a": 59
+   },
+   {
+    "note": 0,
+    "a": 56,
+    "b": 20
+   },
+   {
+    "note": 12,
+    "a": 53
+   },
+   {
+    "rest": true,
+    "a": 48,
+    "b": -50
+   },
+   {
+    "note": 0,
+    "a": 42
+   },
+   {
+    "note": 10,
+    "a": 35,
+    "b": 20
+   },
+   {
+    "rest": true,
+    "a": 27
+   },
+   {
+    "note": -2,
+    "a": 18,
+    "b": -50
+   },
+   {
+    "rest": true,
+    "a": 9
+   },
+   {
+    "note": -2,
+    "a": -2,
+    "b": 20
+   },
+   {
+    "note": 10,
+    "a": -13
+   },
+   {
+    "rest": true,
+    "a": -24,
+    "b": -50
+   },
+   {
+    "note": -2,
+    "a": -36
+   },
+   {
+    "note": 7,
+    "a": -48,
+    "b": 20
+   },
+   {
+    "note": 5,
+    "a": -60
+   }
+  ]
+ }
+}

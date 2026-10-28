@@ -1,0 +1,101 @@
+{
+ "slot": 62,
+ "name": "Trance Gate",
+ "group": "other",
+ "notes": {
+  "sound": "A saw pad cut into 16ths by LFO 1's step pattern over one bar of clock (the 'ta-ta-taa' gate), restarting with every chord; LFO 2 (sine, 2 bars) sweeps the filter underneath.",
+  "shows": "The Steps shape into the VCA at 99 (a trance gate), retrigger on every key, LFO 2 synced to 2 bars."
+ },
+ "buttons": [
+  "a-saw",
+  "b-saw"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 70,
+   "b-level": 70,
+   "noise": 0,
+   "resonance": 15,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 50,
+   "fine": 53,
+   "cutoff": 51,
+   "fil-env-amt": 64,
+   "fil-att": 0,
+   "fil-dec": 60,
+   "fil-sus": 60,
+   "fil-rel": 55,
+   "amp-att": 9,
+   "amp-dec": 60,
+   "amp-sus": 90,
+   "amp-rel": 50,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 21,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 14,
+   "lfo2-amount": 50
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "clock",
+  "lfo-trigger": "every",
+  "lfo2-sync": "clock",
+  "lfo2-trigger": "free",
+  "shape 1 1": "steps",
+  "shape 1 2": "sine",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "filter",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "poly last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0,
+  "steps 1 1": "x.x.xx..x.x.xx.."
+ },
+ "routes": {
+  "1": [
+   [
+    "lfo",
+    "vca",
+    99
+   ],
+   [
+    "aftertouch",
+    "cutoff",
+    30
+   ]
+  ]
+ }
+}

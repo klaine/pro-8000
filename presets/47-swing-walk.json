@@ -1,0 +1,147 @@
+{
+ "slot": 47,
+ "name": "Swing Walk",
+ "group": "arp",
+ "notes": {
+  "sound": "An eighth-note walking bass with heavy swing, saw plus a triangle an octave down, a little glide; the filter drops when the keys are released.",
+  "shows": "Swing, mono glide, the Gate source (1 while a key is down)."
+ },
+ "buttons": [
+  "a-saw",
+  "b-tri"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 70,
+   "b-level": 60,
+   "noise": 0,
+   "resonance": 10,
+   "a-pw": 50,
+   "b-pw": 50,
+   "pmod-osc-b": 0
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 33,
+   "fine": 50,
+   "cutoff": 44,
+   "fil-env-amt": 74,
+   "fil-att": 0,
+   "fil-dec": 52,
+   "fil-sus": 10,
+   "fil-rel": 44,
+   "amp-att": 0,
+   "amp-dec": 60,
+   "amp-sus": 50,
+   "amp-rel": 44,
+   "glide": 33,
+   "master-tune": 50,
+   "lfo-freq": 50,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 50,
+   "lfo2-amount": 0
+  }
+ },
+ "settings": {
+  "layers": "off",
+  "split": 60,
+  "keytrack": "full",
+  "lfo-sync": "free",
+  "lfo-trigger": "free",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 1": "tri",
+  "shape 1 2": "tri",
+  "shape 2 1": "tri",
+  "shape 2 2": "tri",
+  "lfo2-dests 1": "none",
+  "lfo2-dests 2": "none",
+  "cycle 1": "none",
+  "cycle 2": "none",
+  "voice 1": "mono last",
+  "voice 2": "poly last",
+  "bend": 2,
+  "detune": 14,
+  "drift": 0,
+  "scale": "off",
+  "root": "C",
+  "lfo-delay 1": 0,
+  "lfo-fade 1": 0,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
+  "macro 1 1": 0,
+  "macro 1 2": 0,
+  "macro 2 1": 0,
+  "macro 2 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "velocity",
+    "vca",
+    40
+   ],
+   [
+    "gate",
+    "cutoff",
+    15
+   ]
+  ]
+ },
+ "sequence": {
+  "on": true,
+  "length": 8,
+  "step": "1/8",
+  "clock": true,
+  "bpm": 120,
+  "swing": 62,
+  "once": false,
+  "keys": "both",
+  "arp": "off",
+  "lanes": 0,
+  "smooth": "",
+  "steps": [
+   {
+    "note": 0,
+    "gate": 65
+   },
+   {
+    "note": 4,
+    "gate": 65
+   },
+   {
+    "note": 7,
+    "gate": 65
+   },
+   {
+    "note": 12,
+    "gate": 65
+   },
+   {
+    "note": 10,
+    "gate": 65
+   },
+   {
+    "note": 7,
+    "gate": 65
+   },
+   {
+    "note": 4,
+    "gate": 65
+   },
+   {
+    "note": -2,
+    "gate": 65
+   }
+  ]
+ }
+}
