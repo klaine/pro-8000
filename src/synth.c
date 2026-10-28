@@ -1176,17 +1176,39 @@ typedef struct {
 // From the last synth_update(), for the ticks: each envelope's rates, and each LFO's rate knob and rate modulation
 static env_rates_t rates[LAYERS][4]; // amp, filter, Env 3, Env 4
 static float lfo_knob[LAYERS][2], lfo_octaves[LAYERS][2];
+// and what the ticks can skip: a layer with no fast route (fast_route()), and one whose routes never read Env 3 / 4
+static uint8_t fast_routes[LAYERS], uses_env34[LAYERS];
+// Each LFO's value this tick, for the voices sharing its phase (per-voice phases are read per voice)
+static float lfo_now[LAYERS][2];
+
+static void sample_lfos(void)
+{
+    for (int l = 0; l < LAYERS; l++)
+        for (int w = 0; w < 2; w++)
+            if (lfo_trigger[w] != LFO_TRIGGER_PER_VOICE)
+                lfo_now[l][w] = lfo_value(LFO_ID(l, w), -1, (lfo_shape_t)lfo_shape[l][w]);
+}
 
 // Voice v's CVs from the last synth_update()'s terms plus its envelopes, LFOs and fast routes now: the VCA, the
 // cutoff when `cutoff`, the pitch when `pitch`
 static void voice_cvs(int v, int cutoff, int pitch)
 {
     const voice_t *x = &voices[v];
+    if (x->amp.stage == ENV_IDLE) { // silent: its VCA is closed, and its pitch and cutoff can't be heard
+        sh_set(CV_AMP1 + v, 0);
+        return;
+    }
     int l = layer_of(v);
     float mod[DEST_COUNT] = {0};
-    evaluate_routes(l, v, mod, 1);
-    float lfo = lfo_value(LFO_ID(l, 0), v, (lfo_shape_t)lfo_shape[l][0]);
-    float lfo2 = lfo_value(LFO_ID(l, 1), v, (lfo_shape_t)lfo_shape[l][1]);
+    if (fast_routes[l])
+        evaluate_routes(l, v, mod, 1);
+    float lfo = 0, lfo2 = 0;
+    if (cutoff || pitch) {
+        lfo = lfo_trigger[0] == LFO_TRIGGER_PER_VOICE ? lfo_value(LFO_ID(l, 0), v, (lfo_shape_t)lfo_shape[l][0])
+                                                      : lfo_now[l][0];
+        lfo2 = lfo_trigger[1] == LFO_TRIGGER_PER_VOICE ? lfo_value(LFO_ID(l, 1), v, (lfo_shape_t)lfo_shape[l][1])
+                                                       : lfo_now[l][1];
+    }
     if (cutoff) {
         float note = x->cutoff_rest + lfo * x->to_filter[0] + lfo2 * x->to_filter[1]
                    + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES + x->cutoff_env * x->filter.level;
@@ -1214,15 +1236,19 @@ void synth_tick(float dt, int cutoff, unsigned pitch_voices)
     for (int l = 0; l < LAYERS; l++) // LFO_ID(0, 0) first: it moves the clock position
         for (int w = 0; w < 2; w++)
             lfo_update(LFO_ID(l, w), dt, lfo_knob[l][w], lfo_octaves[l][w]);
+    sample_lfos();
     for (int v = 0; v < VOICE_COUNT; v++) {
         voice_t *x = &voices[v];
         int l = layer_of(v);
         for (int w = 0; w < 2; w++)
-            lfo_update_voice(LFO_ID(l, w), v, dt, x->lfo_octaves[w]);
+            if (lfo_trigger[w] == LFO_TRIGGER_PER_VOICE)
+                lfo_update_voice(LFO_ID(l, w), v, dt, x->lfo_octaves[w]);
         env_update(&x->amp, dt, &rates[l][0]);
         env_update(&x->filter, dt, &rates[l][1]);
-        env_update(&x->env3, dt, &rates[l][2]);
-        env_update(&x->env4, dt, &rates[l][3]);
+        if (uses_env34[l]) { // otherwise they wait where they are; a route added later reads them from there
+            env_update(&x->env3, dt, &rates[l][2]);
+            env_update(&x->env4, dt, &rates[l][3]);
+        }
         voice_cvs(v, cutoff, pitch_voices >> v & 1);
     }
 }
@@ -1283,6 +1309,14 @@ void synth_update(float dt)
         lfo_knob[l][1] = p[PARAM_LFO2_RATE];
         lfo_octaves[l][0] = last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES;
         lfo_octaves[l][1] = last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES;
+        fast_routes[l] = uses_env34[l] = 0;
+        for (int r = 0; r < ROUTES; r++) {
+            const route_t *x = &routes[l][r];
+            if (x->source == SRC_NONE || x->dest >= DEST_COUNT)
+                continue;
+            fast_routes[l] |= fast_route(x);
+            uses_env34[l] |= x->source == SRC_ENV3 || x->source == SRC_ENV4;
+        }
         float glide = synth_knob_glide_s(p[POT_GLIDE]); // time constant, s
         lp[l] = (layer_params_t){
             .coarse_a = semitone_steps(p[POT_FREQ_A]),
@@ -1328,6 +1362,7 @@ void synth_update(float dt)
     sh_gate(GATE_PMOD_FILTER, sw(SWITCH_PMOD_FILTER));
 
     float keytrack_amount = 0.5f * (float)keytrack_setting; // 0, 0.5, 1
+    sample_lfos(); // for voice_cvs() below
     for (int v = 0; v < VOICE_COUNT; v++) {
         voice_t *x = &voices[v];
         int l = layer_of(v);

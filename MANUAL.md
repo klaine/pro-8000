@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.7.7. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.7.8. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -238,11 +238,12 @@ point (` 1.25`, ` 12.5`).
 
 Decay and release times are how long the fall takes to reach −60 dB, so a release showing 2 s is gone at 2 s.
 The attack has the concave shape of an analog envelope: it shoots up first and eases into the top. Decay and
-release fall exponentially. Sustain is a level, 0-99. With all 8 voices sounding (faster with fewer), the VCAs get
-a new value about every 0.5 ms and the cutoffs about every 1.2 ms, so attacks below about 0.5 ms all sound like an
-instant attack. The LFOs and the routes from envelopes and LFOs into pitch, cutoff and the VCA move at that rate too;
-each voice's pitch goes out about every 2.3 ms with its value at that moment, and the knobs and other routes update
-once in that time.
+release fall exponentially. Sustain is a level, 0-99. The engine's pass takes about 1.3 ms with one voice sounding
+and about 2.9 ms with all eight (measured on the synth), and within it the VCAs get a new value four times and the
+cutoffs twice: with eight voices the VCAs move about every 0.7 ms and the cutoffs about every 1.5 ms, with one voice
+every 0.35 and 0.7 ms, so attacks below that sound like an instant attack. The LFOs and the routes from envelopes and
+LFOs into pitch, cutoff and the VCA move at that rate too; each voice's pitch goes out once a pass with its value at
+that moment, and the knobs and other routes update once a pass.
 
 ### Cycling envelopes
 
@@ -408,7 +409,9 @@ Settings live in the patch, so save the patch to keep them.
 
 Tune measures every oscillator and filter and stores the tables in the EEPROM, where they survive firmware
 updates. It takes about 25 seconds, silent, with `tUnE` on the display. A new firmware tunes by itself the first
-time if it finds no tables. Retune after the synth has warmed up for best results.
+time if it finds no tables, or tables made for a different way of writing the CVs (0.7.8 does this once after the
+update: its refresh holds slightly different voltages, and the old tables read up to 28 cents sharp with it). Retune
+after the synth has warmed up for best results.
 
 ## The web page
 
@@ -436,7 +439,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.7.7.syx --yes
+build/pro800 install build/pro800-0.7.8.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

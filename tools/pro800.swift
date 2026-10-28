@@ -1285,8 +1285,9 @@ func timing() {
         let high = Int(b[3 * i]) << 14, mid = Int(b[3 * i + 1]) << 7
         return high | mid | Int(b[3 * i + 2])
     }
-    let v = (0..<min(7, (b.count - 1) / 3)).map(value)
-    print("engine \(v[0]) µs, CV refresh \(v[1]) µs, main-loop pass \(v[2]) µs (longest in 2 s: \(v[3]) µs)")
+    let v = (0..<min(8, (b.count - 1) / 3)).map(value)
+    print("engine \(v[0]) µs, CV refresh \(v[1]) µs" + (v.count >= 8 ? " (of which the four ticks \(v[7]) µs)" : "")
+          + ", main-loop pass \(v[2]) µs (longest in 2 s: \(v[3]) µs)")
     if v.count >= 6 { print("panel poll \(v[4]) µs, display \(v[5]) µs (last pass)") }
     if v.count >= 7, v[6] > 0 {
         print("\(v[6]) passes in the last second: \(1_000_000 / v[6]) µs per pass on average, modulation \(v[6]) times a second")

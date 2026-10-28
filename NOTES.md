@@ -796,6 +796,64 @@ From a second review, each point checked against the code first.
 - Not done: the sequencer and MIDI between the ticks (note timing still moves by up to a pass, now about 2.3 ms),
   hardware I2C1 / SPI4 for the panel and the EEPROM, the panel ideas (tap tempo, compare, Sync buttons).
 
+## On the synth: 0.7.7 flashed, tables re-tuned, tick trims (0.7.8, 2026-10-28)
+
+- 0.7.7 was the first build on the hardware since 0.7.2 (0.7.3-0.7.6 had only been built). Flashed with
+  `pro800 install`; the firmware answered after its start-up.
+- **The stored tuning tables don't fit the pipelined refresh.** `pro800 check` read every oscillator +3 to +28
+  cents sharp, rising with the note (a gain error: the held CV comes out a fixed fraction higher than the tables,
+  made under 0.7.2's 12 µs sample with an idle bus, expect). After `pro800 tune` the check was within 0.9 cents
+  everywhere: the pipelined sample holds a consistent voltage, just not the old one. So `TUNING_FORMAT` is now 3,
+  and the first start after this update re-tunes once (about 25 s, `tUnE`), as with no tables.
+- Timing measured on the synth (`pro800 timing`, notes held from the tool), 0.7.7:
+
+  | Voices sounding | Engine | CV refresh (incl. the ticks) | Pass | Longest in 2 s | Passes/s |
+  |---|---|---|---|---|---|
+  | 0 | 255 µs | 995 µs | 1272 µs | 3123 µs | 658 |
+  | 1 | 225 µs | 1148 µs | 1394 µs | 3664 µs | 620 |
+  | 4 | 225 µs | 1768 µs | 2038 µs | 4636 µs | 460 |
+  | 8 | 270 µs | 2710 µs | 3000-3100 µs | 4860 µs | 325 |
+
+  Against 0.5.6-0.7.2's constant 2.3 ms pass: with eight voices the pass is longer (the four ticks each do the
+  LFOs, four envelopes and the fast routes for every voice, about 0.2 ms a tick, which the Mac model left out), but
+  the VCAs move every 0.77 ms and the cutoffs every 1.5 ms instead of every 2.3; with one voice 0.4 and 0.8 ms.
+  Pitch per voice and MIDI are still once a pass, so at eight voices those are a third coarser than before.
+- Audio through the Move (`pro800 play --record`): notes at about -28 dBFS over a -58 dBFS floor; the mix of A + B
+  reads 2 to 5 cents flat at the output with the knobs centred, while the comparator check is within a cent per
+  oscillator (the comparator is the reference; the output figure averages the two oscillators and the recording).
+- Recording analysis of the pitch staircase (a 5 Hz, ±1 semitone vibrato at C7, pitch per period from zero
+  crossings, pure Python): not conclusive. The period-to-period track jitters by ±20-30 cents from the recording
+  chain (mains harmonics at 350 / 700 / 1400 Hz about -60 dBFS, and the saw's second harmonic), which hides steps
+  shorter than about 3 ms; the zipper sidebands of the stepping sit below those lines (under -40 dB against the
+  carrier band). The step rates above come from the timing probe instead. The scripts stayed in the session's
+  scratchpad.
+- 0.7.8: the timing reply carries an eighth value, the pass's four `synth_tick()` calls together, so the tick cost
+  can be read directly. Trims in the ticks: a silent voice (amp envelope idle) only gets its VCA CV set to 0; each
+  LFO's value is taken once per layer per tick when its phase is shared (per voice only in per-voice trigger mode);
+  the fast routes are evaluated only in a layer that has one; Env 3 / 4 advance only in a layer whose routes read
+  them; per-voice LFO phases advance only in per-voice mode; `tuning_note_cv()` reads a per-row segment cache
+  (CV and codes per octave per segment, built at `tuning_load()`) instead of scanning the table and dividing every
+  call. Build 51,896 bytes.
+- 0.7.8 on the synth: `install` re-tuned by itself before answering (the format bump), and `check` is within 0.9
+  cents on every oscillator. Timing (layers off; the boot had loaded a stacked patch, which doubles the voices):
+
+  | Voices sounding | Engine | CV refresh | of which the 4 ticks | Pass (average over 1 s) | Longest in 2 s |
+  |---|---|---|---|---|---|
+  | 0 | 144 µs | 648 µs (2234 on the 8th pass) | 93 µs | 1044 µs | 4226 µs |
+  | 1 | 145 µs | ~1000 µs | 153 µs | 1315 µs | 4289 µs |
+  | 2 | 156 µs | 1188 µs | 202 µs | 1552 µs | 3383 µs |
+  | 4 | 177 µs | 1666 µs | 300 µs | 2016 µs | 4480 µs |
+  | 8 | 230 µs | 2604 µs | 462 µs | 2932-2941 µs | 4688 µs |
+
+  Against 0.7.7: idle 1044 µs a pass instead of 1519, one voice 1315 instead of 1612, four 2016 instead of 2173,
+  eight 2935 instead of 3080. The ticks are 16 % of the eight-voice pass now (about 12 µs per sounding voice per
+  tick); the rest is the bus: 32 DAC80501 frames at about 60 µs each (48 µs of bits plus the two 1 µs SYNC waits
+  and the per-bit call overhead), 12 VCAs alone at 18 µs, and the globals. The next lever is the frame itself:
+  timing each bit from the cycle counter instead of delaying after each GPIO write would take the frame to 50 µs,
+  about 0.3 ms a pass with eight voices; the 8th-pass refresh of idle voices (the "longest pass") could be spread
+  over passes too.
+- The longest-pass figures above are the every-8th pass that refreshes idle voices plus a display write.
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic

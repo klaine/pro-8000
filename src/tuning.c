@@ -17,7 +17,7 @@
 #include "tune.h"
 
 #define TUNING_MAGIC   0x4E555450u // "PTUN"
-#define TUNING_FORMAT  2 // 2: in the EEPROM
+#define TUNING_FORMAT  3 // 2: in the EEPROM; 3: measured with the pipelined S&H refresh (0.7.8), which holds a slightly different CV
 
 #define FILTER_POINTS 12   // filters up to 0xD000 (about 15 kHz self-oscillating); higher is ultrasonic
 #define WINDOW_S      0.05f // measuring time per point
@@ -51,10 +51,13 @@ static uint32_t checksum(const store_t *s)
     return sum;
 }
 
+static void rebuild_rows(void);
+
 int tuning_load(void)
 {
     eeprom_read(STORE_TUNING_ADDRESS, (uint8_t *)&store, sizeof store);
     valid = store.magic == TUNING_MAGIC && store.format == TUNING_FORMAT && store.checksum == checksum(&store);
+    rebuild_rows();
     return valid;
 }
 
@@ -174,26 +177,42 @@ uint32_t tuning_centihertz(int row, int point)
     return (uint32_t)(fast_exp2(y) * 100.0f + 0.5f);
 }
 
+// Each row's measured points as segments, for tuning_note_cv() (called for every pitch and cutoff CV the ticks
+// write): the log2 frequency at each point's low end, its CV, and codes per octave across the segment
+static struct {
+    uint8_t count;
+    float y[TUNING_POINTS], cv[TUNING_POINTS], slope[TUNING_POINTS];
+} rows[TUNING_ROWS];
+
+static void rebuild_rows(void)
+{
+    for (int row = 0; row < TUNING_ROWS; row++) {
+        int n = 0;
+        for (int p = 0; valid && p < TUNING_POINTS; p++)
+            if (store.log2_hz[row][p] > 0) {
+                rows[row].y[n] = store.log2_hz[row][p];
+                rows[row].cv[n] = (float)tuning_point_cv(p);
+                n++;
+            }
+        for (int i = 0; i + 1 < n; i++)
+            rows[row].slope[i] = (rows[row].cv[i + 1] - rows[row].cv[i]) / (rows[row].y[i + 1] - rows[row].y[i]);
+        rows[row].count = (uint8_t)n;
+    }
+}
+
 uint16_t tuning_note_cv(int row, float note)
 {
-    float target = LOG2_440 + (note - 69.0f) / 12.0f, cv;
-    int points[TUNING_POINTS], n = 0;
-    if (valid)
-        for (int p = 0; p < TUNING_POINTS; p++)
-            if (store.log2_hz[row][p] > 0)
-                points[n++] = p;
-
+    float target = LOG2_440 + (note - 69.0f) * (1.0f / 12), cv;
+    int n = rows[row].count;
     if (n >= 2) {
         // the first segment whose upper end reaches the target; below the first point or above the last, the
         // end segment extrapolates
         int i = 0;
-        while (i < n - 2 && store.log2_hz[row][points[i + 1]] < target)
+        while (i < n - 2 && rows[row].y[i + 1] < target)
             i++;
-        float y0 = store.log2_hz[row][points[i]], y1 = store.log2_hz[row][points[i + 1]];
-        float c0 = tuning_point_cv(points[i]), c1 = tuning_point_cv(points[i + 1]);
-        cv = c0 + (target - y0) * (c1 - c0) / (y1 - y0);
+        cv = rows[row].cv[i] + (target - rows[row].y[i]) * rows[row].slope[i];
     } else {
-        cv = CV_A440 + (note - 69.0f) * CODES_PER_OCTAVE / 12.0f;
+        cv = CV_A440 + (note - 69.0f) * (CODES_PER_OCTAVE / 12);
     }
     return (uint16_t)(cv < 0 ? 0 : cv > 65535.0f ? 65535 : cv + 0.5f);
 }

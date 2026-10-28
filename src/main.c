@@ -63,7 +63,7 @@
 //   5C <n1> <n0>           load patch n; 5D <n1> <n0> save the current sound to patch n (both acknowledged)
 //   5F                     load the init sound (as PERF does; acknowledged)
 //   56 <layer> <source> <dest> <d1> <d0>  set a route's depth (d1 << 7 | d0) - 99, 0 removes it; acknowledged
-//   58                     timing; replies 58 <engine, refresh, pass, longest pass, panel poll, display: µs,
+//   58                     timing; replies 58 <engine, refresh, pass, longest pass, panel poll, display, passes/s, ticks: µs,
 //                          passes in the last second: 3 × 7 bits each>
 //   57 <layer>             the layer's routes; replies 57 <layer> then per route <source> <dest> <d1> <d0>
 //   5E <n1> <n0>           patch info; replies 5E <n1> <n0> <kind: 0 empty, 1 ours, 2 stock, 3 corrupt> <name>
@@ -96,6 +96,7 @@ static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24,
 static volatile uint32_t ms_ticks;
 static int direct_mode;
 static uint32_t cycles_engine, cycles_refresh, cycles_pass, cycles_pass_max, cycles_controls, cycles_display; // probe (58)
+static uint32_t cycles_ticks; // the pass's synth_tick() calls together (part of cycles_refresh)
 static uint32_t passes, passes_per_second, passes_second;
 static int report_mode;
 static uint8_t display_ram[PANEL_RAM_BYTES];
@@ -1282,9 +1283,10 @@ static void handle_sysex(const uint8_t *message, int length)
     }
     if (data_length == 1 && data[0] == 0x58) {
         uint32_t mhz = system_hz / 1000000u, values[] = {cycles_engine, cycles_refresh, cycles_pass, cycles_pass_max,
-                                                         cycles_controls, cycles_display, passes_per_second * mhz};
+                                                         cycles_controls, cycles_display, passes_per_second * mhz,
+                                                         cycles_ticks};
         reply[n++] = 0x58;
-        for (int i = 0; i < 7; i++) {
+        for (int i = 0; i < 8; i++) {
             uint32_t us = values[i] / mhz;
             reply[n++] = (uint8_t)(us >> 14 & 0x7F);
             reply[n++] = (uint8_t)(us >> 7 & 0x7F);
@@ -1437,6 +1439,7 @@ static void refresh_cvs(void)
     unsigned fresh = synth_take_fresh_voices();
     unsigned voices = ++count % 8 ? synth_active_voices() & ~fresh : 0xFFu;
     sh_refresh_pitch(fresh);
+    cycles_ticks = 0;
     for (int k = 0; k < TICKS; k++) {
         uint32_t now = DWT_CYCCNT;
         float dt = (float)(now - last_tick) / (float)system_hz;
@@ -1444,6 +1447,7 @@ static void refresh_cvs(void)
         int cutoff = !(k & 1);
         unsigned pitch = voices & 3u << 2 * k; // two voices' pitch per tick
         synth_tick(dt, cutoff, pitch);
+        cycles_ticks += DWT_CYCCNT - now;
         sh_refresh_pitch(pitch);
         if (cutoff)
             sh_refresh_cutoff(voices | fresh);
