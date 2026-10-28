@@ -3,8 +3,8 @@
  "name": "PolyMod Bass",
  "group": "bass",
  "notes": {
-  "sound": "Saw with a triangle an octave down. Poly-mod: the filter envelope kicks oscillator A's pitch at the start of each note and Env 4 lets B frequency-modulate A for a 150 ms growl; harder notes growl harder.",
-  "shows": "Poly-mod with Env 4 into the osc B amount; velocity into Env 4's decay."
+  "sound": "Saw with a triangle an octave down. Env 3 kicks oscillator A's pitch 3 semitones at the start of each note and falls back in 60 ms, and Env 4 lets B frequency-modulate A for a 150 ms growl; harder notes growl harder. Both envelopes return to zero, so the note stays in tune once the transient is over.",
+  "shows": "Env 3 into Pitch A as a kick, poly-mod with Env 4 into the osc B amount; velocity into Env 4's decay (a held source into the osc B amount would keep the FM on and the note sharp)."
  },
  "buttons": [
   "a-saw",
@@ -39,9 +39,9 @@
    "master-tune": 50,
    "lfo-freq": 50,
    "lfo-amount": 0,
-   "pmod-fil-env": 25,
+   "pmod-fil-env": 0,
    "env3-att": 0,
-   "env3-dec": 0,
+   "env3-dec": 34,
    "env3-sus": 0,
    "env3-rel": 0,
    "env4-att": 0,
@@ -87,19 +87,19 @@
  "routes": {
   "1": [
    [
-    "env4",
-    "pmod-osc-b",
-    55
+    "env3",
+    "pitch-a",
+    35
    ],
    [
-    "velocity",
+    "env4",
     "pmod-osc-b",
-    25
+    45
    ],
    [
     "velocity",
     "env4-dec",
-    20
+    30
    ],
    [
     "velocity",

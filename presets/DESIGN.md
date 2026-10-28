@@ -47,6 +47,17 @@ the firmware features behind them (`gen_presets.py` has them as helpers).
   dulls.
 - A little resonance (10-25) on almost everything; more only where it is the sound.
 
+## Poly-mod and tuning
+
+- **The filter envelope → Freq A amount (PMOD FIL ENV) is a pitch offset for as long as the envelope is up.** With a
+  filter sustain above zero the note sits sharp by amount × sustain for its whole length (P8's first version was 0.76
+  semitones sharp). Use it only with a filter sustain of 0, or for an intended pitch envelope; for a pitch kick
+  that returns to zero, route Env 3 or Env 4 into Pitch A instead, with their sustain at 0.
+- **Osc B → Freq A (PMOD OSC B) is exponential FM on the CV**, not linear FM: it raises the average pitch while it's
+  on and doesn't make clean sidebands. Keep it to transients (Env 4 decaying to 0 into the amount) or to small
+  amounts, and don't build "ratio" FM sounds on it. A held source into the amount (velocity, the wheel, pressure)
+  keeps the FM on and the note sharp: P8 read 28 cents sharp from velocity → osc B amount at 20.
+
 ## What to listen for
 
 Hold a chord on a pad and wait: it should change for the first ten seconds and keep changing. Play a lead softly and

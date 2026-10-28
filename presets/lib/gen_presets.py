@@ -252,13 +252,14 @@ P(7, "PWM Bass", "bass",
   routes1=[["lfo2", "a-pw", 25], ["aftertouch", "a-pw", 30]] + touch(30, 45))
 
 P(8, "PolyMod Bass", "bass",
-  "Saw with a triangle an octave down. Poly-mod: the filter envelope kicks oscillator A's pitch at the start of each "
-  "note and Env 4 lets B frequency-modulate A for a 150 ms growl; harder notes growl harder.",
-  "Poly-mod with Env 4 into the osc B amount; velocity into Env 4's decay.",
+  "Saw with a triangle an octave down. Env 3 kicks oscillator A's pitch 3 semitones at the start of each note and "
+  "falls back in 60 ms, and Env 4 lets B frequency-modulate A for a 150 ms growl; harder notes growl harder. Both "
+  "envelopes return to zero, so the note stays in tune once the transient is over.",
+  "Env 3 into Pitch A as a kick, poly-mod with Env 4 into the osc B amount; velocity into Env 4's decay (a held source into the osc B amount would keep the FM on and the note sharp).",
   ["a-saw", "b-tri", "pmod-freq-a"], {"a-level": 85, "b-level": 60, "resonance": 12},
   {"freq-b": st(-12), "cutoff": hz(300), "fil-env-amt": fea(20), **adsr("fil", 0, 300, 25, 150),
-   **adsr("amp", 0, 500, 75, 150), "pmod-fil-env": pmodenv(3), **adsr("env4", 0, 150, 0, 3)},
-  routes1=[["env4", "pmod-osc-b", 55], ["velocity", "pmod-osc-b", 25], ["velocity", "env4-dec", 20]] + touch(30, 45))
+   **adsr("amp", 0, 500, 75, 150), "pmod-fil-env": 0, **adsr("env3", 0, 60, 0, 3), **adsr("env4", 0, 150, 0, 3)},
+  routes1=[["env3", "pitch-a", pitch_depth(3)], ["env4", "pmod-osc-b", 45], ["velocity", "env4-dec", 30]] + touch(30, 45))
 
 # ----------------------------------------------------------------------------------------------- leads
 VIB_MS = late_vibrato  # (lfo-freq), (settings)

@@ -1036,7 +1036,9 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   them as helpers; P41-P64 keep their sounds (the sequences and curiosities are the point there).
 - Lessons from the first bank: a poly-mod amount with no destination button does nothing (P9, P20); FM through
   poly-mod is exponential, so a 3:1 "tine" smears instead of ringing (P21 is subtractive now); Env 3 for what the
-  filter envelope already does is a waste of a route (P19).
+  filter envelope already does is a waste of a route (P19); PMOD FIL ENV with a filter sustain above zero leaves
+  the note sharp by amount × sustain for its whole length (P8 read 0.76 semitones sharp; its kick is Env 3 → Pitch
+  A now, which returns to zero). Both are in `presets/DESIGN.md`.
 
 ## Backlog
 
