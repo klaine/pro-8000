@@ -23,8 +23,8 @@
 // DAC80501 settling plus the U47A/U16 buffers, then the time the 4051 needs to charge 10 nF to within 16 bits, in
 // tenths of a microsecond: together, the least a channel samples after its DAC changed. The host can change them
 // (sh_set_timing()) to find out how short they can be.
-#define DAC_SETTLE_DEFAULT 60
-#define SAMPLE_DEFAULT     120
+#define DAC_SETTLE_DEFAULT 30
+#define SAMPLE_DEFAULT     60
 static uint32_t settle_tenths = DAC_SETTLE_DEFAULT, sample_tenths = SAMPLE_DEFAULT;
 
 static uint32_t tenths_to_cycles(uint32_t tenths) { return tenths * (system_hz / 1000u) / 10000u; }

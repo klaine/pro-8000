@@ -7,14 +7,16 @@ firmware) as the reference for how the analog side behaves.
 **Features**
 
 - **Bitimbral:** two layers (split, stack, or by MIDI channel), selected with Seq 1 / Seq 2, with knob pickup.
+  Or one sound with a voice per MIDI channel: eight mono channels, or MPE with per-note bend, pressure and CC 74.
 - **LFOs:** two per layer, with eight shapes (triangle, square, ramps, sine, sample & hold, drift, and a 1-16 step
   pattern for trance gates, edited on the web page).
-  - Sync to MIDI clock in 15 divisions.
+  - Sync to MIDI clock in 15 divisions; a delay and fade-in per LFO, per voice.
   - Retrigger free, on the first key, on every key, or per voice (poly LFOs).
 - **Envelopes:** four per voice, with analog-style curves and times shown in ms / s on the display. Env 3 and
   Env 4 are edited with the filter ADSR knobs. Any of them can cycle while a key is held (attack, hold, fall, rest).
 - **Mod matrix:** 8 routes per layer, assigned from the panel (MOD ASSIGN on Arp Assign).
-  - 11 sources: LFOs, envelopes, velocity, mod wheel, aftertouch, random, note.
+  - 19 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, random,
+    note, gate, CC 74 (timbre) and the sequencer's four lanes.
   - 24 destinations, including the LFO rates and depths.
 - **Autotune:** within about a cent across C1-C8. The tables are stored in the EEPROM.
 - **Sequencer:** a step sequence per patch, played from a key and transposed by it (up to 64 steps, gate, ties,

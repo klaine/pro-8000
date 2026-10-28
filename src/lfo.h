@@ -28,6 +28,11 @@ extern uint8_t lfo_step_count[LFO_COUNT];
 
 extern lfo_sync_t lfo_sync[2];       // per LFO 1 / LFO 2
 extern lfo_trigger_t lfo_trigger[2];
+// Per LFO, 0-99: a delay after a note starts before it fades in, and the fade's length (0 = none; lfo_seconds()).
+extern uint8_t lfo_delay[2], lfo_fade[2];
+float lfo_seconds(uint8_t value); // 0 for 0, else 0.02 s at 1 up to about 5 s at 99
+// The LFO's gain for a voice `age` seconds after its note started: 0 through the delay, then up to 1 over the fade
+float lfo_fade_gain(int which, float age);
 
 // MIDI realtime, called from the USB or DIN interrupt: timing clock (24 per quarter note, `cycles` = cycle counter at
 // arrival), start (the next timing clock is the downbeat), continue (from the song position, if one came, else from

@@ -38,6 +38,7 @@ typedef struct {
     uint16_t pots[2][POT_COUNT]; // per layer, 0..65535; shared pots are the same in both
     uint16_t extra[2][EXTRA_PARAMS]; // Env 3, Env 4, LFO 2 rate and amount per layer
     route_t routes[2][ROUTES];
+    uint8_t lfo_delay[2], lfo_fade[2]; // per LFO, 0-99 (lfo.h); 0 in patches from before 0.7.9
 } patch_t;
 
 typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t;

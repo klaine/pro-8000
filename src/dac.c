@@ -6,6 +6,7 @@
 #include "dac.h"
 #include "clock.h"
 #include "gpio.h"
+#include "regs.h"
 
 #define SCLK_PORT GPIOC_BASE
 #define SCLK_PIN  (1u << 10)
@@ -26,35 +27,45 @@
 // 0 V out), so: reference / 2, buffer gain 2, giving 0-2.5 V; U47A doubles that.
 #define DAC80501_REF_DIV_GAIN2 0x0101u
 
-const dac_config_t dac_default = {.bus = DAC_BUS_BITBANG, .mode = 0, .high = 168, .low = 168, .speed = 0, .sync_us = 1};
-static dac_config_t config = {.bus = DAC_BUS_BITBANG, .mode = 0, .high = 168, .low = 168, .speed = 0, .sync_us = 1};
+// 0.5 MHz: the board takes nothing above 0.6 (the dac-test sweep, NOTES). No wait around SYNC: it works without, and
+// the DAC's own minimum is 20 ns.
+const dac_config_t dac_default = {.bus = DAC_BUS_BITBANG, .mode = 0, .high = 168, .low = 168, .speed = 0, .sync_us = 0};
+static dac_config_t config = {.bus = DAC_BUS_BITBANG, .mode = 0, .high = 168, .low = 168, .speed = 0, .sync_us = 0};
 
 // 24-bit frame: command byte then 16 data bits, MSB first. The DAC latches SDIN on the falling edge of SCLK.
 // Mode 0 changes SDIN as SCLK rises (setup = the high time), mode 1 just after SCLK falls (setup = the low time,
 // and the bit is stable through the whole next edge). `before_update` runs before the last two bits (dac16_write()).
+// Each half-bit ends at a deadline counted from the cycle counter, so the GPIO writes and the loop add nothing to
+// the frame: 24 × (high + low) cycles, 48 µs at the default.
+static void wait_until(uint32_t deadline)
+{
+    while ((int32_t)(DWT_CYCCNT - deadline) < 0)
+        ;
+}
+
 static void bitbang_frame(uint32_t frame, void (*before_update)(void))
 {
-    uint32_t high = config.high, low = config.low;
-    if (config.mode == 0)
-        for (int bit = 23; bit >= 0; bit--) {
-            if (bit == 1 && before_update)
-                before_update();
+    uint32_t high = config.high, low = config.low, mode = config.mode;
+    uint32_t t = DWT_CYCCNT;
+    for (int bit = 23; bit >= 0; bit--) {
+        if (bit == 1 && before_update) {
+            before_update();
+            t = DWT_CYCCNT;
+        }
+        if (mode == 0) {
             gpio_write(SCLK_PORT, SCLK_PIN, 1);
             gpio_write(SDIN_PORT, SDIN_PIN, (frame >> bit) & 1);
-            delay_cycles(high);
+            wait_until(t += high);
             gpio_write(SCLK_PORT, SCLK_PIN, 0);
-            delay_cycles(low);
-        }
-    else
-        for (int bit = 23; bit >= 0; bit--) {
-            if (bit == 1 && before_update)
-                before_update();
+            wait_until(t += low);
+        } else {
             gpio_write(SDIN_PORT, SDIN_PIN, (frame >> bit) & 1);
-            delay_cycles(low);
+            wait_until(t += low);
             gpio_write(SCLK_PORT, SCLK_PIN, 1);
-            delay_cycles(high);
+            wait_until(t += high);
             gpio_write(SCLK_PORT, SCLK_PIN, 0);
         }
+    }
 }
 
 static void spi_frame(uint32_t frame)
@@ -77,13 +88,15 @@ static void dac80501_write(uint8_t command, uint16_t data, void (*before_update)
     if (config.bus == DAC_BUS_SPI && before_update)
         before_update();
     gpio_write(SYNC_PORT, SYNC_PIN, 0);
-    delay_us(config.sync_us);
+    if (config.sync_us)
+        delay_us(config.sync_us);
     if (config.bus == DAC_BUS_SPI)
         spi_frame(frame);
     else
         bitbang_frame(frame, before_update);
     gpio_write(SYNC_PORT, SYNC_PIN, 1);
-    delay_us(config.sync_us);
+    if (config.sync_us)
+        delay_us(config.sync_us);
 }
 
 static void set_speed(uint32_t port, uint32_t pin_mask, uint32_t speed)

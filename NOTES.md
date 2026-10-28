@@ -890,6 +890,47 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   cycle counter instead of delaying after each GPIO write), no SYNC wait, and possibly 154/154 cycles with margin
   to spare; together a frame of about 46 µs, about 0.45 ms off the eight-voice pass (2.9 → 2.5 ms).
 
+## Timing and engine backlog, LFO fade, new sources, a voice per channel and MPE (0.7.9, 2026-10-28)
+
+- **The DAC80501 frame** (`dac.c`): each half-bit ends at a cycle-counter deadline, so the GPIO writes and the loop
+  add nothing: 24 × 336 cycles = 48 µs. No wait around SYNC (`sync_us` 0; the sweep showed it works, the DAC's own
+  minimum is 20 ns). The held CV moved about a cent with it, so `TUNING_FORMAT` is 4: one re-tune after the update.
+- **MIDI and the sequence between the ticks** (`refresh_cvs()`): before ticks 2-4 of a pass `handle_midi()` runs
+  and the sequence advances (`advance_sequence()`, by its own elapsed time, bounded at 50 ms), and a voice that
+  started gets its pass terms (`synth_prepare_voices()` → `voice_slow()`, the per-voice half of `synth_update()`)
+  and its pitch before its VCA. Note-on to pitch is now within a tick instead of a pass.
+- **The idle refresh spread**: one silent voice's pitch and cutoff per pass, in turn, instead of all eight every
+  8th pass. The longest pass fell from 4.2-4.7 ms to about 3 ms idle and 4.2 with eight voices (the display write
+  is most of what's left); the average is the same.
+- **The lone channels' S&H waits** are 3 + 6 µs (were 6 + 12). Measured through the Move on the init sound with
+  `pro800 sh-waits` (new: sets them, RAM only): the level and spectrum are identical from 6/12 down to 2/3 µs
+  (-28.0 dBFS, the same lines), and 1/1 collapses (-37 dBFS, the VCA undercharges). 3/6 keeps nearly twice the
+  working margin.
+- Measured on the synth (init sound, layers off):
+
+  | Voices | Engine | Refresh | of which ticks | Pass average | Longest in 2 s |
+  |---|---|---|---|---|---|
+  | 0 | 143 µs | 854 µs | 23 µs | 1019 µs | 2870 µs |
+  | 1 | 133 µs | 1030 µs | 26 µs | 1196 µs | 3034 µs |
+  | 8 | 176 µs | 2133 µs | 260 µs | 2398 µs | 4184 µs |
+
+  Against 0.7.8: 1044 → 1019, 1315 → 1196, 2935 → 2398 µs. Against 0.7.2: 1416 → 1019 and 3663 → 2398.
+- **LFO delay and fade-in** (`lfo_delay[2]`, `lfo_fade[2]`, 0-99 → 0, 20 ms .. 5 s): per voice, from the note's
+  start (`lfo_age`, reset with `fresh`); the gain multiplies the LFO wherever it's read for that voice, and the
+  single-wire PW follows the most recent voice's. Stored in the patch record's two master-volume pot slots (never
+  loaded as pots) behind a flag in byte 31, so older records read as 0. Host settings 32-35, which moved
+  env-select, preset-mode, patch and morph to 36-39 (tool and page updated).
+- **Sources** appended: `SRC_LFO_UNI`, `SRC_LFO2_UNI` (0..1), `SRC_GATE`, `SRC_TIMBRE` (CC 74). Host-only, like
+  the sequence lanes.
+- **Layer modes 4 and 5**: `8CH` (channels 1-8 → voices 1-8, mono, own bend at the bend-range setting, pressure,
+  CC 74; channels 9-16 ignored) and `nPE` (MPE lower zone: channel 1 master, channels 2-9 → voices, 48 semitones
+  of bend; the master's bend, wheel, pressure and pedal reach every voice and its notes play poly). Per-voice
+  `bend` and `timbre` in `voice_t`; `synth_channel_voice()` and the `synth_voice_*()` entries; `key_off()` by
+  channel. Checked on the synth: a member channel bent by 12 semitones read +1200.8 cents, the master's +2
+  semitones on another channel's note +200.0, an unbent member -0.7.
+- The dac-test harness and the 0.7.5 engine harness from the other session were found in its scratchpad; they
+  target 0.7.5-0.7.7 interfaces and weren't ported (see the backlog).
+
 ## Backlog
 
 Nothing here is needed for the synth to work; this is what's open, consolidated 2026-10-28 after the review, the
@@ -897,21 +938,14 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 
 **Timing and engine**
 
-- **MIDI and the sequencer between the ticks.** Both run once a pass, so note-on latency and step timing move by up
-  to a pass: 1.3 ms with one voice, 2.9 with eight. Handling MIDI and advancing the sequencer before each tick
-  brings that under a millisecond. The one timing item still worth doing for players; everything else is at or
-  below what's audible.
-- **The DAC80501 frame's overhead.** A frame measures about 60 µs for 48 µs of bits: time each bit from the cycle
-  counter instead of delaying after each GPIO write, drop the SYNC wait (works at 0.5 MHz), and perhaps 154/154
-  cycles (0.55 MHz, with 0.60 the measured edge). About 46 µs a frame, about 0.45 ms off the eight-voice pass.
-  The bus itself is closed: everything above 0.6 MHz fails whatever drives it (the sweep); a scope on SCLK / SDIN
-  at U46 is the only way to learn why, and the 2 kHz every-CV refresh plan waits on that.
-- **Spread the 8th-pass refresh.** The pass that refreshes idle voices is the longest (4.2-4.7 ms); refreshing one
-  idle voice a pass instead keeps every pass near the average.
-- **The S&H waits for the channels written alone** (VCAs, globals): still 6 + 12 µs. The sweep can't judge them any
-  more (it measures a pipelined channel), so shortening them needs a VCA measurement through the Move.
-- **Commit the Mac simulation.** The S&H model and the engine checks behind the 0.7.7 table exist only in that
-  session; under `tools/` they would rerun for the next change to `sh.c` or the ticks.
+- **The bus is closed** at 0.5 MHz: everything above 0.6 MHz fails whatever drives it (the sweep); a scope on
+  SCLK / SDIN at U46 is the only way to learn why, and the 2 kHz every-CV refresh plan waits on that. 154/154
+  cycles (0.55 MHz) would take 2 µs off each frame but sits close to the measured edge.
+- **Port and commit the Mac simulations.** The 0.7.7 S&H model (`sim.c`: GPIO B / D pins, the DAC80501 frame, both
+  on-chip DACs, in cycles, checking every sample) and the 0.7.5 engine harness (`test.c`: the real `synth.c`,
+  `lfo.c`, `seq.c` with the hardware stubbed, clock and channel-mode scenarios) were left in another session's
+  scratchpad and target older interfaces (`synth_envelopes()`, `GPIO_BSRR` as an lvalue). Ported under `tools/sim/`
+  they would rerun for the next change to `sh.c` or the ticks.
 
 **Hardware drivers**
 
@@ -935,9 +969,8 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 
 **Features**
 
-- LFO fade-in / delay per LFO (today: Env 3 → LFO amount in the matrix does it per voice).
-- MPE / 8-channel mono mode on top of the mod matrix (per-voice pitch bend and pressure).
-- More matrix sources: LFO 1 / LFO 2 unipolar, key-down gate.
+- MPE: the RPNs for the member bend range and zone layout (fixed at the lower zone, channels 2-9, 48 semitones).
+- LFO delay / fade per layer (today per LFO, shared by both layers: the record had room for four bytes).
 - Voice stealing: a one-tick VCA dip for a stolen voice was considered and rejected (a step of its own); the pitch
   jump with the VCA open sounds like legato.
 

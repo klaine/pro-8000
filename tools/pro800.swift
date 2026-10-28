@@ -46,12 +46,13 @@ Probe (our firmware 0.0.9+):
   pro800 tuning                         print the tuning tables (Hz per CV point)
   pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
   pro800 dac-test [--bus-only|--timing-only|--clock]
+  pro800 sh-waits <settle µs> <sample µs>  the S&H waits for channels written alone (RAM only; 0 0 = default)
                                         sweep DAC80501 buses and S&H waits, checked by osc A1's pitch (0.7.4+;
                                         silent; changes nothing stored)
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
   pro800 state                          print every pot (0-99) and switch as the firmware reads them
   pro800 set <setting> <value>          lfo-sync / lfo2-sync free|clock, lfo-trigger / lfo2-trigger
-                                        free|first|every|voice, layers off|split|stack|channel, split <note>,
+                                        free|first|every|voice, layers off|split|stack|channel|8ch|mpe, split <note>,
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
                                         bend <1-12> (semitones), detune <0-50> (unison, cents), drift <0-99>,
                                         scale off|major|minor|dorian|…|chromatic, root C..B,
@@ -69,6 +70,7 @@ Probe (our firmware 0.0.9+):
   pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, 0 removes); pro800 routes lists them
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 cc <controller> <value>        send a control change (e.g. 1 = mod wheel)
+  pro800 bend <0-16383>                 send pitch bend (8192 = centre); --channel N for both
   pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
   pro800 patches [--all]                list the patch slots (ours, stock, empty)
   pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-199, A00-B99;
@@ -662,13 +664,24 @@ func check() {
 // Sweeps the CV path's speed (firmware 0.7.4): DAC80501 buses and S&H waits, each checked by oscillator A1's pitch
 // through the tuning comparator against the safe default. pro800 dac-test [--bus-only | --timing-only]
 // Everything is a probe: the synth goes back to the default at the end, and on any reboot.
+// pro800 sh-waits <settle µs> <sample µs>: the S&H waits for channels written on their own (RAM only, default
+// bus; 0 0 restores the defaults). For measuring the VCA path through the Move, which dac-test can't judge.
+func shWaits() {
+    guard args.count == 2, let settle = Double(args[0]), let sample = Double(args[1]), settle >= 0, sample >= 0,
+          settle <= 12.7, sample <= 12.7 else { fail("usage: pro800 sh-waits <settle µs 0-12.7> <sample µs 0-12.7>") }
+    let midi = Midi(port: portName)
+    let data: [UInt8] = [0x6C, 0, 0, 168 >> 7, 168 & 0x7F, 168 >> 7, 168 & 0x7F, 0, 0, UInt8(settle * 10 + 0.5), UInt8(sample * 10 + 0.5)]
+    guard let r = midi.request(data, expect: [0x7F, 0x6C], timeout: 2), r[sysexHeader.count + 2] == 1 else { fail("rejected") }
+    print("S&H waits: settle \(settle) µs, sample \(sample) µs (0 = default)")
+}
+
 func dacTest() {
     let midi = Midi(port: portName)
     func ack(_ data: [UInt8]) { probeAck(midi, data) }
     func setCV(_ name: String, _ value: Int) {
         ack([0x70, UInt8(cvNames.firstIndex(of: name)!), UInt8(value >> 14), UInt8((value >> 7) & 0x7F), UInt8(value & 0x7F)])
     }
-    struct Bus { var bus = 0, mode = 0, high = 168, low = 168, speed = 0, sync = 1 }
+    struct Bus { var bus = 0, mode = 0, high = 168, low = 168, speed = 0, sync = 0 }
     func configure(_ b: Bus, settle: Int = 0, sample: Int = 0) -> Bool {
         let data: [UInt8] = [0x6C, UInt8(b.bus), UInt8(b.mode), UInt8(b.high >> 7), UInt8(b.high & 0x7F), UInt8(b.low >> 7),
                              UInt8(b.low & 0x7F), UInt8(b.speed), UInt8(b.sync), UInt8(settle), UInt8(sample)]
@@ -850,13 +863,13 @@ func state() {
 
 let shapeNames = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps"]
 let lfo2DestNames = ["pitch", "filter", "pw"]
-let layerModes = ["off", "split", "stack", "channel"], triggerModes = ["free", "first", "every", "voice"]
+let layerModes = ["off", "split", "stack", "channel", "8ch", "mpe"], triggerModes = ["free", "first", "every", "voice"]
 let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo2-sync", "lfo2-trigger", "edit-layer",
                     "lfo", "shape 1 1", "shape 1 2", "shape 2 1", "shape 2 2", "lfo2-dests 1", "lfo2-dests 2",
                     "cycle 1", "cycle 2", "cycle-sync 1 amp", "cycle-sync 1 filter", "cycle-sync 1 env3",
                     "cycle-sync 1 env4", "cycle-sync 2 amp", "cycle-sync 2 filter", "cycle-sync 2 env3",
                     "cycle-sync 2 env4", "bend", "detune", "voice 1", "voice 2", "drift", "scale", "root",
-                    "env-select", "preset-mode", "patch", "morph"]
+                    "lfo-delay", "lfo-fade", "lfo2-delay", "lfo2-fade", "env-select", "preset-mode", "patch", "morph"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                   "pentatonic-minor", "blues", "whole-tone", "chromatic"]
 let rootNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -881,7 +894,8 @@ func setSetting() {
                                                "lfo2-sync": (5, ["free", "clock"]), "lfo2-trigger": (6, triggerModes),
                                                "lfo": (8, ["1", "2"])]
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
-        "layers off|split|stack|channel | split <note 0-127> | keytrack off|half|full | lfo 1|2 | " +
+        "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | keytrack off|half|full | lfo 1|2 | " +
+        "lfo-delay|lfo-fade <lfo 1|2> <0-99> | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
@@ -899,6 +913,9 @@ func setSetting() {
         (id, v) = (30, i)
     } else if args.count == 2, args[0] == "root", let i = rootNames.firstIndex(of: args[1].uppercased()) {
         (id, v) = (31, i)
+    } else if args.count == 3, ["lfo-delay", "lfo-fade"].contains(args[0]), let lfo = Int(args[1]), (1...2).contains(lfo),
+              let a = Int(args[2]), (0...99).contains(a) {
+        (id, v) = (UInt8(32 + 2 * (lfo - 1) + (args[0] == "lfo-fade" ? 1 : 0)), a)
     } else if args.count == 4, args[0] == "voice", let layer = Int(args[1]), (1...2).contains(layer),
               let m = voiceModes.firstIndex(of: args[2]), let p = priorities.firstIndex(of: args[3]) {
         (id, v) = (UInt8(27 + layer - 1), m | p << 2)
@@ -973,9 +990,10 @@ func settings() {
         case 27, 28: text = "\(voiceModes[safe: v & 3] ?? "?"), \(priorities[safe: v >> 2 & 3] ?? "?") note priority"
         case 30: text = scaleNames[safe: v] ?? text
         case 31: text = rootNames[safe: v] ?? text
-        case 32: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
-        case 34: text = slotName(v)
-        case 35: text = v == 0 ? "none" : slotName(v - 1)
+        case 32...35: text = v == 0 ? "off" : String(format: "%d (%.2f s)", v, 0.02 * pow(2, Double(v) * 8 / 99))
+        case 36: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
+        case 38: text = slotName(v)
+        case 39: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
@@ -1252,7 +1270,7 @@ func patches() {
 }
 
 let sourceNames = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
-                   "lfo2"]
+                   "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre"]
 let destNames = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
                  "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
                  "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw"]
@@ -1314,6 +1332,17 @@ func cc() {
     }
     let midi = Midi(port: portName)
     midi.send([0xB0 | channel, UInt8(num), UInt8(value)])
+    pump(0.05)
+}
+
+// pro800 bend <0-16383> [--channel N]: pitch bend (8192 = centre)
+func bend() {
+    let channel = UInt8((Int(option("--channel") ?? "1") ?? 1) - 1) & 0x0F
+    guard args.count == 1, let value = Int(args[0]), (0...16383).contains(value) else {
+        fail("usage: pro800 bend <0-16383> [--channel N]  (8192 = centre)")
+    }
+    let midi = Midi(port: portName)
+    midi.send([0xE0 | channel, UInt8(value & 0x7F), UInt8(value >> 7)])
     pump(0.05)
 }
 
@@ -1442,6 +1471,7 @@ case "tune": tune()
 case "tuning": tuning()
 case "check": check()
 case "dac-test": dacTest()
+case "sh-waits": shWaits()
 case "panel": panel()
 case "state": state()
 case "set": setSetting()
@@ -1456,6 +1486,7 @@ case "route": route()
 case "routes": routes()
 case "timing": timing()
 case "cc": cc()
+case "bend": bend()
 case "eeprom-write": eepromWrite()
 case "import": importStock()
 case "patch": patchCommand()

@@ -29,6 +29,17 @@
 
 lfo_sync_t lfo_sync[2];
 lfo_trigger_t lfo_trigger[2];
+uint8_t lfo_delay[2], lfo_fade[2];
+
+float lfo_seconds(uint8_t value) { return value ? 0.02f * fast_exp2((float)value * (8.0f / 99)) : 0; }
+
+float lfo_fade_gain(int which, float age)
+{
+    if (!lfo_delay[which] && !lfo_fade[which])
+        return 1.0f;
+    float t = age - lfo_seconds(lfo_delay[which]), fade = lfo_seconds(lfo_fade[which]);
+    return t <= 0 ? 0 : fade <= 0 || t >= fade ? 1.0f : t / fade;
+}
 uint16_t lfo_pattern[LFO_COUNT] = {LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN};
 uint8_t lfo_step_count[LFO_COUNT] = {LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS};
 

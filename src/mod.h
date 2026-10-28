@@ -22,6 +22,9 @@ typedef enum {
     SRC_NONE, SRC_LFO, SRC_FILTER_ENV, SRC_AMP_ENV, SRC_VELOCITY, SRC_MOD_WHEEL, SRC_AFTERTOUCH, SRC_ENV3, SRC_ENV4,
     SRC_RANDOM, SRC_NOTE, SRC_LFO2,
     SRC_SEQ_A, SRC_SEQ_B, SRC_SEQ_C, SRC_SEQ_D, // the sequence's automation lanes (seq.h), bipolar; host only
+    SRC_LFO_UNI, SRC_LFO2_UNI, // the LFOs as 0..1 (bottom to top) instead of -1..1; host only
+    SRC_GATE,                  // 1 while the voice's key is down, 0 in its release; host only
+    SRC_TIMBRE,                // CC 74, 0..1: per voice in the per-channel modes, else per layer; host only
     SRC_COUNT
 } mod_source_t;
 

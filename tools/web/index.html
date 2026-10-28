@@ -428,7 +428,7 @@
     <section class="cs">
       <h3>Layers</h3>
       <ol>
-        <li><kbd>Settings</kbd> <kbd>3</kbd> <code class="lcd">LAYr</code>, <kbd>VALUE</kbd>: <code class="lcd">OFF</code> <code class="lcd">SPLt</code> <code class="lcd">StAC</code> <code class="lcd">CHAn</code> (MIDI channel 2 = layer 2).</li>
+        <li><kbd>Settings</kbd> <kbd>3</kbd> <code class="lcd">LAYr</code>, <kbd>VALUE</kbd>: <code class="lcd">OFF</code> <code class="lcd">SPLt</code> <code class="lcd">StAC</code> <code class="lcd">CHAn</code> (MIDI channel 2 = layer 2) <code class="lcd">8CH</code> (a voice per channel 1-8) <code class="lcd">nPE</code> (MPE: channel 1 master, 2-9 a voice each).</li>
         <li>Split point: <kbd>Settings</kbd> <kbd>4</kbd>, then <kbd>VALUE</kbd> or play the note.</li>
         <li><kbd>Seq 1</kbd> / <kbd>Seq 2</kbd> choose the layer you edit.</li>
       </ol>
@@ -1039,7 +1039,7 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab
 const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo2Sync", "lfo2Trigger", "editLayer",
   "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2",
   "cycleSync1_0", "cycleSync1_1", "cycleSync1_2", "cycleSync1_3", "cycleSync2_0", "cycleSync2_1", "cycleSync2_2",
-  "cycleSync2_3", "bend", "detune", "voice1", "voice2", "drift", "scale", "root", "envSelect",
+  "cycleSync2_3", "bend", "detune", "voice1", "voice2", "drift", "scale", "root", "lfoDelay1", "lfoFade1", "lfoDelay2", "lfoFade2", "envSelect",
   "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 let settings = null, params = null, paramsLayer = 0;
@@ -1186,7 +1186,7 @@ paints.push(() => {
     big.textContent = `${touched.label}  ${touched.value}`;
     sub.textContent = patch;
   } else {
-    top.textContent = settings ? `layer ${paramsLayer + 1} · ${["one layer", "split", "stack", "by channel"][settings.layers]}` : "pro 800";
+    top.textContent = settings ? `layer ${paramsLayer + 1} · ${["one layer", "split", "stack", "by channel", "a voice per channel", "MPE"][settings.layers]}` : "pro 800";
     big.textContent = settings ? patch : "not connected";
     sub.textContent = settings ? `filter ADSR knobs edit the ${["filter env", "Env 3", "Env 4"][settings.envSelect] || ""}` : "";
   }
@@ -1606,12 +1606,14 @@ function lfoSection(which) {
   const timing = h("div", { class: "lfo-sel" },
     settingSelect("Sync", SYNC, () => settings && settings[`lfo${n}Sync`], v => setSetting(SET_ID[`lfo${n}Sync`], v)),
     settingSelect("Retrigger", TRIGGER, () => settings && settings[`lfo${n}Trigger`], v => setSetting(SET_ID[`lfo${n}Trigger`], v)));
+  const fade = [settingKnob(`lfoDelay${n}`, "Delay", `LFO ${n} waits this long after a note starts (per voice; both layers)`, fadeText),
+                settingKnob(`lfoFade${n}`, "Fade in", `then fades in over this long (per voice; both layers)`, fadeText)];
   return sec(`lfo${n}`, `LFO ${n}`,
     h("div", { class: "sec-tools" }, which ? shapes : h("span", { class: "dim small" }, "rate, shape, amount and routing: LFO-MOD on the panel above"),
       copyButton(`copy LFO ${n} from the other layer`, () => copyLfo(which))),
     viz("lfo", drawLfo(which)),
     stepEdit,
-    which ? row(knob(P.LFO2_RATE, "Rate"), knob(P.LFO2_AMT, "Amount"), timing) : row(timing, selNote),
+    which ? row(knob(P.LFO2_RATE, "Rate"), knob(P.LFO2_AMT, "Amount"), ...fade, timing) : row(...fade, timing, selNote),
     which ? h("div", { class: "routing" }, h("span", { class: "lbl" }, "Routing"), ...routing, selNote) : null,
     h("div", { class: "depths" }, h("span", { class: "lbl" }, "Depth (mod routes)"), LFO_TARGETS.map((_, t) => depthBar(which, t))));
 }
@@ -1896,15 +1898,22 @@ function seqSection() {
 const SCALES = ["Off", "Major", "Minor", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Harmonic minor", "Pentatonic major",
   "Pentatonic minor", "Blues", "Whole tone", "Chromatic"];
 const MORPH_DEST = 24;
-function driftKnob() {
+// a 0-99 setting as a knob
+function settingKnob(key, label, title, show = u => String(Math.round(u * 99))) {
   let local = null, at = 0, timer = 0;
-  const get = () => local !== null && Date.now() - at < 1500 ? local : (settings ? settings.drift / 99 : 0);
-  return modelKnob("Drift", get, u => {
+  const get = () => local !== null && Date.now() - at < 1500 ? local : (settings ? settings[key] / 99 : 0);
+  return modelKnob(label, get, u => {
     if (offline()) return;
-    local = u; at = Date.now(); touch("Drift", String(Math.round(u * 99)));
-    clearTimeout(timer); timer = setTimeout(() => setSetting(SET_ID.drift, Math.round(u * 99)), 60);
-  }, u => String(Math.round(u * 99)), 0, "each voice's pitch and cutoff wander slowly at random (up to 15 cents and a semitone)");
+    local = u; at = Date.now(); touch(label, show(u));
+    clearTimeout(timer); timer = setTimeout(() => setSetting(SET_ID[key], Math.round(u * 99)), 60);
+  }, show, 0, title);
 }
+function driftKnob() {
+  return settingKnob("drift", "Drift", "each voice's pitch and cutoff wander slowly at random (up to 15 cents and a semitone)");
+}
+// LFO delay and fade, 0-99 → 0, 20 ms .. about 5 s (lfo_seconds() in the firmware)
+const fadeSeconds = u => { const v = Math.round(u * 99); return v ? 0.02 * Math.pow(2, v * 8 / 99) : 0; };
+const fadeText = u => { const s = fadeSeconds(u); return !s ? "off" : s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(1)} s`; };
 function morphControls() {
   const target = h("select", { title: "the patch this one morphs towards (its knobs)" });
   const fill = () => {
@@ -2027,7 +2036,8 @@ function buildPanel() {
     ...ENVS.map(envSection),
     lfoSection(0), lfoSection(1),
     sec("voice", "Voice",
-      settingSelect("Layers", ["Off: one sound, 8 voices", "Split", "Stack", "By MIDI channel (ch 2 = layer 2)"],
+      settingSelect("Layers", ["Off: one sound, 8 voices", "Split", "Stack", "By MIDI channel (ch 2 = layer 2)",
+          "A voice per MIDI channel (ch 1-8), each with its own bend, pressure and CC 74", "MPE (ch 1 master, ch 2-9 a voice each, 48 semitones of bend)"],
         () => settings && settings.layers, v => setSetting(SET_ID.layers, v)),
       settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
         () => settings && settings.split, v => setSetting(SET_ID.split, v)),
@@ -2206,7 +2216,8 @@ setInterval(async () => {
 
 // --- mod matrix ---
 const SOURCES = ["", "LFO 1", "Filter envelope", "Amp envelope", "Velocity", "Mod wheel", "Aftertouch", "Env 3", "Env 4",
-  "Random (per note)", "Note number", "LFO 2", "Seq A", "Seq B", "Seq C", "Seq D"];
+  "Random (per note)", "Note number", "LFO 2", "Seq A", "Seq B", "Seq C", "Seq D", "LFO 1 (0 to 1)", "LFO 2 (0 to 1)",
+  "Gate (key down)", "Timbre (CC 74)"];
 const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount", "Poly-mod env amount", "LFO 1 amount",
   "LFO 1 → pitch", "LFO 1 → filter", "VCA", "Osc A level", "Osc B level", "Noise", "Resonance", "A pulse width",
   "B pulse width", "Poly-mod osc B", "LFO 1 → PW", "LFO 1 rate", "LFO 2 amount", "LFO 2 rate", "LFO 2 → pitch",

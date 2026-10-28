@@ -32,7 +32,8 @@
 //                          filter, Env 3, Env 4, then layer 2; 0 free, else clock division + 1), 25 bend range
 //                          (1-12 semitones), 26 unison detune (0-50 cents), 27-28 voice modes per layer (mode 0 poly
 //                          1 mono 2 legato | priority 0 last 1 low 2 high << 2), 29 drift (0-99), 30 scale (0 off,
-//                          synth.h SCALE_*), 31 root (0-11); read-only after: env select, preset mode, patch, morph
+//                          synth.h SCALE_*), 31 root (0-11), 32-35 LFO 1 delay, LFO 1 fade, LFO 2 delay, LFO 2 fade
+//                          (0-99); read-only after: env select, preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
@@ -362,8 +363,10 @@ static void setting_set(int page, int value)
 
 static void show_setting(int page)
 {
-    static const char *const values[][LFO_TRIGGER_COUNT] = {
-        {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY"}, {"OFF", "SPLt", "StAC", "CHAn"}, {0}, {"OFF", "HALF", "FULL"},
+    _Static_assert(LAYER_MODE_COUNT == 6 && LFO_TRIGGER_COUNT <= 6, "the settings' value names");
+    static const char *const values[][6] = {
+        {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY"}, {"OFF", "SPLt", "StAC", "CHAn", "8CH", "nPE"}, {0},
+        {"OFF", "HALF", "FULL"},
     };
     int cycle = page == PAGE_CYCLE ? setting_get(page) : 0;
     if (page == PAGE_SPLIT)
@@ -416,6 +419,7 @@ static int assigning, assign_source, assign_dest = DEST_NONE, assign_steps;
 
 static const char source_names[SRC_COUNT][5] = {
     "", "LFO1", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE", "LFO2",
+    "SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb",
 };
 static const char dest_names[DEST_COUNT][6] = {
     "P.A", "P.b", "PIt", "CUt", "F.EA", "P.EA", "L.An", "L.Fr", "L.FL", "VCA",
@@ -863,6 +867,7 @@ typedef enum {
     SET_CYCLE_SYNC, // 8 of them: layer 1 amp, filter, Env 3, Env 4, then layer 2 (0 free, else division + 1)
     SET_BEND = SET_CYCLE_SYNC + 8, SET_DETUNE, // bend range (semitones), unison detune (cents)
     SET_VOICE_L1, SET_VOICE_L2, SET_DRIFT, SET_SCALE, SET_ROOT, // voice modes (mode | priority << 2), drift, scale
+    SET_LFO1_DELAY, SET_LFO1_FADE, SET_LFO2_DELAY, SET_LFO2_FADE, // 0-99 (lfo.h)
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -890,6 +895,8 @@ static int host_setting_get(int id)
     case SET_DRIFT: return synth_drift();
     case SET_SCALE: return synth_scale() & 15;
     case SET_ROOT: return synth_scale() >> 4;
+    case SET_LFO1_DELAY: case SET_LFO2_DELAY: return lfo_delay[id == SET_LFO2_DELAY];
+    case SET_LFO1_FADE: case SET_LFO2_FADE: return lfo_fade[id == SET_LFO2_FADE];
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -905,6 +912,7 @@ static int host_setting_set(int id, int value)
         LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8, 16, 16,
         [SET_CYCLE_SYNC ... SET_CYCLE_SYNC + 7] = LFO_DIVISIONS + 1, [SET_BEND] = 13, [SET_DETUNE] = 51,
         [SET_VOICE_L1] = 11, [SET_VOICE_L2] = 11, [SET_DRIFT] = 100, [SET_SCALE] = SCALE_COUNT, [SET_ROOT] = 12,
+        [SET_LFO1_DELAY ... SET_LFO2_FADE] = 100,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -928,6 +936,8 @@ static int host_setting_set(int id, int value)
     case SET_DRIFT: synth_set_drift(value); break;
     case SET_SCALE: synth_set_scale(value | (synth_scale() & ~15)); break;
     case SET_ROOT: synth_set_scale((synth_scale() & 15) | value << 4); break;
+    case SET_LFO1_DELAY: case SET_LFO2_DELAY: lfo_delay[id == SET_LFO2_DELAY] = (uint8_t)value; break;
+    case SET_LFO1_FADE: case SET_LFO2_FADE: lfo_fade[id == SET_LFO2_FADE] = (uint8_t)value; break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -1388,14 +1398,27 @@ static const struct { uint8_t cc, param; } cc_map[] = {
     {31, POT_MASTER_TUNE}, {85, PARAM_ENV3_ATT}, {86, PARAM_ENV3_DEC}, {87, PARAM_ENV3_SUS}, {88, PARAM_ENV3_REL},
     {89, PARAM_ENV4_ATT}, {90, PARAM_ENV4_DEC}, {102, PARAM_ENV4_SUS}, {103, PARAM_ENV4_REL},
 };
-// A key let go: `layers` are the ones its note-off may release (synth_channel_layers())
-static void key_off(uint8_t note, int layers)
+// A note let go on `layers` (the pedal's release): the sequence's key, else the engine's
+static void release_key(uint8_t note, int layers)
 {
-    int held = layers & sustain; // the pedal holds these
-    sustained[note & 0x7F] |= (uint8_t)held;
-    layers &= ~held;
     if (layers && !seq_key_off(note, layers))
         synth_note_off_layers(note, layers);
+}
+
+// A key let go on a MIDI channel: the pedal holds it on the layers the pedal is down for; in the per-channel modes
+// it releases only its channel's voice
+static void key_off(uint8_t note, int channel)
+{
+    int layers = synth_channel_layers(channel), held = layers & sustain;
+    sustained[note & 0x7F] |= (uint8_t)held;
+    layers &= ~held;
+    int pv = synth_channel_voice(channel);
+    if (!layers)
+        return;
+    if (pv >= 0)
+        synth_voice_note_off(pv, note);
+    else
+        release_key(note, layers);
 }
 
 static void control_change(uint8_t cc, uint8_t value, int channel)
@@ -1411,8 +1434,16 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
             if (sustained[n] & layers) {
                 int off = sustained[n] & layers;
                 sustained[n] &= (uint8_t)~off;
-                key_off((uint8_t)n, off);
+                release_key((uint8_t)n, off);
             }
+        return;
+    }
+    if (cc == 74) { // timbre: the channel's voice in the per-channel modes, else the layers it plays
+        int pv = synth_channel_voice(channel);
+        if (pv >= 0)
+            synth_voice_timbre(pv, value);
+        else
+            synth_timbre(value, synth_channel_layers(channel));
         return;
     }
     if (cc == 0 || cc == 32) {
@@ -1427,25 +1458,51 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
         }
 }
 
+static void handle_midi(void);
+
+// The sequence advances by the time since it last did: once at the start of a pass and before each tick (bounded,
+// so a stall such as tuning doesn't run it through many steps at once).
+static void advance_sequence(void)
+{
+    static uint32_t last;
+    uint32_t now = DWT_CYCCNT;
+    float dt = (float)(now - last) / (float)system_hz;
+    last = now;
+    seq_update(dt > 0.05f ? 0.05f : dt);
+}
+
 // The CV refresh with the fast ticks run in between (synth_tick(): envelopes, LFOs and the routes from them), so
-// those move more often than the engine's pass. Each tick writes two voices' pitch, every other tick the cutoffs, and
-// every tick the VCAs (alongside the DAC80501 channels at their address, the rest on their own); the global CVs go
-// once a pass, mostly alongside too. A voice that just started gets its pitch first, so its VCA never opens on the old
-// note; silent voices' pitch and cutoff are refreshed only every 8th pass (their S&H only has to hold).
+// those move more often than the engine's pass. Before each tick MIDI is read and the sequence advanced, so a note
+// starts within a tick rather than a pass: a voice that just started gets its pass terms and its pitch at once, so
+// its VCA never opens on the old note. Each tick writes two voices' pitch, every other tick the cutoffs, and every
+// tick the VCAs (alongside the DAC80501 channels at their address, the rest on their own); the global CVs go once a
+// pass, mostly alongside too. Silent voices' pitch and cutoff only have to be held: one of them is refreshed each
+// pass, in turn, so no pass is much longer than the others.
 #define TICKS 4
 static void refresh_cvs(void)
 {
     static uint32_t last_tick, count;
     unsigned fresh = synth_take_fresh_voices();
-    unsigned voices = ++count % 8 ? synth_active_voices() & ~fresh : 0xFFu;
+    unsigned voices = (synth_active_voices() & ~fresh) | 1u << (count++ % VOICE_COUNT);
     sh_refresh_pitch(fresh);
     cycles_ticks = 0;
     for (int k = 0; k < TICKS; k++) {
         uint32_t now = DWT_CYCCNT;
         float dt = (float)(now - last_tick) / (float)system_hz;
         last_tick = now;
+        if (k) { // (the pass began with these)
+            handle_midi();
+            advance_sequence();
+            unsigned started = synth_take_fresh_voices();
+            if (started) {
+                synth_prepare_voices(started);
+                sh_refresh_pitch(started);
+                fresh |= started;
+            }
+        }
         int cutoff = !(k & 1);
-        unsigned pitch = voices & 3u << 2 * k; // two voices' pitch per tick
+        unsigned pitch = voices & ~fresh & 3u << 2 * k; // two voices' pitch per tick
+        now = DWT_CYCCNT;
         synth_tick(dt, cutoff, pitch);
         cycles_ticks += DWT_CYCCNT - now;
         sh_refresh_pitch(pitch);
@@ -1482,21 +1539,27 @@ static void handle_midi(void)
         uint8_t cin = p[0] & 0x0F;
         uint8_t status = p[1] & 0xF0;
         switch (cin) {
-        case 0x9:
+        case 0x9: {
             if (direct_mode)
                 break;
+            int channel = p[1] & 0x0F, pv = synth_channel_voice(channel);
             if (p[3] && menu_open && menu_page == PAGE_SPLIT) { // play a note to set the split point
                 synth_set_split_note(p[2]);
                 show_setting(PAGE_SPLIT);
+            } else if (!synth_channel_plays(channel)) {
+                break;
             } else if (p[3]) { // the sequence takes the key if it's on for that key's layer
-                sustained[p[2] & 0x7F] &= (uint8_t)~synth_channel_layers(p[1] & 0x0F);
-                if (!seq_key_on(p[2], p[3], synth_key_layers(p[2], p[1] & 0x0F)))
-                    synth_note_on(p[2], p[3], p[1] & 0x0F);
+                sustained[p[2] & 0x7F] &= (uint8_t)~synth_channel_layers(channel);
+                if (pv >= 0)
+                    synth_voice_note_on(pv, p[2], p[3]);
+                else if (!seq_key_on(p[2], p[3], synth_key_layers(p[2], channel)))
+                    synth_note_on(p[2], p[3], channel);
             } else
-                key_off(p[2], synth_channel_layers(p[1] & 0x0F));
+                key_off(p[2], channel);
             break;
+        }
         case 0x8:
-            key_off(p[2], synth_channel_layers(p[1] & 0x0F));
+            key_off(p[2], p[1] & 0x0F);
             break;
         case 0xC: // program change: patch n of the bank chosen by bank select (CC 0 / 32: 0 = A, 1 = b)
             if (bank * 100 + p[2] < PATCH_COUNT)
@@ -1512,12 +1575,22 @@ static void handle_midi(void)
             if (status == 0xB0)
                 control_change(p[2], p[3], p[1] & 0x0F);
             break;
-        case 0xE:
-            synth_pitch_bend(p[2] | p[3] << 7, synth_channel_layers(p[1] & 0x0F));
+        case 0xE: {
+            int channel = p[1] & 0x0F, pv = synth_channel_voice(channel);
+            if (pv >= 0)
+                synth_voice_bend(pv, p[2] | p[3] << 7);
+            else
+                synth_pitch_bend(p[2] | p[3] << 7, synth_channel_layers(channel));
             break;
-        case 0xD: // channel pressure
-            synth_aftertouch(p[2], synth_channel_layers(p[1] & 0x0F));
+        }
+        case 0xD: { // channel pressure
+            int channel = p[1] & 0x0F, pv = synth_channel_voice(channel);
+            if (pv >= 0)
+                synth_voice_pressure(pv, p[2]);
+            else
+                synth_aftertouch(p[2], synth_channel_layers(channel));
             break;
+        }
         case 0xA: // poly pressure: the voices playing that note
             synth_poly_pressure(p[2], p[3], synth_channel_layers(p[1] & 0x0F));
             break;
@@ -1609,7 +1682,7 @@ int main(void)
         }
         uint32_t t0 = DWT_CYCCNT;
         if (!direct_mode) {
-            seq_update(dt);
+            advance_sequence();
             synth_update(dt);
         }
         cycles_engine = DWT_CYCCNT - t0;

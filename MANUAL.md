@@ -58,8 +58,9 @@ A digit display can't show a plus sign, so positive values have none. A dot afte
 Play over USB MIDI or the 5-pin MIDI IN socket, on any channel. Pitch bend is ±2 semitones by default (Settings key 7, per patch). The mod wheel adds LFO 1 depth and is also a mod
 source. Aftertouch is a mod source too, and it's per voice: poly pressure (the Move's pads send it) moves only the
 voice playing that note; channel pressure moves them all. In channel mode (`CHAn`) each channel's bend, mod wheel,
-pressure and sustain pedal reach only the layer it plays. The firmware follows MIDI clock (Start, Stop, Continue, Song
-Position and Clock) for LFO sync.
+pressure and sustain pedal reach only the layer it plays; in the `8CH` and `nPE` modes each channel's bend, pressure
+and CC 74 reach only its voice (see Layers). CC 74 is the `Timbre` mod source. The firmware follows MIDI clock
+(Start, Stop, Continue, Song Position and Clock) for LFO sync.
 
 The 5-pin MIDI IN socket (from 0.7.6) takes the same notes, controllers, pressure, bend, program changes and clock,
 so a keyboard with a MIDI out plays the synth without a computer. SysEx (the web page, the tool, updates) needs USB.
@@ -127,7 +128,7 @@ M VOL is never stored.
 
 ## Layers
 
-Settings → key 3 (`LAYr`) has four modes:
+Settings → key 3 (`LAYr`) has six modes:
 
 | Mode | Voices | Notes |
 |---|---|---|
@@ -135,6 +136,11 @@ Settings → key 3 (`LAYr`) has four modes:
 | `SPLt` | 4 each | Layer 1 below the split note, layer 2 from it up. Set the note with Settings → key 4, VALUE, or by playing it while that page shows. |
 | `StAC` | 4 each | Both layers on every note. |
 | `CHAn` | 4 each | MIDI channel 2 plays layer 2, every other channel layer 1. |
+| `8CH` | Layer 1, one voice per MIDI channel | Channels 1-8 each play one voice, mono, with their own pitch bend (the bend-range setting), pressure and CC 74. Channels 9-16 play nothing. For sequencers that drive eight mono lines. |
+| `nPE` | Layer 1, one voice per member channel | MPE, lower zone: channel 1 is the master (its bend, mod wheel, pressure and pedal reach every voice, its notes play polyphonically), channels 2-9 each play one voice with 48 semitones of bend, their own pressure and CC 74. The usual MPE controller default; the firmware doesn't read the RPNs that change it. |
+
+In both per-channel modes the mod matrix's `Timbre` source is that voice's CC 74, and `Aftertouch` its channel
+pressure, so a slide or a press shapes each note on its own.
 
 Seq 1 / Seq 2 choose the layer the knobs edit (`L  1` / `L  2`).
 
@@ -167,6 +173,11 @@ LFO 2). The selection applies to:
 
 **Shapes:** press LFO Shape to step to the next one. For 2 seconds afterwards, VALUE steps through them both
 ways. The button's up/down position no longer means anything.
+
+**Delay and fade-in** (web page, LFO sections, or `pro800 set lfo-delay|lfo-fade 1|2 <0-99>`): each LFO can wait
+after a note starts and then fade in, per voice, from 20 ms to about 5 s (0 = off). It applies to the LFO's
+routing buttons, its mod routes and LFO → PW alike, and restarts with each new note on the voice (legato keeps it).
+The setting is per LFO, shared by both layers, and saved in the patch.
 
 | Display | Shape |
 |---|---|
@@ -238,10 +249,11 @@ point (` 1.25`, ` 12.5`).
 
 Decay and release times are how long the fall takes to reach −60 dB, so a release showing 2 s is gone at 2 s.
 The attack has the concave shape of an analog envelope: it shoots up first and eases into the top. Decay and
-release fall exponentially. Sustain is a level, 0-99. The engine's pass takes about 1.3 ms with one voice sounding
-and about 2.9 ms with all eight (measured on the synth), and within it the VCAs get a new value four times and the
-cutoffs twice: with eight voices the VCAs move about every 0.7 ms and the cutoffs about every 1.5 ms, with one voice
-every 0.35 and 0.7 ms, so attacks below that sound like an instant attack. The LFOs and the routes from envelopes and
+release fall exponentially. Sustain is a level, 0-99. The engine's pass takes about 1.2 ms with one voice sounding
+and about 2.4 ms with all eight (measured on the synth), and within it the VCAs get a new value four times and the
+cutoffs twice: with eight voices the VCAs move about every 0.6 ms and the cutoffs about every 1.2 ms, with one voice
+every 0.3 and 0.6 ms, so attacks below that sound like an instant attack. MIDI is read and the sequence advanced
+before every one of those four steps, so a note starts within about 0.3-0.6 ms of its message. The LFOs and the routes from envelopes and
 LFOs into pitch, cutoff and the VCA move at that rate too; each voice's pitch goes out once a pass with its value at
 that moment, and the knobs and other routes update once a pass.
 
@@ -321,6 +333,11 @@ Each layer has 8 routes. A route adds source × depth (−99 to 99) to a destina
 
 Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn still work while assigning.
 
+The web page (and `pro800 route`) can also use sources the keypad can't pick: the sequence's four automation
+lanes, the LFOs as 0-to-1 ramps (`LFO 1 (0 to 1)`: bottom to top instead of either side of the middle, for
+things that should only open), `Gate` (1 while the key is down, 0 in the release) and `Timbre` (CC 74: per voice
+in the per-channel layer modes, else for the layers the channel plays).
+
 | Key | Source | Display |
 |---|---|---|
 | 1 | The selected LFO; press 1 again for the other one | `LFO1` / `LFO2` |
@@ -394,7 +411,7 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 |---|---|---|
 | 1 | `SYnC` / `SYn2`: selected LFO's sync | `FrEE`, `CLoC` |
 | 2 | `trIG` / `trI2`: selected LFO's retrigger | `FrEE`, `1St`, `EACH`, `PoLY` |
-| 3 | `LAYr`: layer mode | `OFF`, `SPLt`, `StAC`, `CHAn` |
+| 3 | `LAYr`: layer mode | `OFF`, `SPLt`, `StAC`, `CHAn`, `8CH`, `nPE` |
 | 4 | `SPLt`: split note | 0-127, or play a note |
 | 5 | `trAC`: keyboard tracking | `OFF`, `HALF`, `FULL` |
 | 6 | `CY.A` / `CY.F` / `CY.3` / `CY.4`: cycling envelope (6 again: next one) | `OFF`, `FrEE`, `8bAr` … `1-32` |

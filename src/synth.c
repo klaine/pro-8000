@@ -62,6 +62,7 @@
 #define LFO_FILTER_SEMITONES  48.0f
 #define LFO_PW_DEPTH          0.45f
 #define DETUNE_DEFAULT        14    // unison: cents between the outermost voices, when the patch doesn't set it
+#define MPE_BEND_SEMITONES    48.0f // an MPE member channel's bend range (the MPE default; RPNs aren't parsed)
 #define POT_SMOOTHING_S       0.01f  // CUTOFF and NOISE, read every pass
 #define MUX_SCAN_S            0.032f // the other pots, read every 32 ms (controls.c): each reading is glided to
 #define PICKUP_WINDOW         0.015f // a knob this close to the stored value picks it up
@@ -130,9 +131,12 @@ typedef struct {
     float cutoff_rest, cutoff_env; // the cutoff besides the envelope, LFOs and fast routes, and the envelope amount
     float vca_slow;                // the slower routes into the VCA gain
     float lfo_octaves[2];          // rate modulation of this voice's own LFO phases
+    float lfo_age, lfo_gain[2];    // seconds since the note started, and each LFO's delay / fade gain for it now
+    float bend;                    // per-voice pitch bend, -1..1 (the per-channel layer modes)
+    float timbre;                  // CC 74, 0..1 (a mod source)
 } voice_t;
 
-static voice_t voices[VOICE_COUNT];
+static voice_t voices[VOICE_COUNT] = {[0 ... VOICE_COUNT - 1] = {.lfo_gain = {1.0f, 1.0f}}};
 static uint32_t allocations, random_state = 0x2545F491u;
 static float bend[LAYERS], mod_wheel[LAYERS], aftertouch[LAYERS]; // per layer, for channel mode; bend -1..1
 static int bend_range = BEND_DEFAULT, detune = DETUNE_DEFAULT;
@@ -201,11 +205,15 @@ void synth_init(void)
 
 // --- layers ---
 
-static int layer_of(int voice) { return layer_mode == LAYER_OFF || voice < VOICE_COUNT / 2 ? 0 : 1; }
+// Layer 1 has every voice: layers off, and the per-channel modes
+static int one_layer(void) { return layer_mode == LAYER_OFF || layer_mode >= LAYER_VOICE_PER_CHANNEL; }
+static int per_channel(void) { return layer_mode >= LAYER_VOICE_PER_CHANNEL; }
+
+static int layer_of(int voice) { return one_layer() || voice < VOICE_COUNT / 2 ? 0 : 1; }
 
 static void layer_voices(int layer, int *first, int *end)
 {
-    if (layer_mode == LAYER_OFF) {
+    if (one_layer()) {
         *first = 0;
         *end = VOICE_COUNT;
     } else {
@@ -546,6 +554,8 @@ void synth_apply_patch(const patch_t *patch)
         lfo_sync[w] = patch->lfo_sync[w] < LFO_SYNC_COUNT ? (lfo_sync_t)patch->lfo_sync[w] : LFO_SYNC_FREE;
         lfo_trigger[w] = patch->lfo_trigger[w] < LFO_TRIGGER_COUNT ? (lfo_trigger_t)patch->lfo_trigger[w]
                                                                      : LFO_TRIGGER_FREE;
+        lfo_delay[w] = patch->lfo_delay[w] > 99 ? 99 : patch->lfo_delay[w];
+        lfo_fade[w] = patch->lfo_fade[w] > 99 ? 99 : patch->lfo_fade[w];
     }
     unison = sw(SWITCH_UNISON);
     for (int l = 0; l < LAYERS; l++) {
@@ -602,6 +612,8 @@ void synth_capture_patch(patch_t *patch)
     for (int w = 0; w < 2; w++) {
         patch->lfo_sync[w] = (uint8_t)lfo_sync[w];
         patch->lfo_trigger[w] = (uint8_t)lfo_trigger[w];
+        patch->lfo_delay[w] = lfo_delay[w];
+        patch->lfo_fade[w] = lfo_fade[w];
     }
 }
 
@@ -655,8 +667,10 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
     x->pressure = 0;
     if (was_silent)
         x->pitch = note; // glide only from a sounding note
-    if (retrigger || was_silent)
+    if (retrigger || was_silent) {
         x->fresh = 1;
+        x->lfo_age = 0;
+    }
     if (retrigger) {
         x->amp.stage = ENV_ATTACK; // from the current level, so a stolen voice doesn't click
         x->filter.stage = ENV_ATTACK;
@@ -767,7 +781,7 @@ void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers)
 {
     if (layers & 1)
         layer_note_on(0, note, velocity);
-    if (layers & 2 && layer_mode != LAYER_OFF)
+    if (layers & 2 && !one_layer())
         layer_note_on(1, note, velocity);
 }
 
@@ -778,10 +792,66 @@ void synth_note_on(uint8_t note, uint8_t velocity, int channel)
 
 int synth_channel_layers(int channel) { return layer_mode != LAYER_CHANNEL ? 3 : channel == 1 ? 2 : 1; }
 
+int synth_channel_voice(int channel)
+{
+    if (layer_mode == LAYER_VOICE_PER_CHANNEL)
+        return channel < VOICE_COUNT ? channel : -1;
+    if (layer_mode == LAYER_MPE)
+        return channel >= 1 && channel <= VOICE_COUNT ? channel - 1 : -1;
+    return -1;
+}
+
+int synth_channel_plays(int channel)
+{
+    return layer_mode != LAYER_VOICE_PER_CHANNEL || channel < VOICE_COUNT;
+}
+
+void synth_voice_note_on(int voice, uint8_t note, uint8_t velocity)
+{
+    if (voice < 0 || voice >= VOICE_COUNT)
+        return;
+    int first = !layer_gated(0);
+    gate_on(&voices[voice], note, velocity, 1);
+    lfo_note_on(LFO_ID(0, 0), voice, first);
+    lfo_note_on(LFO_ID(0, 1), voice, first);
+    last_voice[0] = voice;
+}
+
+void synth_voice_note_off(int voice, uint8_t note)
+{
+    if (voice >= 0 && voice < VOICE_COUNT && voices[voice].gate && voices[voice].note == note)
+        gate_off(&voices[voice]);
+}
+
+void synth_voice_bend(int voice, int value)
+{
+    if (voice >= 0 && voice < VOICE_COUNT)
+        voices[voice].bend = (float)(value - 8192) / 8192.0f;
+}
+
+void synth_voice_pressure(int voice, uint8_t value)
+{
+    if (voice >= 0 && voice < VOICE_COUNT)
+        voices[voice].pressure = (float)value / 127.0f;
+}
+
+void synth_voice_timbre(int voice, uint8_t value)
+{
+    if (voice >= 0 && voice < VOICE_COUNT)
+        voices[voice].timbre = (float)value / 127.0f;
+}
+
+void synth_timbre(uint8_t value, int layers)
+{
+    for (int v = 0; v < VOICE_COUNT; v++)
+        if (layers >> layer_of(v) & 1)
+            voices[v].timbre = (float)value / 127.0f;
+}
+
 void synth_note_off_layers(uint8_t note, int layers)
 {
     for (int layer = 0; layer < LAYERS; layer++) {
-        if (!(layers >> layer & 1) || (layer && layer_mode == LAYER_OFF))
+        if (!(layers >> layer & 1) || (layer && one_layer()))
             continue; // (with layers off, layer 1 has every voice)
         int first, end;
         layer_voices(layer, &first, &end);
@@ -1115,8 +1185,14 @@ static void read_panel(float dt)
 static float source_value(const voice_t *x, int voice, int layer, int source)
 {
     switch (source) {
-    case SRC_LFO: return lfo_value(LFO_ID(layer, 0), voice, (lfo_shape_t)lfo_shape[layer][0]);
-    case SRC_LFO2: return lfo_value(LFO_ID(layer, 1), voice, (lfo_shape_t)lfo_shape[layer][1]);
+    case SRC_LFO: return lfo_value(LFO_ID(layer, 0), voice, (lfo_shape_t)lfo_shape[layer][0]) * x->lfo_gain[0];
+    case SRC_LFO2: return lfo_value(LFO_ID(layer, 1), voice, (lfo_shape_t)lfo_shape[layer][1]) * x->lfo_gain[1];
+    case SRC_LFO_UNI:
+        return 0.5f * (1.0f + lfo_value(LFO_ID(layer, 0), voice, (lfo_shape_t)lfo_shape[layer][0]) * x->lfo_gain[0]);
+    case SRC_LFO2_UNI:
+        return 0.5f * (1.0f + lfo_value(LFO_ID(layer, 1), voice, (lfo_shape_t)lfo_shape[layer][1]) * x->lfo_gain[1]);
+    case SRC_GATE: return x->gate ? 1.0f : 0;
+    case SRC_TIMBRE: return x->timbre;
     case SRC_FILTER_ENV: return x->filter.level;
     case SRC_AMP_ENV: return x->amp.level;
     case SRC_VELOCITY: return (float)x->velocity / 127.0f;
@@ -1143,7 +1219,7 @@ static int fast_route(const route_t *r)
 {
     int source = r->source;
     int fast_source = source == SRC_LFO || source == SRC_LFO2 || source == SRC_FILTER_ENV || source == SRC_AMP_ENV
-                   || source == SRC_ENV3 || source == SRC_ENV4;
+                   || source == SRC_ENV3 || source == SRC_ENV4 || source == SRC_LFO_UNI || source == SRC_LFO2_UNI;
     return fast_source && (r->dest <= DEST_CUTOFF || r->dest == DEST_VCA);
 }
 
@@ -1172,10 +1248,14 @@ static float clamp01(float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 typedef struct {
     float coarse_a, coarse_b, fine_b, tune, glide_k, env_amount, pmod_env, cutoff, depth, depth2;
 } layer_params_t;
+static layer_params_t lp[LAYERS]; // from the last synth_update()
+static void voice_slow(int v, float dt);
 
 // From the last synth_update(), for the ticks: each envelope's rates, and each LFO's rate knob and rate modulation
 static env_rates_t rates[LAYERS][4]; // amp, filter, Env 3, Env 4
 static float lfo_knob[LAYERS][2], lfo_octaves[LAYERS][2];
+static float keytrack_amount; // 0, 0.5, 1
+static int lfo_to_pitch, lfo_to_filter; // the LFO routing buttons
 // and what the ticks can skip: a layer with no fast route (fast_route()), and one whose routes never read Env 3 / 4
 static uint8_t fast_routes[LAYERS], uses_env34[LAYERS];
 // Each LFO's value this tick, for the voices sharing its phase (per-voice phases are read per voice)
@@ -1208,6 +1288,8 @@ static void voice_cvs(int v, int cutoff, int pitch)
                                                       : lfo_now[l][0];
         lfo2 = lfo_trigger[1] == LFO_TRIGGER_PER_VOICE ? lfo_value(LFO_ID(l, 1), v, (lfo_shape_t)lfo_shape[l][1])
                                                        : lfo_now[l][1];
+        lfo *= x->lfo_gain[0];
+        lfo2 *= x->lfo_gain[1];
     }
     if (cutoff) {
         float note = x->cutoff_rest + lfo * x->to_filter[0] + lfo2 * x->to_filter[1]
@@ -1243,6 +1325,10 @@ void synth_tick(float dt, int cutoff, unsigned pitch_voices)
         for (int w = 0; w < 2; w++)
             if (lfo_trigger[w] == LFO_TRIGGER_PER_VOICE)
                 lfo_update_voice(LFO_ID(l, w), v, dt, x->lfo_octaves[w]);
+        if (x->lfo_age < 100.0f)
+            x->lfo_age += dt;
+        x->lfo_gain[0] = lfo_fade_gain(0, x->lfo_age);
+        x->lfo_gain[1] = lfo_fade_gain(1, x->lfo_age);
         env_update(&x->amp, dt, &rates[l][0]);
         env_update(&x->filter, dt, &rates[l][1]);
         if (uses_env34[l]) { // otherwise they wait where they are; a route added later reads them from there
@@ -1260,6 +1346,13 @@ unsigned synth_active_voices(void)
         if (voices[v].amp.stage != ENV_IDLE)
             mask |= 1u << v;
     return mask;
+}
+
+void synth_prepare_voices(unsigned mask)
+{
+    for (int v = 0; v < VOICE_COUNT; v++)
+        if (mask >> v & 1)
+            voice_slow(v, 0);
 }
 
 unsigned synth_take_fresh_voices(void)
@@ -1280,13 +1373,14 @@ void synth_update(float dt)
     read_panel(dt);
 
     int pmod_freq_a = sw(SWITCH_PMOD_FREQ_A);
-    int lfo_to_pitch = sw(SWITCH_LFO_FREQ), lfo_to_filter = sw(SWITCH_LFO_FILTER);
+    lfo_to_pitch = sw(SWITCH_LFO_FREQ);
+    lfo_to_filter = sw(SWITCH_LFO_FILTER);
 
     // routes evaluated for each layer's most recently played voice: the single-wire destinations, and the rate of
     // each LFO's shared phase
     float last_mod[LAYERS][DEST_COUNT] = {{0}};
     for (int l = 0; l < LAYERS; l++)
-        if (last_voice[l] >= 0 && (layer_mode != LAYER_OFF || l == 0))
+        if (last_voice[l] >= 0 && (!one_layer() || l == 0))
             evaluate_routes(l, last_voice[l], last_mod[l], 0);
 
     // the knob values as heard: morphed towards the morph target by the Morph destination
@@ -1298,7 +1392,6 @@ void synth_update(float dt)
                                                      : layer_param[l][i];
     }
 
-    layer_params_t lp[LAYERS];
     for (int l = 0; l < LAYERS; l++) {
         const float *p = eff[l];
         int c = env_cycle[l];
@@ -1339,8 +1432,10 @@ void synth_update(float dt)
     const float *shared = eff[0];
     float pw_depth = clamp01(clamp01(lp[0].depth) * sw(SWITCH_LFO_PW) + shared_mod[DEST_LFO_TO_PW]);
     float pw2_depth = clamp01(lp[0].depth2 * (float)((lfo2_dests[0] & LFO2_TO_PW) != 0) + shared_mod[DEST_LFO2_TO_PW]);
-    float lfo_pw = (lfo_value(LFO_ID(0, 0), -1, (lfo_shape_t)lfo_shape[0][0]) * pw_depth
-                    + lfo_value(LFO_ID(0, 1), -1, (lfo_shape_t)lfo_shape[0][1]) * pw2_depth) * LFO_PW_DEPTH;
+    const voice_t *recent = &voices[last_voice[0] >= 0 ? last_voice[0] : 0];
+    float lfo_pw = (lfo_value(LFO_ID(0, 0), -1, (lfo_shape_t)lfo_shape[0][0]) * pw_depth * recent->lfo_gain[0]
+                    + lfo_value(LFO_ID(0, 1), -1, (lfo_shape_t)lfo_shape[0][1]) * pw2_depth * recent->lfo_gain[1])
+                 * LFO_PW_DEPTH;
     sh_set(CV_VOL_A, cv_from(shared[POT_A_LEVEL] + shared_mod[DEST_A_LEVEL]));
     sh_set(CV_VOL_B, cv_from(shared[POT_B_LEVEL] + shared_mod[DEST_B_LEVEL]));
     sh_set(CV_NOISE, cv_from(shared[POT_NOISE] + shared_mod[DEST_NOISE]));
@@ -1361,13 +1456,23 @@ void synth_update(float dt)
     sh_gate(GATE_PMOD_FREQ_A, pmod_freq_a);
     sh_gate(GATE_PMOD_FILTER, sw(SWITCH_PMOD_FILTER));
 
-    float keytrack_amount = 0.5f * (float)keytrack_setting; // 0, 0.5, 1
+    keytrack_amount = 0.5f * (float)keytrack_setting;
     sample_lfos(); // for voice_cvs() below
-    for (int v = 0; v < VOICE_COUNT; v++) {
+    for (int v = 0; v < VOICE_COUNT; v++)
+        voice_slow(v, dt);
+}
+
+// Voice v's once-a-pass work from the last synth_update()'s layer terms: glide and drift advance by dt, the slow
+// routes, and the terms the ticks build on; then its CVs now. Also for a voice that started between two ticks
+// (synth_prepare_voices(), dt 0), so its first pitch is its own and not the voice's last note's.
+static void voice_slow(int v, float dt)
+{
+    {
         voice_t *x = &voices[v];
         int l = layer_of(v);
         const layer_params_t *q = &lp[l];
-        x->pitch += ((float)x->note - x->pitch) * q->glide_k;
+        if (dt > 0)
+            x->pitch += ((float)x->note - x->pitch) * q->glide_k;
         if (drift_amount) { // a slow random walk: a new target every 0.4-2 s, approached smoothly
             x->drift_timer -= dt;
             if (x->drift_timer <= 0) {
@@ -1400,8 +1505,10 @@ void synth_update(float dt)
                                   + mod[DEST_LFO2_TO_FILTER]) * LFO_FILTER_SEMITONES;
         x->pmod_env = (q->pmod_env + mod[DEST_PMOD_ENV]) * PMOD_ENV_SEMITONES;
         x->pitch_slow = mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
-        x->pitch_base = x->pitch + bend[l] * (float)bend_range + q->tune + spread
-                      + x->drift[0] * drift * DRIFT_PITCH_SEMITONES;
+        float bent = bend[l] * (float)bend_range; // the layer's (MPE: the master channel's)
+        if (per_channel())
+            bent += x->bend * (layer_mode == LAYER_MPE ? MPE_BEND_SEMITONES : (float)bend_range);
+        x->pitch_base = x->pitch + bent + q->tune + spread + x->drift[0] * drift * DRIFT_PITCH_SEMITONES;
         x->pitch_a = q->coarse_a + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
         x->pitch_b = q->coarse_b + q->fine_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
         x->cutoff_rest = q->cutoff + keytrack_amount * (x->pitch - 60.0f) + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES

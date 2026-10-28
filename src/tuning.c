@@ -17,7 +17,7 @@
 #include "tune.h"
 
 #define TUNING_MAGIC   0x4E555450u // "PTUN"
-#define TUNING_FORMAT  3 // 2: in the EEPROM; 3: measured with the pipelined S&H refresh (0.7.8), which holds a slightly different CV
+#define TUNING_FORMAT  4 // 2: in the EEPROM; 3: the pipelined S&H refresh (0.7.8); 4: the frame without SYNC waits (0.7.9): each holds a slightly different CV
 
 #define FILTER_POINTS 12   // filters up to 0xD000 (about 15 kHz self-oscillating); higher is ultrasonic
 #define WINDOW_S      0.05f // measuring time per point

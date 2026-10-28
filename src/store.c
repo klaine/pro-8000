@@ -47,6 +47,8 @@
 #define OFF_KEYTRACK 28
 #define OFF_SCALE 29
 #define OFF_VOICE_MODE 30
+#define OFF_FLAGS 31     // bits: what else the record carries (0 in records from before 0.7.9)
+#define FLAG_LFO_FADE 1u // the LFO delay / fade values sit in the two master-volume pot slots (never loaded as a pot)
 #define OFF_POTS 32
 #define OFF_EXTRA 136
 #define OFF_ROUTES 168
@@ -148,9 +150,14 @@ int store_load_patch(int n, patch_t *patch)
     patch->keytrack = b[OFF_KEYTRACK];
     patch->bend_range = b[OFF_BEND];
     patch->detune = b[OFF_DETUNE];
+    for (int w = 0; w < 2; w++) {
+        uint16_t slot = get16(b + OFF_POTS + 2 * (w * POT_COUNT + POT_MASTER_VOL));
+        patch->lfo_delay[w] = b[OFF_FLAGS] & FLAG_LFO_FADE ? slot & 0xFF : 0;
+        patch->lfo_fade[w] = b[OFF_FLAGS] & FLAG_LFO_FADE ? slot >> 8 : 0;
+    }
     for (int l = 0; l < 2; l++) {
         for (int i = 0; i < POT_COUNT; i++)
-            patch->pots[l][i] = get16(b + OFF_POTS + 2 * (l * POT_COUNT + i));
+            patch->pots[l][i] = i == POT_MASTER_VOL ? 0 : get16(b + OFF_POTS + 2 * (l * POT_COUNT + i));
         for (int i = 0; i < EXTRA_PARAMS; i++)
             patch->extra[l][i] = get16(b + extra_offset(l, i));
         for (int r = 0; r < ROUTES; r++) {
@@ -196,6 +203,7 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_KEYTRACK] = patch->keytrack;
     b[OFF_BEND] = patch->bend_range;
     b[OFF_DETUNE] = patch->detune;
+    b[OFF_FLAGS] = FLAG_LFO_FADE;
     for (int l = 0; l < 2; l++) {
         for (int i = 0; i < POT_COUNT; i++)
             put16(b + OFF_POTS + 2 * (l * POT_COUNT + i), patch->pots[l][i]);
@@ -218,6 +226,8 @@ int store_save_patch(int n, const patch_t *patch)
             b[OFF_STEP_COUNTS + 2 * l + w] = patch->step_count[l][w];
         }
     }
+    for (int w = 0; w < 2; w++)
+        put16(b + OFF_POTS + 2 * (w * POT_COUNT + POT_MASTER_VOL), (uint16_t)(patch->lfo_delay[w] | patch->lfo_fade[w] << 8));
     _Static_assert(OFF_ROUTES + 3 * 2 * ROUTES <= OFF_LFO2, "routes overflow");
     _Static_assert(EXTRA_FIRST * 2 * 2 == OFF_ROUTES - OFF_EXTRA, "extra params overflow");
     _Static_assert(OFF_EXTRA2 + (EXTRA_PARAMS - EXTRA_FIRST) * 2 * 2 <= OFF_CYCLE, "extra params overflow");

@@ -14,11 +14,25 @@ typedef enum {
     LAYER_SPLIT,   // layer 1 below the split note, layer 2 from it up; 4 voices each
     LAYER_STACK,   // every note on both layers; 4 voices each
     LAYER_CHANNEL, // MIDI channel 2 plays layer 2, every other channel layer 1; 4 voices each
+    // One sound, a voice per MIDI channel, each mono with its own pitch bend, pressure and CC 74:
+    LAYER_VOICE_PER_CHANNEL, // channels 1-8 play voices 1-8 (bend range: the bend setting); other channels, nothing
+    LAYER_MPE,               // MPE lower zone: channel 1 is the master (its bend, wheel, pressure and pedal reach
+                             // every voice), channels 2-9 play voices 1-8 with 48 semitones of bend
     LAYER_MODE_COUNT
 } layer_mode_t;
 
 void synth_init(void);
 void synth_note_on(uint8_t note, uint8_t velocity, int channel); // channel 0-15
+// The per-channel layer modes: the voice a MIDI channel (0-15) plays, or -1 (none, or MPE's master channel), and
+// what its channel's messages do to that voice.
+int synth_channel_voice(int channel);
+int synth_channel_plays(int channel); // 0 for a channel the mode gives nothing to play (8CH: channels 9-16)
+void synth_voice_note_on(int voice, uint8_t note, uint8_t velocity);
+void synth_voice_note_off(int voice, uint8_t note);
+void synth_voice_bend(int voice, int value); // 14-bit, centre 8192
+void synth_voice_pressure(int voice, uint8_t value);
+void synth_voice_timbre(int voice, uint8_t value); // CC 74
+void synth_timbre(uint8_t value, int layers);      // CC 74 for the layers a channel plays (a mod source)
 // The layers (bit 0 layer 1, bit 1 layer 2) a key would play, and playing a note on given layers (the sequencer).
 int synth_key_layers(uint8_t note, int channel);
 void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers);
@@ -41,6 +55,8 @@ void synth_update(float dt);
 void synth_tick(float dt, int cutoff, unsigned pitch_voices);
 unsigned synth_active_voices(void);     // bitmask: voices whose amp envelope runs (the rest are silent)
 unsigned synth_take_fresh_voices(void); // voices started since the last call: their pitch goes out before their VCA
+// Works out the pass terms and CVs of voices that started between two ticks (a bitmask), before their pitch goes out.
+void synth_prepare_voices(unsigned mask);
 int synth_any_gate(void);
 
 layer_mode_t synth_layer_mode(void);
