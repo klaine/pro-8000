@@ -931,6 +931,34 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 - The dac-test harness and the 0.7.5 engine harness from the other session were found in its scratchpad; they
   target 0.7.5-0.7.7 interfaces and weren't ported (see the backlog).
 
+## Matrix editor, 28 sources and 46 destinations, macros, 128 patches of 768 bytes (0.8.0, 2026-10-28)
+
+- **Patch storage, format 2** (`store.c`): 128 records of 768 bytes at 0, each a patch (first half, checksum at
+  508) and its step sequence (second half from 512, its own magic and checksum), so a sequence is written alone and
+  a load is one read. 16 routes per layer. The factory bank stays at 0x19000; the global block gains a format byte
+  and the CC A / B numbers (within its checksummed 12 bytes). At the first start a format-1 global block has the
+  patch area zeroed (384 page writes, about 2 s, `ForM` on the display); a stock or blank EEPROM still waits for
+  `format` (`pro800 format --yes`, SysEx 5B, which replaced the stock import). One bank: `P  7`, `P128`; program
+  change 0-127; up to three digits on the keypad. The 0.7.x patches are in `backup/eeprom-before-0.7.7.bin`.
+- **Sources** appended (`mod.h`): bend, pedal, CC A, CC B, voice number, fixed, Macro 1, Macro 2. CC A / B follow
+  controller numbers kept in the global block (settings 36-37; defaults 11 and 2; the tool's `set cc-a|cc-b`, the
+  page's Voice section). **Destinations** appended: the 16 envelope stages (a time scales by 2^(4 × mod), 16× at
+  depth 99; sustain adds), glide (the same scaling), detune (a wire, ±50 cents), volume (a wire; 0..1 sources count
+  down from full like the VCA), Macro 1, Macro 2. The macros are evaluated in two phases of the slow routes: all
+  routes into them, then the routes they feed; a macro is a bipolar source. The stage and glide routes are applied
+  per voice in the ticks on a copy of the layer's rates, only for voices that have one (`env_modded`).
+- **The panel editor** (`main.c`): touching an LFO or ADSR knob picks it as the source; VALUE scrolls sources, then
+  destinations (Arp Assign takes a scrolled one; a touched one is taken at once); the knob touched last before Arp
+  Assign is offered as the destination; the ADSR knobs are stage destinations (AMP SUS stays the VCA). Hold Arp
+  Assign 0.6 s to browse the edit layer's routes (source / destination / depth frames of 0.6 s, VALUE steps, a
+  short press edits, holding again leaves). The button's press starts a timer and its release is the short press.
+- Checked on the synth by pitch, init sound, depth 50 into pitch (squared: 6.1 semitones): fixed +610.9 cents;
+  CC 11 → Macro 1 at 99 → pitch: +612.3 with CC 11 at 127, −0.1 at 0; pedal down +612.5; bend → pitch 99 with the
+  wheel up +2599.6 (2 of bend range + 24); voice → pitch in 8CH: channel 1 −0.6, channel 8 +612.7; the 17th route
+  refused; save to P4, listed, loaded. The format ran at the first boot; the global block read format 2 with every
+  slot zero. The panel editor itself isn't exercised from here (it needs the buttons).
+- Build 59,576 bytes of 65,536: about 6 kB left in sector 4.
+
 ## Backlog
 
 Nothing here is needed for the synth to work; this is what's open, consolidated 2026-10-28 after the review, the
@@ -970,7 +998,14 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 **Features**
 
 - MPE: the RPNs for the member bend range and zone layout (fixed at the lower zone, channels 2-9, 48 semitones).
-- LFO delay / fade per layer (today per LFO, shared by both layers: the record had room for four bytes).
+- LFO delay / fade per layer (today per LFO, shared by both layers; the format-2 record has room).
+- **Shift on Sync Source**: hold it and turn a knob for a secondary value, relatively (no pickup): LFO FREQ /
+  AMOUNT → the selected LFO's delay / fade, GLIDE → drift, M TUNE → unison detune, FINE → bend range, CUTOFF /
+  RESONANCE → Macro 1 / 2 as hand-set offsets, A / B LEVEL → the CC A / B numbers; Shift + Rec compare (hear the
+  stored patch while held), Shift + Perf undo the last load, Shift + a key a settings page. Sync Clock stays for
+  the internal clock and tap tempo.
+- A converter for the 0.7.x patch records (the backups), if the old sounds are wanted back.
+- The web page could show the macros as a panel of their own (today a summary line in the Mod matrix).
 - Voice stealing: a one-tick VCA dip for a stolen voice was considered and rejected (a step of its own); the pitch
   jump with the VCA open sounds like legato.
 

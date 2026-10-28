@@ -1,6 +1,6 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.7.8. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.8.0. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
@@ -69,8 +69,7 @@ web page's MIDI router).
 
 - **Sustain pedal** (CC 64): keys let go while it's down keep sounding (and keep a sequence running) until it's
   released.
-- **Program change** picks a patch in the bank chosen with bank select (CC 0 or 32: 0 = A, 1 = b); programs 100-127
-  of bank A reach b.00-b.27.
+- **Program change** 0-127 picks patch 1-128. Bank select is ignored.
 - **Controllers** set knobs on the layer the channel plays (layer 2 for channel 2 in channel mode), else the layer
   you're editing; the knob then picks up as after loading a patch:
 
@@ -102,14 +101,16 @@ web page's MIDI router).
 
 ## Patches
 
-There are 200 patches in two banks, shown as ` A.07` and ` b.12`. Each has its own step sequence (from 0.7.0; the
-stock firmware's banks C and D hold the sequences).
+There are 128 patches, shown as `P  7` or `P128`. Each has its own step sequence, kept with it (from 0.8.0; the
+patches saved by 0.7.x firmware are wiped at the first start of 0.8.0, since their records moved; the EEPROM backups
+keep them).
 
-- **Load:** in preset mode (Preset LED on), type two digits to pick a patch in the current bank, or turn VALUE to
-  step through all 200. Boot loads the last patch.
+- **Load:** in preset mode (Preset LED on), type the number: a third digit, or a pause of 3 seconds, or a number
+  that no further digit could keep within 1-128 ends it (`7` then `2` loads P72 at once; `1`, `2` waits for a third
+  digit). Or turn VALUE to step through them. Boot loads the last patch.
 - **Edit:** a loaded patch's knobs are in pickup and its buttons keep their stored state until you press them.
   Press Preset for manual mode, where the whole panel is live as it is.
-- **Save:** press Rec (it blinks), choose a slot with two digits or VALUE, then press Rec again (`donE`). Preset
+- **Save:** press Rec (it blinks), choose a slot by number or with VALUE, then press Rec again (`donE`). Preset
   cancels. The patch's name follows the sound into an empty slot.
 - **Init:** Perf loads a plain sound. Rec saves it anywhere.
 - **Names, export, backup, the factory bank:** on the web page (Patches tab).
@@ -322,21 +323,31 @@ only plays it.
 
 ## Mod matrix (MOD ASSIGN)
 
-Each layer has 8 routes. A route adds source × depth (−99 to 99) to a destination.
+Each layer has 16 routes. A route adds source × depth (−99 to 99) to a destination.
 
 1. Press **Arp Assign** (LED blinks, display `SrC`). The knobs go into pickup and stay there until you leave MOD
    ASSIGN, so touching one won't change the sound.
-2. Press a **number key** for the source.
-3. **Touch the destination:** turn its knob a little, or press its LFO routing button.
-4. Turn **VALUE** to set the depth for the edit layer. 0 removes the route; `FULL` means all 8 are in use.
+2. **Pick the source:** a number key (table below), or touch a knob that stands for one: LFO FREQ or LFO AMOUNT
+   for the selected LFO, a filter ADSR knob for the filter envelope (or Env 3 / Env 4 per the keytrack switch), an amp
+   ADSR knob for the amp envelope. Or turn **VALUE** to scroll through every source, the web-only ones included.
+3. **Pick the destination:** turn its knob a little, or press its LFO routing button; the knob you touched last
+   before pressing Arp Assign is already offered, so you can tweak a knob, press Arp Assign and go straight to the
+   source. Or scroll with VALUE and press Arp Assign to take the one shown. The envelope stages are reached by
+   touching the ADSR knobs (the filter ones per the keytrack switch); AMP SUS stays the VCA.
+4. Turn **VALUE** to set the depth for the edit layer. 0 removes the route; `FULL` means all 16 are in use.
 5. Press **Arp Assign** again to finish.
+
+**Browse:** hold Arp Assign for half a second (LED steady). The edit layer's routes are shown one at a time as
+source, destination and depth in turn; VALUE steps through them, a short press opens the one shown for editing,
+holding again leaves. `nonE` means the layer has no routes.
 
 Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn still work while assigning.
 
-The web page (and `pro800 route`) can also use sources the keypad can't pick: the sequence's four automation
-lanes, the LFOs as 0-to-1 ramps (`LFO 1 (0 to 1)`: bottom to top instead of either side of the middle, for
-things that should only open), `Gate` (1 while the key is down, 0 in the release) and `Timbre` (CC 74: per voice
-in the per-channel layer modes, else for the layers the channel plays).
+**Macros:** `nAC1` and `nAC2` are destinations and sources at once. Route anything into a macro (several things, if
+you like; the sum is the macro's value, −1 to 1), then route the macro to as many destinations as you want, each
+with its own depth and sign: mod wheel → Macro 1, Macro 1 → cutoff 40, resonance 20, A pulse width −30. The web
+page's Mod matrix shows each macro's inputs and outputs on one line. A macro is worked out once a pass (1-2.4 ms),
+so for a fast LFO straight into the cutoff route the LFO directly.
 
 | Key | Source | Display |
 |---|---|---|
@@ -350,7 +361,16 @@ in the per-channel layer modes, else for the layers the channel plays).
 | 8 | Env 4 | `EnV4` |
 | 9 | Random, new for every note | `rAnd` |
 | 0 | Note number (centred on middle C) | `notE` |
-| (web only) | Sequence lanes A-D | |
+| VALUE / web | Sequence lanes A-D | `SEqA`… |
+| VALUE / web | LFO 1 / LFO 2 as 0-to-1 (bottom to top, for things that should only open) | `L1.U` `L2.U` |
+| VALUE / web | Gate: 1 while the key is down, 0 in the release | `GAtE` |
+| VALUE / web | Timbre, CC 74 (per voice in the per-channel modes) | `tInb` |
+| VALUE / web | Pitch bend, −1 to 1 | `bEnd` |
+| VALUE / web | Sustain pedal, 0 or 1 | `PEdL` |
+| VALUE / web | CC A, CC B: two controllers, numbers set on the web page or `pro800 set cc-a|cc-b` (11 and 2 by default) | `CC.A` `CC.b` |
+| VALUE / web | Voice number, 0 to 1 across the layer's voices: a different offset on every voice | `VoIC` |
+| VALUE / web | Fixed, always 1: the route is a plain offset | `FIX` |
+| VALUE / web | Macro 1, Macro 2 | `nAC1` `nAC2` |
 
 The Morph destination (web page only) fades toward the morph target patch (see Voice modes, drift, scale, morph).
 
@@ -372,6 +392,14 @@ The Morph destination (web page only) fades toward the morph target patch (see V
 | RESONANCE * | Resonance | `rES` | full scale |
 | PW A / PW B * | Pulse width | `A.PU` `b.PU` | ±50 % |
 | PMOD OSC B * | Poly-mod oscillator B amount | `P.ob` | full scale |
+| AMP ATT / DEC / REL | Amp envelope attack / decay / release time | `EA-A` `EA-d` `EA-r` | 16× shorter or longer |
+| VALUE (scroll) | Amp envelope sustain level | `EA-S` | ± full scale |
+| FIL ATT / DEC / SUS / REL | Filter envelope stage (keytrack switch down) | `EF-A` `EF-d` `EF-S` `EF-r` | as above |
+| the same, switch middle / up | Env 3 / Env 4 stage | `E3-A`… `E4-r` | as above |
+| GLIDE | Glide time | `GLId` | 16× shorter or longer |
+| VALUE / web | Unison detune * | `dEtU` | ±50 cents |
+| VALUE / web | Master volume * (a 0-to-1 source counts down from full, as the VCA) | `VOL` | closed to full |
+| VALUE / web | Macro 1, Macro 2 | `nAC1` `nAC2` | −1 to 1 |
 
 \* Single wires for all voices: they follow the most recently played note of the layer. Everything else acts per
 voice.
@@ -426,7 +454,7 @@ Settings live in the patch, so save the patch to keep them.
 
 Tune measures every oscillator and filter and stores the tables in the EEPROM, where they survive firmware
 updates. It takes about 25 seconds, silent, with `tUnE` on the display. A new firmware tunes by itself the first
-time if it finds no tables, or tables made for a different way of writing the CVs (0.7.8 does this once after the
+time if it finds no tables, or tables made for a different way of writing the CVs (0.7.8 and 0.7.9 each did this once after their
 update: its refresh holds slightly different voltages, and the old tables read up to 28 cents sharp with it). Retune
 after the synth has warmed up for best results.
 
@@ -456,7 +484,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.7.8.syx --yes
+build/pro800 install build/pro800-0.8.0.syx --yes
 ```
 
 ## Updating, recovery and going back to stock
@@ -478,7 +506,7 @@ build/pro800 install build/pro800-0.7.8.syx --yes
   waveform buttons are on/off lines to the voice board. Put the second waveform on the other oscillator instead.
 - MIDI OUT / THRU isn't implemented, and SysEx works over USB only. The sequencer, scale, morph and note priority
   are set on the web page only.
-- 200 patches (A and b): banks C and D hold the sequences.
+- 128 patches, each with its sequence; the 0.7.x patches are not carried over (the EEPROM backups keep them).
 - The LFO routing buttons always show LFO 1's routing. LFO 2's shows on the display when toggled, and on the web
   page.
 - Going to manual mode (Preset) makes every button live, so LFO 1's routing jumps to what the buttons show.

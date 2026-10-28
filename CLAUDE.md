@@ -16,15 +16,15 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - The synth listens on MIDI channel 6; `play` defaults to it.
   - `install <file.syx> --yes`: update-mode + flash + wait until the new firmware answers (it autotunes first).
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
-  - Patches: `patches`, `patch load|save|clear <slot>`, `import --yes`, `eeprom <file>` (read),
+  - Patches: `patches`, `patch load|save|clear <slot>`, `format --yes` (wipe every slot), `eeprom <file>` (read),
     `eeprom-write <image> --yes` (write and verify, e.g. back to stock).
   - Engine: `set lfo-sync|lfo2-sync free|clock`, `set lfo-trigger|lfo2-trigger free|first|every|voice`, `set layers
     off|split|stack|channel`, `set split <note>`, `set keytrack`, `set lfo 1|2`, `set shape <layer> <lfo> <shape>`,
     `set lfo2-dests <layer> …`, `settings`, `params`, `param <layer> <name> <0-99>`, `layer 1|2`, `route`, `routes`,
     `clock <bpm> [seconds]`, `timing`.
   - Patches also: `patch rename <slot> <name>`, `factory` (list), `factory import <f> <slot> [--force]`.
-  - From 0.7.0: 200 patches (A, B); slots 200-399 are each patch's step sequence (`src/seq.c`, edited on the web
-    page; `seq` prints it).
+  - From 0.8.0: 128 patches (P1-P128, program change 0-127), 768-byte records with the step sequence inside
+    (`src/store.c`; `src/seq.c`, edited on the web page; `seq` prints it). 0.7.x records are wiped at the first start.
   - The WebMIDI page `scripts/web.sh` → http://localhost:8800 (Chrome/Edge; the desktop app's built-in browser
     has no MIDI): tabs Sound (the faceplate on top, then the extras and the mod matrix), Device cheat sheet (keep it in
     step with `MANUAL.md`), Patches, Play, System, Panel mapping (map in `tools/web/panel-map.json`).

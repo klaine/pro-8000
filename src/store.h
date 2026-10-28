@@ -1,8 +1,8 @@
-// Our layout of the patch EEPROM (the stock image in backup/ is the way back to stock firmware):
-//   0x00000-0x0C7FF  200 patches (A00-b99), 256 bytes each, in the same slots as the stock firmware's
-//   0x0C800-0x18FFF  200 sequences, 256 bytes each: patch n's at 0x0C800 + 256 n (from 0.7.0; stock banks C and D)
+// Our layout of the patch EEPROM (store.c has the records; the stock image in backup/ is the way back to stock
+// firmware):
+//   0x00000-0x17FFF  128 patches, 768 bytes each: the patch and its step sequence
 //   0x19000-0x1F3FF  the stock factory bank, left as it is
-//   0x1F400          global block: last patch, preset or manual mode
+//   0x1F400          global block: format, last patch, preset or manual mode, the CC A / B source numbers
 //   0x1F500-0x1FBFF  the autotune tables (tuning.c)
 #ifndef STORE_H
 #define STORE_H
@@ -11,7 +11,7 @@
 #include "controls.h"
 #include "mod.h"
 
-#define PATCH_COUNT 200
+#define PATCH_COUNT 128
 #define PATCH_NAME  16
 #define FACTORY_COUNT 100
 #define STORE_TUNING_ADDRESS 0x1F500u
@@ -41,7 +41,7 @@ typedef struct {
     uint8_t lfo_delay[2], lfo_fade[2]; // per LFO, 0-99 (lfo.h); 0 in patches from before 0.7.9
 } patch_t;
 
-typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t;
+typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t; // (SLOT_STOCK: no longer in slots)
 
 void store_init(void);
 // The EEPROM carries our global block (it has been imported or formatted).
@@ -49,8 +49,12 @@ int store_ready(void);
 slot_kind_t store_slot_kind(int n);
 int store_load_patch(int n, patch_t *patch); // 1 if slot n holds one of our patches
 int store_save_patch(int n, const patch_t *patch);
-// Converts slot n from the stock format in place. 1 converted, 0 nothing to do (empty or already ours), -1 error.
-int store_import_stock(int n);
+// Wipes every patch (all slots empty) and writes the global block: the EEPROM becomes ours, in this format.
+int store_format(void);
+int store_formatted(void); // 1 if store_init() just did that (an older format of ours was found)
+// The CC A / CC B mod source numbers (0 = the default), kept in the global block
+int store_cc_number(int which);
+void store_set_cc_number(int which, int number);
 // The stock factory bank (100 patches, left in place at 0x19000): its name, or 0 if that slot isn't a stock patch.
 int store_factory_name(int f, char name[PATCH_NAME + 1]);
 // Converts factory patch f into slot n. Returns 0 if f isn't a stock patch, -1 on a write error, else 1.

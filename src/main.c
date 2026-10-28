@@ -33,7 +33,8 @@
 //                          (1-12 semitones), 26 unison detune (0-50 cents), 27-28 voice modes per layer (mode 0 poly
 //                          1 mono 2 legato | priority 0 last 1 low 2 high << 2), 29 drift (0-99), 30 scale (0 off,
 //                          synth.h SCALE_*), 31 root (0-11), 32-35 LFO 1 delay, LFO 1 fade, LFO 2 delay, LFO 2 fade
-//                          (0-99); read-only after: env select, preset mode, patch, morph
+//                          (0-99), 36-37 CC A / CC B source numbers (1-127, system-wide); read-only after: env
+//                          select, preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
@@ -59,7 +60,8 @@
 //   51 <f> <n1> <n0> [<1>] copy factory patch f into slot n, converted; only into an empty slot unless the last
 //                          byte is 1; replies 51 <0 done, 1 slot not empty, 2 no such factory patch, 3 write error>
 //   5A <a2> <a1> <a0> <n> <2n nibbles>  write n (1-48) bytes to the patch EEPROM; acknowledged when written
-//   5B                     import: convert every stock patch in place, then mark the EEPROM as ours; replies
+//   5B                     format: wipe every patch slot and mark the EEPROM as ours (format 2); replies 5B 0
+//                          <slots> <errors> (was: import the stock patches in place; replies
 //                          5B <converted, 2 × 7 bits> <errors>
 //   5C <n1> <n0>           load patch n; 5D <n1> <n0> save the current sound to patch n (both acknowledged)
 //   5F                     load the init sound (as PERF does; acknowledged)
@@ -168,21 +170,20 @@ static uint32_t display_until; // ms_ticks when a pot value on the display gives
 static int tune_requested;
 
 // Patches: PRESET toggles preset mode (a patch loaded) and manual mode (the panel live). In preset mode two keypad
-// digits pick a patch in the current bank and VALUE steps through all 400; REC, then the slot, then REC saves;
+// digits pick a patch (1-128) and VALUE steps through them; REC, then the slot, then REC saves;
 // PERF loads the init sound.
 static int current_patch, preset_mode, saving, typed_digits, typed_value, encoder_patch_steps;
 static char loaded_name[PATCH_NAME + 1]; // travels with the sound when it's saved to an empty slot
 static uint32_t typed_at;
 
-static void patch_label(int n, char *text) // " A.07"
+static void patch_label(int n, char *text) // "P  7", "P128": patch n + 1
 {
-    static const char banks[] = "Ab";
-    text[0] = ' ';
-    text[1] = banks[n / 100];
-    text[2] = '.';
-    text[3] = (char)('0' + n % 100 / 10);
-    text[4] = (char)('0' + n % 10);
-    text[5] = 0;
+    int p = n + 1;
+    text[0] = 'P';
+    text[1] = p >= 100 ? (char)('0' + p / 100) : ' ';
+    text[2] = p >= 10 ? (char)('0' + p / 10 % 10) : ' ';
+    text[3] = (char)('0' + p % 10);
+    text[4] = 0;
 }
 
 static void show_patch(int n)
@@ -412,19 +413,31 @@ static void step_lfo_shape(int step)
     shape_steps = 0;
 }
 
-// MOD ASSIGN (the Arp Assign button): a number key picks the source, touching a knob or an LFO routing button
-// picks the destination (the knobs are in pickup meanwhile, and a toggled button keeps its routing), VALUE sets
-// the depth for the edit layer. Arp Assign again leaves.
+// MOD ASSIGN (the Arp Assign button). Press: SrC, then a source (a number key, a touch of a knob that stands for
+// one: the LFO knobs for the selected LFO, the ADSR knobs for their envelope; or VALUE scrolls through them all),
+// then a destination (touch its knob or an LFO routing button, or scroll with VALUE and press Arp Assign to take
+// it), then VALUE sets the depth for the edit layer and Arp Assign leaves. The knobs are in pickup meanwhile, a
+// toggled button keeps its routing, and the knob last touched before pressing is offered as the destination.
+// Hold Arp Assign (0.6 s): browse the edit layer's routes, each shown as source, destination and depth in turn,
+// VALUE steps through them, a short press edits the one shown, holding again leaves.
 static int assigning, assign_source, assign_dest = DEST_NONE, assign_steps;
+static int assign_confirmed; // the destination is settled (touched, or taken with Arp Assign): VALUE sets the depth
+static int browsing, browse_index, browse_frame = -1;
+static uint32_t assign_press_at; // ms_ticks when Arp Assign went down, 0 = up or the hold has fired
+static int last_pot = -1;        // the knob last touched outside MOD ASSIGN
 
 static const char source_names[SRC_COUNT][5] = {
     "", "LFO1", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE", "LFO2",
     "SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb",
+    "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2",
 };
 static const char dest_names[DEST_COUNT][6] = {
     "P.A", "P.b", "PIt", "CUt", "F.EA", "P.EA", "L.An", "L.Fr", "L.FL", "VCA",
     "A.LE", "b.LE", "noIS", "rES", "A.PU", "b.PU", "P.ob", "L.PU",
-    "L.rt", "L2.An", "L2.rt", "L2.Fr", "L2.FL", "L2.PU",
+    "L.rt", "L2.An", "L2.rt", "L2.Fr", "L2.FL", "L2.PU", "norP",
+    "EA-A", "EA-d", "EA-S", "EA-r", "EF-A", "EF-d", "EF-S", "EF-r",
+    "E3-A", "E3-d", "E3-S", "E3-r", "E4-A", "E4-d", "E4-S", "E4-r",
+    "GLId", "dEtU", "VOL", "nAC1", "nAC2",
 };
 
 static void show_route(void)
@@ -432,25 +445,150 @@ static void show_route(void)
     display_number(synth_route(synth_edit_layer(), (mod_source_t)assign_source, (mod_dest_t)assign_dest));
 }
 
+// The edit layer's routes in use: their slots, in order. Returns how many.
+static int route_slots(int *slots)
+{
+    const route_t *r = synth_routes(synth_edit_layer());
+    int n = 0;
+    for (int i = 0; i < ROUTES; i++)
+        if (r[i].source != SRC_NONE && r[i].source < SRC_COUNT && r[i].dest < DEST_COUNT)
+            slots[n++] = i;
+    return n;
+}
+
+static void browse_show(void) // the browsed route: source, destination, depth, 0.6 s each
+{
+    int slots[ROUTES], n = route_slots(slots);
+    if (!n) {
+        display_text("nonE");
+        return;
+    }
+    if (browse_index >= n)
+        browse_index = n - 1;
+    const route_t *r = &synth_routes(synth_edit_layer())[slots[browse_index]];
+    int frame = (int)(ms_ticks / 600 % 3);
+    browse_frame = frame;
+    if (frame == 0)
+        display_text(source_names[r->source]);
+    else if (frame == 1)
+        display_text(dest_names[r->dest]);
+    else
+        display_number(r->depth);
+}
+
 static void assign_end(void)
 {
     assigning = 0;
+    browsing = 0;
     synth_freeze_knobs(0);
     display_led(LED_ARP_ASSIGN, 0);
     display_until = 0;
 }
 
-// Handles a control event while assigning. Returns 1 if it was used.
+static void assign_begin(int source, int dest)
+{
+    browsing = 0;
+    assigning = 1;
+    assign_source = source;
+    assign_dest = dest;
+    assign_confirmed = dest != DEST_NONE && source != SRC_NONE;
+    assign_steps = 0;
+    synth_freeze_knobs(1);
+    if (!source)
+        display_text("SrC");
+    else if (dest == DEST_NONE)
+        display_text(source_names[source]);
+    else {
+        display_text(dest_names[dest]);
+        show_value_at = ms_ticks + 700;
+    }
+    display_until = 0;
+}
+
+static void browse_begin(void)
+{
+    int slots[ROUTES];
+    if (!route_slots(slots)) {
+        display_text("nonE");
+        display_until = ms_ticks + 1000;
+        return;
+    }
+    browsing = 1;
+    browse_index = 0;
+    browse_frame = -1;
+    display_led(LED_ARP_ASSIGN, 1);
+    display_until = 0;
+    browse_show();
+}
+
+// The Arp Assign button: a short press (on release) or a hold (from the main loop)
+static void assign_short_press(void)
+{
+    if (browsing) { // edit the route shown
+        int slots[ROUTES], n = route_slots(slots);
+        if (!n)
+            return;
+        const route_t *r = &synth_routes(synth_edit_layer())[slots[browse_index < n ? browse_index : n - 1]];
+        assign_begin(r->source, r->dest);
+    } else if (assigning && assign_source && assign_dest != DEST_NONE && !assign_confirmed) {
+        assign_confirmed = 1; // take the scrolled destination: VALUE now sets the depth
+        show_route();
+    } else if (assigning) {
+        assign_end();
+    } else {
+        int dest = last_pot >= 0 ? synth_dest_for_pot(last_pot) : DEST_NONE;
+        assign_begin(SRC_NONE, dest);
+    }
+}
+
+static void assign_hold(void)
+{
+    if (browsing || assigning)
+        assign_end();
+    else
+        browse_begin();
+}
+
+// Handles a control event while assigning or browsing. Returns 1 if it was used.
 static int assign_event(control_kind_t kind, int index, int32_t value)
 {
+    if (browsing) {
+        if (kind == CONTROL_ENCODER) {
+            assign_steps += (int)value;
+            if (assign_steps >= 2 || assign_steps <= -2) {
+                int slots[ROUTES], n = route_slots(slots);
+                browse_index = n ? (browse_index + (assign_steps > 0 ? 1 : n - 1)) % n : 0;
+                assign_steps = 0;
+                browse_frame = -1;
+                browse_show();
+            }
+            return 1;
+        }
+        return kind == CONTROL_POT; // knobs are frozen; buttons work as usual
+    }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value) {
         int source = index == BUTTON_0 ? SRC_NOTE : index - BUTTON_0;
         if (source == SRC_LFO) // key 1: the selected LFO; pressed again, the other one
             source = assign_source == SRC_LFO ? SRC_LFO2 : assign_source == SRC_LFO2 ? SRC_LFO
                    : synth_lfo_select() ? SRC_LFO2 : SRC_LFO;
         assign_source = source;
-        assign_dest = DEST_NONE;
-        display_text(source_names[assign_source]);
+        if (assign_dest != DEST_NONE && assign_confirmed) { // the offered destination: straight to its depth
+            display_text(dest_names[assign_dest]);
+            show_value_at = ms_ticks + 700;
+        } else {
+            assign_dest = DEST_NONE;
+            display_text(source_names[assign_source]);
+        }
+        display_until = 0;
+        return 1;
+    }
+    if (kind == CONTROL_POT && !assign_source) { // a knob that stands for a source
+        int source = synth_source_for_pot(index);
+        if (source != SRC_NONE) {
+            assign_source = source;
+            display_text(source_names[source]);
+        } else
+            display_text("SrC");
         display_until = 0;
         return 1;
     }
@@ -469,8 +607,9 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
             display_text("no");
             return 1;
         }
-        if (dest != assign_dest) {
+        if (dest != assign_dest || !assign_confirmed) {
             assign_dest = dest;
+            assign_confirmed = 1;
             assign_steps = 0;
             display_text(dest_names[dest]);
             show_value_at = ms_ticks + 700;
@@ -478,15 +617,26 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
         return 1;
     }
     if (kind == CONTROL_ENCODER) {
-        if (!assign_source || assign_dest == DEST_NONE) {
-            display_text(assign_source ? "dESt" : "SrC");
-            return 1;
-        }
         assign_steps += (int)value;
-        if (assign_steps >= 2 || assign_steps <= -2) { // a step per half cycle: -99..99 takes a few turns
+        if (assign_steps < 2 && assign_steps > -2)
+            return 1;
+        int step = assign_steps > 0 ? 1 : -1;
+        assign_steps = 0;
+        if (!assign_source) { // scroll the sources
+            assign_source = (assign_source + step + SRC_COUNT) % SRC_COUNT;
+            if (!assign_source)
+                assign_source = step > 0 ? 1 : SRC_COUNT - 1;
+            display_text(source_names[assign_source]);
+            display_until = 0;
+        } else if (assign_dest == DEST_NONE || !assign_confirmed) { // scroll the destinations
+            assign_dest = assign_dest == DEST_NONE ? (step > 0 ? 0 : DEST_COUNT - 1)
+                                                    : (assign_dest + step + DEST_COUNT) % DEST_COUNT;
+            assign_confirmed = 0;
+            display_text(dest_names[assign_dest]);
+            show_value_at = ms_ticks + 700; // then its depth; Arp Assign takes it
+        } else { // the depth: a step per half cycle, -99..99 takes a few turns
             int layer = synth_edit_layer();
-            int depth = synth_route(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest) + assign_steps / 2;
-            assign_steps = 0;
+            int depth = synth_route(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest) + step;
             if (!synth_set_route(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest, depth))
                 display_text("FULL");
             else
@@ -501,7 +651,9 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
 // What the display shows when nothing transient is on it.
 static void idle_display(void)
 {
-    if (assigning && assign_source && assign_dest != DEST_NONE)
+    if (browsing)
+        browse_show();
+    else if (assigning && assign_source && assign_dest != DEST_NONE)
         show_route();
     else if (assigning)
         display_text(assign_source ? source_names[assign_source] : "SrC");
@@ -637,23 +789,21 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         report_event(kind, index, value);
         return;
     }
-    if (kind == CONTROL_BUTTON && index == BUTTON_ARP_ASSIGN && value && !menu_open && !saving) {
-        if (assigning)
-            assign_end();
-        else {
-            assigning = 1;
-            assign_source = 0;
-            assign_dest = DEST_NONE;
-            synth_freeze_knobs(1);
-            display_text("SrC");
-            display_until = 0;
+    if (kind == CONTROL_BUTTON && index == BUTTON_ARP_ASSIGN && !menu_open && !saving) {
+        if (value)
+            assign_press_at = ms_ticks ? ms_ticks : 1;
+        else if (assign_press_at) { // released before the hold fired: a short press
+            assign_press_at = 0;
+            assign_short_press();
         }
         return;
     }
-    if (assigning && kind == CONTROL_BUTTON && value && (index == BUTTON_PRESET || index == BUTTON_REC
-                                                        || index == BUTTON_SETTINGS || index == BUTTON_PERF))
+    if (kind == CONTROL_POT && !assigning && !browsing)
+        last_pot = index;
+    if ((assigning || browsing) && kind == CONTROL_BUTTON && value
+        && (index == BUTTON_PRESET || index == BUTTON_REC || index == BUTTON_SETTINGS || index == BUTTON_PERF))
         assign_end(); // and the button does its usual job
-    if (assigning && assign_event(kind, index, value))
+    if ((assigning || browsing) && assign_event(kind, index, value))
         return;
     if (kind == CONTROL_SWITCH && index == SWITCH_LFO_SHAPE)
         step_lfo_shape(1);
@@ -810,22 +960,30 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && !menu_open && (preset_mode || saving)) {
         int digit = index - BUTTON_0;
-        if (typed_digits == 1 && ms_ticks - typed_at < 3000) {
-            int n = current_patch / 100 * 100 + typed_value * 10 + digit;
+        if (typed_digits && ms_ticks - typed_at < 3000 && typed_value * 10 + digit <= PATCH_COUNT
+            && (typed_digits == 2 || (typed_value * 10 + digit) * 10 > PATCH_COUNT || (typed_value * 10 + digit) == 0)) {
+            // the number is complete: a third digit, or no further digit could keep it within 1-128
+            int n = typed_value * 10 + digit - 1;
             typed_digits = 0;
+            if (n < 0)
+                n = current_patch;
             if (saving) {
                 current_patch = n;
                 show_patch(n);
             } else
                 load_patch(n);
+        } else if (typed_digits && ms_ticks - typed_at < 3000 && typed_value * 10 + digit <= PATCH_COUNT) {
+            typed_digits = 2; // "P 12-": one more digit may follow (within 3 s), or VALUE / a key ends it
+            typed_value = typed_value * 10 + digit;
+            typed_at = ms_ticks;
+            char text[6] = {'P', ' ', (char)('0' + typed_value / 10), (char)('0' + typed_value % 10), 0};
+            display_text(text);
+            display_until = 0;
         } else {
             typed_digits = 1;
             typed_value = digit;
             typed_at = ms_ticks;
-            char text[6];
-            patch_label(current_patch, text);
-            text[3] = (char)('0' + digit);
-            text[4] = '-';
+            char text[6] = {'P', ' ', ' ', (char)('0' + digit), 0};
             display_text(text);
             display_until = 0;
         }
@@ -868,6 +1026,7 @@ typedef enum {
     SET_BEND = SET_CYCLE_SYNC + 8, SET_DETUNE, // bend range (semitones), unison detune (cents)
     SET_VOICE_L1, SET_VOICE_L2, SET_DRIFT, SET_SCALE, SET_ROOT, // voice modes (mode | priority << 2), drift, scale
     SET_LFO1_DELAY, SET_LFO1_FADE, SET_LFO2_DELAY, SET_LFO2_FADE, // 0-99 (lfo.h)
+    SET_CC_A, SET_CC_B,                                  // the CC A / B mod sources' controller numbers (1-127)
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -897,6 +1056,7 @@ static int host_setting_get(int id)
     case SET_ROOT: return synth_scale() >> 4;
     case SET_LFO1_DELAY: case SET_LFO2_DELAY: return lfo_delay[id == SET_LFO2_DELAY];
     case SET_LFO1_FADE: case SET_LFO2_FADE: return lfo_fade[id == SET_LFO2_FADE];
+    case SET_CC_A: case SET_CC_B: return synth_cc_number(id == SET_CC_B);
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -912,7 +1072,7 @@ static int host_setting_set(int id, int value)
         LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8, 16, 16,
         [SET_CYCLE_SYNC ... SET_CYCLE_SYNC + 7] = LFO_DIVISIONS + 1, [SET_BEND] = 13, [SET_DETUNE] = 51,
         [SET_VOICE_L1] = 11, [SET_VOICE_L2] = 11, [SET_DRIFT] = 100, [SET_SCALE] = SCALE_COUNT, [SET_ROOT] = 12,
-        [SET_LFO1_DELAY ... SET_LFO2_FADE] = 100,
+        [SET_LFO1_DELAY ... SET_LFO2_FADE] = 100, [SET_CC_A] = 128, [SET_CC_B] = 128,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -938,6 +1098,12 @@ static int host_setting_set(int id, int value)
     case SET_ROOT: synth_set_scale((synth_scale() & 15) | value << 4); break;
     case SET_LFO1_DELAY: case SET_LFO2_DELAY: lfo_delay[id == SET_LFO2_DELAY] = (uint8_t)value; break;
     case SET_LFO1_FADE: case SET_LFO2_FADE: lfo_fade[id == SET_LFO2_FADE] = (uint8_t)value; break;
+    case SET_CC_A: case SET_CC_B:
+        if (value < 1)
+            return 0;
+        synth_set_cc_number(id == SET_CC_B, value);
+        store_set_cc_number(id == SET_CC_B, value);
+        break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -948,7 +1114,7 @@ static int host_setting_set(int id, int value)
 
 // The sustain pedal, per layer (bits: in channel mode each channel's pedal holds its own layer), and the keys let go
 // while it was down: the layers each one's note-off releases
-static int sustain, bank;
+static int sustain;
 static uint8_t sustained[128];
 
 // After tuning (25 s or so) the USB ring holds only the first packets that came in meanwhile, so note-offs may be
@@ -1247,23 +1413,13 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = 0x5A;
         }
     }
-    if (data_length == 1 && data[0] == 0x5B) {
+    if (data_length == 1 && data[0] == 0x5B) { // format: every slot empty, the EEPROM marked as ours
         synth_all_off();
-        sh_set(CV_MASTER_VOL, 0);
-        int converted = 0, errors = 0;
-        for (int i = 0; i < PATCH_COUNT; i++) {
-            int r = store_import_stock(i);
-            converted += r > 0;
-            errors += r < 0;
-            IWDG_KR = IWDG_KR_REFRESH;
-            sh_refresh();
-        }
-        if (!store_finish_import())
-            errors++;
+        int ok = store_format();
         reply[n++] = 0x5B;
-        reply[n++] = (uint8_t)(converted >> 7);
-        reply[n++] = converted & 0x7F;
-        reply[n++] = (uint8_t)(errors > 127 ? 127 : errors);
+        reply[n++] = 0;
+        reply[n++] = (uint8_t)PATCH_COUNT;
+        reply[n++] = (uint8_t)!ok;
     }
     if (data_length == 3 && (data[0] == 0x5C || data[0] == 0x5D)) {
         int slot = data[1] << 7 | data[2];
@@ -1388,7 +1544,7 @@ static void handle_sysex(const uint8_t *message, int length)
 }
 
 // MIDI CCs → parameters of the layer the channel plays (layer 2 for channel 2 in channel mode), else the edit layer.
-// Also CC 64 sustain pedal, CC 0 / 32 bank select (for program change).
+// Also CC 64 sustain pedal (bank select is ignored: one bank).
 static const struct { uint8_t cc, param; } cc_map[] = {
     {14, POT_FREQ_A}, {15, POT_FREQ_B}, {16, POT_FINE}, {17, POT_A_PW}, {18, POT_B_PW}, {19, POT_A_LEVEL},
     {20, POT_B_LEVEL}, {21, POT_NOISE}, {74, POT_CUTOFF}, {71, POT_RESONANCE}, {22, POT_FIL_ENV_AMT},
@@ -1425,6 +1581,7 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
 {
     if (cc == 64) { // sustain pedal, for the layers the channel plays
         int layers = synth_channel_layers(channel);
+        synth_set_pedal(layers, value >= 64);
         if (value >= 64) {
             sustain |= layers;
             return;
@@ -1446,9 +1603,12 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
             synth_timbre(value, synth_channel_layers(channel));
         return;
     }
-    if (cc == 0 || cc == 32) {
-        bank = value ? 1 : 0;
+    if (cc == 0 || cc == 32) // bank select: one bank
         return;
+    if (cc == synth_cc_number(0) || cc == synth_cc_number(1)) {
+        synth_cc_source(cc == synth_cc_number(0) ? 0 : 1, value, synth_channel_layers(channel));
+        if (cc != 1 && cc != 74)
+            return;
     }
     for (unsigned i = 0; i < sizeof cc_map / sizeof cc_map[0]; i++)
         if (cc_map[i].cc == cc) {
@@ -1561,9 +1721,9 @@ static void handle_midi(void)
         case 0x8:
             key_off(p[2], p[1] & 0x0F);
             break;
-        case 0xC: // program change: patch n of the bank chosen by bank select (CC 0 / 32: 0 = A, 1 = b)
-            if (bank * 100 + p[2] < PATCH_COUNT)
-                load_patch(bank * 100 + p[2]);
+        case 0xC: // program change 0-127: patch 1-128
+            if (p[2] < PATCH_COUNT)
+                load_patch(p[2]);
             break;
         case 0xB:
             if (status == 0xB0 && (p[2] == 120 || p[2] == 123)) { // all sound off, all notes off
@@ -1650,6 +1810,13 @@ int main(void)
     show_version();
     display_until = ms_ticks + 1500;
 
+    for (int k = 0; k < 2; k++)
+        if (store_cc_number(k))
+            synth_set_cc_number(k, store_cc_number(k));
+    if (store_formatted()) {
+        display_text("ForM"); // an older layout of ours was wiped: every slot is empty now
+        display_update();
+    }
     if (store_ready()) {
         current_patch = store_last_patch();
         if (store_preset_mode()) {
@@ -1697,8 +1864,14 @@ int main(void)
         }
         if (saving)
             display_led(LED_REC, (now / 250) & 1);
+        if (assign_press_at && now - assign_press_at >= 600) {
+            assign_press_at = 0;
+            assign_hold();
+        }
         if (assigning)
             display_led(LED_ARP_ASSIGN, (now / 250) & 1);
+        if (browsing && !display_until && (int)(now / 600 % 3) != browse_frame)
+            browse_show();
         tc = DWT_CYCCNT;
         if (!report_mode)
             display_update();

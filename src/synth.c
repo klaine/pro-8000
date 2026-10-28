@@ -134,11 +134,19 @@ typedef struct {
     float lfo_age, lfo_gain[2];    // seconds since the note started, and each LFO's delay / fade gain for it now
     float bend;                    // per-voice pitch bend, -1..1 (the per-channel layer modes)
     float timbre;                  // CC 74, 0..1 (a mod source)
+    float macro[2];                // the macros' values for this voice, -1..1 (routes into DEST_MACRO1 / 2)
+    // Envelope stage routes, from the last pass: rate multipliers (attack, decay, release) and a sustain offset per
+    // envelope, and whether any is in use; the glide coefficient with its route
+    float env_rate_mul[4][3], env_sus_add[4];
+    uint8_t env_modded;
+    float glide_k;
 } voice_t;
 
-static voice_t voices[VOICE_COUNT] = {[0 ... VOICE_COUNT - 1] = {.lfo_gain = {1.0f, 1.0f}}};
+static voice_t voices[VOICE_COUNT] = {[0 ... VOICE_COUNT - 1] = {.lfo_gain = {1.0f, 1.0f}, .glide_k = 1.0f}};
 static uint32_t allocations, random_state = 0x2545F491u;
 static float bend[LAYERS], mod_wheel[LAYERS], aftertouch[LAYERS]; // per layer, for channel mode; bend -1..1
+static float pedal[LAYERS], cc_source[2][LAYERS];                 // the pedal (0 / 1) and CC A / B (0..1) per layer
+static int cc_number[2] = {11, 2};                                // CC A / B: expression and breath by default
 static int bend_range = BEND_DEFAULT, detune = DETUNE_DEFAULT;
 static uint8_t voice_mode[LAYERS], priority[LAYERS]; // VOICE_* and PRIORITY_* (synth.h)
 static int drift_amount;                             // 0..99
@@ -453,6 +461,15 @@ int synth_dest_for_pot(int pot)
     case POT_LFO_AMOUNT: return lfo_select ? DEST_LFO2_AMOUNT : DEST_LFO_AMOUNT;
     case POT_LFO_FREQ: return lfo_select ? DEST_LFO2_RATE : DEST_LFO_RATE;
     case POT_AMP_SUS: return DEST_VCA;
+    case POT_AMP_ATT: return DEST_AMP_ATT;
+    case POT_AMP_DEC: return DEST_AMP_DEC;
+    case POT_AMP_REL: return DEST_AMP_REL;
+    case POT_FIL_ATT: case POT_FIL_DEC: case POT_FIL_SUS: case POT_FIL_REL: {
+        static const uint8_t stage[] = {[POT_FIL_ATT] = 0, [POT_FIL_DEC] = 1, [POT_FIL_SUS] = 2, [POT_FIL_REL] = 3};
+        int first = env_select == 1 ? DEST_ENV3_ATT : env_select == 2 ? DEST_ENV4_ATT : DEST_FIL_ATT;
+        return first + stage[pot];
+    }
+    case POT_GLIDE: return DEST_GLIDE;
     case POT_A_LEVEL: return DEST_A_LEVEL;
     case POT_B_LEVEL: return DEST_B_LEVEL;
     case POT_NOISE: return DEST_NOISE;
@@ -799,6 +816,35 @@ int synth_channel_voice(int channel)
     if (layer_mode == LAYER_MPE)
         return channel >= 1 && channel <= VOICE_COUNT ? channel - 1 : -1;
     return -1;
+}
+
+void synth_set_pedal(int layers, int down)
+{
+    for (int l = 0; l < LAYERS; l++)
+        if (layers >> l & 1)
+            pedal[l] = down ? 1.0f : 0;
+}
+
+void synth_cc_source(int which, uint8_t value, int layers)
+{
+    for (int l = 0; l < LAYERS; l++)
+        if (layers >> l & 1)
+            cc_source[which & 1][l] = (float)value / 127.0f;
+}
+
+int synth_cc_number(int which) { return cc_number[which & 1]; }
+
+void synth_set_cc_number(int which, int number) { cc_number[which & 1] = number < 1 ? 1 : number > 127 ? 127 : number; }
+
+int synth_source_for_pot(int pot)
+{
+    switch (pot) {
+    case POT_LFO_FREQ: case POT_LFO_AMOUNT: return lfo_select ? SRC_LFO2 : SRC_LFO;
+    case POT_FIL_ATT: case POT_FIL_DEC: case POT_FIL_SUS: case POT_FIL_REL:
+        return env_select == 1 ? SRC_ENV3 : env_select == 2 ? SRC_ENV4 : SRC_FILTER_ENV;
+    case POT_AMP_ATT: case POT_AMP_DEC: case POT_AMP_SUS: case POT_AMP_REL: return SRC_AMP_ENV;
+    default: return SRC_NONE;
+    }
 }
 
 int synth_channel_plays(int channel)
@@ -1193,6 +1239,21 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
         return 0.5f * (1.0f + lfo_value(LFO_ID(layer, 1), voice, (lfo_shape_t)lfo_shape[layer][1]) * x->lfo_gain[1]);
     case SRC_GATE: return x->gate ? 1.0f : 0;
     case SRC_TIMBRE: return x->timbre;
+    case SRC_BEND: {
+        float b = bend[layer] + (per_channel() ? x->bend : 0);
+        return b < -1 ? -1 : b > 1 ? 1 : b;
+    }
+    case SRC_PEDAL: return pedal[layer];
+    case SRC_CC_A: return cc_source[0][layer];
+    case SRC_CC_B: return cc_source[1][layer];
+    case SRC_VOICE: {
+        int first, end;
+        layer_voices(layer, &first, &end);
+        return end - first > 1 ? (float)(voice - first) / (float)(end - first - 1) : 0;
+    }
+    case SRC_FIXED: return 1.0f;
+    case SRC_MACRO1: return x->macro[0];
+    case SRC_MACRO2: return x->macro[1];
     case SRC_FILTER_ENV: return x->filter.level;
     case SRC_AMP_ENV: return x->amp.level;
     case SRC_VELOCITY: return (float)x->velocity / 127.0f;
@@ -1210,7 +1271,9 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
 // Sources that swing both ways; the others run 0..1
 static int bipolar(int source)
 {
-    return source == SRC_LFO || source == SRC_LFO2 || source == SRC_RANDOM || source == SRC_NOTE || source >= SRC_SEQ_A;
+    return source == SRC_LFO || source == SRC_LFO2 || source == SRC_RANDOM || source == SRC_NOTE
+        || (source >= SRC_SEQ_A && source <= SRC_SEQ_D) || source == SRC_BEND || source == SRC_MACRO1
+        || source == SRC_MACRO2;
 }
 
 // The routes the fast ticks evaluate (synth_tick()): from the envelopes and LFOs into pitch, cutoff and the VCA.
@@ -1227,28 +1290,40 @@ static int fast_route(const route_t *r)
 // the others. The VCA is a gain on the amp envelope (1 + mod, 0..1): a bipolar source at depth 99 swings it from
 // closed to open (tremolo, gates), and a 0..1 source counts down from full (source - 1), so velocity → VCA at 99 is
 // plain velocity sensitivity.
+static int macro_source(int source) { return source == SRC_MACRO1 || source == SRC_MACRO2; }
+
 static void evaluate_routes(int layer, int voice, float *mod, int fast)
 {
-    for (int r = 0; r < ROUTES; r++) {
-        const route_t *x = &routes[layer][r];
-        if (x->source == SRC_NONE || x->dest >= DEST_COUNT || fast_route(x) != fast)
-            continue;
-        float value = source_value(&voices[voice], voice, layer, x->source);
-        if (x->dest == DEST_VCA && !bipolar(x->source))
-            value -= 1.0f;
-        float depth = (float)x->depth / 99.0f;
-        if (x->dest <= DEST_PITCH) // pitch: a squared depth curve, fine near zero for vibrato
-            depth *= depth < 0 ? -depth : depth;
-        mod[x->dest] += value * depth;
+    // the slow routes in two phases: everything into the macros first, then the routes the macros feed
+    for (int phase = 0; phase < (fast ? 1 : 2); phase++) {
+        if (phase == 1)
+            for (int k = 0; k < 2; k++) {
+                float m = mod[DEST_MACRO1 + k];
+                voices[voice].macro[k] = m < -1 ? -1 : m > 1 ? 1 : m;
+            }
+        for (int r = 0; r < ROUTES; r++) {
+            const route_t *x = &routes[layer][r];
+            if (x->source == SRC_NONE || x->dest >= DEST_COUNT || fast_route(x) != fast
+                || macro_source(x->source) != phase)
+                continue;
+            float value = source_value(&voices[voice], voice, layer, x->source);
+            if ((x->dest == DEST_VCA || x->dest == DEST_VOLUME) && !bipolar(x->source))
+                value -= 1.0f;
+            float depth = (float)x->depth / 99.0f;
+            if (x->dest <= DEST_PITCH) // pitch: a squared depth curve, fine near zero for vibrato
+                depth *= depth < 0 ? -depth : depth;
+            mod[x->dest] += value * depth;
+        }
     }
 }
 
 static float clamp01(float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
 typedef struct {
-    float coarse_a, coarse_b, fine_b, tune, glide_k, env_amount, pmod_env, cutoff, depth, depth2;
+    float coarse_a, coarse_b, fine_b, tune, glide_s, glide_k, env_amount, pmod_env, cutoff, depth, depth2;
 } layer_params_t;
 static layer_params_t lp[LAYERS]; // from the last synth_update()
+static float last_mod[LAYERS][DEST_COUNT]; // the layer-level routes (from its most recent voice), per pass
 static void voice_slow(int v, float dt);
 
 // From the last synth_update(), for the ticks: each envelope's rates, and each LFO's rate knob and rate modulation
@@ -1329,11 +1404,20 @@ void synth_tick(float dt, int cutoff, unsigned pitch_voices)
             x->lfo_age += dt;
         x->lfo_gain[0] = lfo_fade_gain(0, x->lfo_age);
         x->lfo_gain[1] = lfo_fade_gain(1, x->lfo_age);
-        env_update(&x->amp, dt, &rates[l][0]);
-        env_update(&x->filter, dt, &rates[l][1]);
-        if (uses_env34[l]) { // otherwise they wait where they are; a route added later reads them from there
-            env_update(&x->env3, dt, &rates[l][2]);
-            env_update(&x->env4, dt, &rates[l][3]);
+        env_t *envs[4] = {&x->amp, &x->filter, &x->env3, &x->env4};
+        for (int e = 0; e < (uses_env34[l] ? 4 : 2); e++) { // Env 3 / 4 wait where they are until a route reads them
+            if (!x->env_modded) {
+                env_update(envs[e], dt, &rates[l][e]);
+                continue;
+            }
+            env_rates_t r = rates[l][e]; // this voice's stage routes applied
+            r.attack *= x->env_rate_mul[e][0];
+            r.decay *= x->env_rate_mul[e][1];
+            r.release *= x->env_rate_mul[e][2];
+            r.hold /= x->env_rate_mul[e][1];
+            r.rest /= x->env_rate_mul[e][2];
+            r.sustain = clamp01(r.sustain + x->env_sus_add[e]);
+            env_update(envs[e], dt, &r);
         }
         voice_cvs(v, cutoff, pitch_voices >> v & 1);
     }
@@ -1378,10 +1462,12 @@ void synth_update(float dt)
 
     // routes evaluated for each layer's most recently played voice: the single-wire destinations, and the rate of
     // each LFO's shared phase
-    float last_mod[LAYERS][DEST_COUNT] = {{0}};
-    for (int l = 0; l < LAYERS; l++)
+    for (int l = 0; l < LAYERS; l++) {
+        for (int d = 0; d < DEST_COUNT; d++)
+            last_mod[l][d] = 0;
         if (last_voice[l] >= 0 && (!one_layer() || l == 0))
             evaluate_routes(l, last_voice[l], last_mod[l], 0);
+    }
 
     // the knob values as heard: morphed towards the morph target by the Morph destination
     static float eff[LAYERS][PARAM_COUNT];
@@ -1416,6 +1502,7 @@ void synth_update(float dt)
             .coarse_b = semitone_steps(p[POT_FREQ_B]),
             .fine_b = (p[POT_FINE] - 0.5f) * 2 * FINE_SEMITONES,
             .tune = (p[POT_MASTER_TUNE] - 0.5f) * 2 * MASTER_TUNE_SEMITONES,
+            .glide_s = glide,
             .glide_k = glide > 0 ? 1.0f - fast_exp2(-dt / glide * 1.4427f) : 1.0f,
             .env_amount = env_amount_of(p[POT_FIL_ENV_AMT]), // -1..1
             .pmod_env = pmod_freq_a ? p[POT_PMOD_FIL_ENV] * p[POT_PMOD_FIL_ENV] : 0,
@@ -1441,7 +1528,7 @@ void synth_update(float dt)
     sh_set(CV_NOISE, cv_from(shared[POT_NOISE] + shared_mod[DEST_NOISE]));
     sh_set(CV_RESONANCE, cv_from(shared[POT_RESONANCE] + shared_mod[DEST_RESONANCE]));
     sh_set(CV_PMOD_OSC_B, cv_from(shared[POT_PMOD_OSC_B] + shared_mod[DEST_PMOD_OSC_B]));
-    sh_set(CV_MASTER_VOL, cv_from(panel[POT_MASTER_VOL]));
+    sh_set(CV_MASTER_VOL, cv_from(panel[POT_MASTER_VOL] * clamp01(1.0f + shared_mod[DEST_VOLUME])));
     sh_set(CV_EXT_FIL, 0);
     // square off: PW A at maximum, PW B at minimum (as p600fw), so no pulse bleeds through
     float pw_a = 0.05f + 0.9f * clamp01(shared[POT_A_PW] + shared_mod[DEST_A_PW] * MOD_PW) + lfo_pw;
@@ -1472,7 +1559,7 @@ static void voice_slow(int v, float dt)
         int l = layer_of(v);
         const layer_params_t *q = &lp[l];
         if (dt > 0)
-            x->pitch += ((float)x->note - x->pitch) * q->glide_k;
+            x->pitch += ((float)x->note - x->pitch) * x->glide_k;
         if (drift_amount) { // a slow random walk: a new target every 0.4-2 s, approached smoothly
             x->drift_timer -= dt;
             if (x->drift_timer <= 0) {
@@ -1494,7 +1581,20 @@ static void voice_slow(int v, float dt)
         int first, end;
         layer_voices(l, &first, &end);
         int n = end - first;
-        float spread = unison && n > 1 ? ((float)(v - first) / (float)(n - 1) - 0.5f) * (float)detune / 100.0f : 0;
+        float cents = (float)detune + last_mod[l][DEST_DETUNE] * 50.0f;
+        float spread = unison && n > 1 ? ((float)(v - first) / (float)(n - 1) - 0.5f) * cents / 100.0f : 0;
+        // glide and the envelope stages with their routes (times scale by 2^(4 × mod): 16× at full depth)
+        x->glide_k = mod[DEST_GLIDE] != 0 && q->glide_s > 0
+                   ? 1.0f - fast_exp2(-dt / (q->glide_s * fast_exp2(4.0f * mod[DEST_GLIDE])) * 1.4427f) : q->glide_k;
+        x->env_modded = 0;
+        for (int e = 0; e < 4; e++) {
+            const float *m = &mod[DEST_AMP_ATT + 4 * e]; // attack, decay, sustain, release
+            x->env_modded |= m[0] != 0 || m[1] != 0 || m[2] != 0 || m[3] != 0;
+            x->env_rate_mul[e][0] = m[0] ? fast_exp2(-4.0f * m[0]) : 1.0f;
+            x->env_rate_mul[e][1] = m[1] ? fast_exp2(-4.0f * m[1]) : 1.0f;
+            x->env_rate_mul[e][2] = m[3] ? fast_exp2(-4.0f * m[3]) : 1.0f;
+            x->env_sus_add[e] = m[2];
+        }
         float depth = clamp01(q->depth + mod[DEST_LFO_AMOUNT]);
         float depth2 = clamp01(q->depth2 + mod[DEST_LFO2_AMOUNT]);
         x->to_pitch[0] = clamp01(depth * lfo_to_pitch + mod[DEST_LFO_TO_PITCH]) * LFO_PITCH_SEMITONES;

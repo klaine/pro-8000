@@ -33,6 +33,15 @@ void synth_voice_bend(int voice, int value); // 14-bit, centre 8192
 void synth_voice_pressure(int voice, uint8_t value);
 void synth_voice_timbre(int voice, uint8_t value); // CC 74
 void synth_timbre(uint8_t value, int layers);      // CC 74 for the layers a channel plays (a mod source)
+// More mod sources from MIDI: the sustain pedal's state and the two assignable controllers (CC A / CC B), for the
+// layers a channel plays; and which controller numbers those are (1-127, kept in the system settings)
+void synth_set_pedal(int layers, int down);
+void synth_cc_source(int which, uint8_t value, int layers);
+int synth_cc_number(int which);
+void synth_set_cc_number(int which, int number);
+// MOD ASSIGN: the source touching a knob means (SRC_NONE if none): the LFO knobs the selected LFO, the ADSR knobs
+// their envelope (the filter's per the keytrack switch).
+int synth_source_for_pot(int pot);
 // The layers (bit 0 layer 1, bit 1 layer 2) a key would play, and playing a note on given layers (the sequencer).
 int synth_key_layers(uint8_t note, int channel);
 void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers);

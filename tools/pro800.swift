@@ -4,7 +4,7 @@
 //   pro800 ports                          list MIDI ports
 //   pro800 version                        firmware version
 //   pro800 listen [seconds]               print everything the synth sends (default 20 s)
-//   pro800 backup <dir> [first] [last]    dump system settings and patches 0-399 as .syx
+//   pro800 backup <dir> [first] [last]    dump system settings and patches as .syx (stock firmware only)
 //   pro800 play <note> [options]          play a note, optionally recording and measuring it
 //       --channel N (1-16 or "all", default 6)  --hold S (default 2)  --velocity V (default 100)
 //       --record [audio device]  (default "Ableton Move Audio")  --wav <file>
@@ -28,7 +28,7 @@ Read-only:
   pro800 ports                          list MIDI ports
   pro800 version                        firmware version
   pro800 listen [seconds]               print everything the synth sends (default 20 s)
-  pro800 backup <dir> [first] [last]    dump system settings and patches 0-399 as .syx
+  pro800 backup <dir> [first] [last]    dump system settings and patches as .syx (stock firmware only)
   pro800 play <note> [options]          play a note, optionally recording and measuring it
       --channel N (1-16 or "all", default 6)  --hold S (default 2)  --velocity V (default 100)
       --record [audio device]  (default "Ableton Move Audio")  --wav <file>
@@ -87,7 +87,7 @@ Changes the synth (only when you mean it):
   pro800 update-mode                    reboot into the bootloader's update mode
   pro800 flash <file.syx> --yes [--rate B/s] [--erase-wait S] [--dry-run]
                                         stream a firmware update to the bootloader
-  pro800 import --yes                   convert the stock patches in the EEPROM to our format, in place
+  pro800 format --yes                   wipe every patch slot and mark the EEPROM as ours (format 2), in place
   pro800 eeprom-write <file> --yes      write a whole EEPROM image and verify it (e.g. back to stock)
   pro800 install <file.syx> --yes       update-mode + flash + wait until the new firmware answers
 
@@ -257,7 +257,7 @@ func unpack(_ packed: ArraySlice<UInt8>) -> [UInt8] {
     return out
 }
 
-func patchLabel(_ n: Int) -> String { "\(["A", "B", "C", "D"][n / 100])\(String(format: "%02d", n % 100))" }
+func patchLabel(_ n: Int) -> String { "P\(n + 1)" }
 
 // Patch name: offset 150 of the unpacked data, up to 16 bytes, 0-terminated.
 func patchName(_ data: [UInt8]) -> String {
@@ -869,7 +869,8 @@ let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "l
                     "cycle 1", "cycle 2", "cycle-sync 1 amp", "cycle-sync 1 filter", "cycle-sync 1 env3",
                     "cycle-sync 1 env4", "cycle-sync 2 amp", "cycle-sync 2 filter", "cycle-sync 2 env3",
                     "cycle-sync 2 env4", "bend", "detune", "voice 1", "voice 2", "drift", "scale", "root",
-                    "lfo-delay", "lfo-fade", "lfo2-delay", "lfo2-fade", "env-select", "preset-mode", "patch", "morph"]
+                    "lfo-delay", "lfo-fade", "lfo2-delay", "lfo2-fade", "cc-a", "cc-b", "env-select", "preset-mode", "patch",
+                   "morph"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                   "pentatonic-minor", "blues", "whole-tone", "chromatic"]
 let rootNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -895,7 +896,7 @@ func setSetting() {
                                                "lfo": (8, ["1", "2"])]
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
         "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | keytrack off|half|full | lfo 1|2 | " +
-        "lfo-delay|lfo-fade <lfo 1|2> <0-99> | " +
+        "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
@@ -916,6 +917,8 @@ func setSetting() {
     } else if args.count == 3, ["lfo-delay", "lfo-fade"].contains(args[0]), let lfo = Int(args[1]), (1...2).contains(lfo),
               let a = Int(args[2]), (0...99).contains(a) {
         (id, v) = (UInt8(32 + 2 * (lfo - 1) + (args[0] == "lfo-fade" ? 1 : 0)), a)
+    } else if args.count == 2, ["cc-a", "cc-b"].contains(args[0]), let num = Int(args[1]), (1...127).contains(num) {
+        (id, v) = (args[0] == "cc-a" ? 36 : 37, num)
     } else if args.count == 4, args[0] == "voice", let layer = Int(args[1]), (1...2).contains(layer),
               let m = voiceModes.firstIndex(of: args[2]), let p = priorities.firstIndex(of: args[3]) {
         (id, v) = (UInt8(27 + layer - 1), m | p << 2)
@@ -991,9 +994,10 @@ func settings() {
         case 30: text = scaleNames[safe: v] ?? text
         case 31: text = rootNames[safe: v] ?? text
         case 32...35: text = v == 0 ? "off" : String(format: "%d (%.2f s)", v, 0.02 * pow(2, Double(v) * 8 / 99))
-        case 36: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
-        case 38: text = slotName(v)
-        case 39: text = v == 0 ? "none" : slotName(v - 1)
+        case 36, 37: text = "CC \(v)"
+        case 38: text = ["filter env", "env 3", "env 4"][safe: v] ?? text
+        case 40: text = slotName(v)
+        case 41: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
@@ -1183,14 +1187,13 @@ func eeprom() {
 func slotNumber(_ text: String) -> Int? {
     let t = text.uppercased()
     if let n = Int(t), (0..<400).contains(n) { return n }
-    let banks = ["A", "B", "C", "D"]
-    if let first = t.first, let bank = banks.firstIndex(of: String(first)), let i = Int(t.dropFirst()), (0..<100).contains(i) {
-        return bank * 100 + i
+    if let first = t.first, first == "P" || first == "p", let p = Int(t.dropFirst()), (1...128).contains(p) {
+        return p - 1 // "P7": patch 7 = slot 6
     }
     return nil
 }
 
-func slotName(_ n: Int) -> String { "\(["A", "B", "C", "D"][n / 100])\(String(format: "%02d", n % 100))" }
+func slotName(_ n: Int) -> String { patchLabel(n) }
 
 // Writes a whole EEPROM image and reads it back: pro800 eeprom-write <file> --yes (e.g. the stock image)
 func eepromWrite() {
@@ -1215,16 +1218,16 @@ func eepromWrite() {
 }
 
 // Converts every stock patch in place: pro800 import --yes
-func importStock() {
-    guard flag("--yes") else { fail("usage: pro800 import --yes (converts the stock patches in the EEPROM to our format)") }
+func formatPatches() {
+    guard flag("--yes") else { fail("usage: pro800 format --yes (wipes every patch slot and marks the EEPROM as ours)") }
     let midi = Midi(port: portName)
-    print("converting the 400 slots...")
-    guard let reply = midi.request([0x5B], expect: [0x5B], timeout: 60) else { fail("no reply (firmware 0.4.0 or later?)") }
+    print("formatting...")
+    guard let reply = midi.request([0x5B], expect: [0x5B], timeout: 60) else { fail("no reply (firmware 0.8.0 or later?)") }
     let b = Array(reply[(sysexHeader.count + 1)...])
-    print("converted \(Int(b[0]) << 7 | Int(b[1])) patches, \(b[2]) errors")
+    print(b[2] == 0 ? "\(b[1]) empty slots" : "format failed")
 }
 
-// pro800 patch load|save|clear <slot>  (slot 0-199 or A00-B99)
+// pro800 patch load|save|clear <slot>  (slot 0-127, or P1-P128)
 func patchCommand() {
     if args.count >= 3, args[0] == "rename", let n = slotNumber(args[1]) {
         let name = Array(args[2...].joined(separator: " ").utf8.filter { $0 >= 0x20 && $0 < 0x7F }.prefix(16))
@@ -1257,7 +1260,7 @@ func patches() {
     let all = flag("--all"), midi = Midi(port: portName)
     let kinds = ["empty", "ours", "STOCK", "corrupt"]
     var counts = [0, 0, 0, 0]
-    for n in 0..<200 { // from firmware 0.7.0 the slots from 200 on hold the sequences
+    for n in 0..<128 {
         guard let reply = midi.request([0x5E, UInt8(n >> 7), UInt8(n & 0x7F)], expect: [0x5E, UInt8(n >> 7), UInt8(n & 0x7F)], timeout: 2) else {
             fail("no reply (firmware 0.4.0 or later?)")
         }
@@ -1270,10 +1273,14 @@ func patches() {
 }
 
 let sourceNames = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
-                   "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre"]
+                   "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre",
+                   "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2"]
 let destNames = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
                  "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
-                 "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw"]
+                 "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
+                 "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
+                 "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
+                 "glide", "detune", "volume", "macro1", "macro2"]
 
 // pro800 route <layer 1|2> <source> <dest> <depth -99..99>  (0 removes)
 func route() {
@@ -1488,7 +1495,7 @@ case "timing": timing()
 case "cc": cc()
 case "bend": bend()
 case "eeprom-write": eepromWrite()
-case "import": importStock()
+case "format": formatPatches()
 case "patch": patchCommand()
 case "patches": patches()
 case "clock": clockOut()

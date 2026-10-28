@@ -14,9 +14,13 @@ firmware) as the reference for how the analog side behaves.
   - Retrigger free, on the first key, on every key, or per voice (poly LFOs).
 - **Envelopes:** four per voice, with analog-style curves and times shown in ms / s on the display. Env 3 and
   Env 4 are edited with the filter ADSR knobs. Any of them can cycle while a key is held (attack, hold, fall, rest).
-- **Mod matrix:** 8 routes per layer, assigned from the panel (MOD ASSIGN on Arp Assign).
-  - 19 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, random,
-    note, gate, CC 74 (timbre) and the sequencer's four lanes.
+- **Mod matrix:** 16 routes per layer, assigned and browsed from the panel (MOD ASSIGN on Arp Assign), with two
+  macros that are destinations and sources at once.
+  - 28 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, pitch
+    bend, pedal, two assignable CCs, CC 74 (timbre), gate, random, note, voice number, a fixed 1, the sequencer's
+    four lanes and the macros.
+  - 46 destinations: pitch, cutoff, the VCA, mixer and pulse widths, every envelope stage, glide, detune, volume,
+    the LFOs' amounts, rates and routings, morph and the macros.
   - 24 destinations, including the LFO rates and depths.
 - **Autotune:** within about a cent across C1-C8. The tables are stored in the EEPROM.
 - **Sequencer:** a step sequence per patch, played from a key and transposed by it (up to 64 steps, gate, ties,
@@ -24,7 +28,7 @@ firmware) as the reference for how the analog side behaves.
 - **Expression and play:** per-voice poly aftertouch, mono / legato / poly per layer with note priority, a sustain
   pedal, a MIDI CC for every knob, program change, analog-style drift, scale quantize, and patch morph (any mod
   source fades every knob towards another patch). The sequencer has probability, ratchets and an arpeggiator.
-- **Patches:** 200 with names, each with its own sequence, and the stock factory bank kept and importable.
+- **Patches:** 128 with names, each with its own sequence, and the stock factory bank kept and importable.
 - **MIDI:** USB MIDI (also firmware updates without touching the panel) and the 5-pin MIDI IN socket for notes,
   controllers and clock.
 - **A browser editor (WebMIDI):** sound, mod matrix, patches, factory bank, backup, tuning, plus a keyboard and a
@@ -55,7 +59,7 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 ## Install
 
 ```bash
-build/pro800 install build/pro800-0.7.8.syx --yes
+build/pro800 install build/pro800-0.8.0.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`

@@ -418,7 +418,7 @@
     <section class="cs">
       <h3>Patches</h3>
       <ul>
-        <li><b>Load:</b> in preset mode, two digits pick a patch in the bank, or <kbd>VALUE</kbd> steps through all 200 (<code class="lcd"> A.07</code>, <code class="lcd"> b.12</code>).</li>
+        <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a pause ends it), or <kbd>VALUE</kbd> steps through them (<code class="lcd">P  7</code>, <code class="lcd">P128</code>).</li>
         <li><b>Save:</b> <kbd>Rec</kbd>, two digits or <kbd>VALUE</kbd>, <kbd>Rec</kbd>. <kbd>Preset</kbd> cancels.</li>
         <li><b>Init:</b> <kbd>Perf</kbd>, then <kbd>Rec</kbd> to keep it anywhere.</li>
         <li>A patch keeps both layers, settings, routes, LFO shapes and step patterns, and its sequence. M VOL isn't stored.</li>
@@ -461,11 +461,11 @@
     <section class="cs cs-wide">
       <h3>Mod assign (the matrix)</h3>
       <ol class="steps-line">
-        <li><kbd>Arp Assign</kbd> <code class="lcd">SrC</code></li>
-        <li>a number key: the source</li>
-        <li>touch the destination: turn its knob a little, or press an LFO routing button</li>
-        <li><kbd>VALUE</kbd>: depth −99…99 (0 removes; <code class="lcd">FULL</code> = 8 in use)</li>
-        <li><kbd>Arp Assign</kbd> to finish</li>
+        <li><kbd>Arp Assign</kbd> <code class="lcd">SrC</code> (the knob touched last is offered as the destination)</li>
+        <li>the source: a number key, a touch of an LFO or ADSR knob, or scroll with <kbd>VALUE</kbd></li>
+        <li>the destination: touch its knob (ADSR knobs = envelope stages) or an LFO routing button, or scroll and press <kbd>Arp Assign</kbd></li>
+        <li><kbd>VALUE</kbd>: depth −99…99 (0 removes; <code class="lcd">FULL</code> = 16 in use)</li>
+        <li><kbd>Arp Assign</kbd> to finish; hold it to browse the routes (<kbd>VALUE</kbd> steps, press to edit, hold to leave)</li>
       </ol>
       <div class="ct-pair">
         <table class="ct">
@@ -516,7 +516,7 @@
       <ul>
         <li>USB MIDI or the 5-pin MIDI IN, on any channel (SysEx over USB only). MIDI clock drives sync; Start lines up the bar, Continue picks up at Song Position; <code class="lcd">CLoC</code> runs at 120 BPM until a clock arrives.</li>
         <li>Sustain (CC 64), pitch bend (range: <kbd>Settings</kbd> <kbd>7</kbd>), mod wheel, poly and channel aftertouch; in channel mode each channel's reach only its layer.</li>
-        <li>Program change picks a patch; bank select CC 0 / 32: 0 = A, 1 = b.</li>
+        <li>Program change 0-127 picks patch 1-128; bank select is ignored.</li>
         <li>CCs: 74 cutoff, 71 resonance, 5 glide, 14 / 15 FREQ A / B, 16 FINE, 17 / 18 PW, 19 / 20 levels, 21 noise, 22 filter env amount, 23-26 filter ADSR, 73 / 75 / 70 / 72 amp A / D / S / R, 76 / 77 LFO 1, 27 / 28 LFO 2, 29 / 30 poly-mod, 31 tune, 85-90 + 102-103 Env 3 / 4.</li>
       </ul>
     </section>
@@ -541,10 +541,14 @@
 <div class="panel" id="tab-matrix">
   <section>
     <h2>Mod matrix</h2>
-    <p class="hint">Eight routes per layer. Each route adds source × depth to its destination, per voice. The ones
+    <p class="hint">Sixteen routes per layer. Each route adds source × depth to its destination, per voice. The ones
       marked <span class="tag">wire</span> are a single wire for all voices, so they follow the most recently played
-      note. On the panel: Arp Assign, a number key for the source (1 again swaps LFO 1 / LFO 2), touch a knob or LFO
-      button for the destination, VALUE for the depth.</p>
+      note. Macro 1 and Macro 2 are both destinations and sources: route anything into a macro, then the macro into
+      several destinations with their own depths; a macro moves once a pass (1-2.4 ms). Envelope stage destinations
+      scale that stage's time up to 16× either way at depth 99 (sustain adds to the level). On the panel: Arp Assign,
+      then a source (a number key, a touch of an LFO or ADSR knob, or scroll with VALUE), then a destination (touch
+      its knob or LFO button, or scroll and press Arp Assign), VALUE for the depth; hold Arp Assign to browse the routes.</p>
+    <div class="row" id="macros"></div>
     <div class="row"><span class="dim small">the layer you're editing</span>
       <button id="matrix-refresh">Refresh</button><span class="msg" id="matrix-msg"></span></div>
     <div class="table-wrap"><table>
@@ -562,15 +566,14 @@
 <div class="panel" id="tab-patches">
   <section>
     <h2>Patches</h2>
-    <p class="hint">200 patches in two banks (A and b, as on the panel), each with its own sequence. Saving takes the sound as it is now on the synth.
+    <p class="hint">128 patches (P1-P128, program change 0-127), each with its own sequence. Saving takes the sound as it is now on the synth.
       Names travel with the sound; rename by typing in the name and pressing Enter. Export saves one patch as a
       256-byte .p8p file, which Import writes back into any slot.</p>
     <div class="row">
-      <span class="seg" id="bank"><button data-v="0">A</button><button data-v="1">b</button></span>
       <button id="scan">Rescan</button>
       <button id="init-sound">Load the init sound</button>
       <label><input type="checkbox" id="show-empty" checked> show empty slots</label>
-      <button id="backup-all" title="all 200 patches and their sequences: the first 100 kB of the EEPROM">Back up everything (.bin)</button>
+      <button id="backup-all" title="all 128 patches with their sequences: the first 96 kB of the EEPROM">Back up everything (.bin)</button>
       <input type="file" id="import-file" accept=".p8p,application/octet-stream" hidden>
       <span class="msg" id="patch-msg"></span>
     </div>
@@ -1039,7 +1042,8 @@ document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab
 const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo2Sync", "lfo2Trigger", "editLayer",
   "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2",
   "cycleSync1_0", "cycleSync1_1", "cycleSync1_2", "cycleSync1_3", "cycleSync2_0", "cycleSync2_1", "cycleSync2_2",
-  "cycleSync2_3", "bend", "detune", "voice1", "voice2", "drift", "scale", "root", "lfoDelay1", "lfoFade1", "lfoDelay2", "lfoFade2", "envSelect",
+  "cycleSync2_3", "bend", "detune", "voice1", "voice2", "drift", "scale", "root", "lfoDelay1", "lfoFade1", "lfoDelay2", "lfoFade2",
+  "ccA", "ccB", "envSelect",
   "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 let settings = null, params = null, paramsLayer = 0;
@@ -1391,7 +1395,7 @@ function depthBar(which, t) {
     timer = setTimeout(async () => {
       for (const dest of dests)
         if (!await setRoute(paramsLayer, src, dest, depth)) {
-          document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use (Mod matrix, below)`;
+          document.getElementById("status").textContent = `All 16 mod routes of layer ${paramsLayer + 1} are in use (Mod matrix, below)`;
           local = null;
           break;
         }
@@ -1918,7 +1922,7 @@ function morphControls() {
   const target = h("select", { title: "the patch this one morphs towards (its knobs)" });
   const fill = () => {
     const names = n => slots[n] && slots[n].kind === 1 ? `${slotLabel(n)} ${slots[n].name}` : slotLabel(n);
-    target.replaceChildren(h("option", { value: 0 }, "— none —"), ...Array.from({ length: 200 }, (_, n) => h("option", { value: n + 1 }, names(n))));
+    target.replaceChildren(h("option", { value: 0 }, "— none —"), ...Array.from({ length: 128 }, (_, n) => h("option", { value: n + 1 }, names(n))));
   };
   fill();
   target.onfocus = fill;
@@ -2047,6 +2051,10 @@ function buildPanel() {
           v => setSetting(SET_ID["voice" + (paramsLayer + 1)], settings["voice" + (paramsLayer + 1)] & ~3 | v), "the layer you're editing"),
         settingSelect("Priority", ["Last note", "Low note", "High note"], () => settings && settings["voice" + (paramsLayer + 1)] >> 2 & 3,
           v => setSetting(SET_ID["voice" + (paramsLayer + 1)], settings["voice" + (paramsLayer + 1)] & 3 | v << 2), "which held note mono, legato and unison play")),
+      row(settingSelect("CC A source", Array.from({ length: 128 }, (_, n) => n ? `CC ${n}` : "—"), () => settings && settings.ccA,
+            v => v && setSetting(SET_ID.ccA, v), "the controller the mod source CC A follows (system-wide; 11 = expression)"),
+        settingSelect("CC B source", Array.from({ length: 128 }, (_, n) => n ? `CC ${n}` : "—"), () => settings && settings.ccB,
+            v => v && setSetting(SET_ID.ccB, v), "the controller the mod source CC B follows (system-wide; 2 = breath)")),
       row(driftKnob(),
         settingSelect("Scale", SCALES, () => settings && settings.scale, v => setSetting(SET_ID.scale, v),
           "snap pitch (with its modulation) to a scale: random and LFO pitch modulation play melodies"),
@@ -2074,7 +2082,7 @@ async function refreshLayerRoutes() {
   const layer = paramsLayer, d = await ask([0x57, layer], [0x57, layer], 1000);
   if (!d) return;
   layerRoutes = [];
-  for (let r = 0; r < 8; r++)
+  for (let r = 0; r < 16; r++)
     if (d[2 + 4 * r]) layerRoutes.push({ source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
   paintAll();
   renderRoutes();
@@ -2149,7 +2157,7 @@ async function copyLfo(which) {
   // routes: drop this LFO's routes on this layer, then add the other layer's
   const read = async layer => {
     const d = await ask([0x57, layer], [0x57, layer], 1000), list = [];
-    if (d) for (let r = 0; r < 8; r++)
+    if (d) for (let r = 0; r < 16; r++)
       if (d[2 + 4 * r] === src) list.push({ dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
     return d ? list : null;
   };
@@ -2217,12 +2225,17 @@ setInterval(async () => {
 // --- mod matrix ---
 const SOURCES = ["", "LFO 1", "Filter envelope", "Amp envelope", "Velocity", "Mod wheel", "Aftertouch", "Env 3", "Env 4",
   "Random (per note)", "Note number", "LFO 2", "Seq A", "Seq B", "Seq C", "Seq D", "LFO 1 (0 to 1)", "LFO 2 (0 to 1)",
-  "Gate (key down)", "Timbre (CC 74)"];
+  "Gate (key down)", "Timbre (CC 74)", "Pitch bend", "Pedal (CC 64)", "CC A", "CC B", "Voice number", "Fixed (always 1)",
+  "Macro 1", "Macro 2"];
 const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount", "Poly-mod env amount", "LFO 1 amount",
   "LFO 1 → pitch", "LFO 1 → filter", "VCA", "Osc A level", "Osc B level", "Noise", "Resonance", "A pulse width",
   "B pulse width", "Poly-mod osc B", "LFO 1 → PW", "LFO 1 rate", "LFO 2 amount", "LFO 2 rate", "LFO 2 → pitch",
-  "LFO 2 → filter", "LFO 2 → PW", "Morph"];
-const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24]);
+  "LFO 2 → filter", "LFO 2 → PW", "Morph",
+  "Amp env attack", "Amp env decay", "Amp env sustain", "Amp env release",
+  "Filter env attack", "Filter env decay", "Filter env sustain", "Filter env release",
+  "Env 3 attack", "Env 3 decay", "Env 3 sustain", "Env 3 release", "Env 4 attack", "Env 4 decay", "Env 4 sustain", "Env 4 release",
+  "Glide time", "Unison detune", "Master volume", "Macro 1", "Macro 2"];
+const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 42, 43]);
 const options = (list, skip) => list.map((t, i) => i === skip ? "" :
   `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");
 document.getElementById("new-source").innerHTML = options(SOURCES, 0);
@@ -2268,7 +2281,15 @@ function renderRoutes(force) {
     body.appendChild(tr);
   }
   if (!used) body.innerHTML = `<tr><td colspan="4" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
-  document.getElementById("add-route").disabled = used >= 8;
+  document.getElementById("add-route").disabled = used >= 16;
+  // the macros as they are wired: inputs → outputs
+  const mac = document.getElementById("macros");
+  if (mac) mac.replaceChildren(...[0, 1].map(k => {
+    const ins = layerRoutes.filter(r => r.dest === 44 + k).map(r => `${SOURCES[r.source]} ${signed(r.depth)}`);
+    const outs = layerRoutes.filter(r => r.source === 26 + k).map(r => `${DESTS[r.dest]} ${signed(r.depth)}`);
+    return h("span", { class: "dim small", title: "Macro " + (k + 1) + ": what feeds it → what it drives" },
+      `Macro ${k + 1}: ${ins.length ? ins.join(", ") : "—"} → ${outs.length ? outs.join(", ") : "—"}`);
+  }));
 }
 async function loadRoutes() {
   if (offline()) return;
@@ -2280,14 +2301,14 @@ document.getElementById("add-route").onclick = async () => {
   const src = +document.getElementById("new-source").value, dest = +document.getElementById("new-dest").value;
   const depth = +document.getElementById("new-depth").value;
   if (!depth) { msg("matrix-msg", "A depth of 0 is no route", "bad"); return; }
-  if (!await setRoute(paramsLayer, src, dest, depth)) msg("matrix-msg", "All 8 routes are in use", "bad");
+  if (!await setRoute(paramsLayer, src, dest, depth)) msg("matrix-msg", "All 16 routes are in use", "bad");
   loadRoutes();
 };
 
 // --- patches ---
 const KINDS = ["empty", "ours", "stock", "corrupt"];
-let slots = [], bank = 0;
-function slotLabel(n) { return "Ab"[Math.floor(n / 100)] + "." + String(n % 100).padStart(2, "0"); }
+let slots = [];
+function slotLabel(n) { return "P" + (n + 1); }
 async function slotInfo(n) {
   const d = await ask([0x5E, n >> 7, n & 0x7F], [0x5E, n >> 7, n & 0x7F], 2000);
   if (!d) return null;
@@ -2296,21 +2317,20 @@ async function slotInfo(n) {
 async function scanSlots() {
   if (offline()) return;
   slots = [];
-  for (let n = 0; n < 200; n++) {
+  for (let n = 0; n < 128; n++) {
     const info = await slotInfo(n);
     if (!info) { msg("patch-msg", "No answer (firmware 0.4.0 or later?)", "bad"); return; }
     slots[n] = info;
-    if (n % 25 === 24) { msg("patch-msg", `reading slots… ${n + 1} / 200`); paintSlots(); }
+    if (n % 25 === 24) { msg("patch-msg", `reading slots… ${n + 1} / 128`); paintSlots(); }
   }
   const count = k => slots.filter(x => x.kind === k).length;
   msg("patch-msg", `${count(1)} patches, ${count(0)} empty${count(2) ? `, ${count(2)} still in the stock format` : ""}`);
   paintSlots();
 }
 function paintSlots() {
-  document.querySelectorAll("#bank button").forEach(b => b.classList.toggle("active", +b.dataset.v === bank));
   const body = document.getElementById("slots"), showEmpty = document.getElementById("show-empty").checked;
   body.innerHTML = "";
-  for (let n = bank * 100; n < bank * 100 + 100; n++) {
+  for (let n = 0; n < 128; n++) {
     const info = slots[n];
     if (!info || (!showEmpty && info.kind === 0)) continue;
     const tr = document.createElement("tr");
@@ -2377,7 +2397,7 @@ async function slotAction(action, n) {
     result("patch-msg", await ack([0x4F, n >> 7, n & 0x7F], 3000), `cleared ${label}`, "clear failed");
     refreshSlot(n);
   } else if (action === "export") {
-    const bytes = await readBytes(n * 256, 256);
+    const bytes = await readBytes(n * 768, 768);
     if (!bytes) { msg("patch-msg", "read failed", "bad"); return; }
     download(`${label.replace(".", "")}-${(info.name || "patch").replace(/[^\w-]+/g, "_")}.p8p`, bytes);
   } else if (action === "import") {
@@ -2395,10 +2415,9 @@ document.getElementById("import-file").onchange = async e => {
   }
   const info = slots[n];
   if (info && info.kind !== 0 && !confirm(`Replace ${slotLabel(n)}${info.name ? ` "${info.name}"` : ""} with ${file.name}?`)) return;
-  result("patch-msg", await writeBytes(n * 256, bytes), `imported ${file.name} into ${slotLabel(n)}`, "write failed");
+  result("patch-msg", await writeBytes(n * 768, bytes), `imported ${file.name} into ${slotLabel(n)}`, "write failed");
   refreshSlot(n);
 };
-document.querySelectorAll("#bank button").forEach(b => b.onclick = () => { bank = +b.dataset.v; paintSlots(); });
 document.getElementById("show-empty").onchange = paintSlots;
 document.getElementById("scan").onclick = scanSlots;
 document.getElementById("init-sound").onclick = async () => {
@@ -2407,13 +2426,13 @@ document.getElementById("init-sound").onclick = async () => {
 document.getElementById("backup-all").onclick = async () => {
   const all = [];
   for (let n = 0; n < 400; n++) {
-    const bytes = await readBytes(n * 256, 256);
+    const bytes = await readBytes(n * 768, 768);
     if (!bytes) { msg("patch-msg", "read failed", "bad"); return; }
     all.push(...bytes);
     if (n % 10 === 9) msg("patch-msg", `backing up… ${n + 1} / 400`);
   }
   download(`pro800-patches-${new Date().toISOString().slice(0, 10)}.bin`, all);
-  msg("patch-msg", "backup downloaded (all 400 slots, 102400 bytes)", "ok");
+  msg("patch-msg", "backup downloaded (128 patches with their sequences, 98304 bytes)", "ok");
 };
 
 // factory bank

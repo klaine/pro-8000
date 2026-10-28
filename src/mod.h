@@ -25,6 +25,12 @@ typedef enum {
     SRC_LFO_UNI, SRC_LFO2_UNI, // the LFOs as 0..1 (bottom to top) instead of -1..1; host only
     SRC_GATE,                  // 1 while the voice's key is down, 0 in its release; host only
     SRC_TIMBRE,                // CC 74, 0..1: per voice in the per-channel modes, else per layer; host only
+    SRC_BEND,                  // pitch bend, -1..1 (per voice in the per-channel modes)
+    SRC_PEDAL,                 // the sustain pedal, 0 or 1
+    SRC_CC_A, SRC_CC_B,        // two controllers, numbers set in the system settings (defaults 11 and 2), 0..1
+    SRC_VOICE,                 // the voice's place in its layer, 0..1: a different offset on every voice
+    SRC_FIXED,                 // always 1: a route is a plain offset
+    SRC_MACRO1, SRC_MACRO2,    // the macros: whatever is routed into DEST_MACRO1 / 2, -1..1 (once a pass)
     SRC_COUNT
 } mod_source_t;
 
@@ -38,6 +44,15 @@ typedef enum {
     DEST_A_LEVEL, DEST_B_LEVEL, DEST_NOISE, DEST_RESONANCE, DEST_A_PW, DEST_B_PW, DEST_PMOD_OSC_B, DEST_LFO_TO_PW,
     DEST_LFO_RATE, DEST_LFO2_AMOUNT, DEST_LFO2_RATE, DEST_LFO2_TO_PITCH, DEST_LFO2_TO_FILTER, DEST_LFO2_TO_PW,
     DEST_MORPH, // towards the morph target patch's knobs: per layer, from the most recently played voice
+    // Envelope stages, per voice: a time scales by up to 16× either way at depth 99, a sustain level adds
+    DEST_AMP_ATT, DEST_AMP_DEC, DEST_AMP_SUS, DEST_AMP_REL,
+    DEST_FIL_ATT, DEST_FIL_DEC, DEST_FIL_SUS, DEST_FIL_REL,
+    DEST_ENV3_ATT, DEST_ENV3_DEC, DEST_ENV3_SUS, DEST_ENV3_REL,
+    DEST_ENV4_ATT, DEST_ENV4_DEC, DEST_ENV4_SUS, DEST_ENV4_REL,
+    DEST_GLIDE,  // glide time, per voice, the same 16× scaling
+    DEST_DETUNE, // unison detune, a wire: ±50 cents at depth 99
+    DEST_VOLUME, // master volume, a wire; a 0..1 source counts down from full, as with the VCA
+    DEST_MACRO1, DEST_MACRO2, // the macros (SRC_MACRO1 / 2)
     DEST_COUNT
 } mod_dest_t;
 #define DEST_NONE 0xFF
@@ -53,7 +68,7 @@ typedef enum {
 #define ENV_CYCLE_ENV3   4u
 #define ENV_CYCLE_ENV4   8u
 
-#define ROUTES 8 // per layer
+#define ROUTES 16 // per layer
 
 typedef struct {
     uint8_t source; // SRC_NONE = unused
