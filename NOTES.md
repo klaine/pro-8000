@@ -1013,6 +1013,15 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 - Installing the bank is about 5,600 commands, each a process that opens MIDI and waits for an ack: minutes. A
   `pro800 batch` mode reading commands from stdin on one connection would cut that; backlog.
 
+## Modulation range arcs on the web page's knobs (2026-10-28)
+
+- `dial()` draws an arc (`.k-mod`, radius 19.4 between the grip and the scale) from `modRange(knob)`: the edit
+  layer's routes into that knob's destination, each route's full-depth swing scaled to the knob's own range
+  (`DEST_SCALE`: pitch 24 of 72 semitones with the squared depth, cutoff 96 of 120, PW 0.5, LFO rates and glide
+  4 of 10 octaves, envelope stages 4 of 12, the rest the full travel), summed; sources that swing either side of
+  the middle spread both ways, 0-to-1 sources one way. The arc is an estimate (the knob curves aren't all linear in
+  the summed domain), the dial's title lists the routes. Checked offline with injected routes.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

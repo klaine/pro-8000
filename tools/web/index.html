@@ -155,6 +155,9 @@
   .legend i { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 42% 34%, #ffd27a, #d98a10 70%);
               box-shadow: 0 0 0 2px #3a2606, 0 0 0 3px #e39a1c; }
   .k-ptr { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
+  /* the modulation range: an arc just inside the scale, in the panel's red */
+  .k-mod { fill: none; stroke: #ff4a36; stroke-opacity: .75; stroke-width: 2; stroke-linecap: round; }
+  .knob.shared .k-mod { stroke: #ffb347; }
   .knob .dial:hover .k-grip, .knob .dial.active .k-grip, .knob .dial:focus-visible .k-grip { stroke: #56565c; }
   .knob .dial:focus-visible { outline-offset: -2px; }
   .knob .lbl { margin-top: 1px; color: var(--silk, var(--label)); font: 800 9px/1.15 var(--sans); letter-spacing: .04em;
@@ -1111,6 +1114,35 @@ const STEPS_SHAPE = 7;
 const LFO_SOURCE = [1, 11];
 const LFO_TARGETS = [["VCA", [9]], ["Cutoff", [3]], ["Pitch A", [0]], ["Pitch B", [1]], ["PWM", [14, 15]]];
 let layerRoutes = null; // the edit layer's routes: [{source, dest, depth}]
+// How far the edit layer's routes can move each knob, in knob units (0..1 of its travel), from the engine's
+// scales: a destination's full-depth swing over the knob's own range. Pitch depths are squared; the others linear.
+// Sources that swing either side of the middle (LFOs, random, note, bend, the lanes, the macros) spread both
+// ways; 0-to-1 sources go one way, the depth's.
+const DEST_KNOBS = { 0: [P.FREQ_A], 1: [P.FREQ_B], 2: [P.FREQ_A, P.FREQ_B], 3: [P.CUTOFF], 4: [P.ENV_AMT], 5: [P.PMOD_ENV],
+  6: [P.LFO_AMT], 10: [P.LEVEL_A], 11: [P.LEVEL_B], 12: [P.NOISE], 13: [P.RES], 14: [P.PW_A], 15: [P.PW_B], 16: [P.PMOD_B],
+  18: [P.LFO_RATE], 19: [P.LFO2_AMT], 20: [P.LFO2_RATE],
+  25: [P.AMP_ATT], 26: [P.AMP_DEC], 27: [P.AMP_SUS], 28: [P.AMP_REL], 29: [P.FIL_ATT], 30: [P.FIL_DEC], 31: [P.FIL_SUS], 32: [P.FIL_REL],
+  33: [P.ENV3 + 0], 34: [P.ENV3 + 1], 35: [P.ENV3 + 2], 36: [P.ENV3 + 3], 37: [P.ENV4 + 0], 38: [P.ENV4 + 1], 39: [P.ENV4 + 2], 40: [P.ENV4 + 3],
+  41: [P.GLIDE], 43: [P.VOL] };
+const DEST_SCALE = { 0: 24 / 72, 1: 24 / 72, 2: 24 / 72, 3: 96 / 120, 4: 0.5, 5: 1, 6: 1, 10: 1, 11: 1, 12: 1, 13: 1, 14: 0.5, 15: 0.5,
+  16: 1, 18: 0.4, 19: 1, 20: 0.4, 41: 0.4, 43: 1 }; // stages: 4 octaves of 12
+const BIPOLAR_SOURCES = new Set([1, 11, 9, 10, 12, 13, 14, 15, 20, 26, 27]);
+const SQUARED_DESTS = new Set([0, 1, 2]);
+function modRange(knob) {
+  const r = { lo: 0, hi: 0, who: [] };
+  if (!layerRoutes) return r;
+  for (const { source, dest, depth } of layerRoutes) {
+    const knobs = DEST_KNOBS[dest];
+    if (!knobs || !knobs.includes(knob) || !depth) continue;
+    const scale = DEST_SCALE[dest] ?? (dest >= 25 && dest <= 40 ? 4 / 12 : 0);
+    let d = Math.abs(depth) / 99;
+    if (SQUARED_DESTS.has(dest)) d *= d;
+    const span = d * scale;
+    if (BIPOLAR_SOURCES.has(source)) { r.lo += span; r.hi += span; } else if (depth > 0) r.hi += span; else r.lo += span;
+    r.who.push(`${SOURCES[source]} ${depth > 0 ? "+" : ""}${depth}`);
+  }
+  return r;
+}
 function depthText(dests, d) {
   const signed = x => (x > 0 ? "+" : "") + x;
   if (d === 0) return "off";
@@ -1271,11 +1303,22 @@ function dial(scale) {
     }
   }
   const ptr = svgEl("line", { class: "k-ptr", x1: 40, y1: 33, x2: 40, y2: 22.5 });
-  s.append(g, svgEl("circle", { class: "k-grip", cx: 40, cy: 38, r: 17 }), svgEl("circle", { class: "k-cap", cx: 40, cy: 38, r: 13 }), ptr);
+  const ring = svgEl("path", { class: "k-mod" }); // the modulation range around the value, as an arc
+  s.append(ring, g, svgEl("circle", { class: "k-grip", cx: 40, cy: 38, r: 17 }), svgEl("circle", { class: "k-cap", cx: 40, cy: 38, r: 13 }), ptr);
+  const arc = (u0, u1, r) => {
+    const a0 = (-135 + u0 * 270) * Math.PI / 180, a1 = (-135 + u1 * 270) * Math.PI / 180;
+    const [x0, y0] = [40 + r * Math.sin(a0), 38 - r * Math.cos(a0)], [x1, y1] = [40 + r * Math.sin(a1), 38 - r * Math.cos(a1)];
+    return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+  };
   return {
     svg: s,
     turn: u => ptr.setAttribute("transform", `rotate(${(-135 + u * 270).toFixed(1)} 40 38)`),
     mark: k => texts.forEach((t, j) => t && t.classList.toggle("on", j === k)),
+    // the range the mod routes can move the value over: lo..hi in knob units around u (none: hidden)
+    range: (u, lo, hi) => {
+      const a = Math.max(0, u - lo), b = Math.min(1, u + hi);
+      ring.setAttribute("d", b - a > 0.002 ? arc(a, b, 19.4) : "");
+    },
   };
 }
 
@@ -1297,6 +1340,10 @@ function knob(i, text) {
     if (!params) return;
     const n = I(), u = params[n];
     d.turn(u);
+    const m = modRange(n);
+    d.range(u, m.lo, m.hi);
+    dl.classList.toggle("modded", m.lo + m.hi > 0);
+    dl.title = m.who.length ? "modulated by " + m.who.join(", ") : "";
     val.textContent = format(n, u);
     dl.setAttribute("aria-valuetext", val.textContent);
     if (typeof i === "function") e.title = label(n);
