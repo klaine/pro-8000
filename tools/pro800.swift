@@ -45,7 +45,7 @@ Probe (our firmware 0.0.9+):
   pro800 tune                           run autotune in the synth (about 25 s) and save it
   pro800 tuning                         print the tuning tables (Hz per CV point)
   pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
-  pro800 dac-test [--bus-only|--timing-only]
+  pro800 dac-test [--bus-only|--timing-only|--clock]
                                         sweep DAC80501 buses and S&H waits, checked by osc A1's pitch (0.7.4+;
                                         silent; changes nothing stored)
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
@@ -708,10 +708,22 @@ func dacTest() {
     var best = Bus()
     if !flag("--timing-only") {
         var buses: [Bus] = []
-        for mode in 0...1 { for speed in [0, 3] { for h in [168, 112, 84, 56, 42, 28, 21, 14, 8] {
-            buses.append(Bus(bus: 0, mode: mode, high: h, low: h, speed: speed))
-        } } }
-        for mode in 0...3 { for div in (1...7).reversed() { buses.append(Bus(bus: 1, mode: mode, high: div, low: 0, speed: 2)) } }
+        if flag("--clock") {
+            // the edge of the working range, asymmetric clocks (one slew-limited edge would allow a short other
+            // half), and no SYNC wait: bit-bang only
+            for mode in 0...1 { for speed in [0, 3] {
+                for (h, l) in [(154, 154), (140, 140), (126, 126), (168, 112), (168, 84), (168, 56), (168, 28), (168, 14),
+                               (112, 168), (84, 168), (56, 168), (28, 168), (14, 168), (140, 112), (112, 140)] {
+                    buses.append(Bus(bus: 0, mode: mode, high: h, low: l, speed: speed))
+                }
+            } }
+            buses.append(Bus(bus: 0, mode: 0, high: 168, low: 168, speed: 0, sync: 0))
+        } else {
+            for mode in 0...1 { for speed in [0, 3] { for h in [168, 112, 84, 56, 42, 28, 21, 14, 8] {
+                buses.append(Bus(bus: 0, mode: mode, high: h, low: h, speed: speed))
+            } } }
+            for mode in 0...3 { for div in (1...7).reversed() { buses.append(Bus(bus: 1, mode: mode, high: div, low: 0, speed: 2)) } }
+        }
         print("\nbus                                                  frame   worst error")
         for b in buses {
             guard configure(b) else { print(describe(b).padding(toLength: 52, withPad: " ", startingAt: 0) + "  rejected"); continue }

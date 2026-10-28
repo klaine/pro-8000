@@ -866,6 +866,30 @@ From a second review, each point checked against the code first.
   and pitch and MIDI once a 2.9 ms pass instead of a 3.7 ms one. (The 2.3 ms pass of 0.5.6 in the notes above
   predates the sequencer, the second LFO and the 0.7.x engine.)
 
+## dac-test run on the synth (2026-10-28, 0.7.8)
+
+The 0.7.4 sweep, run for the first time (`pro800 dac-test`, then `--clock --bus-only` for the edge of the range,
+asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
+
+- **Every bus above 0.6 MHz fails outright**, 7000-8400 cents off (the DAC gets wrong data), bit-bang and SPI3
+  alike, both data-change modes, GPIO speed 0 and 3. SPI3 works only in modes 1 and 2 (the DAC latches on the
+  falling edge) and only at 0.16 and 0.33 MHz; modes 0 and 3 fail at every speed. Bit-bang 0.5 MHz is within 0.5
+  cents of the default, as it must be (it is the default).
+- **The limit is the bit period, not an edge.** Symmetric 154/154 cycles (0.55 MHz, 46 µs a frame) and 140/140
+  (0.60 MHz, 42 µs) work, 126/126 (0.67 MHz) fails. Asymmetric clocks with the same period behave the same:
+  168/112 and 112/168 (280 cycles a bit) work, 168/84 and 84/168 (252 cycles) fail, 140/112 and 112/140 fail. So
+  whatever sits on SCLK or SDIN needs about 1.65 µs per bit however the time is split, which doesn't look like a
+  simple RC on one edge. At 0.60 MHz the pitch error is 0.9-1.2 cents against 0.0-0.6 at 0.50-0.55: marginal.
+  No SYNC wait (`sync_us` 0) works at 0.5 MHz.
+- The S&H-wait part of the sweep is moot since 0.7.7: it judges A1, whose sample now lasts the whole next frame
+  whatever the settle and sample settings; those only bound the channels written alone (VCAs, globals). It read
+  within 0.2 cents down to 0.5 / 1 µs, which says nothing about the on-chip DAC channels.
+- What this decides: the 2 kHz interrupt refresh with every CV each 0.5 ms (the 0.7.4 plan) is off unless the
+  board is changed, and a scope on SCLK / SDIN at U46 is the only way to learn what limits it. What's left on the
+  bus in firmware: the per-frame overhead (a frame measures about 60 µs for 48 µs of bits: time the bits from the
+  cycle counter instead of delaying after each GPIO write), no SYNC wait, and possibly 154/154 cycles with margin
+  to spare; together a frame of about 46 µs, about 0.45 ms off the eight-voice pass (2.9 → 2.5 ms).
+
 ## Backlog
 
 - **Per-waveform levels within an oscillator**: not possible from firmware: the waveform switches are on/off logic
