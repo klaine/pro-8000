@@ -3,8 +3,8 @@
  "name": "PolyMod Bass",
  "group": "bass",
  "notes": {
-  "sound": "Saw with a triangle an octave down. Poly-mod: the filter envelope kicks oscillator A's pitch 3 semitones at the start, and Env 4 lets oscillator B frequency-modulate A for a growling 150 ms transient.",
-  "shows": "Poly-mod (filter env and osc B into freq A), Env 4 scaling the poly-mod osc B amount."
+  "sound": "Saw with a triangle an octave down. Poly-mod: the filter envelope kicks oscillator A's pitch at the start of each note and Env 4 lets B frequency-modulate A for a 150 ms growl; harder notes growl harder.",
+  "shows": "Poly-mod with Env 4 into the osc B amount; velocity into Env 4's decay."
  },
  "buttons": [
   "a-saw",
@@ -14,9 +14,9 @@
  "params": {
   "shared": {
    "a-level": 85,
-   "b-level": 50,
+   "b-level": 60,
    "noise": 0,
-   "resonance": 20,
+   "resonance": 12,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -25,16 +25,16 @@
    "freq-a": 50,
    "freq-b": 33,
    "fine": 50,
-   "cutoff": 37,
-   "fil-env-amt": 74,
+   "cutoff": 42,
+   "fil-env-amt": 76,
    "fil-att": 0,
    "fil-dec": 52,
-   "fil-sus": 10,
+   "fil-sus": 25,
    "fil-rel": 44,
    "amp-att": 0,
-   "amp-dec": 60,
-   "amp-sus": 70,
-   "amp-rel": 47,
+   "amp-dec": 58,
+   "amp-sus": 75,
+   "amp-rel": 44,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -89,12 +89,27 @@
    [
     "env4",
     "pmod-osc-b",
-    60
+    55
+   ],
+   [
+    "velocity",
+    "pmod-osc-b",
+    25
+   ],
+   [
+    "velocity",
+    "env4-dec",
+    20
+   ],
+   [
+    "velocity",
+    "cutoff",
+    30
    ],
    [
     "velocity",
     "vca",
-    50
+    45
    ]
   ]
  }

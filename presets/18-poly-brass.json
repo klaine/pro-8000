@@ -3,8 +3,8 @@
  "name": "Poly Brass",
  "group": "poly",
  "notes": {
-  "sound": "Two saws 8 cents apart, a 30-semitone filter sweep with a 40 ms attack: analog brass chords.",
-  "shows": "The classic brass envelope; velocity and aftertouch on the filter."
+  "sound": "Two saws 8 cents apart on layer 1, a third saw an octave up on layer 2 at a lower level, both with a 40 ms filter attack into a 28-semitone sweep that velocity scales. Stacked, so each note is three saws; pressure swells.",
+  "shows": "Stack as a layered brass; velocity into the envelope amount and attack; aftertouch to cutoff on both layers."
  },
  "buttons": [
   "a-saw",
@@ -12,8 +12,8 @@
  ],
  "params": {
   "shared": {
-   "a-level": 75,
-   "b-level": 75,
+   "a-level": 76,
+   "b-level": 72,
    "noise": 0,
    "resonance": 10,
    "a-pw": 50,
@@ -24,16 +24,16 @@
    "freq-a": 50,
    "freq-b": 50,
    "fine": 53,
-   "cutoff": 42,
-   "fil-env-amt": 81,
+   "cutoff": 41,
+   "fil-env-amt": 80,
    "fil-att": 33,
-   "fil-dec": 60,
-   "fil-sus": 30,
-   "fil-rel": 47,
+   "fil-dec": 58,
+   "fil-sus": 40,
+   "fil-rel": 50,
    "amp-att": 22,
-   "amp-dec": 58,
-   "amp-sus": 85,
-   "amp-rel": 50,
+   "amp-dec": 55,
+   "amp-sus": 90,
+   "amp-rel": 51,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -47,22 +47,52 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 18,
+   "lfo2-amount": 0
+  },
+  "2": {
+   "freq-a": 66,
+   "freq-b": 66,
+   "fine": 46,
+   "cutoff": 37,
+   "fil-env-amt": 78,
+   "fil-att": 38,
+   "fil-dec": 59,
+   "fil-sus": 35,
+   "fil-rel": 50,
+   "amp-att": 30,
+   "amp-dec": 55,
+   "amp-sus": 80,
+   "amp-rel": 51,
+   "glide": 0,
+   "master-tune": 50,
+   "lfo-freq": 50,
+   "lfo-amount": 0,
+   "pmod-fil-env": 0,
+   "env3-att": 0,
+   "env3-dec": 0,
+   "env3-sus": 0,
+   "env3-rel": 0,
+   "env4-att": 0,
+   "env4-dec": 0,
+   "env4-sus": 0,
+   "env4-rel": 0,
+   "lfo2-rate": 11,
    "lfo2-amount": 0
   }
  },
  "settings": {
-  "layers": "off",
+  "layers": "stack",
   "split": 60,
   "keytrack": "full",
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "voice",
   "shape 1 1": "tri",
-  "shape 1 2": "tri",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
-  "shape 2 2": "tri",
+  "shape 2 2": "drift",
   "lfo2-dests 1": "none",
   "lfo2-dests 2": "none",
   "cycle 1": "none",
@@ -71,7 +101,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 10,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -86,6 +116,16 @@
  "routes": {
   "1": [
    [
+    "lfo2",
+    "pitch-b",
+    4
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    4
+   ],
+   [
     "velocity",
     "cutoff",
     30
@@ -93,7 +133,54 @@
    [
     "velocity",
     "vca",
-    50
+    45
+   ],
+   [
+    "velocity",
+    "filter-env-amount",
+    30
+   ],
+   [
+    "velocity",
+    "amp-att",
+    -25
+   ],
+   [
+    "aftertouch",
+    "cutoff",
+    35
+   ]
+  ],
+  "2": [
+   [
+    "lfo2",
+    "pitch-b",
+    4
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    4
+   ],
+   [
+    "velocity",
+    "cutoff",
+    25
+   ],
+   [
+    "velocity",
+    "vca",
+    35
+   ],
+   [
+    "velocity",
+    "filter-env-amount",
+    25
+   ],
+   [
+    "velocity",
+    "amp-att",
+    -25
    ],
    [
     "aftertouch",

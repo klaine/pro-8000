@@ -3,8 +3,8 @@
  "name": "Kalimba",
  "group": "pluck",
  "notes": {
-  "sound": "Triangles two octaves apart, a 120 ms filter pluck and a 15 ms Env 3 click; every note a few cents off, like real tines.",
-  "shows": "A very short Env 3 as a click, Random into pitch per note."
+  "sound": "Triangles two octaves apart with a little noise for the thumb, a 120 ms filter pluck and a 15 ms click from Env 3; every note a slightly different brightness (random) and the tine detuned per voice.",
+  "shows": "Random into cutoff per note, per-voice spread, Env 3 click, noise as the transient."
  },
  "buttons": [
   "a-tri",
@@ -14,8 +14,8 @@
   "shared": {
    "a-level": 85,
    "b-level": 30,
-   "noise": 0,
-   "resonance": 25,
+   "noise": 8,
+   "resonance": 30,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -24,16 +24,16 @@
    "freq-a": 50,
    "freq-b": 82,
    "fine": 50,
-   "cutoff": 61,
-   "fil-env-amt": 74,
+   "cutoff": 57,
+   "fil-env-amt": 77,
    "fil-att": 0,
    "fil-dec": 41,
    "fil-sus": 0,
-   "fil-rel": 39,
+   "fil-rel": 44,
    "amp-att": 0,
-   "amp-dec": 56,
+   "amp-dec": 64,
    "amp-sus": 0,
-   "amp-rel": 52,
+   "amp-rel": 55,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -88,17 +88,32 @@
    [
     "env3",
     "cutoff",
-    20
+    25
    ],
    [
     "random",
-    "pitch",
-    4
+    "cutoff",
+    10
+   ],
+   [
+    "voice",
+    "pitch-b",
+    6
+   ],
+   [
+    "velocity",
+    "cutoff",
+    30
    ],
    [
     "velocity",
     "vca",
-    60
+    50
+   ],
+   [
+    "velocity",
+    "fil-dec",
+    20
    ]
   ]
  }

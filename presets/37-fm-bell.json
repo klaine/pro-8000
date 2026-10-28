@@ -3,8 +3,8 @@
  "name": "FM Bell",
  "group": "pluck",
  "notes": {
-  "sound": "A triangle frequency-modulated by oscillator B at +22 semitones (an inharmonic 3.6:1), the FM index decaying with Env 4 over 900 ms; B itself silent. Long ring.",
-  "shows": "Env 4 scaling the poly-mod osc B amount (a decaying FM index), the amp envelope as a source (into pitch B)."
+  "sound": "A triangle frequency-modulated by oscillator B at +22 semitones (an inharmonic 3.6:1), the FM index decaying with Env 4 over 900 ms and scaled by velocity; B itself silent. A long ring with a little per-voice drift.",
+  "shows": "Env 4 and velocity into the poly-mod osc B amount; the amp envelope nudging B's pitch for a bell's slight droop."
  },
  "buttons": [
   "a-tri",
@@ -13,7 +13,7 @@
  ],
  "params": {
   "shared": {
-   "a-level": 80,
+   "a-level": 85,
    "b-level": 0,
    "noise": 0,
    "resonance": 10,
@@ -25,16 +25,16 @@
    "freq-a": 50,
    "freq-b": 80,
    "fine": 50,
-   "cutoff": 72,
-   "fil-env-amt": 50,
+   "cutoff": 74,
+   "fil-env-amt": 64,
    "fil-att": 0,
-   "fil-dec": 52,
-   "fil-sus": 99,
-   "fil-rel": 52,
+   "fil-dec": 63,
+   "fil-sus": 20,
+   "fil-rel": 63,
    "amp-att": 0,
    "amp-dec": 76,
    "amp-sus": 0,
-   "amp-rel": 70,
+   "amp-rel": 64,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -46,9 +46,9 @@
    "env3-rel": 0,
    "env4-att": 0,
    "env4-dec": 64,
-   "env4-sus": 10,
-   "env4-rel": 52,
-   "lfo2-rate": 50,
+   "env4-sus": 0,
+   "env4-rel": 47,
+   "lfo2-rate": 16,
    "lfo2-amount": 0
   }
  },
@@ -59,9 +59,9 @@
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "voice",
   "shape 1 1": "tri",
-  "shape 1 2": "tri",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -72,7 +72,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 6,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -100,6 +100,16 @@
     "amp-env",
     "pitch-b",
     6
+   ],
+   [
+    "lfo2",
+    "pitch-b",
+    3
+   ],
+   [
+    "velocity",
+    "cutoff",
+    20
    ],
    [
     "velocity",

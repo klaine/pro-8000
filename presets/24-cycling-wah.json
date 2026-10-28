@@ -3,8 +3,8 @@
  "name": "Cycling Wah",
  "group": "poly",
  "notes": {
-  "sound": "Saw and pulse through a resonant filter; Env 3 cycles in quarter notes from the clock, giving every held note its own wah that restarts when the note starts.",
-  "shows": "A synced cycling envelope (Env 3, 1/4) into cutoff; the knobs are weights (attack, hold, fall, rest)."
+  "sound": "Saw and pulse through a resonant filter; Env 3 cycles in quarter notes from the clock, opening and closing the filter in a rhythmic wah while a key is held; velocity sets how far it opens, pressure the resonance.",
+  "shows": "A cycling envelope synced to the clock into the cutoff; velocity into its depth via Macro 1."
  },
  "buttons": [
   "a-saw",
@@ -12,37 +12,37 @@
  ],
  "params": {
   "shared": {
-   "a-level": 70,
+   "a-level": 78,
    "b-level": 60,
    "noise": 0,
-   "resonance": 45,
+   "resonance": 55,
    "a-pw": 50,
-   "b-pw": 40,
+   "b-pw": 38,
    "pmod-osc-b": 0
   },
   "1": {
    "freq-a": 50,
    "freq-b": 50,
    "fine": 50,
-   "cutoff": 39,
-   "fil-env-amt": 50,
+   "cutoff": 36,
+   "fil-env-amt": 66,
    "fil-att": 0,
-   "fil-dec": 52,
-   "fil-sus": 99,
-   "fil-rel": 44,
-   "amp-att": 9,
-   "amp-dec": 58,
+   "fil-dec": 55,
+   "fil-sus": 40,
+   "fil-rel": 52,
+   "amp-att": 0,
+   "amp-dec": 55,
    "amp-sus": 90,
-   "amp-rel": 52,
+   "amp-rel": 54,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
    "lfo-amount": 0,
    "pmod-fil-env": 0,
-   "env3-att": 25,
-   "env3-dec": 45,
-   "env3-sus": 10,
-   "env3-rel": 20,
+   "env3-att": 30,
+   "env3-dec": 50,
+   "env3-sus": 40,
+   "env3-rel": 40,
    "env4-att": 0,
    "env4-dec": 0,
    "env4-sus": 0,
@@ -54,7 +54,7 @@
  "settings": {
   "layers": "off",
   "split": 60,
-  "keytrack": "full",
+  "keytrack": "half",
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
@@ -89,7 +89,27 @@
    [
     "env3",
     "cutoff",
-    35
+    40
+   ],
+   [
+    "velocity",
+    "macro1",
+    99
+   ],
+   [
+    "macro1",
+    "cutoff",
+    20
+   ],
+   [
+    "aftertouch",
+    "resonance",
+    25
+   ],
+   [
+    "velocity",
+    "cutoff",
+    10
    ],
    [
     "velocity",

@@ -3,8 +3,8 @@
  "name": "Slow Evolve",
  "group": "pad",
  "notes": {
-  "sound": "Saw with a narrow pulse an octave down; LFO 1 (sine, 4 bars of clock) sweeps the filter 20 semitones while LFO 2, a very slow ramp, widens the pulse and raises the resonance, then drops back.",
-  "shows": "A clock-synced 4-bar sine on the filter, the ramp-up shape on PW and resonance."
+  "sound": "Saw with a narrow pulse an octave down; LFO 1 (sine, 4 bars of clock) sweeps the filter while LFO 2 (drift, per voice) walks the pulse width and B's pitch, and Env 3 swells the cutoff after each attack. Never the same twice.",
+  "shows": "Three modulators on three timescales: a clock-synced LFO, a per-voice drift LFO, a slow Env 3."
  },
  "buttons": [
   "a-saw",
@@ -13,12 +13,12 @@
  ],
  "params": {
   "shared": {
-   "a-level": 70,
-   "b-level": 65,
+   "a-level": 78,
+   "b-level": 60,
    "noise": 0,
-   "resonance": 35,
+   "resonance": 22,
    "a-pw": 50,
-   "b-pw": 30,
+   "b-pw": 25,
    "pmod-osc-b": 0
   },
   "1": {
@@ -27,29 +27,29 @@
    "fine": 50,
    "cutoff": 42,
    "fil-env-amt": 64,
-   "fil-att": 72,
-   "fil-dec": 70,
+   "fil-att": 66,
+   "fil-dec": 73,
    "fil-sus": 60,
    "fil-rel": 70,
-   "amp-att": 74,
-   "amp-dec": 60,
+   "amp-att": 70,
+   "amp-dec": 73,
    "amp-sus": 85,
-   "amp-rel": 76,
+   "amp-rel": 73,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 7,
-   "lfo-amount": 64,
+   "lfo-amount": 61,
    "pmod-fil-env": 0,
-   "env3-att": 0,
-   "env3-dec": 0,
-   "env3-sus": 0,
-   "env3-rel": 0,
+   "env3-att": 85,
+   "env3-dec": 85,
+   "env3-sus": 35,
+   "env3-rel": 73,
    "env4-att": 0,
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
    "lfo2-rate": 7,
-   "lfo2-amount": 60
+   "lfo2-amount": 0
   }
  },
  "settings": {
@@ -59,12 +59,12 @@
   "lfo-sync": "clock",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "voice",
   "shape 1 1": "sine",
-  "shape 1 2": "ramp-up",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
-  "lfo2-dests 1": "pw",
+  "lfo2-dests 1": "none",
   "lfo2-dests 2": "none",
   "cycle 1": "none",
   "cycle 2": "none",
@@ -72,7 +72,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 18,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -87,14 +87,34 @@
  "routes": {
   "1": [
    [
+    "env3",
+    "cutoff",
+    22
+   ],
+   [
     "lfo2",
-    "resonance",
+    "b-pw",
+    30
+   ],
+   [
+    "lfo2",
+    "pitch-b",
+    5
+   ],
+   [
+    "velocity",
+    "cutoff",
     20
    ],
    [
     "velocity",
     "vca",
-    25
+    35
+   ],
+   [
+    "velocity",
+    "amp-att",
+    -30
    ]
   ]
  }

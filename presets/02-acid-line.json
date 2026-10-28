@@ -3,8 +3,8 @@
  "name": "Acid Line",
  "group": "bass",
  "notes": {
-  "sound": "Saw plus a narrow pulse through a resonant filter with a big, fast envelope; mono so every note retriggers; short glide for slides.",
-  "shows": "Accents: velocity into the filter envelope amount and the VCA; aftertouch opens the filter; the wheel adds resonance."
+  "sound": "Saw and a narrow pulse through a resonant filter with a big, fast envelope; mono so every note retriggers, a short glide for slides. Accents open it and ring longer; pressure screams; the wheel is a resonance pedal.",
+  "shows": "Velocity into the envelope amount, cutoff and decay; aftertouch to cutoff; wheel to resonance; mono retrigger."
  },
  "buttons": [
   "a-saw",
@@ -15,26 +15,26 @@
    "a-level": 80,
    "b-level": 55,
    "noise": 0,
-   "resonance": 72,
+   "resonance": 70,
    "a-pw": 50,
-   "b-pw": 35,
+   "b-pw": 30,
    "pmod-osc-b": 0
   },
   "1": {
    "freq-a": 50,
    "freq-b": 50,
    "fine": 50,
-   "cutoff": 32,
+   "cutoff": 31,
    "fil-env-amt": 85,
    "fil-att": 0,
-   "fil-dec": 46,
+   "fil-dec": 45,
    "fil-sus": 0,
    "fil-rel": 41,
    "amp-att": 0,
    "amp-dec": 52,
    "amp-sus": 70,
    "amp-rel": 37,
-   "glide": 36,
+   "glide": 38,
    "master-tune": 50,
    "lfo-freq": 50,
    "lfo-amount": 0,
@@ -92,18 +92,28 @@
    ],
    [
     "velocity",
+    "cutoff",
+    20
+   ],
+   [
+    "velocity",
+    "fil-dec",
+    30
+   ],
+   [
+    "velocity",
     "vca",
-    50
+    45
    ],
    [
     "aftertouch",
     "cutoff",
-    40
+    50
    ],
    [
     "mod-wheel",
     "resonance",
-    25
+    30
    ]
   ]
  }

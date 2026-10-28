@@ -3,8 +3,8 @@
  "name": "Clavi",
  "group": "pluck",
  "notes": {
-  "sound": "A 20 % pulse with a wide pulse an octave up, a 30-semitone filter snap, short decays. The filter envelope also narrows pulse B as it falls.",
-  "shows": "Velocity into cutoff, VCA and the filter decay time; the filter envelope as a source (into PW B)."
+  "sound": "A 20 % pulse with a wide pulse an octave up, a 30-semitone filter snap that velocity scales and lengthens; a 2 ms pitch click from Env 3 for the pick. Full keytracking keeps the top bright and thin.",
+  "shows": "Velocity into the envelope amount and the filter decay; Env 3 as a pitch click; keytracking."
  },
  "buttons": [
   "a-square",
@@ -12,35 +12,35 @@
  ],
  "params": {
   "shared": {
-   "a-level": 85,
-   "b-level": 35,
+   "a-level": 82,
+   "b-level": 40,
    "noise": 0,
-   "resonance": 30,
+   "resonance": 25,
    "a-pw": 20,
-   "b-pw": 75,
+   "b-pw": 55,
    "pmod-osc-b": 0
   },
   "1": {
    "freq-a": 50,
    "freq-b": 66,
    "fine": 50,
-   "cutoff": 46,
+   "cutoff": 49,
    "fil-env-amt": 81,
    "fil-att": 0,
-   "fil-dec": 50,
-   "fil-sus": 0,
-   "fil-rel": 44,
+   "fil-dec": 45,
+   "fil-sus": 10,
+   "fil-rel": 41,
    "amp-att": 0,
-   "amp-dec": 60,
-   "amp-sus": 40,
-   "amp-rel": 41,
+   "amp-dec": 54,
+   "amp-sus": 50,
+   "amp-rel": 44,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
    "lfo-amount": 0,
    "pmod-fil-env": 0,
    "env3-att": 0,
-   "env3-dec": 0,
+   "env3-dec": 3,
    "env3-sus": 0,
    "env3-rel": 0,
    "env4-att": 0,
@@ -86,23 +86,28 @@
  "routes": {
   "1": [
    [
-    "velocity",
-    "cutoff",
+    "env3",
+    "pitch",
     35
    ],
    [
     "velocity",
+    "cutoff",
+    30
+   ],
+   [
+    "velocity",
     "vca",
-    60
+    50
+   ],
+   [
+    "velocity",
+    "filter-env-amount",
+    30
    ],
    [
     "velocity",
     "fil-dec",
-    20
-   ],
-   [
-    "filter-env",
-    "b-pw",
     30
    ]
   ]

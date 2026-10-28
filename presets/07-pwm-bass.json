@@ -3,8 +3,8 @@
  "name": "PWM Bass",
  "group": "bass",
  "notes": {
-  "sound": "A pulse at 30 % width slowly modulated by LFO 1, a saw an octave below for the body; legato with a little glide.",
-  "shows": "LFO 1 to pulse width (the button), legato glide."
+  "sound": "A pulse under slow width modulation over a saw an octave down, legato; LFO 2 drifts the width per voice at its own pace, and pressure widens it. Thick without being static.",
+  "shows": "LFO 1 \u2192 PW with LFO 2 (drift, per voice) also into PW A; legato glide; aftertouch to pulse width."
  },
  "buttons": [
   "a-square",
@@ -14,10 +14,10 @@
  "params": {
   "shared": {
    "a-level": 80,
-   "b-level": 60,
+   "b-level": 70,
    "noise": 0,
    "resonance": 8,
-   "a-pw": 30,
+   "a-pw": 32,
    "b-pw": 50,
    "pmod-osc-b": 0
   },
@@ -26,19 +26,19 @@
    "freq-b": 33,
    "fine": 50,
    "cutoff": 40,
-   "fil-env-amt": 70,
+   "fil-env-amt": 71,
    "fil-att": 0,
-   "fil-dec": 58,
-   "fil-sus": 25,
+   "fil-dec": 55,
+   "fil-sus": 30,
    "fil-rel": 47,
    "amp-att": 0,
-   "amp-dec": 60,
+   "amp-dec": 58,
    "amp-sus": 85,
-   "amp-rel": 47,
-   "glide": 29,
+   "amp-rel": 46,
+   "glide": 41,
    "master-tune": 50,
-   "lfo-freq": 35,
-   "lfo-amount": 40,
+   "lfo-freq": 28,
+   "lfo-amount": 32,
    "pmod-fil-env": 0,
    "env3-att": 0,
    "env3-dec": 0,
@@ -48,20 +48,20 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 20,
    "lfo2-amount": 0
   }
  },
  "settings": {
   "layers": "off",
   "split": 60,
-  "keytrack": "full",
+  "keytrack": "half",
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "voice",
   "shape 1 1": "tri",
-  "shape 1 2": "tri",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -87,14 +87,24 @@
  "routes": {
   "1": [
    [
-    "velocity",
-    "vca",
-    45
+    "lfo2",
+    "a-pw",
+    25
+   ],
+   [
+    "aftertouch",
+    "a-pw",
+    30
    ],
    [
     "velocity",
     "cutoff",
-    20
+    30
+   ],
+   [
+    "velocity",
+    "vca",
+    45
    ]
   ]
  }

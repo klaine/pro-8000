@@ -3,8 +3,8 @@
  "name": "Brass Solo",
  "group": "lead",
  "notes": {
-  "sound": "Two saws 7 cents apart, the filter envelope opening over 60 ms into a 30-semitone sweep: a solo brass line with a vibrato that arrives late.",
-  "shows": "Delayed, faded vibrato; velocity shortening the filter attack; CC B (breath, CC 2) opening the filter."
+  "sound": "Two saws 7 cents apart, the filter opening over 60 ms into a 30-semitone envelope; velocity makes the attack snap and the sweep bigger; vibrato arrives late; CC 2 (breath) rides the cutoff for a wind player's swell.",
+  "shows": "Velocity into the filter attack time, the envelope amount and level; CC B (breath) to cutoff; LFO delay and fade."
  },
  "buttons": [
   "a-saw",
@@ -14,7 +14,7 @@
  "params": {
   "shared": {
    "a-level": 80,
-   "b-level": 75,
+   "b-level": 78,
    "noise": 0,
    "resonance": 12,
    "a-pw": 50,
@@ -25,20 +25,20 @@
    "freq-a": 50,
    "freq-b": 50,
    "fine": 53,
-   "cutoff": 44,
+   "cutoff": 42,
    "fil-env-amt": 81,
    "fil-att": 38,
-   "fil-dec": 61,
-   "fil-sus": 35,
-   "fil-rel": 47,
-   "amp-att": 28,
-   "amp-dec": 58,
-   "amp-sus": 85,
+   "fil-dec": 58,
+   "fil-sus": 45,
+   "fil-rel": 50,
+   "amp-att": 25,
+   "amp-dec": 55,
+   "amp-sus": 90,
    "amp-rel": 50,
-   "glide": 33,
+   "glide": 29,
    "master-tune": 50,
    "lfo-freq": 66,
-   "lfo-amount": 14,
+   "lfo-amount": 0,
    "pmod-fil-env": 0,
    "env3-att": 0,
    "env3-dec": 0,
@@ -68,15 +68,15 @@
   "lfo2-dests 2": "none",
   "cycle 1": "none",
   "cycle 2": "none",
-  "voice 1": "mono last",
+  "voice 1": "legato last",
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 8,
   "scale": "off",
   "root": "C",
-  "lfo-delay 1": 50,
-  "lfo-fade 1": 50,
+  "lfo-delay 1": 56,
+  "lfo-fade 1": 63,
   "lfo-delay 2": 0,
   "lfo-fade 2": 0,
   "macro 1 1": 0,
@@ -87,14 +87,19 @@
  "routes": {
   "1": [
    [
-    "aftertouch",
+    "velocity",
+    "fil-att",
+    -35
+   ],
+   [
+    "cc-b",
     "cutoff",
-    35
+    50
    ],
    [
     "velocity",
-    "fil-att",
-    -30
+    "cutoff",
+    25
    ],
    [
     "velocity",
@@ -102,8 +107,13 @@
     40
    ],
    [
-    "cc-b",
-    "cutoff",
+    "velocity",
+    "filter-env-amount",
+    30
+   ],
+   [
+    "aftertouch",
+    "lfo-amount",
     30
    ]
   ]

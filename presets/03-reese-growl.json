@@ -3,8 +3,8 @@
  "name": "Reese Growl",
  "group": "bass",
  "notes": {
-  "sound": "Two saws 13 cents apart beating slowly, a dark filter; the drift LFO nudges oscillator B per voice so the beat never settles. Press for growl.",
-  "shows": "Drift, the drift LFO shape with per-voice retrigger, aftertouch to cutoff."
+  "sound": "Two saws 11 cents apart, each voice a touch different, beating against a dark filter that the drift LFO keeps nudging. Pressure growls, velocity bites.",
+  "shows": "Per-voice spread and drift so the beat never settles; aftertouch to cutoff and resonance."
  },
  "buttons": [
   "a-saw",
@@ -13,9 +13,9 @@
  "params": {
   "shared": {
    "a-level": 75,
-   "b-level": 75,
+   "b-level": 78,
    "noise": 0,
-   "resonance": 10,
+   "resonance": 14,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -23,17 +23,17 @@
   "1": {
    "freq-a": 50,
    "freq-b": 50,
-   "fine": 56,
-   "cutoff": 42,
-   "fil-env-amt": 67,
-   "fil-att": 25,
-   "fil-dec": 60,
-   "fil-sus": 30,
+   "fine": 55,
+   "cutoff": 38,
+   "fil-env-amt": 68,
+   "fil-att": 30,
+   "fil-dec": 61,
+   "fil-sus": 35,
    "fil-rel": 52,
    "amp-att": 0,
    "amp-dec": 58,
    "amp-sus": 90,
-   "amp-rel": 47,
+   "amp-rel": 48,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -47,7 +47,7 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 26,
+   "lfo2-rate": 21,
    "lfo2-amount": 0
   }
  },
@@ -71,7 +71,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 40,
+  "drift": 30,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -86,9 +86,29 @@
  "routes": {
   "1": [
    [
+    "voice",
+    "pitch-b",
+    5
+   ],
+   [
     "lfo2",
     "pitch-b",
-    12
+    6
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    8
+   ],
+   [
+    "velocity",
+    "cutoff",
+    30
+   ],
+   [
+    "velocity",
+    "vca",
+    40
    ],
    [
     "aftertouch",
@@ -96,9 +116,9 @@
     45
    ],
    [
-    "velocity",
-    "vca",
-    40
+    "aftertouch",
+    "resonance",
+    25
    ]
   ]
  }

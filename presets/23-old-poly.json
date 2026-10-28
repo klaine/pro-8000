@@ -3,41 +3,42 @@
  "name": "Old Poly",
  "group": "poly",
  "notes": {
-  "sound": "Two saws with heavy drift and a slow per-voice drift LFO on pitch and cutoff: a poly that has seen better days, in the best way.",
-  "shows": "Drift at 70 plus the drift LFO shape per voice into pitch and cutoff."
+  "sound": "Two saws with heavy drift and a slow per-voice drift LFO on pitch and cutoff; every voice a different width and pitch offset; a soft filter. The worn-out polysynth: nothing in tune, everything pleasant.",
+  "shows": "Drift at 55, per-voice spread, the drift LFO, random cutoff per note."
  },
  "buttons": [
   "a-saw",
-  "b-saw"
+  "b-square",
+  "lfo-pw"
  ],
  "params": {
   "shared": {
-   "a-level": 70,
-   "b-level": 70,
+   "a-level": 74,
+   "b-level": 66,
    "noise": 0,
-   "resonance": 10,
+   "resonance": 8,
    "a-pw": 50,
-   "b-pw": 50,
+   "b-pw": 45,
    "pmod-osc-b": 0
   },
   "1": {
    "freq-a": 50,
    "freq-b": 50,
-   "fine": 51,
-   "cutoff": 49,
-   "fil-env-amt": 72,
-   "fil-att": 9,
+   "fine": 46,
+   "cutoff": 50,
+   "fil-env-amt": 68,
+   "fil-att": 22,
    "fil-dec": 60,
-   "fil-sus": 35,
-   "fil-rel": 54,
-   "amp-att": 14,
-   "amp-dec": 60,
-   "amp-sus": 80,
-   "amp-rel": 55,
+   "fil-sus": 55,
+   "fil-rel": 56,
+   "amp-att": 17,
+   "amp-dec": 58,
+   "amp-sus": 85,
+   "amp-rel": 58,
    "glide": 0,
    "master-tune": 50,
-   "lfo-freq": 50,
-   "lfo-amount": 0,
+   "lfo-freq": 14,
+   "lfo-amount": 22,
    "pmod-fil-env": 0,
    "env3-att": 0,
    "env3-dec": 0,
@@ -47,14 +48,14 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 20,
+   "lfo2-rate": 8,
    "lfo2-amount": 0
   }
  },
  "settings": {
   "layers": "off",
   "split": 60,
-  "keytrack": "half",
+  "keytrack": "full",
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
@@ -71,7 +72,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 70,
+  "drift": 55,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -86,14 +87,39 @@
  "routes": {
   "1": [
    [
-    "lfo2",
-    "pitch",
+    "voice",
+    "pitch-b",
     8
+   ],
+   [
+    "voice",
+    "b-pw",
+    25
+   ],
+   [
+    "voice",
+    "cutoff",
+    10
+   ],
+   [
+    "lfo2",
+    "pitch-b",
+    6
    ],
    [
     "lfo2",
     "cutoff",
-    6
+    10
+   ],
+   [
+    "random",
+    "cutoff",
+    12
+   ],
+   [
+    "velocity",
+    "cutoff",
+    30
    ],
    [
     "velocity",

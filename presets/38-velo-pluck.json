@@ -3,8 +3,8 @@
  "name": "Velo Pluck",
  "group": "pluck",
  "notes": {
-  "sound": "Saws an octave apart with no filter envelope of their own: velocity supplies it, so soft notes are dull thuds and hard ones snap open.",
-  "shows": "Velocity into the filter envelope amount (the whole sweep comes from the player)."
+  "sound": "Saws an octave apart with no filter envelope of their own: velocity supplies the pluck (cutoff, bark and decay), so a soft note is a dull tap and a hard one a bright snap. Pressure after the note lets it swell back open.",
+  "shows": "Velocity into cutoff, envelope amount and decay; aftertouch to cutoff; per-voice spread."
  },
  "buttons": [
   "a-saw",
@@ -12,8 +12,8 @@
  ],
  "params": {
   "shared": {
-   "a-level": 70,
-   "b-level": 70,
+   "a-level": 80,
+   "b-level": 50,
    "noise": 0,
    "resonance": 20,
    "a-pw": 50,
@@ -22,12 +22,12 @@
   },
   "1": {
    "freq-a": 50,
-   "freq-b": 33,
+   "freq-b": 66,
    "fine": 50,
-   "cutoff": 42,
-   "fil-env-amt": 50,
+   "cutoff": 37,
+   "fil-env-amt": 70,
    "fil-att": 0,
-   "fil-dec": 52,
+   "fil-dec": 47,
    "fil-sus": 0,
    "fil-rel": 47,
    "amp-att": 0,
@@ -86,19 +86,34 @@
  "routes": {
   "1": [
    [
+    "voice",
+    "pitch-b",
+    5
+   ],
+   [
+    "velocity",
+    "cutoff",
+    55
+   ],
+   [
     "velocity",
     "filter-env-amount",
-    70
+    45
+   ],
+   [
+    "velocity",
+    "fil-dec",
+    35
    ],
    [
     "velocity",
     "vca",
-    60
+    50
    ],
    [
-    "velocity",
-    "amp-dec",
-    20
+    "aftertouch",
+    "cutoff",
+    45
    ]
   ]
  }

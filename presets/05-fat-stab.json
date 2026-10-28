@@ -3,8 +3,8 @@
  "name": "Fat Stab",
  "group": "bass",
  "notes": {
-  "sound": "Two saws, B an octave down and 6 cents off, a medium filter envelope: the workhorse bass for chords and stabs.",
-  "shows": "A plain poly bass with velocity into cutoff and VCA; full keyboard tracking."
+  "sound": "Two saws an octave apart, every voice a few cents its own, a medium filter envelope with a little resonance: the workhorse for stabs and chords, alive instead of flat.",
+  "shows": "Per-voice spread, drift, velocity into cutoff, the envelope amount and the VCA."
  },
  "buttons": [
   "a-saw",
@@ -15,7 +15,7 @@
    "a-level": 80,
    "b-level": 75,
    "noise": 0,
-   "resonance": 12,
+   "resonance": 16,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -24,12 +24,12 @@
    "freq-a": 50,
    "freq-b": 33,
    "fine": 52,
-   "cutoff": 39,
-   "fil-env-amt": 78,
+   "cutoff": 38,
+   "fil-env-amt": 79,
    "fil-att": 0,
    "fil-dec": 54,
    "fil-sus": 15,
-   "fil-rel": 44,
+   "fil-rel": 45,
    "amp-att": 0,
    "amp-dec": 58,
    "amp-sus": 60,
@@ -47,7 +47,7 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 16,
    "lfo2-amount": 0
   }
  },
@@ -58,9 +58,9 @@
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "voice",
   "shape 1 1": "tri",
-  "shape 1 2": "tri",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -71,7 +71,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 10,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -86,14 +86,34 @@
  "routes": {
   "1": [
    [
+    "voice",
+    "pitch-b",
+    5
+   ],
+   [
+    "lfo2",
+    "pitch-b",
+    4
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    4
+   ],
+   [
     "velocity",
     "cutoff",
-    30
+    35
    ],
    [
     "velocity",
     "vca",
     55
+   ],
+   [
+    "velocity",
+    "filter-env-amount",
+    20
    ]
   ]
  }

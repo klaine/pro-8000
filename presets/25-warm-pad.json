@@ -3,8 +3,8 @@
  "name": "Warm Pad",
  "group": "pad",
  "notes": {
-  "sound": "Two saws 9 cents apart, slow attack and release, a soft filter breathing with LFO 2 at 0.15 Hz; a slow swell in level with it.",
-  "shows": "LFO 2 sine on the filter, its 0-to-1 form into the VCA (dips, never opens beyond the envelope), drift."
+  "sound": "Two saws 9 cents apart, each voice its own few cents, a slow attack; the filter breathes with LFO 2 (sine, 7 s) while a slower drift moves B's pitch per voice. Velocity shapes the attack: hard notes bloom faster.",
+  "shows": "Two slow modulators at unrelated rates, per-voice spread, drift, velocity into the amp attack."
  },
  "buttons": [
   "a-saw",
@@ -12,10 +12,10 @@
  ],
  "params": {
   "shared": {
-   "a-level": 70,
-   "b-level": 70,
+   "a-level": 74,
+   "b-level": 72,
    "noise": 0,
-   "resonance": 8,
+   "resonance": 12,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -24,16 +24,16 @@
    "freq-a": 50,
    "freq-b": 50,
    "fine": 54,
-   "cutoff": 44,
-   "fil-env-amt": 67,
-   "fil-att": 69,
-   "fil-dec": 73,
-   "fil-sus": 50,
+   "cutoff": 46,
+   "fil-env-amt": 68,
+   "fil-att": 70,
+   "fil-dec": 76,
+   "fil-sus": 60,
    "fil-rel": 70,
-   "amp-att": 66,
-   "amp-dec": 60,
-   "amp-sus": 85,
-   "amp-rel": 76,
+   "amp-att": 67,
+   "amp-dec": 73,
+   "amp-sus": 80,
+   "amp-rel": 72,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -47,14 +47,14 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 16,
-   "lfo2-amount": 32
+   "lfo2-rate": 15,
+   "lfo2-amount": 20
   }
  },
  "settings": {
   "layers": "off",
   "split": 60,
-  "keytrack": "half",
+  "keytrack": "full",
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
@@ -71,7 +71,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 30,
+  "drift": 28,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -86,19 +86,29 @@
  "routes": {
   "1": [
    [
-    "lfo2-uni",
-    "vca",
+    "voice",
+    "pitch-b",
+    6
+   ],
+   [
+    "lfo",
+    "pitch-b",
+    5
+   ],
+   [
+    "velocity",
+    "cutoff",
     25
    ],
    [
     "velocity",
     "vca",
-    30
+    35
    ],
    [
-    "aftertouch",
-    "cutoff",
-    25
+    "velocity",
+    "amp-att",
+    -35
    ]
   ]
  }

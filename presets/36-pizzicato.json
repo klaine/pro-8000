@@ -3,8 +3,8 @@
  "name": "Pizzicato",
  "group": "pluck",
  "notes": {
-  "sound": "Saw and a 30 % pulse, an 80 ms filter snap and a 180 ms body: tight and dry.",
-  "shows": "A short pluck with velocity into VCA, cutoff and filter decay."
+  "sound": "Saw and a 30 % pulse, an 80 ms filter snap and a 180 ms body: tight and dry; velocity opens it and a touch of random cutoff keeps repeated notes from sounding like a machine.",
+  "shows": "Velocity into cutoff and level; random into cutoff; half keytracking."
  },
  "buttons": [
   "a-saw",
@@ -12,10 +12,10 @@
  ],
  "params": {
   "shared": {
-   "a-level": 70,
+   "a-level": 80,
    "b-level": 55,
    "noise": 0,
-   "resonance": 20,
+   "resonance": 18,
    "a-pw": 50,
    "b-pw": 30,
    "pmod-osc-b": 0
@@ -23,17 +23,17 @@
   "1": {
    "freq-a": 50,
    "freq-b": 50,
-   "fine": 52,
+   "fine": 50,
    "cutoff": 44,
-   "fil-env-amt": 78,
+   "fil-env-amt": 79,
    "fil-att": 0,
    "fil-dec": 37,
    "fil-sus": 0,
-   "fil-rel": 37,
+   "fil-rel": 39,
    "amp-att": 0,
    "amp-dec": 46,
    "amp-sus": 0,
-   "amp-rel": 41,
+   "amp-rel": 44,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -54,7 +54,7 @@
  "settings": {
   "layers": "off",
   "split": 60,
-  "keytrack": "full",
+  "keytrack": "half",
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
@@ -86,19 +86,24 @@
  "routes": {
   "1": [
    [
-    "velocity",
-    "vca",
-    60
+    "random",
+    "cutoff",
+    8
    ],
    [
     "velocity",
     "cutoff",
-    30
+    40
    ],
    [
     "velocity",
-    "fil-dec",
-    25
+    "vca",
+    55
+   ],
+   [
+    "velocity",
+    "filter-env-amount",
+    20
    ]
   ]
  }

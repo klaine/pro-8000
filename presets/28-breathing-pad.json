@@ -3,18 +3,17 @@
  "name": "Breathing Pad",
  "group": "pad",
  "notes": {
-  "sound": "Two saws, the filter closed; Env 3 cycles on its own (2.5 s up, 2 s hold, 3 s down, 2.5 s rest) and opens it 38 semitones: each voice breathes from the moment it starts.",
-  "shows": "A free-cycling Env 3 into cutoff (attack, hold, fall, rest), slow PWM."
+  "sound": "Two saws, the filter nearly closed; Env 3 cycles on its own (2.5 s up, 2 s hold, 3 s down, 1 s rest) opening the filter in slow waves while a key is held, and LFO 2 drifts each voice's pitch. Pressure lifts the floor.",
+  "shows": "A free-cycling envelope into the cutoff, the drift LFO per voice, aftertouch to cutoff."
  },
  "buttons": [
   "a-saw",
-  "b-saw",
-  "lfo-pw"
+  "b-saw"
  ],
  "params": {
   "shared": {
-   "a-level": 70,
-   "b-level": 70,
+   "a-level": 74,
+   "b-level": 72,
    "noise": 0,
    "resonance": 20,
    "a-pw": 50,
@@ -24,31 +23,31 @@
   "1": {
    "freq-a": 50,
    "freq-b": 50,
-   "fine": 53,
-   "cutoff": 36,
-   "fil-env-amt": 50,
-   "fil-att": 0,
-   "fil-dec": 52,
-   "fil-sus": 99,
-   "fil-rel": 60,
-   "amp-att": 61,
-   "amp-dec": 60,
-   "amp-sus": 90,
-   "amp-rel": 73,
+   "fine": 52,
+   "cutoff": 34,
+   "fil-env-amt": 61,
+   "fil-att": 63,
+   "fil-dec": 73,
+   "fil-sus": 70,
+   "fil-rel": 70,
+   "amp-att": 69,
+   "amp-dec": 73,
+   "amp-sus": 85,
+   "amp-rel": 74,
    "glide": 0,
    "master-tune": 50,
-   "lfo-freq": 20,
-   "lfo-amount": 15,
+   "lfo-freq": 50,
+   "lfo-amount": 0,
    "pmod-fil-env": 0,
    "env3-att": 82,
    "env3-dec": 78,
    "env3-sus": 80,
-   "env3-rel": 82,
+   "env3-rel": 72,
    "env4-att": 0,
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 10,
    "lfo2-amount": 0
   }
  },
@@ -59,9 +58,9 @@
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
-  "shape 1 1": "sine",
-  "shape 1 2": "tri",
+  "lfo2-trigger": "voice",
+  "shape 1 1": "tri",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -72,7 +71,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 15,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -89,17 +88,32 @@
    [
     "env3",
     "cutoff",
-    40
+    45
    ],
    [
-    "velocity",
-    "vca",
-    30
+    "lfo2",
+    "pitch-b",
+    5
    ],
    [
     "aftertouch",
     "cutoff",
-    20
+    35
+   ],
+   [
+    "velocity",
+    "cutoff",
+    10
+   ],
+   [
+    "velocity",
+    "vca",
+    35
+   ],
+   [
+    "velocity",
+    "amp-att",
+    -25
    ]
   ]
  }

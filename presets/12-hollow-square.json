@@ -3,21 +3,21 @@
  "name": "Hollow Square",
  "group": "lead",
  "notes": {
-  "sound": "Two pulses at 35 % and 62 % width, 10 cents apart, LFO 1 slowly moving the widths; legato. Press for a clock-synced octave trill from LFO 2's square.",
-  "shows": "LFO 1 to PW, LFO 2 square synced to 1/8 on pitch with its depth under aftertouch."
+  "sound": "Two pulses at 35 % and 62 % width, 10 cents apart, LFO 2 slowly moving both widths per voice; press for a clock-synced octave trill from LFO 1's square. Soft filter with keytracking so the top stays round.",
+  "shows": "LFO 2 (sine, per voice) into both pulse widths; LFO 1 square synced to 1/8 into pitch, depth from aftertouch."
  },
  "buttons": [
   "a-square",
   "b-square",
-  "lfo-pw"
+  "lfo-freq"
  ],
  "params": {
   "shared": {
    "a-level": 75,
    "b-level": 70,
    "noise": 0,
-   "resonance": 20,
-   "a-pw": 35,
+   "resonance": 15,
+   "a-pw": 33,
    "b-pw": 62,
    "pmod-osc-b": 0
   },
@@ -25,20 +25,20 @@
    "freq-a": 50,
    "freq-b": 50,
    "fine": 54,
-   "cutoff": 51,
-   "fil-env-amt": 67,
+   "cutoff": 54,
+   "fil-env-amt": 68,
    "fil-att": 0,
-   "fil-dec": 58,
-   "fil-sus": 55,
-   "fil-rel": 47,
-   "amp-att": 9,
-   "amp-dec": 58,
-   "amp-sus": 90,
-   "amp-rel": 52,
-   "glide": 41,
+   "fil-dec": 55,
+   "fil-sus": 50,
+   "fil-rel": 50,
+   "amp-att": 0,
+   "amp-dec": 52,
+   "amp-sus": 85,
+   "amp-rel": 50,
+   "glide": 29,
    "master-tune": 50,
-   "lfo-freq": 30,
-   "lfo-amount": 30,
+   "lfo-freq": 64,
+   "lfo-amount": 0,
    "pmod-fil-env": 0,
    "env3-att": 0,
    "env3-dec": 0,
@@ -48,7 +48,7 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 64,
+   "lfo2-rate": 26,
    "lfo2-amount": 0
   }
  },
@@ -56,15 +56,15 @@
   "layers": "off",
   "split": 60,
   "keytrack": "full",
-  "lfo-sync": "free",
-  "lfo-trigger": "free",
-  "lfo2-sync": "clock",
-  "lfo2-trigger": "free",
-  "shape 1 1": "tri",
-  "shape 1 2": "square",
+  "lfo-sync": "clock",
+  "lfo-trigger": "first",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "voice",
+  "shape 1 1": "square",
+  "shape 1 2": "sine",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
-  "lfo2-dests 1": "pitch",
+  "lfo2-dests 1": "none",
   "lfo2-dests 2": "none",
   "cycle 1": "none",
   "cycle 2": "none",
@@ -87,19 +87,29 @@
  "routes": {
   "1": [
    [
+    "lfo2",
+    "a-pw",
+    20
+   ],
+   [
+    "lfo2",
+    "b-pw",
+    -20
+   ],
+   [
     "aftertouch",
-    "lfo2-amount",
-    70
+    "lfo-amount",
+    99
+   ],
+   [
+    "velocity",
+    "cutoff",
+    25
    ],
    [
     "velocity",
     "vca",
     40
-   ],
-   [
-    "aftertouch",
-    "cutoff",
-    30
    ]
   ]
  }

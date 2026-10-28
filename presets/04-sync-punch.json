@@ -3,8 +3,8 @@
  "name": "Sync Punch",
  "group": "bass",
  "notes": {
-  "sound": "Oscillator A synced to B an octave below; Env 3 drops A's pitch from 9 semitones up over 250 ms: the classic sync punch, mono.",
-  "shows": "Oscillator sync swept by Env 3 into Pitch A; velocity scales Env 3's decay time."
+  "sound": "Oscillator A synced to B an octave below; Env 3 drops A's pitch from 9 semitones up over 250 ms: the sync punch, mono, with the punch longer and the filter brighter on hard notes.",
+  "shows": "Sync swept by Env 3 into Pitch A; velocity into Env 3's decay, cutoff and level."
  },
  "buttons": [
   "a-saw",
@@ -25,7 +25,7 @@
    "freq-a": 50,
    "freq-b": 33,
    "fine": 50,
-   "cutoff": 49,
+   "cutoff": 47,
    "fil-env-amt": 70,
    "fil-att": 0,
    "fil-dec": 52,
@@ -94,7 +94,12 @@
    [
     "velocity",
     "env3-dec",
-    20
+    25
+   ],
+   [
+    "velocity",
+    "cutoff",
+    30
    ],
    [
     "velocity",

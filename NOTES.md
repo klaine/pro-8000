@@ -1022,6 +1022,22 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   the middle spread both ways, 0-to-1 sources one way. The arc is an estimate (the knob curves aren't all linear in
   the summed domain), the dial's title lists the routes. Checked offline with injected routes.
 
+## The bank redesigned for movement, spread and expression (2026-10-28)
+
+- The first bank's leads, polys, pads and plucks sounded like an '80s demo: one saw, one filter, one envelope,
+  nothing moving. `presets/DESIGN.md` has the principles now used across P1-P40 (from a look at how current analog
+  polys are programmed: slow unrelated modulators, PWM that drifts, per-voice instability, layering, velocity and
+  pressure into more than volume), mapped to the firmware: LFO 2 as the per-voice drift shape into B's pitch and
+  the cutoff (`life()`), the voice-number source into B's pitch and PW so chords spread without unison (`spread()`),
+  Env 3 as a slow second filter envelope (`swell()`), LFO 1 sine vibrato with delay and fade (`late_vibrato()`),
+  velocity into cutoff, level and one of bark / attack time / decay (`touch()`), aftertouch into cutoff, vibrato,
+  detune or resonance, often via Macro 1 (`press()`), and stack mode for a body plus a shine layer (Wide Lead,
+  Poly Brass, Analog Strings, Wide Stack). The generator (`presets/lib/gen_presets.py`, now in the repo) carries
+  them as helpers; P41-P64 keep their sounds (the sequences and curiosities are the point there).
+- Lessons from the first bank: a poly-mod amount with no destination button does nothing (P9, P20); FM through
+  poly-mod is exponential, so a 3:1 "tine" smears instead of ringing (P21 is subtractive now); Env 3 for what the
+  filter envelope already does is a waste of a route (P19).
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

@@ -3,8 +3,8 @@
  "name": "Poly Sync",
  "group": "poly",
  "notes": {
-  "sound": "Synced saws with a 10-semitone poly-mod sweep from the filter envelope: hard-edged poly chords, deeper sweeps on harder notes.",
-  "shows": "Velocity into the poly-mod envelope amount."
+  "sound": "Synced saws with a 10-semitone poly-mod sweep from the filter envelope: hard-edged chords, deeper sweeps on harder notes, and every voice's sync pitch a few cents apart so the edge shimmers. Pressure pushes the sweep further.",
+  "shows": "Sync and poly-mod with velocity into the poly-mod amount; per-voice spread; aftertouch into poly-mod."
  },
  "buttons": [
   "a-saw",
@@ -26,8 +26,8 @@
    "freq-a": 50,
    "freq-b": 50,
    "fine": 50,
-   "cutoff": 54,
-   "fil-env-amt": 67,
+   "cutoff": 49,
+   "fil-env-amt": 74,
    "fil-att": 0,
    "fil-dec": 58,
    "fil-sus": 30,
@@ -49,20 +49,20 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 20,
    "lfo2-amount": 0
   }
  },
  "settings": {
   "layers": "off",
   "split": 60,
-  "keytrack": "half",
+  "keytrack": "full",
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "voice",
   "shape 1 1": "tri",
-  "shape 1 2": "tri",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -73,7 +73,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 8,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -88,9 +88,34 @@
  "routes": {
   "1": [
    [
+    "voice",
+    "pitch-b",
+    5
+   ],
+   [
     "velocity",
     "pmod-env",
     40
+   ],
+   [
+    "aftertouch",
+    "pmod-env",
+    35
+   ],
+   [
+    "lfo2",
+    "pitch-b",
+    4
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    3
+   ],
+   [
+    "velocity",
+    "cutoff",
+    25
    ],
    [
     "velocity",

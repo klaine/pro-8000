@@ -3,8 +3,8 @@
  "name": "Scoop Whistle",
  "group": "lead",
  "notes": {
-  "sound": "Triangles an octave apart, a resonant, open filter: a whistle. Env 4 starts each note a semitone low and scoops up in 90 ms; the wheel adds sine vibrato.",
-  "shows": "Env 4 into pitch (A and B) as a per-note scoop, velocity scaling its decay."
+  "sound": "Triangles an octave apart, a resonant, open filter: a whistle. Env 4 scoops each note up a semitone in 90 ms, faster on hard notes; vibrato fades in; the filter follows the key fully so high notes sing.",
+  "shows": "Env 4 into pitch, velocity into Env 4's decay, LFO delay and fade, full keytracking."
  },
  "buttons": [
   "a-tri",
@@ -16,7 +16,7 @@
    "a-level": 85,
    "b-level": 40,
    "noise": 0,
-   "resonance": 40,
+   "resonance": 45,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -25,17 +25,17 @@
    "freq-a": 50,
    "freq-b": 66,
    "fine": 50,
-   "cutoff": 69,
-   "fil-env-amt": 62,
+   "cutoff": 70,
+   "fil-env-amt": 61,
    "fil-att": 0,
-   "fil-dec": 58,
+   "fil-dec": 52,
    "fil-sus": 70,
-   "fil-rel": 47,
-   "amp-att": 14,
-   "amp-dec": 58,
-   "amp-sus": 95,
-   "amp-rel": 47,
-   "glide": 29,
+   "fil-rel": 52,
+   "amp-att": 9,
+   "amp-dec": 52,
+   "amp-sus": 90,
+   "amp-rel": 54,
+   "glide": 36,
    "master-tune": 50,
    "lfo-freq": 67,
    "lfo-amount": 0,
@@ -68,15 +68,15 @@
   "lfo2-dests 2": "none",
   "cycle 1": "none",
   "cycle 2": "none",
-  "voice 1": "mono last",
+  "voice 1": "legato last",
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
   "drift": 0,
   "scale": "off",
   "root": "C",
-  "lfo-delay 1": 0,
-  "lfo-fade 1": 0,
+  "lfo-delay 1": 45,
+  "lfo-fade 1": 53,
   "lfo-delay 2": 0,
   "lfo-fade 2": 0,
   "macro 1 1": 0,
@@ -94,7 +94,12 @@
    [
     "velocity",
     "env4-dec",
-    25
+    -25
+   ],
+   [
+    "aftertouch",
+    "cutoff",
+    20
    ],
    [
     "aftertouch",
@@ -103,8 +108,13 @@
    ],
    [
     "velocity",
+    "cutoff",
+    20
+   ],
+   [
+    "velocity",
     "vca",
-    35
+    40
    ]
   ]
  }

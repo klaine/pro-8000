@@ -3,8 +3,8 @@
  "name": "Sync Lead",
  "group": "lead",
  "notes": {
-  "sound": "The Prophet sync lead: A synced to B, the filter envelope sweeping A's pitch 24 semitones through poly-mod; legato with glide. The wheel adds vibrato.",
-  "shows": "Sync plus poly-mod filter env to freq A, aftertouch into LFO 1 depth, pitch bend brightening the filter."
+  "sound": "A synced to B, the filter envelope sweeping A 20 semitones through poly-mod, legato glide. Vibrato waits 300 ms and fades in; pressure adds more and opens the filter; harder notes sweep further.",
+  "shows": "Sync and poly-mod envelope, LFO 1 delay and fade, aftertouch to vibrato and cutoff, velocity to the sweep."
  },
  "buttons": [
   "a-saw",
@@ -15,33 +15,33 @@
  ],
  "params": {
   "shared": {
-   "a-level": 90,
-   "b-level": 20,
+   "a-level": 88,
+   "b-level": 35,
    "noise": 0,
-   "resonance": 10,
+   "resonance": 12,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
   },
   "1": {
    "freq-a": 50,
-   "freq-b": 50,
+   "freq-b": 33,
    "fine": 50,
    "cutoff": 57,
-   "fil-env-amt": 70,
+   "fil-env-amt": 71,
    "fil-att": 0,
-   "fil-dec": 55,
+   "fil-dec": 54,
    "fil-sus": 40,
    "fil-rel": 47,
    "amp-att": 0,
-   "amp-dec": 60,
-   "amp-sus": 85,
-   "amp-rel": 50,
-   "glide": 39,
+   "amp-dec": 52,
+   "amp-sus": 90,
+   "amp-rel": 47,
+   "glide": 49,
    "master-tune": 50,
    "lfo-freq": 67,
    "lfo-amount": 0,
-   "pmod-fil-env": 70,
+   "pmod-fil-env": 64,
    "env3-att": 0,
    "env3-dec": 0,
    "env3-sus": 0,
@@ -57,7 +57,7 @@
  "settings": {
   "layers": "off",
   "split": 60,
-  "keytrack": "half",
+  "keytrack": "full",
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
@@ -77,8 +77,8 @@
   "drift": 0,
   "scale": "off",
   "root": "C",
-  "lfo-delay 1": 0,
-  "lfo-fade 1": 0,
+  "lfo-delay 1": 48,
+  "lfo-fade 1": 56,
   "lfo-delay 2": 0,
   "lfo-fade 2": 0,
   "macro 1 1": 0,
@@ -89,24 +89,34 @@
  "routes": {
   "1": [
    [
-    "aftertouch",
-    "lfo-amount",
-    30
-   ],
-   [
     "velocity",
-    "filter-env-amount",
-    30
-   ],
-   [
-    "velocity",
-    "vca",
+    "pmod-env",
     30
    ],
    [
     "bend",
     "cutoff",
+    20
+   ],
+   [
+    "aftertouch",
+    "cutoff",
+    35
+   ],
+   [
+    "aftertouch",
+    "lfo-amount",
+    35
+   ],
+   [
+    "velocity",
+    "cutoff",
     25
+   ],
+   [
+    "velocity",
+    "vca",
+    40
    ]
   ]
  }

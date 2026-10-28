@@ -3,8 +3,8 @@
  "name": "Deep Sub",
  "group": "bass",
  "notes": {
-  "sound": "A triangle an octave down with a hollow square two octaves down; legato glide; round and short in the filter.",
-  "shows": "Legato voice mode, keyboard tracking at half, velocity opening the filter a little."
+  "sound": "A triangle under a hollow square an octave below, legato glide; round, with a short filter kick that velocity controls, and a slow per-voice drift so held notes breathe.",
+  "shows": "Legato, half keytracking, velocity into cutoff and the kick, a little drift."
  },
  "buttons": [
   "a-tri",
@@ -13,9 +13,9 @@
  "params": {
   "shared": {
    "a-level": 85,
-   "b-level": 45,
+   "b-level": 50,
    "noise": 0,
-   "resonance": 5,
+   "resonance": 6,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -24,17 +24,17 @@
    "freq-a": 33,
    "freq-b": 16,
    "fine": 50,
-   "cutoff": 36,
+   "cutoff": 34,
    "fil-env-amt": 74,
    "fil-att": 0,
-   "fil-dec": 50,
-   "fil-sus": 20,
+   "fil-dec": 48,
+   "fil-sus": 15,
    "fil-rel": 47,
    "amp-att": 0,
    "amp-dec": 55,
    "amp-sus": 80,
    "amp-rel": 44,
-   "glide": 43,
+   "glide": 44,
    "master-tune": 50,
    "lfo-freq": 50,
    "lfo-amount": 0,
@@ -47,7 +47,7 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 13,
    "lfo2-amount": 0
   }
  },
@@ -58,9 +58,9 @@
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "voice",
   "shape 1 1": "tri",
-  "shape 1 2": "tri",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -71,7 +71,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 8,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -88,12 +88,27 @@
    [
     "velocity",
     "cutoff",
-    25
+    30
    ],
    [
     "velocity",
     "vca",
-    40
+    45
+   ],
+   [
+    "velocity",
+    "filter-env-amount",
+    25
+   ],
+   [
+    "lfo2",
+    "pitch-b",
+    3
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    4
    ]
   ]
  }

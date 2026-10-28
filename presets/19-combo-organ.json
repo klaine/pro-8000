@@ -3,7 +3,7 @@
  "name": "Combo Organ",
  "group": "poly",
  "notes": {
-  "sound": "Two squares an octave apart, filter wide open, instant envelopes; the filter envelope gives a 40 ms click at each key (+21 semitones, decay 40 ms, sustain 0), LFO 2 tremolo, and a slow vibrato that fades in after a while.",
+  "sound": "Two squares an octave apart, filter wide open, instant envelopes; the filter envelope gives a 40 ms click at each key, LFO 2 a tremolo, and a slow vibrato fades in after a while. Pressure deepens the tremolo.",
   "shows": "The filter envelope as a click transient, LFO 2 into the VCA (tremolo), LFO 1 delay and fade."
  },
  "buttons": [
@@ -25,20 +25,20 @@
    "freq-a": 50,
    "freq-b": 66,
    "fine": 50,
-   "cutoff": 74,
-   "fil-env-amt": 77,
+   "cutoff": 82,
+   "fil-env-amt": 76,
    "fil-att": 0,
    "fil-dec": 29,
    "fil-sus": 0,
    "fil-rel": 29,
-   "amp-att": 2,
+   "amp-att": 0,
    "amp-dec": 52,
    "amp-sus": 99,
    "amp-rel": 34,
    "glide": 0,
    "master-tune": 50,
-   "lfo-freq": 68,
-   "lfo-amount": 9,
+   "lfo-freq": 67,
+   "lfo-amount": 0,
    "pmod-fil-env": 0,
    "env3-att": 0,
    "env3-dec": 0,
@@ -48,7 +48,7 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 68,
+   "lfo2-rate": 69,
    "lfo2-amount": 0
   }
  },
@@ -61,7 +61,7 @@
   "lfo2-sync": "free",
   "lfo2-trigger": "free",
   "shape 1 1": "sine",
-  "shape 1 2": "tri",
+  "shape 1 2": "sine",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -75,8 +75,8 @@
   "drift": 0,
   "scale": "off",
   "root": "C",
-  "lfo-delay 1": 30,
-  "lfo-fade 1": 40,
+  "lfo-delay 1": 61,
+  "lfo-fade 1": 68,
   "lfo-delay 2": 0,
   "lfo-fade 2": 0,
   "macro 1 1": 0,
@@ -90,6 +90,11 @@
     "lfo2",
     "vca",
     30
+   ],
+   [
+    "aftertouch",
+    "lfo2-amount",
+    40
    ]
   ]
  }

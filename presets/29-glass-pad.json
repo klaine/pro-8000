@@ -3,8 +3,8 @@
  "name": "Glass Pad",
  "group": "pad",
  "notes": {
-  "sound": "Triangles a fifth apart with a touch of poly-mod FM, a resonant open filter and a slow attack; LFO 2 drifts the filter per voice. Pressure deepens the FM.",
-  "shows": "Poly-mod osc B FM in a pad, aftertouch into the poly-mod osc B amount, random per-note detune."
+  "sound": "Triangles a fifth apart with a touch of poly-mod FM that Env 4 fades out over two seconds, a resonant open filter with full keytracking; each voice a few cents apart. Bell-like on the attack, glassy after.",
+  "shows": "Env 4 into the poly-mod osc B amount (FM that decays), per-voice spread, the drift LFO."
  },
  "buttons": [
   "a-tri",
@@ -13,28 +13,28 @@
  ],
  "params": {
   "shared": {
-   "a-level": 75,
+   "a-level": 80,
    "b-level": 40,
    "noise": 0,
-   "resonance": 45,
+   "resonance": 40,
    "a-pw": 50,
    "b-pw": 50,
-   "pmod-osc-b": 18
+   "pmod-osc-b": 12
   },
   "1": {
    "freq-a": 50,
    "freq-b": 59,
    "fine": 50,
-   "cutoff": 72,
-   "fil-env-amt": 62,
-   "fil-att": 66,
+   "cutoff": 67,
+   "fil-env-amt": 61,
+   "fil-att": 61,
    "fil-dec": 70,
-   "fil-sus": 50,
+   "fil-sus": 70,
    "fil-rel": 70,
-   "amp-att": 70,
-   "amp-dec": 60,
+   "amp-att": 61,
+   "amp-dec": 70,
    "amp-sus": 85,
-   "amp-rel": 78,
+   "amp-rel": 73,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -45,11 +45,11 @@
    "env3-sus": 0,
    "env3-rel": 0,
    "env4-att": 0,
-   "env4-dec": 0,
+   "env4-dec": 73,
    "env4-sus": 0,
-   "env4-rel": 0,
-   "lfo2-rate": 10,
-   "lfo2-amount": 35
+   "env4-rel": 58,
+   "lfo2-rate": 13,
+   "lfo2-amount": 0
   }
  },
  "settings": {
@@ -61,10 +61,10 @@
   "lfo2-sync": "free",
   "lfo2-trigger": "voice",
   "shape 1 1": "tri",
-  "shape 1 2": "sine",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
-  "lfo2-dests 1": "filter",
+  "lfo2-dests 1": "none",
   "lfo2-dests 2": "none",
   "cycle 1": "none",
   "cycle 2": "none",
@@ -72,7 +72,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 20,
+  "drift": 10,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -87,19 +87,39 @@
  "routes": {
   "1": [
    [
-    "velocity",
-    "vca",
-    30
+    "voice",
+    "pitch-b",
+    5
    ],
    [
-    "random",
+    "env4",
+    "pmod-osc-b",
+    25
+   ],
+   [
+    "lfo2",
     "pitch-b",
     4
    ],
    [
-    "aftertouch",
-    "pmod-osc-b",
-    30
+    "lfo2",
+    "cutoff",
+    4
+   ],
+   [
+    "velocity",
+    "cutoff",
+    20
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ],
+   [
+    "velocity",
+    "amp-att",
+    -20
    ]
   ]
  }

@@ -3,8 +3,8 @@
  "name": "Press to Scream",
  "group": "lead",
  "notes": {
-  "sound": "Saw with a pulse an octave up, resonance high, mono. Pressure opens the filter, pushes the resonance and brings in vibrato: the harder you lean, the more it screams.",
-  "shows": "Aftertouch into three destinations (cutoff, resonance, LFO 1 depth)."
+  "sound": "Saw with a pulse an octave up, resonance high, mono. Pressure opens the filter, raises the resonance and adds vibrato all at once through Macro 1; the wheel does the same gently. Velocity sets the bite.",
+  "shows": "Macro 1 fed by aftertouch and the wheel, fanning out to cutoff, resonance and LFO depth."
  },
  "buttons": [
   "a-saw",
@@ -14,9 +14,9 @@
  "params": {
   "shared": {
    "a-level": 80,
-   "b-level": 60,
+   "b-level": 45,
    "noise": 0,
-   "resonance": 65,
+   "resonance": 62,
    "a-pw": 50,
    "b-pw": 40,
    "pmod-osc-b": 0
@@ -25,16 +25,16 @@
    "freq-a": 50,
    "freq-b": 66,
    "fine": 50,
-   "cutoff": 54,
-   "fil-env-amt": 70,
+   "cutoff": 49,
+   "fil-env-amt": 73,
    "fil-att": 0,
-   "fil-dec": 58,
-   "fil-sus": 60,
+   "fil-dec": 52,
+   "fil-sus": 35,
    "fil-rel": 47,
    "amp-att": 0,
-   "amp-dec": 58,
-   "amp-sus": 95,
-   "amp-rel": 47,
+   "amp-dec": 52,
+   "amp-sus": 90,
+   "amp-rel": 46,
    "glide": 33,
    "master-tune": 50,
    "lfo-freq": 68,
@@ -60,7 +60,7 @@
   "lfo-trigger": "free",
   "lfo2-sync": "free",
   "lfo2-trigger": "free",
-  "shape 1 1": "tri",
+  "shape 1 1": "sine",
   "shape 1 2": "tri",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
@@ -88,28 +88,43 @@
   "1": [
    [
     "aftertouch",
-    "cutoff",
-    40
+    "macro1",
+    99
    ],
    [
-    "aftertouch",
+    "mod-wheel",
+    "macro1",
+    50
+   ],
+   [
+    "macro1",
+    "cutoff",
+    50
+   ],
+   [
+    "macro1",
     "resonance",
     30
    ],
    [
-    "aftertouch",
+    "macro1",
     "lfo-amount",
     35
    ],
    [
     "velocity",
     "cutoff",
-    25
+    30
    ],
    [
     "velocity",
     "vca",
-    35
+    40
+   ],
+   [
+    "velocity",
+    "filter-env-amount",
+    25
    ]
   ]
  }

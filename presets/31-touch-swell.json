@@ -3,8 +3,8 @@
  "name": "Touch Swell",
  "group": "pad",
  "notes": {
-  "sound": "Two saws with a 1.5 s swell that shrinks to about 200 ms when you hit hard: soft chords bloom, accents speak.",
-  "shows": "Velocity into the amp and filter attack times (negative depth = shorter), aftertouch to cutoff."
+  "sound": "Two saws with a 1.5 s swell that shrinks to about 200 ms when you hit hard, so the same patch is a pad or a stab by touch; the filter follows with its own slower swell from Env 3. Per-voice spread and drift underneath.",
+  "shows": "Velocity into the amp attack time (16\u00d7 range), Env 3 as a second filter envelope, spread, drift."
  },
  "buttons": [
   "a-saw",
@@ -12,10 +12,10 @@
  ],
  "params": {
   "shared": {
-   "a-level": 70,
-   "b-level": 70,
+   "a-level": 76,
+   "b-level": 72,
    "noise": 0,
-   "resonance": 10,
+   "resonance": 14,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -25,29 +25,29 @@
    "freq-b": 50,
    "fine": 53,
    "cutoff": 49,
-   "fil-env-amt": 67,
-   "fil-att": 61,
-   "fil-dec": 65,
-   "fil-sus": 50,
-   "fil-rel": 63,
+   "fil-env-amt": 66,
+   "fil-att": 69,
+   "fil-dec": 73,
+   "fil-sus": 60,
+   "fil-rel": 67,
    "amp-att": 76,
-   "amp-dec": 60,
-   "amp-sus": 90,
-   "amp-rel": 72,
+   "amp-dec": 73,
+   "amp-sus": 85,
+   "amp-rel": 67,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
    "lfo-amount": 0,
    "pmod-fil-env": 0,
-   "env3-att": 0,
-   "env3-dec": 0,
-   "env3-sus": 0,
-   "env3-rel": 0,
+   "env3-att": 80,
+   "env3-dec": 81,
+   "env3-sus": 40,
+   "env3-rel": 73,
    "env4-att": 0,
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 16,
    "lfo2-amount": 0
   }
  },
@@ -58,9 +58,9 @@
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "voice",
   "shape 1 1": "tri",
-  "shape 1 2": "tri",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -71,7 +71,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 16,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -86,24 +86,39 @@
  "routes": {
   "1": [
    [
+    "env3",
+    "cutoff",
+    20
+   ],
+   [
+    "voice",
+    "pitch-b",
+    5
+   ],
+   [
+    "lfo2",
+    "pitch-b",
+    4
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    4
+   ],
+   [
     "velocity",
     "amp-att",
-    -70
+    -60
    ],
    [
     "velocity",
-    "fil-att",
-    -50
-   ],
-   [
-    "aftertouch",
     "cutoff",
-    40
+    30
    ],
    [
     "velocity",
     "vca",
-    20
+    40
    ]
   ]
  }

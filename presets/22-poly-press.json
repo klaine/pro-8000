@@ -3,20 +3,19 @@
  "name": "Poly Press",
  "group": "poly",
  "notes": {
-  "sound": "Two saws 10 cents apart, filter fairly closed; pressing a key opens that voice's filter, adds resonance and brings in its own vibrato. On a poly-pressure controller every note is shaped alone.",
-  "shows": "Poly aftertouch per voice, per-voice LFOs (retrigger 'voice')."
+  "sound": "Two saws 10 cents apart, filter fairly closed, a slow swell from Env 3 after the attack; pressing a key opens the filter, adds resonance and widens the detune (Macro 1), so a held chord blooms under the hand.",
+  "shows": "Env 3 as a slow swell; aftertouch into Macro 1 fanning to cutoff, resonance and B's pitch."
  },
  "buttons": [
   "a-saw",
-  "b-saw",
-  "lfo-freq"
+  "b-saw"
  ],
  "params": {
   "shared": {
-   "a-level": 70,
-   "b-level": 70,
+   "a-level": 75,
+   "b-level": 72,
    "noise": 0,
-   "resonance": 25,
+   "resonance": 15,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -25,30 +24,30 @@
    "freq-a": 50,
    "freq-b": 50,
    "fine": 54,
-   "cutoff": 46,
-   "fil-env-amt": 70,
-   "fil-att": 0,
-   "fil-dec": 60,
-   "fil-sus": 40,
-   "fil-rel": 52,
+   "cutoff": 44,
+   "fil-env-amt": 66,
+   "fil-att": 25,
+   "fil-dec": 58,
+   "fil-sus": 60,
+   "fil-rel": 55,
    "amp-att": 17,
    "amp-dec": 58,
    "amp-sus": 85,
-   "amp-rel": 54,
+   "amp-rel": 56,
    "glide": 0,
    "master-tune": 50,
-   "lfo-freq": 66,
+   "lfo-freq": 50,
    "lfo-amount": 0,
    "pmod-fil-env": 0,
-   "env3-att": 0,
-   "env3-dec": 0,
-   "env3-sus": 0,
-   "env3-rel": 0,
+   "env3-att": 79,
+   "env3-dec": 81,
+   "env3-sus": 30,
+   "env3-rel": 73,
    "env4-att": 0,
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 17,
    "lfo2-amount": 0
   }
  },
@@ -57,11 +56,11 @@
   "split": 60,
   "keytrack": "full",
   "lfo-sync": "free",
-  "lfo-trigger": "voice",
+  "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
-  "shape 1 1": "sine",
-  "shape 1 2": "tri",
+  "lfo2-trigger": "voice",
+  "shape 1 1": "tri",
+  "shape 1 2": "drift",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -72,7 +71,7 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 12,
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
@@ -87,19 +86,44 @@
  "routes": {
   "1": [
    [
-    "aftertouch",
+    "env3",
     "cutoff",
-    45
+    25
    ],
    [
     "aftertouch",
-    "lfo-amount",
-    35
+    "macro1",
+    99
    ],
    [
-    "aftertouch",
+    "macro1",
+    "cutoff",
+    50
+   ],
+   [
+    "macro1",
     "resonance",
-    15
+    25
+   ],
+   [
+    "macro1",
+    "pitch-b",
+    7
+   ],
+   [
+    "lfo2",
+    "pitch-b",
+    4
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    4
+   ],
+   [
+    "velocity",
+    "cutoff",
+    25
    ],
    [
     "velocity",

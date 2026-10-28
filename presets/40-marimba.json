@@ -3,8 +3,8 @@
  "name": "Marimba",
  "group": "pluck",
  "notes": {
-  "sound": "A triangle with a quiet square two octaves up (the bar's 4:1 partial), short filter and amp decays that shorten up the keyboard.",
-  "shows": "Note into the amp decay, full keyboard tracking, velocity on cutoff and VCA."
+  "sound": "A triangle with a quiet square two octaves up (the bar's 4:1 partial) and a touch of noise for the mallet; a 60 ms filter pluck, a decay that shortens up the keyboard (note \u2192 decay) and lengthens with velocity.",
+  "shows": "Note number into the amp decay, velocity into the decay and cutoff, noise as the mallet."
  },
  "buttons": [
   "a-tri",
@@ -14,8 +14,8 @@
   "shared": {
    "a-level": 85,
    "b-level": 25,
-   "noise": 0,
-   "resonance": 15,
+   "noise": 6,
+   "resonance": 22,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -24,16 +24,16 @@
    "freq-a": 50,
    "freq-b": 82,
    "fine": 50,
-   "cutoff": 56,
-   "fil-env-amt": 70,
+   "cutoff": 54,
+   "fil-env-amt": 76,
    "fil-att": 0,
-   "fil-dec": 44,
+   "fil-dec": 34,
    "fil-sus": 0,
-   "fil-rel": 41,
+   "fil-rel": 39,
    "amp-att": 0,
-   "amp-dec": 54,
+   "amp-dec": 60,
    "amp-sus": 0,
-   "amp-rel": 50,
+   "amp-rel": 52,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -92,13 +92,23 @@
    ],
    [
     "velocity",
+    "amp-dec",
+    25
+   ],
+   [
+    "velocity",
     "cutoff",
     30
    ],
    [
     "velocity",
     "vca",
-    60
+    50
+   ],
+   [
+    "velocity",
+    "fil-dec",
+    15
    ]
   ]
  }

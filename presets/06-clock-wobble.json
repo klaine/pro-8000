@@ -3,8 +3,8 @@
  "name": "Clock Wobble",
  "group": "bass",
  "notes": {
-  "sound": "Saw and square an octave apart, LFO 1 (triangle) swinging the filter 30 semitones in quarter notes from the MIDI clock. Wheel up speeds the wobble to 16ths.",
-  "shows": "Clock-synced LFO 1 (1/4), retrigger on the first key, the mod wheel into the LFO rate (+2 octaves)."
+  "sound": "Saw and square an octave apart, LFO 1 (triangle) swinging the filter 30 semitones in quarter notes from the clock; the wheel speeds the wobble to 16ths, pressure adds resonance, velocity opens.",
+  "shows": "Clock-synced LFO 1 (1/4) retriggered on the first key, the wheel into the LFO rate, aftertouch to resonance."
  },
  "buttons": [
   "a-saw",
@@ -16,16 +16,16 @@
    "a-level": 75,
    "b-level": 70,
    "noise": 0,
-   "resonance": 40,
+   "resonance": 42,
    "a-pw": 50,
-   "b-pw": 45,
+   "b-pw": 42,
    "pmod-osc-b": 0
   },
   "1": {
    "freq-a": 50,
    "freq-b": 33,
    "fine": 50,
-   "cutoff": 28,
+   "cutoff": 27,
    "fil-env-amt": 64,
    "fil-att": 0,
    "fil-dec": 58,
@@ -95,6 +95,11 @@
     "aftertouch",
     "resonance",
     30
+   ],
+   [
+    "velocity",
+    "cutoff",
+    25
    ],
    [
     "velocity",

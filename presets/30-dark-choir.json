@@ -3,20 +3,20 @@
  "name": "Dark Choir",
  "group": "pad",
  "notes": {
-  "sound": "A narrow pulse (18 %) slowly width-modulated over a saw an octave down, a low resonant filter; a slow vibrato fades in late on each voice.",
-  "shows": "Narrow PWM, LFO 2 vibrato with a long delay and fade per voice."
+  "sound": "A narrow pulse (18 %) slowly width-modulated over a saw an octave down, a dark filter with half keytracking; LFO 2 (sine) moves the width while LFO 1 vibrato fades in late. Pressure opens it like a swell pedal.",
+  "shows": "LFO 2 \u2192 PW on its own rate, LFO 1 delay and fade, aftertouch to cutoff."
  },
  "buttons": [
   "a-square",
   "b-saw",
-  "lfo-pw"
+  "lfo-freq"
  ],
  "params": {
   "shared": {
-   "a-level": 75,
-   "b-level": 55,
+   "a-level": 76,
+   "b-level": 62,
    "noise": 0,
-   "resonance": 30,
+   "resonance": 18,
    "a-pw": 18,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -25,20 +25,20 @@
    "freq-a": 50,
    "freq-b": 33,
    "fine": 50,
-   "cutoff": 47,
+   "cutoff": 45,
    "fil-env-amt": 64,
-   "fil-att": 63,
-   "fil-dec": 65,
-   "fil-sus": 55,
-   "fil-rel": 65,
-   "amp-att": 67,
-   "amp-dec": 60,
+   "fil-att": 66,
+   "fil-dec": 73,
+   "fil-sus": 65,
+   "fil-rel": 70,
+   "amp-att": 66,
+   "amp-dec": 73,
    "amp-sus": 85,
-   "amp-rel": 76,
+   "amp-rel": 72,
    "glide": 0,
    "master-tune": 50,
-   "lfo-freq": 23,
-   "lfo-amount": 45,
+   "lfo-freq": 65,
+   "lfo-amount": 0,
    "pmod-fil-env": 0,
    "env3-att": 0,
    "env3-dec": 0,
@@ -48,8 +48,8 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 66,
-   "lfo2-amount": 11
+   "lfo2-rate": 19,
+   "lfo2-amount": 35
   }
  },
  "settings": {
@@ -59,12 +59,12 @@
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "voice",
-  "shape 1 1": "tri",
+  "lfo2-trigger": "free",
+  "shape 1 1": "sine",
   "shape 1 2": "sine",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
-  "lfo2-dests 1": "pitch",
+  "lfo2-dests 1": "pw",
   "lfo2-dests 2": "none",
   "cycle 1": "none",
   "cycle 2": "none",
@@ -72,13 +72,13 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 12,
   "scale": "off",
   "root": "C",
-  "lfo-delay 1": 0,
-  "lfo-fade 1": 0,
-  "lfo-delay 2": 60,
-  "lfo-fade 2": 65,
+  "lfo-delay 1": 55,
+  "lfo-fade 1": 70,
+  "lfo-delay 2": 0,
+  "lfo-fade 2": 0,
   "macro 1 1": 0,
   "macro 1 2": 0,
   "macro 2 1": 0,
@@ -87,14 +87,29 @@
  "routes": {
   "1": [
    [
-    "velocity",
-    "vca",
-    25
+    "aftertouch",
+    "cutoff",
+    45
    ],
    [
     "aftertouch",
+    "lfo-amount",
+    20
+   ],
+   [
+    "velocity",
     "cutoff",
-    30
+    15
+   ],
+   [
+    "velocity",
+    "vca",
+    35
+   ],
+   [
+    "velocity",
+    "amp-att",
+    -25
    ]
   ]
  }

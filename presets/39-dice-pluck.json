@@ -3,8 +3,8 @@
  "name": "Dice Pluck",
  "group": "pluck",
  "notes": {
-  "sound": "Pulse and saw an octave up through a resonant pluck; cutoff, pulse width, decay and B's tuning are rolled anew for every note.",
-  "shows": "Random into four destinations at once."
+  "sound": "Pulse and saw an octave up through a resonant pluck; cutoff, pulse width and decay change at random on every note, and LFO 2 (S&H, per voice) steps B's pitch slightly while a note rings. No two notes alike.",
+  "shows": "Random into three destinations, the S&H LFO per voice into pitch, velocity on top."
  },
  "buttons": [
   "a-square",
@@ -12,10 +12,10 @@
  ],
  "params": {
   "shared": {
-   "a-level": 70,
-   "b-level": 60,
+   "a-level": 78,
+   "b-level": 50,
    "noise": 0,
-   "resonance": 35,
+   "resonance": 38,
    "a-pw": 40,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -24,16 +24,16 @@
    "freq-a": 50,
    "freq-b": 66,
    "fine": 50,
-   "cutoff": 47,
-   "fil-env-amt": 74,
+   "cutoff": 42,
+   "fil-env-amt": 78,
    "fil-att": 0,
-   "fil-dec": 48,
+   "fil-dec": 47,
    "fil-sus": 0,
-   "fil-rel": 46,
+   "fil-rel": 47,
    "amp-att": 0,
    "amp-dec": 58,
-   "amp-sus": 0,
-   "amp-rel": 52,
+   "amp-sus": 10,
+   "amp-rel": 50,
    "glide": 0,
    "master-tune": 50,
    "lfo-freq": 50,
@@ -47,7 +47,7 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 50,
+   "lfo2-rate": 68,
    "lfo2-amount": 0
   }
  },
@@ -58,9 +58,9 @@
   "lfo-sync": "free",
   "lfo-trigger": "free",
   "lfo2-sync": "free",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "voice",
   "shape 1 1": "tri",
-  "shape 1 2": "tri",
+  "shape 1 2": "sh",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
   "lfo2-dests 1": "none",
@@ -88,27 +88,32 @@
    [
     "random",
     "cutoff",
-    20
-   ],
-   [
-    "random",
-    "a-pw",
     25
    ],
    [
     "random",
-    "amp-dec",
-    20
+    "a-pw",
+    30
    ],
    [
     "random",
+    "fil-dec",
+    25
+   ],
+   [
+    "lfo2",
     "pitch-b",
-    5
+    8
+   ],
+   [
+    "velocity",
+    "cutoff",
+    30
    ],
    [
     "velocity",
     "vca",
-    50
+    45
    ]
   ]
  }

@@ -3,19 +3,20 @@
  "name": "Velo Glide",
  "group": "lead",
  "notes": {
-  "sound": "Saws an octave apart, legato with a long glide (120 ms) that gets shorter the harder you play: soft notes slide, hard notes snap.",
-  "shows": "Velocity into glide time (a time destination, 16x either way at depth 99)."
+  "sound": "Saws an octave apart, legato with a long glide that shortens with velocity: slow slides into soft notes, snappy ones into hard. Per-voice drift keeps the two oscillators moving; pressure brightens.",
+  "shows": "Velocity into glide time (negative: harder is faster), drift, aftertouch to cutoff."
  },
  "buttons": [
   "a-saw",
-  "b-saw"
+  "b-saw",
+  "lfo-freq"
  ],
  "params": {
   "shared": {
-   "a-level": 70,
-   "b-level": 70,
+   "a-level": 82,
+   "b-level": 60,
    "noise": 0,
-   "resonance": 15,
+   "resonance": 14,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -23,20 +24,20 @@
   "1": {
    "freq-a": 50,
    "freq-b": 33,
-   "fine": 52,
+   "fine": 51,
    "cutoff": 56,
    "fil-env-amt": 70,
    "fil-att": 0,
-   "fil-dec": 58,
-   "fil-sus": 45,
-   "fil-rel": 47,
+   "fil-dec": 55,
+   "fil-sus": 50,
+   "fil-rel": 50,
    "amp-att": 0,
-   "amp-dec": 58,
+   "amp-dec": 52,
    "amp-sus": 90,
    "amp-rel": 50,
-   "glide": 58,
+   "glide": 61,
    "master-tune": 50,
-   "lfo-freq": 50,
+   "lfo-freq": 66,
    "lfo-amount": 0,
    "pmod-fil-env": 0,
    "env3-att": 0,
@@ -59,7 +60,7 @@
   "lfo-trigger": "free",
   "lfo2-sync": "free",
   "lfo2-trigger": "free",
-  "shape 1 1": "tri",
+  "shape 1 1": "sine",
   "shape 1 2": "tri",
   "shape 2 1": "tri",
   "shape 2 2": "tri",
@@ -71,11 +72,11 @@
   "voice 2": "poly last",
   "bend": 2,
   "detune": 14,
-  "drift": 0,
+  "drift": 14,
   "scale": "off",
   "root": "C",
-  "lfo-delay 1": 0,
-  "lfo-fade 1": 0,
+  "lfo-delay 1": 51,
+  "lfo-fade 1": 57,
   "lfo-delay 2": 0,
   "lfo-fade 2": 0,
   "macro 1 1": 0,
@@ -88,7 +89,17 @@
    [
     "velocity",
     "glide",
-    -60
+    -45
+   ],
+   [
+    "aftertouch",
+    "cutoff",
+    35
+   ],
+   [
+    "aftertouch",
+    "lfo-amount",
+    25
    ],
    [
     "velocity",
@@ -98,7 +109,7 @@
    [
     "velocity",
     "vca",
-    30
+    45
    ]
   ]
  }
