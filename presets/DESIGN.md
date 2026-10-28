@@ -21,7 +21,11 @@ the firmware features behind them (`gen_presets.py` has them as helpers).
 
 - **The voice-number source** (`spread()`): routed into oscillator B's pitch it gives each of the eight voices its
   own detune, 6-14 cents across the set, so a chord spreads like an ensemble without unison. The same source into
-  pulse width or cutoff spreads those.
+  the cutoff spreads that. Only per-voice destinations spread: the shared pots (mixer levels, pulse widths,
+  resonance, poly-mod osc B, volume) are one wire for all voices and take their modulation from the voice evaluated
+  last, so voice → pulse width is one constant offset, not a spread (the bank's first version had it on two
+  patches). In the 8ch layer mode voice = MIDI channel, so the same source makes the eight channels of one patch
+  differ (P57: cutoff, filter envelope amount, decays, sustains and glide graded from channel 1 to 8).
 - **Random per note** into cutoff, pulse width or decay (a few units) so repeated notes differ as they do on a played
   instrument.
 - **Stack mode** where one layer isn't enough: a body layer and a shine layer with different tuning, attack and

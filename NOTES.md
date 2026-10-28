@@ -1040,6 +1040,23 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   the note sharp by amount × sustain for its whole length (P8 read 0.76 semitones sharp; its kick is Env 3 → Pitch
   A now, which returns to zero). Both are in `presets/DESIGN.md`.
 
+## P57 across its channels, macro knobs and the displays on the faceplate (2026-10-29)
+
+- P57 Eight Channels played the same sound on every channel: the patch format has two layers, not eight, and the
+  first version only differed per channel through bend, pressure and CC 74. In the 8ch mode voice = channel, so
+  the voice-number source is what tells the channels apart; P57 now grades cutoff (+48 st by channel 8), the
+  filter envelope's amount, the filter and amp decays, both sustains (channel 8 is a pluck) and the glide (channel
+  1 slides, 8 doesn't) from channel 1 to 8. Measured at C3: channel 8 sustains 9 dB below channel 1 with the upper
+  harmonics 5-6 dB stronger. Only per-voice destinations work for this: the shared pots take their modulation from
+  the voice evaluated last (`last_mod` in `synth.c`), so `spread()` lost its pulse-width option (P17 and P23 used
+  it; it was one constant offset). Written into `presets/DESIGN.md`.
+- The web page's mod matrix has a knob for each macro: the macro's offset (the setting, as Shift + CUTOFF /
+  RESONANCE on the panel), with a ring for what the routes into the macro can add and the inputs → outputs beside
+  it. That was the backlog's "web macros panel".
+- The faceplate took over the displays: each oscillator section shows its waveform, the filter section its
+  response curve and the envelope the ADSR knobs edit (following Env select), the amplifier its envelope. The Scope
+  section is gone and the Filter env / Amp env sections below keep only their mode menu and copy button.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.
@@ -1086,7 +1103,6 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 - Shift + Arp Up-Dn to swap the two LFOs, Shift + Tune for the last tune's result: not done (LFO 1's routing
   lives in the panel switches, so a swap isn't symmetric; the tune result isn't kept).
 - A converter for the 0.7.x patch records (the backups), if the old sounds are wanted back.
-- The web page could show the macros as a panel of their own (today a summary line in the Mod matrix).
 - Voice stealing: a one-tick VCA dip for a stolen voice was considered and rejected (a step of its own); the pitch
   jump with the VCA open sounds like legato.
 

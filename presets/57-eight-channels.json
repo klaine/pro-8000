@@ -3,8 +3,8 @@
  "name": "Eight Channels",
  "group": "other",
  "notes": {
-  "sound": "One mono voice per MIDI channel 1-8, each with its own pitch bend, pressure and CC 74 brightness: a saw with a pulse an octave down, a little glide. Made for sequencers that drive eight lines.",
-  "shows": "The 8ch layer mode; Timbre (CC 74) and aftertouch per voice."
+  "sound": "Eight mono lines, one per MIDI channel 1-8, and no two alike: the channel number shapes the sound, from a dark, sustained, sliding bass on channel 1 to a bright, barking, snappy pluck with no glide on channel 8, the channels between grading from one to the other (a saw with a pulse an octave down throughout). Each channel has its own bend, pressure and CC 74 brightness. Made for sequencers that drive eight lines.",
+  "shows": "The 8ch layer mode; the voice-number source (voice = channel here) into cutoff, the filter envelope's amount, the sustains, decays and glide; Timbre (CC 74) and aftertouch per voice."
  },
  "buttons": [
   "a-saw",
@@ -13,28 +13,28 @@
  "params": {
   "shared": {
    "a-level": 75,
-   "b-level": 60,
+   "b-level": 65,
    "noise": 0,
-   "resonance": 25,
+   "resonance": 20,
    "a-pw": 50,
-   "b-pw": 45,
+   "b-pw": 40,
    "pmod-osc-b": 0
   },
   "1": {
    "freq-a": 50,
    "freq-b": 33,
    "fine": 50,
-   "cutoff": 49,
-   "fil-env-amt": 74,
+   "cutoff": 39,
+   "fil-env-amt": 70,
    "fil-att": 0,
-   "fil-dec": 52,
-   "fil-sus": 30,
-   "fil-rel": 47,
+   "fil-dec": 60,
+   "fil-sus": 40,
+   "fil-rel": 50,
    "amp-att": 0,
-   "amp-dec": 58,
-   "amp-sus": 80,
-   "amp-rel": 47,
-   "glide": 36,
+   "amp-dec": 60,
+   "amp-sus": 90,
+   "amp-rel": 50,
+   "glide": 63,
    "master-tune": 50,
    "lfo-freq": 50,
    "lfo-amount": 0,
@@ -85,6 +85,41 @@
  },
  "routes": {
   "1": [
+   [
+    "voice",
+    "cutoff",
+    50
+   ],
+   [
+    "voice",
+    "filter-env-amount",
+    45
+   ],
+   [
+    "voice",
+    "fil-dec",
+    45
+   ],
+   [
+    "voice",
+    "fil-sus",
+    -35
+   ],
+   [
+    "voice",
+    "amp-dec",
+    35
+   ],
+   [
+    "voice",
+    "amp-sus",
+    -70
+   ],
+   [
+    "voice",
+    "glide",
+    -60
+   ],
    [
     "timbre",
     "cutoff",

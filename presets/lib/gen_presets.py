@@ -120,14 +120,14 @@ VIB = {"lfo-freq": lfo_hz(5.5), "lfo-amount": 0}  # LFO 1 ready for the wheel (i
 # unrelated modulators; per-voice differences so chords spread; expression from velocity and pressure into more than
 # the volume; two layers where one isn't enough. These helpers add the routes and settings for that.
 
-def spread(cents=8, pw=0, cutoff=0):
+def spread(cents=8, cutoff=0):
     """Per-voice offsets from the voice-number source: every voice sits a little apart from the others, so a chord
-    spreads without unison. `cents`: oscillator B's spread across the 8 voices; `pw`, `cutoff`: route depths."""
+    spreads without unison. `cents`: oscillator B's spread across the 8 voices; `cutoff`: route depth. Only
+    per-voice destinations work here: the shared pots (levels, pulse widths, resonance) take their modulation from
+    the voice evaluated last, so voice → pulse width would be one constant offset, not a spread."""
     r = []
     if cents:
         r.append(["voice", "pitch-b", pitch_depth(cents / 100)])
-    if pw:
-        r.append(["voice", "b-pw", pw])
     if cutoff:
         r.append(["voice", "cutoff", cutoff])
     return r
@@ -354,12 +354,12 @@ P(16, "Human Lead", "lead",
 P(17, "Vintage Poly", "poly",
   "Saw and a width-modulated pulse, every voice a few cents and a little width its own, a soft filter that velocity "
   "opens. LFO 2 drifts each voice slowly; the drift setting adds the rest. Chords spread, nothing holds still.",
-  "Per-voice spread of pitch and PW, the drift LFO per voice, drift, velocity to cutoff and level.",
+  "Per-voice spread of pitch, the drift LFO per voice, drift, velocity to cutoff and level.",
   ["a-saw", "b-square", "lfo-pw"], {"a-level": 72, "b-level": 68, "b-pw": 42, "resonance": 12},
   {"fine": ct(5), "cutoff": hz(650), "fil-env-amt": fea(12), **adsr("fil", 0, 600, 50, 400),
    **adsr("amp", 5, 500, 85, 450), "lfo-freq": lfo_hz(0.22), "lfo-amount": 28, "lfo2-rate": lfo_hz(0.14)},
   settings={"drift": 22, **LIFE},
-  routes1=spread(cents=9, pw=20) + life(5, 6) + touch(35, 45, attack=20))
+  routes1=spread(cents=9) + life(5, 6) + touch(35, 45, attack=20))
 
 P(18, "Poly Brass", "poly",
   "Two saws 8 cents apart on layer 1, a third saw an octave up on layer 2 at a lower level, both with a 40 ms filter "
@@ -426,7 +426,7 @@ P(23, "Old Poly", "poly",
   {"fine": ct(-7), "cutoff": hz(550), "fil-env-amt": fea(10), **adsr("fil", 15, 600, 55, 450), **adsr("amp", 10, 500, 85, 500),
    "lfo-freq": lfo_hz(0.13), "lfo-amount": 22, "lfo2-rate": lfo_hz(0.09)},
   settings={"drift": 55, **LIFE},
-  routes1=spread(cents=14, pw=25, cutoff=10) + life(9, 10) + [["random", "cutoff", 12]] + touch(30, 40))
+  routes1=spread(cents=14, cutoff=10) + life(9, 10) + [["random", "cutoff", 12]] + touch(30, 40))
 
 P(24, "Cycling Wah", "poly",
   "Saw and pulse through a resonant filter; Env 3 cycles in quarter notes from the clock, opening and closing the "
@@ -797,14 +797,19 @@ P(56, "Metal Clang", "fx",
 
 # ----------------------------------------------------------------------------------------------- other
 P(57, "Eight Channels", "other",
-  "One mono voice per MIDI channel 1-8, each with its own pitch bend, pressure and CC 74 brightness: a saw with a "
-  "pulse an octave down, a little glide. Made for sequencers that drive eight lines.",
-  "The 8ch layer mode; Timbre (CC 74) and aftertouch per voice.",
-  ["a-saw", "b-square"], {"a-level": 75, "b-level": 60, "b-pw": 45, "resonance": 25},
-  {"freq-b": st(-12), "cutoff": hz(500), "fil-env-amt": fea(18), **adsr("fil", 0, 300, 30, 200),
-   **adsr("amp", 0, 500, 80, 200), "glide": glide(25)},
+  "Eight mono lines, one per MIDI channel 1-8, and no two alike: the channel number shapes the sound, from a dark, "
+  "sustained, sliding bass on channel 1 to a bright, barking, snappy pluck with no glide on channel 8, the channels "
+  "between grading from one to the other (a saw with a pulse an octave down throughout). Each channel has its own "
+  "bend, pressure and CC 74 brightness. Made for sequencers that drive eight lines.",
+  "The 8ch layer mode; the voice-number source (voice = channel here) into cutoff, the filter envelope's amount, "
+  "the sustains, decays and glide; Timbre (CC 74) and aftertouch per voice.",
+  ["a-saw", "b-square"], {"a-level": 75, "b-level": 65, "b-pw": 40, "resonance": 20},
+  {"freq-b": st(-12), "cutoff": hz(250), "fil-env-amt": fea(12), **adsr("fil", 0, 600, 40, 250),
+   **adsr("amp", 0, 600, 90, 250), "glide": glide(160)},
   settings={"layers": "8ch", "bend": 2},
-  routes1=[["timbre", "cutoff", 50], ["aftertouch", "cutoff", 30], ["velocity", "vca", 50], ["velocity", "cutoff", 20]])
+  routes1=[["voice", "cutoff", 50], ["voice", "filter-env-amount", 45], ["voice", "fil-dec", 45],
+           ["voice", "fil-sus", -35], ["voice", "amp-dec", 35], ["voice", "amp-sus", -70], ["voice", "glide", -60],
+           ["timbre", "cutoff", 50], ["aftertouch", "cutoff", 30], ["velocity", "vca", 50], ["velocity", "cutoff", 20]])
 
 P(58, "MPE Glide", "other",
   "MPE (lower zone): each note on channels 2-9 has 48 semitones of bend, its slide (CC 74) opens its filter and its "

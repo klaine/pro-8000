@@ -119,6 +119,10 @@
              background: var(--plate); color: var(--silk); font: 800 11.5px/1 var(--sans); letter-spacing: .07em;
              text-transform: uppercase; white-space: nowrap; }
   .ps-noise, .ps-glide { justify-content: center; }
+  .face .ps canvas.viz { flex: 1 1 150px; min-width: 150px; height: 66px; align-self: center; margin: 2px 0; }
+  .pflex { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 6px; min-width: 0; }
+  .pflex .prow { flex: 0 0 auto; }
+  .face .pflex canvas.viz { flex: 1 1 130px; min-width: 130px; height: 60px; }
   .ps-flt { flex-direction: column; align-items: stretch; justify-content: space-around; }
   .prow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; align-items: end; gap: 2px; }
   .grp { display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
@@ -197,20 +201,19 @@
   .extras-head::after { content: ""; flex: 1; height: 1px; background: var(--edge); }
   .extras { display: grid; gap: 26px 14px; grid-template-columns: repeat(12, minmax(0, 1fr));
     grid-template-areas:
-      "scope scope scope scope scope scope scope scope scope scope scope scope"
       "env1 env1 env1 env0 env0 env0 env2 env2 env2 env3 env3 env3"
       "lfo1 lfo1 lfo1 lfo1 lfo1 lfo1 lfo2 lfo2 lfo2 lfo2 lfo2 lfo2"
       "voice voice voice voice mtx mtx mtx mtx mtx mtx mtx mtx"
       "seq seq seq seq seq seq seq seq seq seq seq seq"; }
-  .sec-scope { grid-area: scope; } .sec-seq { grid-area: seq; } .sec-matrix { grid-area: mtx; }
-  .sec-env0 { grid-area: env0; } .sec-env1 { grid-area: env1; } .sec-env2 { grid-area: env2; } .sec-env3 { grid-area: env3; }
+  .sec-seq { grid-area: seq; } .sec-matrix { grid-area: mtx; }
+  .sec-env0 { grid-area: env0; align-self: start; } .sec-env1 { grid-area: env1; align-self: start; } .sec-env2 { grid-area: env2; } .sec-env3 { grid-area: env3; }
   .sec-lfo1 { grid-area: lfo1; } .sec-lfo2 { grid-area: lfo2; } .sec-voice { grid-area: voice; }
   @media (max-width: 1360px) {
     .extras { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas:
-      "scope scope" "env1 env0" "env2 env3" "lfo1 lfo2" "voice voice" "mtx mtx" "seq seq"; }
+      "env1 env0" "env2 env3" "lfo1 lfo2" "voice voice" "mtx mtx" "seq seq"; }
   }
   @media (max-width: 760px) {
-    .extras { grid-template-columns: 1fr; grid-template-areas: "scope" "env1" "env0" "env2" "env3" "lfo1" "lfo2" "voice" "mtx" "seq"; }
+    .extras { grid-template-columns: 1fr; grid-template-areas: "env1" "env0" "env2" "env3" "lfo1" "lfo2" "voice" "mtx" "seq"; }
     main { padding: 10px; }
   }
   .sec { position: relative; min-width: 0; padding: 20px 14px 14px; border-radius: 10px; background: var(--well);
@@ -222,9 +225,9 @@
   .sec-tools { display: flex; gap: 6px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
   .sec-tools select { flex: 1; }
   .krow { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 4px; }
-  .scopes { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .scopes > div { display: flex; flex-direction: column; gap: 5px; }
-  @media (max-width: 760px) { .scopes { grid-template-columns: 1fr; } }
+  .macros { justify-content: flex-start !important; gap: 10px 22px; }
+  .macro { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .macro .wires { display: flex; flex-direction: column; gap: 3px; min-width: 0; max-width: 22em; }
   .lbl { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--label); white-space: nowrap; }
   .val { font: 11px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
   .sel { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -553,7 +556,7 @@
       scale that stage's time up to 16× either way at depth 99 (sustain adds to the level). On the panel: Arp Assign,
       then a source (a number key, a touch of an LFO or ADSR knob, or scroll with VALUE), then a destination (touch
       its knob or LFO button, or scroll and press Arp Assign), VALUE for the depth; hold Arp Assign to browse the routes.</p>
-    <div class="row" id="macros"></div>
+    <div class="row macros" id="macros"></div>
     <div class="row"><span class="dim small">the layer you're editing</span>
       <button id="matrix-refresh">Refresh</button><span class="msg" id="matrix-msg"></span></div>
     <div class="table-wrap"><table>
@@ -1608,11 +1611,11 @@ function envSection(env) {
     await setSetting(SET_ID[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`], v >= 2 ? v - 1 : 0);
     await setSetting(SET_ID[key], v ? bits | bit : bits & ~bit);
   }, "ADSR, or cycling while a key is held: attack, hold, fall, rest; synced cycles share a clock division");
-  const note = h("span", { class: "dim small" }, bit === 1 ? "knobs: Amplifier on the panel above" :
-    `knobs: Filter on the panel above, Env select ${bit === 2 ? "down" : bit === 4 ? "in the middle" : "up"}`);
+  const note = h("span", { class: "dim small" }, bit === 1 ? "knobs and display: Amplifier on the panel above" :
+    `knobs and display: Filter on the panel above, Env select ${bit === 2 ? "down" : bit === 4 ? "in the middle" : "up"}`);
   return sec(`env${envIndex(bit)}`, title,
     h("div", { class: "sec-tools" }, mode, copyButton(`copy this envelope from the other layer`, () => copyEnvelope(bit, title))),
-    viz("env", drawEnv(bit)),
+    bit >= 4 ? viz("env", drawEnv(bit)) : null,
     bit >= 4 ? h("div", { class: "krow" }, knob(a, "Attack"), knob(d, "Decay"), knob(s, "Sustain"), knob(r, "Release")) : null,
     note);
 }
@@ -1961,6 +1964,47 @@ function settingKnob(key, label, title, show = u => String(Math.round(u * 99))) 
     clearTimeout(timer); timer = setTimeout(() => setSetting(SET_ID[key], Math.round(u * 99)), 60);
   }, show, 0, title);
 }
+// Macro 1 and 2 of the edit layer as knobs: the knob is the macro's offset (−99..+99, the setting macro<layer><k>;
+// Shift + CUTOFF / RESONANCE on the panel), the ring is what its input routes can add, and the text beside it says
+// what feeds the macro and what it drives.
+function macroKnob(k) {
+  const key = () => `macro${paramsLayer + 1}${k + 1}`, name = `Macro ${k + 1}`;
+  let local = null, at = 0, timer = 0;
+  const get = () => local !== null && Date.now() - at < 1500 ? local : settings ? settings[key()] / 198 : 0.5;
+  const show = u => signed(Math.round(u * 198) - 99);
+  const set = u => {
+    if (offline()) return;
+    local = u; at = Date.now(); touch(name, show(u));
+    clearTimeout(timer); timer = setTimeout(() => setSetting(SET_ID[key()], Math.round(u * 198)), 60);
+  };
+  const d = dial("bi"), val = h("span", { class: "val" }, "–");
+  const dl = h("div", { class: "dial", role: "slider", "aria-label": name }, d.svg);
+  adjustable(dl, get, u => { set(Math.min(1, Math.max(0, u))); paintAll(); }, () => { set(0.5); paintAll(); });
+  const wires = h("span", { class: "dim small wires" });
+  paints.push(() => {
+    const u = get();
+    d.turn(u); val.textContent = show(u);
+    let lo = 0, hi = 0;
+    const ins = [], outs = [];
+    for (const r of layerRoutes || []) {
+      if (r.dest === 44 + k) {
+        ins.push(`${SOURCES[r.source]} ${signed(r.depth)}`);
+        const span = Math.abs(r.depth) / 99 / 2; // a full-depth input moves the macro by 1: half the knob's travel
+        if (BIPOLAR_SOURCES.has(r.source)) { lo += span; hi += span; } else if (r.depth > 0) hi += span; else lo += span;
+      }
+      if (r.source === 26 + k) outs.push(`${DESTS[r.dest]} ${signed(r.depth)}`);
+    }
+    d.range(u, lo, hi);
+    dl.classList.toggle("modded", lo + hi > 0);
+    wires.replaceChildren(h("span", {}, ins.length ? "fed by " + ins.join(", ") : "no inputs: the knob alone"),
+      h("span", {}, outs.length ? "→ " + outs.join(", ") : "→ nothing yet"));
+  });
+  return h("div", { class: "macro" },
+    h("div", { class: "knob", title: `${name}: its offset (Shift + ${k ? "RESONANCE" : "CUTOFF"} on the panel) plus whatever is routed into it, clamped to ±1. The ring is what the inputs can add. Route the macro from the Source list below.` },
+      dl, h("span", { class: "lbl" }, name), val),
+    wires);
+}
+document.getElementById("macros").replaceChildren(macroKnob(0), macroKnob(1));
 function driftKnob() {
   return settingKnob("drift", "Drift", "each voice's pitch and cutoff wander slowly at random (up to 15 cents and a semitone)");
 }
@@ -2019,6 +2063,7 @@ function buildPanel() {
   const ps = (id, title, ...body) => h("div", { class: `ps ps-${id}` }, title ? h("h3", {}, title) : null, ...body);
   const grp = (caption, ...kids) => h("div", { class: "grp" }, h("div", { class: "grp-in" }, ...kids), h("div", { class: "cap" }, caption));
   const prow = (...kids) => h("div", { class: "prow" }, ...kids);
+  const pflex = (...kids) => h("div", { class: "pflex" }, ...kids); // knobs with a display beside them
   let showValues = false;
   try { showValues = localStorage.getItem("pro800-values") === "1"; } catch (e) {}
   const face = h("div", { class: "face" + (showValues ? " values" : "") });
@@ -2050,11 +2095,13 @@ function buildPanel() {
     ps("osca", "Oscillator A", knob(P.FREQ_A, "Frequency"), panelLever(15, "Sync", { top: "SYNC", bottom: "OFF" }),
       grp("Shape", panelLever(0, "Osc A saw", { icon: "saw" }), panelLever(1, "Osc A triangle", { icon: "tri" }),
         panelLever(2, "Osc A square", { icon: "sq" })),
-      knob(P.PW_A, "Pulse width"), knob(P.LEVEL_A, "Level")),
+      knob(P.PW_A, "Pulse width"), knob(P.LEVEL_A, "Level"),
+      viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(0, 1, 2, params[P.PW_A], params[P.LEVEL_A]), 240, { fill: true }))),
     ps("oscb", "Oscillator B", knob(P.FREQ_B, "Frequency"), knob(P.FINE, "Fine"),
       grp("Shape", panelLever(3, "Osc B saw", { icon: "saw" }), panelLever(4, "Osc B triangle", { icon: "tri" }),
         panelLever(5, "Osc B square", { icon: "sq" })),
-      knob(P.PW_B, "Pulse width"), knob(P.LEVEL_B, "Level")),
+      knob(P.PW_B, "Pulse width"), knob(P.LEVEL_B, "Level"),
+      viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(3, 4, 5, params[P.PW_B], params[P.LEVEL_B]), 240, { fill: true }))),
     ps("pm", "Poly-mod", grp("Source amount", knob(P.PMOD_ENV, "Fil env"), knob(P.PMOD_B, "Osc B")),
       grp("Destination", panelLever(8, "Poly-mod → Freq A", { top: "FREQ A" }), panelLever(11, "Poly-mod → Filter", { top: "FILTER" })),
       panelLever(12, "Unison", { top: "UNISON", bottom: "OFF" })),
@@ -2067,25 +2114,24 @@ function buildPanel() {
         panelLever(10, "LFO → Filter", { top: "FILTER" }))),
     ps("glide", "", knob(P.GLIDE, "Glide")),
     ps("flt", "Filter",
-      prow(knob(P.CUTOFF, "Cutoff"), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Envelope amount"),
+      pflex(prow(knob(P.CUTOFF, "Cutoff"), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Envelope amount"),
         lever3("Keyboard tracking", ["FULL", "HALF", "OFF"], () => settings ? 2 - settings.keytrack : undefined, k => {
           touch("Keyboard tracking", ["Off", "Half", "Full"][2 - k]); setSetting(SET_ID.keytrack, 2 - k);
         }, "how far the cutoff follows the key; on the synth, the switch (a loaded patch's value holds until it moves)")),
+        viz("flt", drawFilter)),
       h("div", { class: "grp" },
-        prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))), envCaption)),
+        pflex(prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))),
+          viz("env", (g, w, ht) => drawEnv(ENVS[[0, 2, 3, 2][envSelect()] ?? 0][1])(g, w, ht))),
+        envCaption)),
     h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Master tune"), power),
-    ps("amp", "Amplifier", knob(P.AMP_ATT, "Attack"), knob(P.AMP_DEC, "Decay"), knob(P.AMP_SUS, "Sustain"), knob(P.AMP_REL, "Release")),
+    ps("amp", "Amplifier", knob(P.AMP_ATT, "Attack"), knob(P.AMP_DEC, "Decay"), knob(P.AMP_SUS, "Sustain"), knob(P.AMP_REL, "Release"),
+      viz("env", drawEnv(1))),
     h("div", { class: "loose loose-vol" }, knob(P.VOL, "Volume")));
   // what the editor adds, below
-  const scope = (text, canvas) => h("div", {}, h("span", { class: "lbl" }, text), canvas);
   const matrix = document.querySelector("#tab-matrix section");
   matrix.className = "sec sec-matrix";
   document.getElementById("tab-matrix").remove();
   const extras = h("div", { class: "extras" },
-    sec("scope", "Scope", h("div", { class: "scopes" },
-      scope("Oscillator A", viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(0, 1, 2, params[P.PW_A], params[P.LEVEL_A]), 240, { fill: true }))),
-      scope("Oscillator B", viz("osc", (g, w, ht) => trace(g, w, ht, oscWave(3, 4, 5, params[P.PW_B], params[P.LEVEL_B]), 240, { fill: true }))),
-      scope("Filter", viz("flt", drawFilter)))),
     ...ENVS.map(envSection),
     lfoSection(0), lfoSection(1),
     sec("voice", "Voice",
@@ -2335,15 +2381,7 @@ function renderRoutes(force) {
   }
   if (!used) body.innerHTML = `<tr><td colspan="4" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
   document.getElementById("add-route").disabled = used >= 16;
-  // the macros as they are wired: inputs → outputs
-  const mac = document.getElementById("macros");
-  if (mac) mac.replaceChildren(...[0, 1].map(k => {
-    const ins = layerRoutes.filter(r => r.dest === 44 + k).map(r => `${SOURCES[r.source]} ${signed(r.depth)}`);
-    const outs = layerRoutes.filter(r => r.source === 26 + k).map(r => `${DESTS[r.dest]} ${signed(r.depth)}`);
-    const off = settings ? settings[`macro${paramsLayer + 1}${k + 1}`] - 99 : 0;
-    return h("span", { class: "dim small", title: "Macro " + (k + 1) + ": what feeds it (plus its offset, Shift + CUTOFF / RESONANCE on the panel) → what it drives" },
-      `Macro ${k + 1}: ${ins.length ? ins.join(", ") : "—"}${off ? ` (offset ${signed(off)})` : ""} → ${outs.length ? outs.join(", ") : "—"}`);
-  }));
+  paintAll(); // the macro knobs' rings and wiring follow the routes
 }
 async function loadRoutes() {
   if (offline()) return;

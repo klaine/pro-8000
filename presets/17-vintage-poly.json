@@ -4,7 +4,7 @@
  "group": "poly",
  "notes": {
   "sound": "Saw and a width-modulated pulse, every voice a few cents and a little width its own, a soft filter that velocity opens. LFO 2 drifts each voice slowly; the drift setting adds the rest. Chords spread, nothing holds still.",
-  "shows": "Per-voice spread of pitch and PW, the drift LFO per voice, drift, velocity to cutoff and level."
+  "shows": "Per-voice spread of pitch, the drift LFO per voice, drift, velocity to cutoff and level."
  },
  "buttons": [
   "a-saw",
@@ -90,11 +90,6 @@
     "voice",
     "pitch-b",
     6
-   ],
-   [
-    "voice",
-    "b-pw",
-    20
    ],
    [
     "lfo2",
