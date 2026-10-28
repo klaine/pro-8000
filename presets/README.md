@@ -82,7 +82,7 @@ presets/` prints the plan on its own.
 |---|---|---|
 | P17 | Vintage Poly | Saw and PWM pulse, drift, every voice's B a few cents elsewhere. The Voice source → Pitch B. |
 | P18 | Poly Brass | Saws 8 cents apart, a 40 ms attack into a 30-semitone sweep. Velocity and aftertouch on the filter. |
-| P19 | Combo Organ | Squares an octave apart, Env 3 click, LFO 2 tremolo, vibrato that fades in. Env 3 as a click, LFO 2 → VCA. |
+| P19 | Combo Organ | Two squares an octave apart, filter wide open, instant envelopes; the filter envelope clicks 40 ms at each key, LFO 2 tremolo, a vibrato that fades in late. LFO 2 → VCA, LFO 1 delay and fade. |
 | P20 | Poly Sync | Synced saws with a 10-semitone poly-mod sweep, deeper on hard notes. Velocity → poly-mod env amount. |
 | P21 | E Piano | Triangles, B at +19 FM-ing A while Env 4 decays: tine over body. FM through poly-mod shaped by Env 4 and velocity. |
 | P22 | Poly Press | Saws, closed filter; pressing a key opens that voice and adds its own vibrato. Poly aftertouch, per-voice LFOs. |

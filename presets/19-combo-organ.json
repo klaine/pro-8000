@@ -3,8 +3,8 @@
  "name": "Combo Organ",
  "group": "poly",
  "notes": {
-  "sound": "Two squares an octave apart, filter wide open, instant envelopes; a 40 ms Env 3 click on the filter at each key, LFO 2 tremolo, and a slow vibrato that fades in after a while.",
-  "shows": "Env 3 as a click transient, LFO 2 into the VCA (tremolo), LFO 1 delay and fade."
+  "sound": "Two squares an octave apart, filter wide open, instant envelopes; the filter envelope gives a 40 ms click at each key (+21 semitones, decay 40 ms, sustain 0), LFO 2 tremolo, and a slow vibrato that fades in after a while.",
+  "shows": "The filter envelope as a click transient, LFO 2 into the VCA (tremolo), LFO 1 delay and fade."
  },
  "buttons": [
   "a-square",
@@ -26,10 +26,10 @@
    "freq-b": 66,
    "fine": 50,
    "cutoff": 74,
-   "fil-env-amt": 50,
+   "fil-env-amt": 77,
    "fil-att": 0,
-   "fil-dec": 52,
-   "fil-sus": 99,
+   "fil-dec": 29,
+   "fil-sus": 0,
    "fil-rel": 29,
    "amp-att": 2,
    "amp-dec": 52,
@@ -41,7 +41,7 @@
    "lfo-amount": 9,
    "pmod-fil-env": 0,
    "env3-att": 0,
-   "env3-dec": 29,
+   "env3-dec": 0,
    "env3-sus": 0,
    "env3-rel": 0,
    "env4-att": 0,
@@ -86,11 +86,6 @@
  },
  "routes": {
   "1": [
-   [
-    "env3",
-    "cutoff",
-    25
-   ],
    [
     "lfo2",
     "vca",
