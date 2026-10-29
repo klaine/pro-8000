@@ -1362,6 +1362,26 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   and loading them in P128 (bytes 07 02), P1 reading semitones, and the JSON read and plan; by the user on the
   panel: the Seq + FREQ gesture steps the modes, and they sound right.
 
+## Osc B's square bleeding through with every waveform off (0.9.3, 2026-10-30)
+
+- **Issue 7** (init sound, osc A down, osc B at 50 with all three waveforms off: "a thin waveform"). The square has
+  no on/off line; it's switched off by pushing the pulse width to an end. Osc A went to the maximum, osc B to the
+  minimum (p600fw's rule: with B's pulse held high, poly-mod from B detunes A). Measured in direct mode through the
+  comparator (osc B alone at 334 Hz, volume B full, saw and triangle off): at PW 0 it caught 334 Hz now and then,
+  from 0x0080 up always, so the minimum is a pulse on the edge of vanishing, not silence (the 0.048 + 1.034 × PW
+  duty measured on osc A gives ~5 %); from about 0xE800 to 0xFFFF the fundamental was gone.
+- **p600fw's rule holds on this board.** Osc A1 at 342 Hz (saw), osc B's waves off, poly-mod gate FREQ A: amount 0
+  read the same at either end of PW B; with PW B at 0xFFFF, amount 0x4000 read 363 Hz (+103 cents), 0x8000 398
+  (+260), full 475 (+566); at PW B 0 it stayed within 3 cents. Through the filter gate (filter 1 self-oscillating
+  at 1666 Hz, amount 0x8000): 2564 Hz (+746 cents) with PW B high, 1668 with it low.
+- **The fix** (`synth_update()`): osc B's square off now goes to the maximum too, unless poly-mod from B reaches
+  something: the amount's CV non-zero and FREQ A or FILTER on. Then the minimum, as before, and the thin pulse stays
+  (in the manual's known limitations). Autotune keeps PW B at 0 (master and poly-mod off there, and the tables were
+  measured that way). On the synth (P128, the init sound, A3 held, the comparator reading the voice in normal
+  mode): osc B with its waves off gave no pitch, its saw and its square 220 Hz; with osc A's saw and B's waves off,
+  poly-mod from B at 25 and 50 into FREQ A, at 50 into the filter, and at 50 with both off, osc A stayed at
+  219.7-220.1 Hz. Heard by the user on the synth: osc B silent with all its waveforms off.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

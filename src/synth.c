@@ -1936,14 +1936,19 @@ void synth_update(float dt)
     sh_set(CV_VOL_B, cv_from(shared[POT_B_LEVEL] + shared_mod[DEST_B_LEVEL]));
     sh_set(CV_NOISE, cv_from(shared[POT_NOISE] + shared_mod[DEST_NOISE]));
     sh_set(CV_RESONANCE, cv_from(shared[POT_RESONANCE] + shared_mod[DEST_RESONANCE]));
-    sh_set(CV_PMOD_OSC_B, cv_from(shared[POT_PMOD_OSC_B] + shared_mod[DEST_PMOD_OSC_B]));
+    uint16_t pmod_osc_b = cv_from(shared[POT_PMOD_OSC_B] + shared_mod[DEST_PMOD_OSC_B]);
+    sh_set(CV_PMOD_OSC_B, pmod_osc_b);
     sh_set(CV_MASTER_VOL, cv_from(panel[POT_MASTER_VOL] * clamp01(1.0f + shared_mod[DEST_VOLUME])));
     sh_set(CV_EXT_FIL, 0);
-    // square off: PW A at maximum, PW B at minimum (as p600fw), so no pulse bleeds through
+    // square off: PW at maximum, where the pulse fills the cycle (at the minimum it's still ~5 % wide and heard,
+    // issue 7). Osc B's pulse held high is a DC offset in the poly-mod source, though (+103 cents on FREQ A at a
+    // quarter amount, +746 on the filter at half), so while poly-mod from osc B reaches either, B goes to the
+    // minimum, as p600fw does
     float pw_a = 0.05f + 0.9f * clamp01(shared[POT_A_PW] + shared_mod[DEST_A_PW] * MOD_PW) + lfo_pw;
     float pw_b = 0.05f + 0.9f * clamp01(shared[POT_B_PW] + shared_mod[DEST_B_PW] * MOD_PW) + lfo_pw;
     sh_set(CV_PW_A, sw(SWITCH_A_SQUARE) ? cv_from(pw_a) : 0xFFFF);
-    sh_set(CV_PW_B, sw(SWITCH_B_SQUARE) ? cv_from(pw_b) : 0);
+    int pmod_from_b = pmod_osc_b && (pmod_freq_a || sw(SWITCH_PMOD_FILTER));
+    sh_set(CV_PW_B, sw(SWITCH_B_SQUARE) ? cv_from(pw_b) : pmod_from_b ? 0 : 0xFFFF);
     sh_gate(GATE_SAW_A, sw(SWITCH_A_SAW));
     sh_gate(GATE_TRI_A, sw(SWITCH_A_TRI));
     sh_gate(GATE_SAW_B, sw(SWITCH_B_SAW));

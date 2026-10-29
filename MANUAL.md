@@ -677,6 +677,10 @@ build/pro800 install build/pro800-0.9.2.syx --yes
 
 - Waveform levels within one oscillator (e.g. saw louder than triangle on oscillator A) can't be mixed: the
   waveform buttons are on/off lines to the voice board. Put the second waveform on the other oscillator instead.
+- Oscillator B with all its waveforms off is silent, except while poly-mod from it is in use (PMOD OSC B up with
+  FREQ A or FILTER on): then a thin pulse of it can still be heard. Its square has no on/off line, so it's switched
+  off by pushing the pulse width to an end, and the silent end would detune oscillator A and the filter through
+  poly-mod.
 - MIDI OUT / THRU isn't implemented, and SysEx works over USB only. The sequencer, scale, morph and note priority
   are set on the web page only.
 - 128 patches, each with its sequence; the 0.7.x patches are not carried over (the EEPROM backups keep them).
