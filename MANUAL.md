@@ -581,7 +581,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.8.2.syx --yes
+build/pro800 install build/pro800-0.9.0.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

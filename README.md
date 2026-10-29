@@ -4,6 +4,9 @@ Alternative firmware for the Behringer PRO-800 (STM32F446), packed with Music Tr
 flashed through the synth's own bootloader. Written from scratch for this hardware, with GliGli's p600fw (Prophet-600
 firmware) as the reference for how the analog side behaves.
 
+Two guides with diagrams are at https://klaine.github.io/pro-8000/: how the firmware works, and the sound design it
+opens up compared with the stock PRO-800. The user manual is `MANUAL.md`.
+
 **Features**
 
 - **Bitimbral:** two layers (split, stack, or by MIDI channel), selected with Seq 1 / Seq 2, with knob pickup.
@@ -19,12 +22,11 @@ firmware) as the reference for how the analog side behaves.
   numbers) and buttons (compare, undo, quick save, layer copy, settings pages, panic).
 - **Mod matrix:** 16 routes per layer, assigned and browsed from the panel (MOD ASSIGN on Arp Assign), with two
   macros that are destinations and sources at once.
-  - 28 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, pitch
+  - 27 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, pitch
     bend, pedal, two assignable CCs, CC 74 (timbre), gate, random, note, voice number, a fixed 1, the sequencer's
     four lanes and the macros.
   - 46 destinations: pitch, cutoff, the VCA, mixer and pulse widths, every envelope stage, glide, detune, volume,
     the LFOs' amounts, rates and routings, morph and the macros.
-  - 24 destinations, including the LFO rates and depths.
 - **Autotune:** within about a cent across C1-C8. The tables are stored in the EEPROM.
 - **Sequencer:** a step sequence per patch, played from a key and transposed by it (up to 64 steps, gate, ties,
   swing, clock sync), with up to four automation lanes as mod sources; edited on the web page.
@@ -63,7 +65,7 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 ## Install
 
 ```bash
-build/pro800 install build/pro800-0.8.2.syx --yes
+build/pro800 install build/pro800-0.9.0.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`
@@ -77,3 +79,9 @@ Recovery is always possible through the bootloader: hold buttons 0 and 7 at powe
 | `tools/pro800.swift` | The command-line tool (CoreMIDI). |
 | `tools/web/` | The WebMIDI editor (one HTML file) and the panel map. |
 | `reference/`, `backup/` | Third-party material and the synth's own backups, not in git. |
+
+## Licence
+
+MIT, see `LICENSE`. GliGli's p600fw (GPL v3) served as a reference for the analog side's behaviour; none of its code is
+in this firmware, which is written from scratch for the STM32F446. Music Tribe's packer and the schematic in
+`reference/` are third-party and stay out of the repository.
