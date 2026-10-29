@@ -1,6 +1,6 @@
 # PRO-8000: user manual
 
-For PRO-8000 0.9.1, an alternative firmware for the Behringer PRO-800, flashed through the synth's own bootloader.
+For PRO-8000 0.9.2, an alternative firmware for the Behringer PRO-800, flashed through the synth's own bootloader.
 It's an independent project, not affiliated with Behringer or Music Tribe. It exists because Music Tribe, Behringer's
 parent company, published [PRO800-Firmware-Packer](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer):
 the main-board
@@ -654,7 +654,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.9.1.syx --yes
+build/pro800 install build/pro800-0.9.2.syx --yes
 ```
 
 ## Updating, recovery and going back to stock

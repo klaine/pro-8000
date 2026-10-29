@@ -1323,8 +1323,11 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   bar) had the same check. Both compare signed now.
 - **An empty slot loads the init sound** (`load_patch()`: VALUE, number keys, program change, the host's 5C), in
   that slot, so REC saves it there; it used to show the number and keep the sound. A damaged slot still shows `nonE`.
-  The display keeps the slot's number (`P 67`), as for any patch: `init_patch()`'s `InIt` is cancelled there, and
+  From 0.9.2 the display keeps the slot's number (`P 67`), as for any patch: `init_patch()`'s `InIt` is cancelled there, and
   stays for PERF (asked for after scrolling through empty slots showed `InIt` on each).
+
+## Oscillator tuning modes, the preset bank from the synth, filling the patch memory (0.9.2, 2026-10-29)
+
 - **Filling the patch memory from the web page** (asked for after a forum user had no patches after installing):
   coming from stock, the slots hold stock-format data and read as damaged, and only macOS had a bulk route
   (`pro800 format`, `presets/install.sh`). The Patches tab now formats the memory (5B), copies the whole factory

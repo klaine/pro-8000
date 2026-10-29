@@ -10,7 +10,7 @@
 //   20  layer mode, split note, LFO sync[2], LFO retrigger[2], LFO delay[2], LFO fade[2]
 //   30  keyboard tracking, drift, morph target + 1 (0 = none), scale | root << 4, voice modes, bend range, detune + 1
 //   37  layer 1's voices in the two-layer modes (1-7, 0 = automatic; 0.9.0), 38 the oscillators' tuning modes[2]
-//       (per layer, so 38-39: A bits 0-1, B bits 2-3; 0 = semitones, as before; 0.9.1)
+//       (per layer, so 38-39: A bits 0-1, B bits 2-3; 0 = semitones, as before; 0.9.2)
 //   40  switches (u16)            bit s = switch s engaged
 //   42  LFO 2 destinations[2], 44 cycling envelopes[2], 46 step counts[2][2], 50 step patterns[2][2] (u16),
 //   58  synced cycling[2][4] (0 free, else clock division + 1), 66 LFO shapes[2][2], 70 macro offsets[2][2]

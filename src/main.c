@@ -48,7 +48,7 @@
 //                          endless, 1-99; in the same order; 0.9.1), 75-76 stage times in note values per layer (a
 //                          bit per envelope; 0.9.1), 77 the MIDI channel (0 every channel, 1-16; 0.9.1), 78-81 the
 //                          tuning mode of FREQ A, B on layer 1, then layer 2 (0 semitones, 1 octave, 2 free, 3
-//                          fixed); read-only
+//                          fixed; 0.9.2); read-only
 //                          after: env select, preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,

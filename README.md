@@ -236,7 +236,7 @@ attack, -12 semitones, or a clock division.
 | Memory | Holds |
 |---|---|
 | Flash, sectors 0-3 | The bootloader, write-protected and never touched |
-| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 72 kB in 0.9.1; the bootloader erases sectors 4 and 5 on every update |
+| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 73 kB in 0.9.2; the bootloader erases sectors 4 and 5 on every update |
 | EEPROM `0x00000`-`0x17FFF` | 128 patches, 768 bytes each: both layers' knobs and settings, 32 mod routes, a name and the step sequence with its own checksum |
 | EEPROM, after the patches | The stock factory bank, exactly where the stock firmware left it (importable); the global block (CC numbers, clock source and tempo); the tuning tables |
 
@@ -316,7 +316,7 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 ## Install
 
 ```bash
-build/pro800 install build/pro800-0.9.1.syx --yes
+build/pro800 install build/pro800-0.9.2.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`

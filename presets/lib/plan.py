@@ -122,7 +122,7 @@ def setting_line(key, value):
     elif name == "env-count":
         check(len(w) == 3 and w[1] in LAYERS and w[2] in ENVS, "env-count: " + key)
         check(v == "loop" or (isinstance(value, int) and 1 <= value <= 99), "env-count: loop or 1-99, not %r" % value)
-    elif name == "osc-tune":  # 0.9.1: FREQ A / B's tuning mode per layer
+    elif name == "osc-tune":  # 0.9.2: FREQ A / B's tuning mode per layer
         check(len(w) == 3 and w[1] in LAYERS and w[2] in ("a", "b") and v in ["semitones", "octave", "free", "fixed"],
               "osc-tune: %s %s" % (key, v))
     elif name == "layer-voices":

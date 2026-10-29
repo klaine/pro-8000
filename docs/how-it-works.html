@@ -31,7 +31,7 @@
 </header>
 
 <div class="hero">
-  <div class="kicker">PRO-8000 0.9.1 · technical tour</div>
+  <div class="kicker">PRO-8000 0.9.2 · technical tour</div>
   <h1>How the firmware works</h1>
   <p class="lede">The PRO-800 makes its sound with eight fully analog voices. This firmware is the brain that plays them: it reads your hands and your MIDI, does the maths, and sets the voltages that the analog circuits follow. Here's how, from the circuit board up.</p>
   <p class="note-sm">Built on what Music Tribe, Behringer's parent company, published in <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer">PRO800-Firmware-Packer</a>: the main-board <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer/blob/main/Schematics/PRO800_Main_Schematics.pdf">schematic</a> and the packer that turns a firmware into an update the synth's bootloader accepts.</p>
@@ -521,7 +521,7 @@
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
       <svg viewBox="0 0 880 300" role="img" aria-labelledby="f14t">
-        <title id="f14t">Flash map: a write-protected bootloader, then up to 128 kB for this firmware across sector 4 and half of sector 5, about 72 kB used. EEPROM map: 128 patch records with their sequences, the stock factory bank, global settings and tuning tables.</title>
+        <title id="f14t">Flash map: a write-protected bootloader, then up to 128 kB for this firmware across sector 4 and half of sector 5, about 73 kB used. EEPROM map: 128 patch records with their sequences, the stock factory bank, global settings and tuning tables.</title>
         <text x="20" y="28" class="t-b">Microcontroller flash · 256 kB</text>
         <rect class="box" x="20" y="40" width="210" height="58" rx="8"/><text x="34" y="64" class="t-b">Bootloader</text><text x="34" y="84" class="t-xs">64 kB · write-protected</text>
         <rect class="box-dig" x="230" y="40" width="420" height="58" rx="8"/><rect class="f-dig" x="230" y="40" width="226" height="58" rx="8" opacity=".22"/><text x="244" y="64" class="t-b">This firmware</text><text x="244" y="84" class="t-xs">up to 128 kB: sector 4 and half of 5 · ≈ 69 kB used (shaded)</text>
@@ -550,7 +550,7 @@
   <h2>MIDI in: USB, SysEx and the 5-pin socket</h2>
   <div class="prose">
     <p>The USB driver is written from scratch for the chip's USB hardware and shows up as a standard class-compliant MIDI device. It reports Behringer's own IDs, the name "PRO 800" and the same serial number the stock firmware used, so a Mac treats it as the device it already knows. Notes play on any channel, or on the one set with Shift + NOISE or the web page.</p>
-    <p>Everything beyond notes and controllers travels as <strong>SysEx</strong>, MIDI's "system exclusive" messages. They start with Behringer's header <code>F0 00 20 32 00 01 24 00</code>, then a command byte. For example, <code>08 00</code> asks for the firmware version, and the synth answers <code>09 00 00 09 01</code> (0.9.1). The firmware understands dozens of commands: read or set any parameter or setting, read the panel, list, load, save and rename patches, import factory sounds, read and write mod routes and the sequence, run autotune, report timing, the two DAC probes, and a probe of the engine's state (held keys, voices, switch overrides).</p>
+    <p>Everything beyond notes and controllers travels as <strong>SysEx</strong>, MIDI's "system exclusive" messages. They start with Behringer's header <code>F0 00 20 32 00 01 24 00</code>, then a command byte. For example, <code>08 00</code> asks for the firmware version, and the synth answers <code>09 00 00 09 02</code> (0.9.2). The firmware understands dozens of commands: read or set any parameter or setting, read the panel, list, load, save and rename patches, import factory sounds, read and write mod routes and the sequence, run autotune, report timing, the two DAC probes, and a probe of the engine's state (held keys, voices, switch overrides).</p>
     <p>The <strong>5-pin MIDI IN</strong> socket works too, from 0.7.6. Its opto-isolator feeds the chip's UART4 serial port, which receives at MIDI's 31,250 baud and interrupts on every byte. Clock ticks go straight to the clock, timestamped like USB's; everything else is queued and turned into the same packets USB delivers. It carries notes, controllers, pressure, bend, program changes and clock, so a keyboard with a MIDI out plays the synth with no computer. SysEx stays on USB.</p>
     <p>The USB socket itself is a <em>device</em> port, like a printer's: the synth waits for a computer to talk to it, and it can't power or host a USB keyboard. A USB-only controller needs a computer, or a small USB MIDI host box, in between.</p>
   </div>
@@ -650,7 +650,7 @@
 </div>
 
 <footer class="site">
-  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.1 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
+  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.2 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
   <a href="index.html">Home</a><a href="sound-design.html">Sound design →</a>
   <br>Wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your hardware. Not affiliated with Behringer or Music Tribe.
 </footer>
