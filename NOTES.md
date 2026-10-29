@@ -1204,6 +1204,13 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 - The 54 reply's read-only values (env select, preset mode, patch, morph) are always its last four, but they move
   whenever a setting is added: a web page from before an update showed "manual" and the wrong patch. The web page and
   the tool now take those four from the end of the reply, and the settable ones from the start.
+- **The web page with older firmware** (back to the release 0.9.0, the first public one): builds keep the release's
+  version number, so the page tells them apart by the 54 reply's length instead (71 settings in the release, 81
+  now; settings are only ever appended). `FEATURES` names each later feature by its first setting; `feature()` is
+  true when the reply reaches it (or nothing is connected). Controls hide when their feature is missing, the
+  release's key-up trigger is drawn and offered only while not cycling (cycling won there), `data-needs` /
+  `data-unless` swap the cheat sheet's lines, and the status line lists what's missing. Checked in the built-in
+  browser with fake 71- and 81-setting replies (the counts compiled from the enum at v0.9.0 and at HEAD).
 - **On the synth** (flashed, P34): the pass is 946 µs on average with no notes (904 on 0.8.5), the longest in 2 s
   2,769 µs. A key-up amp envelope stayed silent while the key was held and sounded for ~0.6 s after it was let go
   (`record`, 0.1 s windows); DAHDSR with delay 60 (0.37 s) started the note ~0.4 s after note-on. A host build of
