@@ -92,6 +92,7 @@
 #include "eeprom.h"
 #include "store.h"
 #include "lfo.h"
+#include "fastmath.h"
 #include "panel.h"
 #include "regs.h"
 #include "dac.h"
@@ -107,7 +108,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 176 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 184 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -1226,6 +1227,8 @@ static void format_time(float s, char *text)
 // turned, shown by name and then as a time. The engine keeps those knobs frozen meanwhile (the main loop).
 #define ENV_EXTRA_POTS (1u << POT_AMP_ATT | 1u << POT_AMP_DEC | 1u << POT_FIL_ATT | 1u << POT_FIL_DEC)
 static uint32_t extra_frozen;
+static uint32_t tune_mode_frozen;
+static int tune_mode_pot = -1, tune_mode_raw, tune_mode_accum;
 static int extra_last[POT_COUNT], extra_pot = -1;
 static float extra_acc;
 static uint32_t extra_value_at; // when to show the value (after its name)
@@ -1278,6 +1281,48 @@ static void control_event(control_kind_t kind, int index, int32_t value)
 
     if (report_mode) {
         report_event(kind, index, value);
+        return;
+    }
+    if (kind == CONTROL_BUTTON && (index == BUTTON_SEQ1 || index == BUTTON_SEQ2) && !value
+        && !controls_button(BUTTON_SEQ1) && !controls_button(BUTTON_SEQ2) && tune_mode_frozen) {
+        tune_mode_frozen = 0;
+        tune_mode_pot = -1;
+        tune_mode_accum = 0;
+        synth_freeze_pots(extra_frozen);
+    }
+    if (kind == CONTROL_POT && (index == POT_FREQ_A || index == POT_FREQ_B) && !menu_open && !saving && !recording
+        && !assigning && !browsing && !comparing && !shift_active()
+        && (controls_button(BUTTON_SEQ1) || controls_button(BUTTON_SEQ2))) {
+        int osc = index == POT_FREQ_A ? 0 : 1;
+        int layer = synth_edit_layer();
+        if (tune_mode_pot != index) {
+            tune_mode_pot = index;
+            tune_mode_raw = (int)value;
+            tune_mode_accum = 0;
+            tune_mode_frozen |= 1u << index;
+            synth_freeze_pots(extra_frozen | tune_mode_frozen);
+            static const char *const names[OSC_TUNE_MODE_COUNT] = {"SEMt", "Oct ", "FrEE", "FIXd"};
+            display_text(names[synth_osc_tune_mode(layer, osc)]);
+            display_until = ms_ticks + 1000;
+            return;
+        }
+        tune_mode_accum += (int)value - tune_mode_raw;
+        tune_mode_raw = (int)value;
+        int mode = synth_osc_tune_mode(layer, osc);
+        while (tune_mode_accum >= 1024) {
+            mode = (mode + 1) % OSC_TUNE_MODE_COUNT;
+            tune_mode_accum -= 1024;
+        }
+        while (tune_mode_accum <= -1024) {
+            mode = (mode + OSC_TUNE_MODE_COUNT - 1) % OSC_TUNE_MODE_COUNT;
+            tune_mode_accum += 1024;
+        }
+        if (mode != synth_osc_tune_mode(layer, osc)) {
+            synth_set_osc_tune_mode(layer, osc, mode);
+            static const char *const names[OSC_TUNE_MODE_COUNT] = {"SEMt", "Oct ", "FrEE", "FIXd"};
+            display_text(names[mode]);
+            display_until = ms_ticks + 1000;
+        }
         return;
     }
     if (kind == CONTROL_BUTTON && index == BUTTON_ARP_ASSIGN && !menu_open && !saving) {
@@ -1495,7 +1540,12 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         } else if (env_knob_time(index, knob) >= 0) {
             format_time(env_knob_time(index, knob), text);
         } else if (index == POT_FREQ_A || index == POT_FREQ_B) {
-            format_signed((float)synth_knob_semitones(knob), text);
+            int osc = index == POT_FREQ_A ? 0 : 1;
+            float pitch = synth_knob_tune_value(synth_edit_layer(), osc, knob);
+            if (synth_osc_tune_mode(synth_edit_layer(), osc) == OSC_TUNE_FIXED)
+                format_quantity(440.0f * fast_exp2((pitch - 69.0f) / 12.0f), text);
+            else
+                format_signed(pitch, text);
         } else if (index == POT_FINE) {
             format_signed((float)synth_knob_cents(knob), text);
         } else if (index == POT_MASTER_TUNE) { // Macro 1
@@ -1672,6 +1722,7 @@ typedef enum {
     SET_ENV_COUNT_END = SET_ENV_COUNT + 7,
     SET_ENV_TEMPO_L1, SET_ENV_TEMPO_L2, // a bit per envelope: stage times in note values
     SET_MIDI_CHANNEL,                                    // 1-16, 0 every channel (system-wide)
+    SET_OSC_TUNE_L1_A, SET_OSC_TUNE_L1_B, SET_OSC_TUNE_L2_A, SET_OSC_TUNE_L2_B,
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1716,6 +1767,8 @@ static int host_setting_get(int id)
     case SET_ENV_COUNT ... SET_ENV_COUNT_END: return synth_env_count((id - SET_ENV_COUNT) / 4, (id - SET_ENV_COUNT) % 4);
     case SET_ENV_TEMPO_L1: case SET_ENV_TEMPO_L2: return synth_env_tempo(id - SET_ENV_TEMPO_L1);
     case SET_MIDI_CHANNEL: return midi_channel;
+    case SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B:
+        return synth_osc_tune_mode((id - SET_OSC_TUNE_L1_A) / 2, (id - SET_OSC_TUNE_L1_A) % 2);
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -1737,6 +1790,7 @@ static int host_setting_set(int id, int value)
         [SET_ENV_DELAY ... SET_ENV_HOLD + 7] = 100, [SET_LAYER_VOICES] = VOICE_COUNT,
         [SET_ENV_COUNT ... SET_ENV_COUNT_END] = 100, [SET_ENV_TEMPO_L1] = 16, [SET_ENV_TEMPO_L2] = 16,
         [SET_MIDI_CHANNEL] = 17,
+        [SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B] = OSC_TUNE_MODE_COUNT,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1792,6 +1846,9 @@ static int host_setting_set(int id, int value)
         break;
     case SET_ENV_TEMPO_L1: case SET_ENV_TEMPO_L2: synth_set_env_tempo(id - SET_ENV_TEMPO_L1, value); break;
     case SET_MIDI_CHANNEL: set_midi_channel(value); break;
+    case SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B:
+        synth_set_osc_tune_mode((id - SET_OSC_TUNE_L1_A) / 2, (id - SET_OSC_TUNE_L1_A) % 2, value);
+        break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;

@@ -51,6 +51,8 @@ The user manual is [MANUAL.md](MANUAL.md).
   - 46 destinations: pitch, cutoff, the VCA, mixer and pulse widths, every envelope stage, glide, detune, volume,
     the LFOs' amounts, rates and routings, morph and the macros.
 - **Autotune:** within about a cent across C1-C8. The tables are stored in the EEPROM.
+- **Oscillator tuning modes:** each oscillator on each layer can use semitone steps, octave steps, continuous tuning,
+  or a fixed C1-C8 pitch that still responds to pitch bend and modulation.
 - **Sequencer:** a step sequence per patch, played from a key and transposed by it (up to 64 steps, gate, ties,
   swing, clock sync), with up to four automation lanes as mod sources; edited on the web page.
 - **Expression and play:** per-voice poly aftertouch, mono / legato / poly per layer with note priority, a sustain

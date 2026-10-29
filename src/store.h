@@ -21,6 +21,7 @@ typedef struct {
     char name[PATCH_NAME + 1];
     uint8_t layer_mode, split;
     uint8_t layer_voices;                // layer 1's voices in the two-layer modes, 1-7; 0 = automatic (0.9.0)
+    uint8_t osc_tune[2];                  // per layer: oscillator A mode | oscillator B mode << 2
     uint8_t lfo_sync[2], lfo_trigger[2]; // LFO 1, LFO 2
     uint8_t lfo_shape[2][2];             // [layer][LFO 1, LFO 2], lfo_shape_t
     uint8_t lfo2_dests[2];               // per layer, LFO2_TO_* bits

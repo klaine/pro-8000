@@ -148,7 +148,7 @@
     <figcaption><b>Figure 2.</b> The six layer modes. With two layers on, each gets four voices, or seven and one when one layer is mono. The two per-channel modes play one sound with a voice per MIDI channel.</figcaption>
   </figure>
   <div class="prose">
-    <p>Some things stay shared, because the hardware has one wire for them: the waveform buttons, the mixer, resonance, pulse widths, poly-mod oscillator B and master volume. The art of layering here is to make the two layers different through what <em>is</em> per layer: tuning (an octave or a fifth apart), filter and envelopes, glide, LFOs and routes.</p>
+    <p>Some things stay shared, because the hardware has one wire for them: the waveform buttons, the mixer, resonance, pulse widths, poly-mod oscillator B and master volume. The art of layering here is to make the two layers different through what <em>is</em> per layer: tuning (an octave or a fifth apart), filter and envelopes, glide, LFOs and routes. FREQ A and B each have independent Semitones, Octave, Free and Fixed (C1-C8) modes per layer; Fixed ignores played notes but still responds to pitch bend and modulation.</p>
     <p>The synth plays every MIDI channel until you set one with Shift + NOISE (<span class="led">CHnL</span>: <span class="led">ALL</span> or 1–16). Then it hears only that channel, and the per-channel modes count from it: set to 3, channel mode plays layer 1 on channel 3 and layer 2 on channel 4. Handy when the synth shares a MIDI line or a Move with other instruments. To set one layer's level against the other's, route FIXED → VCA on the louder layer: depth 50 takes it down about 6.5 dB.</p>
   </div>
 </section>

@@ -442,7 +442,7 @@
     <section class="cs cs-wide">
       <h3>Buttons that do new jobs</h3>
       <table class="ct">
-        <tr><td><kbd>Seq 1</kbd> / <kbd>Seq 2</kbd></td><td>Choose the layer the knobs edit <code class="lcd">L  1</code> <code class="lcd">L  2</code></td></tr>
+        <tr><td><kbd>Seq 1</kbd> / <kbd>Seq 2</kbd></td><td>Choose the layer the knobs edit. Hold one and turn FREQ A or B to cycle that oscillator's tuning mode: semitones, octave, free or fixed.</td></tr>
         <tr><td>Hold <kbd>Rec</kbd> + <kbd>Seq 1</kbd></td><td>Record steps from MIDI <code class="lcd">rSEq</code> (REC blinks fast): each note is the next step <code class="lcd">St 3</code>, <kbd>Seq 2</kbd> a rest, <kbd>Rec</kbd> or <kbd>Seq 1</kbd> ends <code class="lcd">donE</code>. The first note is offset 0. <kbd>Rec</kbd> then saves it with the patch.</td></tr>
         <tr><td><kbd>Arp Up-Dn</kbd></td><td>LFO knobs, Shape button and LFO routing edit LFO 1 or LFO 2 (LED lit = LFO 2) <code class="lcd">LFO1</code> <code class="lcd">LFO2</code></td></tr>
         <tr><td><kbd>Arp Assign</kbd></td><td>Mod assign: the mod matrix (LED blinks) <code class="lcd">SrC</code></td></tr>
@@ -461,7 +461,7 @@
     <section class="cs">
       <h3>The display</h3>
       <ul>
-        <li>A knob shows its value while turned, in real units: semitones (FREQ A/B), cents (FINE), −99..99 (M TUNE, Macro 1), Hz with a point from 1 kHz (CUTOFF), ms / s (envelopes, GLIDE), divisions when synced (LFO FREQ).</li>
+        <li>A knob shows its value while turned, in real units: FREQ A/B follow their mode (semitones, octaves or Hz for Fixed), cents (FINE), −99..99 (M TUNE, Macro 1), Hz with a point from 1 kHz (CUTOFF), ms / s (envelopes, GLIDE), divisions when synced (LFO FREQ).</li>
         <li>No plus sign: positive values have none.</li>
         <li><b>A dot after the value</b> = the knob hasn't picked up yet. Turn it past (or onto) the stored value and it takes over. Happens after loading a patch, switching layer / LFO / envelope, or editing from the web page.</li>
       </ul>
@@ -1179,6 +1179,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "layerVoices", ...[1, 2].flatMap(l => [0, 1, 2, 3].map(e => `envCount${l}_${e}`)), // cycles, 0 endless
   "envTempo1", "envTempo2", // a bit per envelope: stage times in note values
   "midiChannel", // 1-16, 0 every channel (system-wide)
+  "oscTune1A", "oscTune1B", "oscTune2A", "oscTune2B", // FREQ A / B per layer: semitones, octave, free, fixed
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -1339,7 +1340,16 @@ function seconds(s) { return s < 0.9995 ? Math.round(s * 1000) + " ms" : s.toFix
 function lfoHz(v) { return 0.05 * 2 ** (v * 10); }
 function format(i, v) {
   const signed = x => (x > 0 ? "+" : "") + x;
-  if (i === P.FREQ_A || i === P.FREQ_B) return signed(Math.floor((v - 0.5) * 72 + 36.5) - 36) + " st";
+  if (i === P.FREQ_A || i === P.FREQ_B) {
+    const osc = i === P.FREQ_A ? "A" : "B", mode = settings?.[`oscTune${paramsLayer + 1}${osc}`] ?? 0;
+    if (mode === 1) return signed(Math.round(v * 6) - 3) + " oct";
+    if (mode === 2) return signed(((v - 0.5) * 72).toFixed(1)) + " st";
+    if (mode === 3) {
+      const hz = 440 * 2 ** ((24 + v * 84 - 69) / 12);
+      return hz < 1000 ? hz.toFixed(1) + " Hz" : (hz / 1000).toFixed(hz < 9995 ? 2 : 1) + " kHz";
+    }
+    return signed(Math.floor((v - 0.5) * 72 + 36.5) - 36) + " st";
+  }
   if (i === P.FINE) return signed(Math.round((v - 0.5) * 200)) + " ct";
   if (i === P.TUNE) { const x = (v - 0.5) * 2, a = Math.max(0, (Math.abs(x) - .02) / .98); // Macro 1, a dead zone
     return signed(Math.round(Math.sign(x) * a * 99)); }
@@ -2446,6 +2456,14 @@ function buildPanel() {
       settingSelect("Voices", ["Automatic: 4 + 4, or 7 + 1 with one layer mono", ...[1, 2, 3, 4, 5, 6, 7].map(n => `${n} + ${8 - n}`)],
         () => settings && settings.layerVoices, v => setSetting(SET_ID.layerVoices, v),
         "how the two-layer modes (split, stack, by channel) share the 8 voices: layer 1 + layer 2; on the synth Settings 3, then Arp Up-Dn"),
+      row(settingSelect("Oscillator A tuning", ["Semitones", "Octave", "Free", "Fixed"],
+          () => settings && settings[`oscTune${paramsLayer + 1}A`],
+          v => setSetting(SET_ID[`oscTune${paramsLayer + 1}A`], v),
+          "FREQ A scale: semitone steps, octave steps, continuous ±36 semitones, or fixed C1-C8 pitch"),
+        settingSelect("Oscillator B tuning", ["Semitones", "Octave", "Free", "Fixed"],
+          () => settings && settings[`oscTune${paramsLayer + 1}B`],
+          v => setSetting(SET_ID[`oscTune${paramsLayer + 1}B`], v),
+          "FREQ B scale: semitone steps, octave steps, continuous ±36 semitones, or fixed C1-C8 pitch")),
       settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
         () => settings && settings.split, v => setSetting(SET_ID.split, v)),
       settingSelect("Filter keytracking", ["Off", "Half", "Full"], () => settings && settings.keytrack, v => setSetting(SET_ID.keytrack, v),

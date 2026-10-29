@@ -9,7 +9,8 @@
 //   4   name[16]                  0-padded
 //   20  layer mode, split note, LFO sync[2], LFO retrigger[2], LFO delay[2], LFO fade[2]
 //   30  keyboard tracking, drift, morph target + 1 (0 = none), scale | root << 4, voice modes, bend range, detune + 1
-//   37  layer 1's voices in the two-layer modes (1-7, 0 = automatic; 0.9.0), 38 reserved to 40
+//   37  layer 1's voices in two-layer modes; 38-39 per-layer oscillator modes (A bits 0-1, B bits 2-3)
+//       40 reserved
 //   40  switches (u16)            bit s = switch s engaged
 //   42  LFO 2 destinations[2], 44 cycling envelopes[2], 46 step counts[2][2], 50 step patterns[2][2] (u16),
 //   58  synced cycling[2][4] (0 free, else clock division + 1), 66 LFO shapes[2][2], 70 macro offsets[2][2]
@@ -61,6 +62,7 @@
 #define OFF_BEND 35
 #define OFF_DETUNE 36
 #define OFF_LAYER_VOICES 37
+#define OFF_OSC_TUNE 38
 #define OFF_SWITCHES 40
 #define OFF_LFO2_DESTS 42
 #define OFF_CYCLE 44
@@ -257,6 +259,8 @@ int store_load_patch(int n, patch_t *patch)
     patch->bend_range = b[OFF_BEND];
     patch->detune = b[OFF_DETUNE];
     patch->layer_voices = b[OFF_LAYER_VOICES];
+    for (int l = 0; l < 2; l++)
+        patch->osc_tune[l] = b[OFF_OSC_TUNE + l] & 0x0F;
     patch->switches = get16(b + OFF_SWITCHES);
     for (int l = 0; l < 2; l++) {
         patch->lfo2_dests[l] = b[OFF_LFO2_DESTS + l];
@@ -318,6 +322,8 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_DETUNE] = patch->detune;
     b[OFF_LAYER_VOICES] = patch->layer_voices;
     b[OFF_UP_CYCLES] = 1;
+    for (int l = 0; l < 2; l++)
+        b[OFF_OSC_TUNE + l] = patch->osc_tune[l] & 0x0F;
     put16(b + OFF_SWITCHES, patch->switches);
     for (int l = 0; l < 2; l++) {
         b[OFF_LFO2_DESTS + l] = patch->lfo2_dests[l];
