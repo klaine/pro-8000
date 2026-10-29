@@ -1,8 +1,17 @@
-# PRO-800 custom firmware
+# PRO-8000
 
-Alternative firmware for the Behringer PRO-800 (STM32F446), packed with Music Tribe's PRO800-Firmware-Packer and
-flashed through the synth's own bootloader. Written from scratch for this hardware, with GliGli's p600fw (Prophet-600
-firmware) as the reference for how the analog side behaves.
+PRO-8000 is an alternative firmware for the Behringer PRO-800 (STM32F446), packed with Music Tribe's
+PRO800-Firmware-Packer and flashed through the synth's own bootloader. Written from scratch for this hardware, with
+GliGli's p600fw (Prophet-600 firmware) as the reference for how the analog side behaves. It's an independent project,
+not affiliated with Behringer or Music Tribe.
+
+> [!WARNING]
+> **Wildly experimental.** A hobby project, built and tested on a single synth. It replaces the PRO-800's firmware,
+> drives its analog circuits directly and rewrites its patch memory. Use it entirely at your own risk: it comes as
+> is, without warranty of any kind (see [LICENSE](LICENSE)), and the authors accept no liability if it harms your
+> synth, your patches or anything connected to it. Flashing unofficial firmware may also void the synth's warranty.
+> Back up your patches first, and know the way back: hold 0 and 7 at power-up to reach the bootloader and flash the
+> stock firmware.
 
 **Online** (GitHub Pages):
 

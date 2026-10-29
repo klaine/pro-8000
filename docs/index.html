@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PRO-800 Custom Firmware</title>
-<meta name="description" content="Documentation for a custom firmware for the Behringer PRO-800: how it works, and the sound design it opens up.">
+<title>PRO-8000 · Firmware for the Behringer PRO-800</title>
+<meta name="description" content="Documentation for PRO-8000, a custom firmware for the Behringer PRO-800: how it works, and the sound design it opens up.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23160705'/%3E%3Cpath d='M5 21 L11 11 L16 21 L21 11 L27 21' fill='none' stroke='%23ff5b3d' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
 <!--STYLE-->
 <style>
@@ -27,7 +27,7 @@
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="index.html"><span class="logo">PRO<b>·</b>800</span><span class="sub">custom firmware</span></a>
+  <a class="brand" href="index.html"><span class="logo">PRO<b>·</b>8000</span><span class="sub">custom firmware</span></a>
   <nav>
     <a href="how-it-works.html">How it works</a>
     <a href="sound-design.html">Sound design</a>
@@ -38,9 +38,10 @@
 </header>
 
 <div class="hero">
-  <div class="kicker">Behringer PRO-800 · firmware 0.9.0</div>
+  <div class="kicker">PRO-8000 0.9.0 · for the Behringer PRO-800</div>
   <h1>A new brain for eight analog voices</h1>
-  <p class="lede">A from-scratch replacement firmware for the PRO-800. The voice board stays fully analog; the firmware adds two layers, four LFOs, four envelopes per voice, a 16-route mod matrix with macros, per-note expression up to MPE, a sequence in every patch, autotune within a cent, and a 64-sound preset bank.</p>
+  <p class="lede">PRO-8000 is a from-scratch replacement firmware for the PRO-800. The voice board stays fully analog; the firmware adds two layers, four LFOs, four envelopes per voice, a 16-route mod matrix with macros, per-note expression up to MPE, a sequence in every patch, autotune within a cent, and a 64-sound preset bank.</p>
+  <div class="callout" id="experimental"><span class="label">Wildly experimental</span>A hobby project, built and tested on a single synth. It replaces the PRO-800's firmware, drives its analog circuits directly and rewrites its patch memory. Use it entirely at your own risk: it comes as is, without warranty of any kind, and the authors accept no liability if it harms your synth, your patches or anything connected to it. Flashing unofficial firmware may also void the synth's warranty. Back up your patches first, and know the way back: hold 0 and 7 at power-up to reach the bootloader and flash the stock firmware.</div>
 </div>
 
 <main class="home">
@@ -99,6 +100,6 @@
   </div>
 </main>
 
-<footer class="site">PRO-800 custom firmware · documentation for 0.9.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a></footer>
+<footer class="site">PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a><br>Wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your hardware. Not affiliated with Behringer or Music Tribe.</footer>
 </body>
 </html>

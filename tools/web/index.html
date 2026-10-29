@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PRO-800 Editor</title>
+<title>PRO-8000 Editor</title>
 <style>
   /* A dark hardware panel (after the Crest editor): charcoal sections with silkscreen labels, black knobs with a
      lit arc, white-capped faders, red LED buttons and a red LED screen like the PRO-800's display. */
@@ -71,6 +71,8 @@
 
   /* ---------------------------------------------------------------- generic */
   main { padding: 14px 18px 28px; max-width: 1720px; margin: 0 auto; }
+  footer.disclaimer { max-width: 1720px; margin: 0 auto; padding: 0 18px 24px; color: var(--dim); font-size: 11px; }
+  footer.disclaimer a { color: inherit; }
   .panel > section { margin-bottom: 22px; }
   .panel > section > h2, .sec > h2 { font: 700 10px/1 var(--sans); letter-spacing: .26em; text-transform: uppercase;
                                       color: var(--label); margin: 0 0 12px; }
@@ -401,8 +403,8 @@
 </head>
 <body class="offline">
 <header>
-  <a class="brand" href="https://klaine.github.io/pro-8000/" title="The guides and this editor online"><span class="logo">PRO·800</span><span class="tagline">custom firmware</span></a>
-  <div class="screen" aria-live="polite"><div id="scr-top">pro 800</div><div id="scr-big">not connected</div><div id="scr-editrow" hidden><span id="scr-label"></span><input id="scr-edit" maxlength="16" spellcheck="false" autocomplete="off" aria-label="Patch name" placeholder="(no name)"></div><div id="scr-sub"></div></div>
+  <a class="brand" href="https://klaine.github.io/pro-8000/" title="The guides and this editor online"><span class="logo">PRO·8000</span><span class="tagline">custom firmware</span></a>
+  <div class="screen" aria-live="polite"><div id="scr-top">pro 8000</div><div id="scr-big">not connected</div><div id="scr-editrow" hidden><span id="scr-label"></span><input id="scr-edit" maxlength="16" spellcheck="false" autocomplete="off" aria-label="Patch name" placeholder="(no name)"></div><div id="scr-sub"></div></div>
   <div class="hdr-group" id="layers">
     <button type="button" class="led" data-v="0" title="edit layer 1 (Seq 1 on the panel)"><i class="lamp"></i><span>Layer 1</span></button>
     <button type="button" class="led" data-v="1" title="edit layer 2 (Seq 2 on the panel)"><i class="lamp"></i><span>Layer 2</span></button>
@@ -742,6 +744,7 @@
   </section>
 </div>
 </main>
+<footer class="disclaimer">PRO-8000 is wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your synth or your patches. Not affiliated with Behringer or Music Tribe. <a href="https://klaine.github.io/pro-8000/#experimental">The disclaimer</a></footer>
 <script>
 const HEADER = [0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00];
 const POT_GROUPS = ["U22 / VMUX1", "U21 / VMUX2", "U42 / VMUX3"];
@@ -1311,7 +1314,7 @@ paints.push(() => {
     big.textContent = `${touched.label}  ${touched.value}`;
     sub.textContent = patch;
   } else {
-    top.textContent = settings ? `layer ${paramsLayer + 1} · ${["one layer", "split", "stack", "by channel", "a voice per channel", "MPE"][settings.layers]}` : "pro 800";
+    top.textContent = settings ? `layer ${paramsLayer + 1} · ${["one layer", "split", "stack", "by channel", "a voice per channel", "MPE"][settings.layers]}` : "pro 8000";
     big.textContent = settings ? patch : "not connected";
     sub.textContent = settings ? (settings.envSelect === 3 ? "Shift on the synth: ADSR knobs edit Env 3 / Env 4" : "") : "";
   }

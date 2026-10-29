@@ -286,3 +286,8 @@ footer.site a { margin: 0 6px; }
 .launch h2 { font-size: 1.22rem; margin: 0 0 4px; }
 .launch p { margin: 0; color: var(--ink-2); }
 .launch .go { margin-left: auto; font-weight: 600; color: var(--accent); white-space: nowrap; }
+
+/* the experimental-firmware warning: in the home page's hero, and as a line under each guide's lede */
+.hero .callout { margin: 26px 0 0; scroll-margin-top: 80px; }
+.note-sm.risk { margin-top: 14px; max-width: 72ch; }
+.note-sm.risk b { color: var(--accent); }

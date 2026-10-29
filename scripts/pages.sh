@@ -47,7 +47,7 @@ if [ "$(git rev-parse -q --verify 'refs/heads/pages^{tree}' || true)" = "$TREE" 
 else
   SRC=$(git rev-parse --short HEAD)
   git diff --quiet HEAD -- || SRC="$SRC with local changes"
-  git update-ref refs/heads/pages "$(git commit-tree "$TREE" -m "PRO-800 firmware $(cat VERSION): the guides and the editor, built from $SRC")"
+  git update-ref refs/heads/pages "$(git commit-tree "$TREE" -m "PRO-8000 $(cat VERSION): the guides and the editor, built from $SRC")"
   echo "== pages: built from $SRC"
   WT=$(git worktree list --porcelain | awk '/^worktree /{w=substr($0,10)} /^branch refs\/heads\/pages$/{print w}')
   if [ -n "$WT" ]; then

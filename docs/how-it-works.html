@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>How the Firmware Works</title>
-<meta name="description" content="A guided tour of the custom PRO-800 firmware: how an ARM chip turns knobs and MIDI notes into the voltages that play eight analog voices.">
+<title>How the Firmware Works · PRO-8000</title>
+<meta name="description" content="A guided tour of PRO-8000, the custom PRO-800 firmware: how an ARM chip turns knobs and MIDI notes into the voltages that play eight analog voices.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23160705'/%3E%3Cpath d='M5 21 L11 11 L16 21 L21 11 L27 21' fill='none' stroke='%23ff5b3d' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
 <!--STYLE-->
 <!--COMMON-->
@@ -20,7 +20,7 @@
 </defs></svg>
 
 <header class="topbar">
-  <a class="brand" href="index.html"><span class="logo">PRO<b>·</b>800</span><span class="sub">custom firmware</span></a>
+  <a class="brand" href="index.html"><span class="logo">PRO<b>·</b>8000</span><span class="sub">custom firmware</span></a>
   <nav>
     <a href="how-it-works.html" aria-current="page">How it works</a>
     <a href="sound-design.html">Sound design</a>
@@ -31,9 +31,10 @@
 </header>
 
 <div class="hero">
-  <div class="kicker">Firmware 0.9.0 · technical tour</div>
+  <div class="kicker">PRO-8000 0.9.0 · technical tour</div>
   <h1>How the firmware works</h1>
   <p class="lede">The PRO-800 makes its sound with eight fully analog voices. This firmware is the brain that plays them: it reads your hands and your MIDI, does the maths, and sets the voltages that the analog circuits follow. Here's how, from the circuit board up.</p>
+  <p class="note-sm risk"><b>Wildly experimental:</b> use it at your own risk, with no liability if it harms your hardware. <a href="index.html#experimental">The disclaimer</a></p>
   <div class="meta"><span class="chip">STM32F446 · 168 MHz</span><span class="chip">Written from scratch in C</span><span class="chip">No operating system</span><span class="chip">About 69 kB</span></div>
 </div>
 
@@ -648,8 +649,9 @@
 </div>
 
 <footer class="site">
-  PRO-800 custom firmware · documentation for 0.9.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
+  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
   <a href="index.html">Home</a><a href="sound-design.html">Sound design →</a>
+  <br>Wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your hardware. Not affiliated with Behringer or Music Tribe.
 </footer>
 
 <script>
