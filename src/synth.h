@@ -218,7 +218,7 @@ float synth_knob_snap(int pot, float knob);
 // What a knob position means for FREQ A / B (whole semitones, ±36) and FINE (cents, ±100).
 int synth_knob_semitones(float knob);
 int synth_knob_cents(float knob);
-float synth_knob_tune_value(int layer, int osc, float knob); // semitones, or MIDI note number in Fixed mode
+float synth_knob_tune_value(int layer, int osc, float knob); // semitones (octave mode too), or the MIDI note in Fixed mode
 // ... and the other knobs with units: filter env amount and poly-mod filter env (semitones), cutoff (Hz), glide
 // (time constant in seconds, 0 = off). LFO rates: lfo.h.
 float synth_knob_env_amount(float knob);

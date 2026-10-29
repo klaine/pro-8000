@@ -1191,6 +1191,7 @@ const FEATURES = {
   envCount: ["envCount1_0", "cycle counts, the key-up trigger while cycling"],
   envTempo: ["envTempo1", "envelope times in note values"],
   midiChannel: ["midiChannel", "the MIDI channel setting"],
+  oscTune: ["oscTune1A", "the oscillators' tuning modes"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1640,6 +1641,13 @@ function led(text, get, set, title) {
 }
 // A dropdown bound to a setting value
 // The channel the synth listens on (system-wide): in the by-channel layer modes, the first of their channels
+// The oscillators' tuning modes, with firmware that has them
+function oscTuneRow(...selects) {
+  const el = row(...selects);
+  el.dataset.needs = "oscTune";
+  return el;
+}
+
 function midiChannelSelect() {
   const el = settingSelect("MIDI channel", ["All", ...Array.from({ length: 16 }, (_, k) => `${k + 1}`)],
     () => settings && settings.midiChannel, v => { setSetting(SET_ID.midiChannel, v); followChannel(v); },
@@ -2456,7 +2464,7 @@ function buildPanel() {
       settingSelect("Voices", ["Automatic: 4 + 4, or 7 + 1 with one layer mono", ...[1, 2, 3, 4, 5, 6, 7].map(n => `${n} + ${8 - n}`)],
         () => settings && settings.layerVoices, v => setSetting(SET_ID.layerVoices, v),
         "how the two-layer modes (split, stack, by channel) share the 8 voices: layer 1 + layer 2; on the synth Settings 3, then Arp Up-Dn"),
-      row(settingSelect("Oscillator A tuning", ["Semitones", "Octave", "Free", "Fixed"],
+      oscTuneRow(settingSelect("Oscillator A tuning", ["Semitones", "Octave", "Free", "Fixed"],
           () => settings && settings[`oscTune${paramsLayer + 1}A`],
           v => setSetting(SET_ID[`oscTune${paramsLayer + 1}A`], v),
           "FREQ A scale: semitone steps, octave steps, continuous ±36 semitones, or fixed C1-C8 pitch"),
@@ -2904,6 +2912,7 @@ const jBits = names => ({ dec: v => names.filter((_, i) => v >> i & 1).join(",")
 const JSON_SETTINGS = [
   ["layers", "layers", jOne(["off", "split", "stack", "channel", "8ch", "mpe"])], ["split", "split", jInt(0, 127)],
   ["layer-voices", "layerVoices", { dec: v => v || "auto", enc: (x, k) => x === "auto" ? 0 : jInt(1, 7).enc(x, k) }],
+  ...[1, 2].flatMap(l => ["a", "b"].map(o => [`osc-tune ${l} ${o}`, `oscTune${l}${o.toUpperCase()}`, jOne(["semitones", "octave", "free", "fixed"])])),
   ["keytrack", "keytrack", jOne(["off", "half", "full"])],
   ["lfo-sync", "lfo1Sync", jOne(["free", "clock"])], ["lfo-trigger", "lfo1Trigger", jOne(["free", "first", "every", "voice"])],
   ["lfo2-sync", "lfo2Sync", jOne(["free", "clock"])], ["lfo2-trigger", "lfo2Trigger", jOne(["free", "first", "every", "voice"])],

@@ -1344,6 +1344,20 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   edits on the synth (P2, P5, P11, P25, P26, P34, P37, P60, P62 most), and ±1 rounding from the tool's install
   (`amp-rel 44` read back as 45, lanes ±1). P65 "Pad + Arp!" and P66 "BsSQ/LD.Split 1" are new (group `user`).
   Checked: each file on top of the init sound matches its read exactly, and `plan.py` takes all 66.
+- **Oscillator tuning modes (PR 6, by planist79):** FREQ A and B each have a mode per layer, semitones (as before),
+  octave (±3), free (±36 continuous) or fixed (C1-C8 whatever key is played; bend, spread, drift and pitch routes
+  still apply, the scale snaps around the fixed pitch). Stored at record bytes 38-39, 0 = semitones, so older patches
+  are unchanged. Hold Seq 1 / Seq 2 and turn FREQ A / B to step the edit layer's mode (a quarter turn a step; the knob
+  frozen meanwhile, in pickup after). Host settings 78-81 after the MIDI channel (read-only 82-85, `SYSEX_MAX` 184),
+  the tool's `set osc-tune <layer> a|b <mode>`, the page's menus (shown when the firmware has them) and JSON names
+  `osc-tune 1 a` (`plan.py` too). Rebased from the 0.9.0-era PR onto main, with fixes: it didn't compile (a sign
+  compare), its settings 67-70 collided with the cycle counts (and its tool cases with the read-only ones), octave
+  mode moved semitones instead of octaves (`synth_knob_tune_value()` didn't ×12), the display names had M and X,
+  which the font hasn't got (now `SEnI OCt FrEE FIHd`), and the envelope page's refreeze dropped the gesture's knobs.
+  Tested: on the host, the pitch each oscillator is sent (semitones and free follow the note; octave +1 = +12, −3 =
+  C1 from C4; fixed 66 for C3-C6, C1-C8 across the knob, +2 with full bend); on the synth, the four settings, saving
+  and loading them in P128 (bytes 07 02), P1 reading semitones, and the JSON read and plan; by the user on the
+  panel: the Seq + FREQ gesture steps the modes, and they sound right.
 
 ## Backlog
 

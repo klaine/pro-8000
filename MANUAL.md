@@ -34,7 +34,7 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Control | What it does now |
 |---|---|
 | Knobs | As printed, with a few changes. LFO FREQ / LFO AMOUNT edit LFO 1 or LFO 2. With Shift (Sync Source) held, the filter ADSR knobs edit Env 3, the amp ADSR knobs Env 4, and the other knobs secondary values (see Shift). |
-| FREQ A / FREQ B | Their tuning mode is per oscillator and layer; hold Seq 1 or Seq 2 while turning a FREQ knob to cycle its mode. |
+| FREQ A / FREQ B | Their tuning mode is per oscillator and layer; hold Seq 1 or Seq 2 while turning a FREQ knob to cycle its mode (`SEnI` semitones, `OCt` octave, `FrEE` free, `FIHd` fixed; a quarter turn a step). |
 | FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
 | Keyboard-tracking switch | Keyboard tracking, as printed: off, half, full. A loaded patch's setting holds until you move the switch. |
 | Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |

@@ -320,7 +320,7 @@ void synth_set_osc_tune_mode(int layer, int osc, int mode)
     osc_tune_modes[layer][osc] = (uint8_t)mode;
     int pot = osc == 0 ? POT_FREQ_A : POT_FREQ_B;
     unlatch(pot);
-    int steps = mode == OSC_TUNE_SEMITONES ? 72 : mode == OSC_TUNE_OCTAVE ? 6 : 0;
+    int steps = mode == OSC_TUNE_SEMITONES ? (int)(2 * OSC_RANGE_SEMITONES) : mode == OSC_TUNE_OCTAVE ? 6 : 0;
     if (steps)
         knob_held[pot] = (int)(panel[pot] * (float)steps + 0.5f);
 }
@@ -1501,7 +1501,7 @@ static int knob_steps(int pot)
     if (pot == POT_FREQ_A || pot == POT_FREQ_B) {
         int osc = pot == POT_FREQ_A ? 0 : 1;
         int mode = osc_tune_modes[edit_layer][osc];
-        return mode == OSC_TUNE_SEMITONES ? 72 : mode == OSC_TUNE_OCTAVE ? 6 : 0;
+        return mode == OSC_TUNE_SEMITONES ? (int)(2 * OSC_RANGE_SEMITONES) : mode == OSC_TUNE_OCTAVE ? 6 : 0;
     }
     if (adsr_pot(pot)) {
         int p = param_of_pot(pot);
@@ -1538,7 +1538,7 @@ int synth_knob_semitones(float knob) { return (int)semitone_steps(knob); }
 float synth_knob_tune_value(int layer, int osc, float knob)
 {
     switch (synth_osc_tune_mode(layer, osc)) {
-    case OSC_TUNE_OCTAVE: return (float)((int)(knob * 6.0f + 0.5f) - 3);
+    case OSC_TUNE_OCTAVE: return 12.0f * (float)((int)(knob * 6.0f + 0.5f) - 3); // -3..3 octaves, in semitones
     case OSC_TUNE_FREE: return (knob - 0.5f) * 72.0f;
     case OSC_TUNE_FIXED: return 24.0f + knob * 84.0f;
     default: return semitone_steps(knob);

@@ -46,7 +46,9 @@
 //                          58-65 holds (0-99; layer 1 amp, filter, Env 3, Env 4, then layer 2; all 0.9.0), 66 layer
 //                          1's voices in the two-layer modes (1-7, 0 automatic; 0.9.0), 67-74 cycle counts (0
 //                          endless, 1-99; in the same order; 0.9.1), 75-76 stage times in note values per layer (a
-//                          bit per envelope; 0.9.1), 77 the MIDI channel (0 every channel, 1-16; 0.9.1); read-only
+//                          bit per envelope; 0.9.1), 77 the MIDI channel (0 every channel, 1-16; 0.9.1), 78-81 the
+//                          tuning mode of FREQ A, B on layer 1, then layer 2 (0 semitones, 1 octave, 2 free, 3
+//                          fixed); read-only
 //                          after: env select, preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
@@ -1227,8 +1229,11 @@ static void format_time(float s, char *text)
 // turned, shown by name and then as a time. The engine keeps those knobs frozen meanwhile (the main loop).
 #define ENV_EXTRA_POTS (1u << POT_AMP_ATT | 1u << POT_AMP_DEC | 1u << POT_FIL_ATT | 1u << POT_FIL_DEC)
 static uint32_t extra_frozen;
+// Hold Seq 1 or Seq 2 and turn FREQ A / B: that oscillator's tuning mode on the edit layer (a quarter turn a step),
+// the knob frozen meanwhile. The names as the display can show them (no M or X): semitones, octave, free, fixed.
 static uint32_t tune_mode_frozen;
 static int tune_mode_pot = -1, tune_mode_raw, tune_mode_accum;
+static const char tune_mode_names[OSC_TUNE_MODE_COUNT][5] = {"SEnI", "OCt", "FrEE", "FIHd"};
 static int extra_last[POT_COUNT], extra_pot = -1;
 static float extra_acc;
 static uint32_t extra_value_at; // when to show the value (after its name)
@@ -1301,14 +1306,13 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             tune_mode_accum = 0;
             tune_mode_frozen |= 1u << index;
             synth_freeze_pots(extra_frozen | tune_mode_frozen);
-            static const char *const names[OSC_TUNE_MODE_COUNT] = {"SEMt", "Oct ", "FrEE", "FIXd"};
-            display_text(names[synth_osc_tune_mode(layer, osc)]);
+            display_text(tune_mode_names[synth_osc_tune_mode(layer, osc)]);
             display_until = ms_ticks + 1000;
             return;
         }
         tune_mode_accum += (int)value - tune_mode_raw;
         tune_mode_raw = (int)value;
-        int mode = synth_osc_tune_mode(layer, osc);
+        int mode = (int)synth_osc_tune_mode(layer, osc);
         while (tune_mode_accum >= 1024) {
             mode = (mode + 1) % OSC_TUNE_MODE_COUNT;
             tune_mode_accum -= 1024;
@@ -1317,10 +1321,9 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             mode = (mode + OSC_TUNE_MODE_COUNT - 1) % OSC_TUNE_MODE_COUNT;
             tune_mode_accum += 1024;
         }
-        if (mode != synth_osc_tune_mode(layer, osc)) {
+        if (mode != (int)synth_osc_tune_mode(layer, osc)) {
             synth_set_osc_tune_mode(layer, osc, mode);
-            static const char *const names[OSC_TUNE_MODE_COUNT] = {"SEMt", "Oct ", "FrEE", "FIXd"};
-            display_text(names[mode]);
+            display_text(tune_mode_names[mode]);
             display_until = ms_ticks + 1000;
         }
         return;
@@ -1542,8 +1545,11 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         } else if (index == POT_FREQ_A || index == POT_FREQ_B) {
             int osc = index == POT_FREQ_A ? 0 : 1;
             float pitch = synth_knob_tune_value(synth_edit_layer(), osc, knob);
-            if (synth_osc_tune_mode(synth_edit_layer(), osc) == OSC_TUNE_FIXED)
+            oscillator_tune_mode_t mode = synth_osc_tune_mode(synth_edit_layer(), osc);
+            if (mode == OSC_TUNE_FIXED)
                 format_quantity(440.0f * fast_exp2((pitch - 69.0f) / 12.0f), text);
+            else if (mode == OSC_TUNE_OCTAVE)
+                format_signed(pitch / 12.0f, text); // octaves
             else
                 format_signed(pitch, text);
         } else if (index == POT_FINE) {
@@ -1722,7 +1728,7 @@ typedef enum {
     SET_ENV_COUNT_END = SET_ENV_COUNT + 7,
     SET_ENV_TEMPO_L1, SET_ENV_TEMPO_L2, // a bit per envelope: stage times in note values
     SET_MIDI_CHANNEL,                                    // 1-16, 0 every channel (system-wide)
-    SET_OSC_TUNE_L1_A, SET_OSC_TUNE_L1_B, SET_OSC_TUNE_L2_A, SET_OSC_TUNE_L2_B,
+    SET_OSC_TUNE_L1_A, SET_OSC_TUNE_L1_B, SET_OSC_TUNE_L2_A, SET_OSC_TUNE_L2_B, // FREQ A / B's mode: oscillator_tune_mode_t
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -2676,7 +2682,7 @@ int main(void)
         uint32_t extra = menu_open && menu_page == PAGE_CYCLE ? ENV_EXTRA_POTS : 0;
         if (extra != extra_frozen) { // the envelope page opened or closed: ATT / DEC set delay / hold meanwhile
             extra_frozen = extra;
-            synth_freeze_pots(extra);
+            synth_freeze_pots(extra | tune_mode_frozen);
             extra_pot = -1;
             for (int i = 0; i < POT_COUNT; i++)
                 extra_last[i] = -1;
