@@ -504,7 +504,9 @@ semitone, 50 = 6 semitones, 99 = 24 semitones.
 † The VCA destination is a gain on the amp envelope, so it never opens a voice that isn't playing. A swinging
 source (an LFO, random, note) at depth 99 goes from closed to fully open: tremolo, or a gate with the step shape.
 A 0-to-1 source (envelopes, velocity, mod wheel, aftertouch) turns the volume down where it's low: velocity → VCA at
-99 is plain velocity sensitivity, aftertouch → VCA at 99 is silent until you press.
+99 is plain velocity sensitivity, aftertouch → VCA at 99 is silent until you press. `FIX` → VCA turns the layer down
+by its depth, whichever the sign: 50 plays it at half, so it sets one layer's level against the other's in split or
+stack mode (`FIX` → `VOL` does the same to the master volume, for both layers).
 
 The LFO rate is per voice in `PoLY` retrigger mode. Otherwise it follows the most recently played note.
 

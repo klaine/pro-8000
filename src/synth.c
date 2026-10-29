@@ -1619,7 +1619,8 @@ static int fast_route(const route_t *r)
 // Adds the routes of `layer` evaluated for `voice` into mod[] (DEST_COUNT entries): the fast ones (fast_route()) or
 // the others. The VCA is a gain on the amp envelope (1 + mod, 0..1): a bipolar source at depth 99 swings it from
 // closed to open (tremolo, gates), and a 0..1 source counts down from full (source - 1), so velocity → VCA at 99 is
-// plain velocity sensitivity.
+// plain velocity sensitivity. FIX (always 1) would count down nothing, so into the VCA or the volume it turns the
+// level down by its depth, either sign: 50 is half, a layer's level.
 static int macro_source(int source) { return source == SRC_MACRO1 || source == SRC_MACRO2; }
 
 static void evaluate_routes(int layer, int voice, float *mod, int fast)
@@ -1638,9 +1639,14 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
                 || macro_source(x->source) != phase)
                 continue;
             float value = source_value(&voices[voice], voice, layer, x->source);
-            if ((x->dest == DEST_VCA || x->dest == DEST_VOLUME) && !bipolar(x->source))
-                value -= 1.0f;
             float depth = (float)x->depth / 99.0f;
+            if ((x->dest == DEST_VCA || x->dest == DEST_VOLUME) && !bipolar(x->source)) {
+                value -= 1.0f;
+                if (x->source == SRC_FIXED) { // down by the depth
+                    value = -1.0f;
+                    depth = depth < 0 ? -depth : depth;
+                }
+            }
             if (x->dest <= DEST_PITCH) // pitch: a squared depth curve, fine near zero for vibrato
                 depth *= depth < 0 ? -depth : depth;
             mod[x->dest] += value * depth;

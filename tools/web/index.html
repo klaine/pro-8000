@@ -1268,7 +1268,9 @@ function modRange(knob) {
     let d = Math.abs(depth) / 99;
     if (SQUARED_DESTS.has(dest)) d *= d;
     const span = d * scale;
-    if (BIPOLAR_SOURCES.has(source)) { r.lo += span; r.hi += span; } else if (depth > 0) r.hi += span; else r.lo += span;
+    // into the VCA or the volume a 0..1 source counts down from full, and FIX turns it down by its depth
+    const down = (dest === 9 || dest === 43) && !BIPOLAR_SOURCES.has(source);
+    if (BIPOLAR_SOURCES.has(source)) { r.lo += span; r.hi += span; } else if (down || depth < 0) r.lo += span; else r.hi += span;
     r.who.push(`${SOURCES[source]} ${depth > 0 ? "+" : ""}${depth}`);
   }
   return r;

@@ -1211,6 +1211,11 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   release's key-up trigger is drawn and offered only while not cycling (cycling won there), `data-needs` /
   `data-unless` swap the cheat sheet's lines, and the status line lists what's missing. Checked in the built-in
   browser with fake 71- and 81-setting replies (the counts compiled from the enum at v0.9.0 and at HEAD).
+- **FIX → VCA did nothing:** into the VCA and the volume a 0..1 source counts down from full, `(source − 1) × depth`,
+  and FIX is always 1, so every depth gave 0. FIX there now turns the level down by |depth| (either sign), the way
+  to set one layer's level against the other's. On the synth (P24, layer 1, velocity 127): no route −24.8 dBFS,
+  ±50 −31.3 / −31.5, 99 at the noise floor. The web page's modulation arc now shows 0..1 sources into VOL (and FIX)
+  turning it down.
 - **On the synth** (flashed, P34): the pass is 946 µs on average with no notes (904 on 0.8.5), the longest in 2 s
   2,769 µs. A key-up amp envelope stayed silent while the key was held and sounded for ~0.6 s after it was let go
   (`record`, 0.1 s windows); DAHDSR with delay 60 (0.37 s) started the note ~0.4 s after note-on. A host build of
