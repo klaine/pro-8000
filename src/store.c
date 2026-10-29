@@ -9,11 +9,12 @@
 //   4   name[16]                  0-padded
 //   20  layer mode, split note, LFO sync[2], LFO retrigger[2], LFO delay[2], LFO fade[2]
 //   30  keyboard tracking, drift, morph target + 1 (0 = none), scale | root << 4, voice modes, bend range, detune + 1
-//   37  reserved to 40
+//   37  layer 1's voices in the two-layer modes (1-7, 0 = automatic; 0.9.0), 38 reserved to 40
 //   40  switches (u16)            bit s = switch s engaged
 //   42  LFO 2 destinations[2], 44 cycling envelopes[2], 46 step counts[2][2], 50 step patterns[2][2] (u16),
 //   58  synced cycling[2][4] (0 free, else clock division + 1), 66 LFO shapes[2][2], 70 macro offsets[2][2]
-//       (int8, 0.8.1), 74 reserved to 96
+//       (int8, 0.8.1), 74 envelope key-up triggers[2], 76 DAHDSR envelopes[2] (a bit per envelope), 78 envelope
+//       curves[2] (2 bits per envelope), 80 envelope delays[2][4], 88 holds[2][4] (0-99; all 0.9.0)
 //   96  pots[2][26] (u16)         layer 1, then layer 2
 //   200 extra[2][10] (u16)        Env 3 and Env 4 ADSR, LFO 2 rate and amount, per layer
 //   240 routes[2][16]             source, destination, depth (int8) per layer
@@ -56,6 +57,7 @@
 #define OFF_VOICE_MODE 34
 #define OFF_BEND 35
 #define OFF_DETUNE 36
+#define OFF_LAYER_VOICES 37
 #define OFF_SWITCHES 40
 #define OFF_LFO2_DESTS 42
 #define OFF_CYCLE 44
@@ -64,6 +66,11 @@
 #define OFF_ENV_SYNC 58
 #define OFF_SHAPES 66
 #define OFF_MACRO 70 // [layer][macro] offsets, int8
+#define OFF_ENV_TRIGGER 74
+#define OFF_ENV_DAHDSR 76
+#define OFF_ENV_CURVE 78
+#define OFF_ENV_DELAY 80 // [layer][envelope]
+#define OFF_ENV_HOLD 88
 #define OFF_POTS 96
 #define OFF_EXTRA 200
 #define OFF_ROUTES 240
@@ -230,18 +237,25 @@ int store_load_patch(int n, patch_t *patch)
     patch->voice_mode = b[OFF_VOICE_MODE];
     patch->bend_range = b[OFF_BEND];
     patch->detune = b[OFF_DETUNE];
+    patch->layer_voices = b[OFF_LAYER_VOICES];
     patch->switches = get16(b + OFF_SWITCHES);
     for (int l = 0; l < 2; l++) {
         patch->lfo2_dests[l] = b[OFF_LFO2_DESTS + l];
         patch->env_cycle[l] = b[OFF_CYCLE + l];
+        patch->env_trigger[l] = b[OFF_ENV_TRIGGER + l];
+        patch->env_dahdsr[l] = b[OFF_ENV_DAHDSR + l];
+        patch->env_curve[l] = b[OFF_ENV_CURVE + l];
         for (int w = 0; w < 2; w++) {
             patch->step_count[l][w] = b[OFF_STEP_COUNTS + 2 * l + w];
             patch->step_pattern[l][w] = get16(b + OFF_STEPS + 2 * (2 * l + w));
             patch->lfo_shape[l][w] = b[OFF_SHAPES + 2 * l + w];
             patch->macro_offset[l][w] = (int8_t)b[OFF_MACRO + 2 * l + w];
         }
-        for (int e = 0; e < 4; e++)
+        for (int e = 0; e < 4; e++) {
             patch->env_sync[l][e] = b[OFF_ENV_SYNC + 4 * l + e];
+            patch->env_delay[l][e] = b[OFF_ENV_DELAY + 4 * l + e];
+            patch->env_hold[l][e] = b[OFF_ENV_HOLD + 4 * l + e];
+        }
         for (int i = 0; i < POT_COUNT; i++)
             patch->pots[l][i] = i == POT_MASTER_VOL ? 0 : get16(b + OFF_POTS + 2 * (l * POT_COUNT + i));
         for (int i = 0; i < EXTRA_PARAMS; i++)
@@ -279,18 +293,25 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_VOICE_MODE] = patch->voice_mode;
     b[OFF_BEND] = patch->bend_range;
     b[OFF_DETUNE] = patch->detune;
+    b[OFF_LAYER_VOICES] = patch->layer_voices;
     put16(b + OFF_SWITCHES, patch->switches);
     for (int l = 0; l < 2; l++) {
         b[OFF_LFO2_DESTS + l] = patch->lfo2_dests[l];
         b[OFF_CYCLE + l] = patch->env_cycle[l];
+        b[OFF_ENV_TRIGGER + l] = patch->env_trigger[l];
+        b[OFF_ENV_DAHDSR + l] = patch->env_dahdsr[l];
+        b[OFF_ENV_CURVE + l] = patch->env_curve[l];
         for (int w = 0; w < 2; w++) {
             b[OFF_STEP_COUNTS + 2 * l + w] = patch->step_count[l][w];
             put16(b + OFF_STEPS + 2 * (2 * l + w), patch->step_pattern[l][w]);
             b[OFF_SHAPES + 2 * l + w] = patch->lfo_shape[l][w];
             b[OFF_MACRO + 2 * l + w] = (uint8_t)patch->macro_offset[l][w];
         }
-        for (int e = 0; e < 4; e++)
+        for (int e = 0; e < 4; e++) {
             b[OFF_ENV_SYNC + 4 * l + e] = patch->env_sync[l][e];
+            b[OFF_ENV_DELAY + 4 * l + e] = patch->env_delay[l][e];
+            b[OFF_ENV_HOLD + 4 * l + e] = patch->env_hold[l][e];
+        }
         for (int i = 0; i < POT_COUNT; i++)
             put16(b + OFF_POTS + 2 * (l * POT_COUNT + i), i == POT_MASTER_VOL ? 0 : patch->pots[l][i]);
         for (int i = 0; i < EXTRA_PARAMS; i++)
@@ -302,6 +323,7 @@ int store_save_patch(int n, const patch_t *patch)
             x[2] = (uint8_t)patch->routes[l][r].depth;
         }
     }
+    _Static_assert(OFF_ENV_HOLD + 2 * 4 <= OFF_POTS, "envelope settings overflow");
     _Static_assert(OFF_POTS + 2 * 2 * POT_COUNT <= OFF_EXTRA, "pots overflow");
     _Static_assert(OFF_EXTRA + 2 * 2 * EXTRA_PARAMS <= OFF_ROUTES, "extra params overflow");
     _Static_assert(OFF_ROUTES + 3 * 2 * ROUTES <= OFF_CHECKSUM, "routes overflow");

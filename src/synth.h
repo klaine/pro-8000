@@ -80,6 +80,10 @@ int synth_any_gate(void);
 layer_mode_t synth_layer_mode(void);
 void synth_set_layer_mode(layer_mode_t mode);
 int synth_split_note(void);
+// Layer 1's voices in the two-layer modes (split, stack, channel), 1-7, the rest layer 2's; 0 = automatic: 4 + 4, or
+// 7 + 1 (1 + 7) with exactly one layer mono or legato (0.9.0). Changing it releases every voice.
+int synth_layer_voices(void);
+void synth_set_layer_voices(int n);
 void synth_set_split_note(int note);
 // The layer the per-layer knobs edit (0 or 1). Switching it puts those knobs in pickup.
 int synth_edit_layer(void);
@@ -124,6 +128,27 @@ int synth_lfo2_toggle(int s);
 // Cycling envelopes per layer (ENV_CYCLE_* bits): attack, hold, fall, rest, again while the key is held.
 int synth_env_cycle(int layer);
 void synth_set_env_cycle(int layer, int bits);
+// Envelope modes per layer, a bit per envelope (ENV_CYCLE_* order). Key-up trigger: the envelope starts when the key
+// is let go (its delay, attack, hold, then the decay for its time, then the release from the sustain level), stays
+// at rest while the key is down, and fades with its release at the next key. DAHDSR: a delay before the attack and a
+// hold at the top (0-99 each, on the attack's time curve: synth_env_extra_time()). Cycling takes an envelope over:
+// neither applies while it cycles.
+int synth_env_trigger(int layer);
+void synth_set_env_trigger(int layer, int bits);
+int synth_env_dahdsr(int layer);
+void synth_set_env_dahdsr(int layer, int bits);
+int synth_env_delay(int layer, int env); // 0-99
+void synth_set_env_delay(int layer, int env, int value);
+int synth_env_hold(int layer, int env);  // 0-99
+void synth_set_env_hold(int layer, int env, int value);
+float synth_env_extra_time(int value);   // a delay or hold (0-99) in seconds
+// Envelope curves per layer, 2 bits per envelope (envelope e at bits 2e): analog (an RC attack, exponential decay
+// and release, the default), linear (straight lines, each stage full scale in its time) or swell (an attack that
+// starts slowly and rises faster, the analog decay and release).
+enum { ENV_CURVE_ANALOG, ENV_CURVE_LINEAR, ENV_CURVE_SWELL, ENV_CURVE_COUNT };
+int synth_env_curve(int layer);
+void synth_set_env_curve(int layer, int bits);
+
 // Synced cycling per envelope (0 amp, 1 filter, 2 Env 3, 3 Env 4): 0 free, else an LFO clock division + 1. Synced,
 // the cycle lasts that division and the four knobs share it out.
 int synth_env_sync(int layer, int env);
@@ -151,6 +176,9 @@ int synth_dest_for_switch(int s);
 // MOD ASSIGN: on puts every knob in pickup and keeps it there, however close it is to its value, so touching one
 // only chooses a destination; off lets them pick up as usual. A button toggled while assigning keeps its routing.
 void synth_freeze_knobs(int on);
+// Knobs (bit = pot) that stay in pickup however close they come, while main.c uses them for something else (the
+// envelope settings page: ATT and DEC set the delay and hold). 0 lets them pick up as usual.
+void synth_freeze_pots(uint32_t mask);
 // A latching button's state as the engine uses it (a loaded patch's, until the button is toggled), and setting it
 // from the host, which holds the same way.
 int synth_switch(int s);
@@ -171,6 +199,9 @@ float synth_knob_env_amount(float knob);
 float synth_knob_pmod(float knob);
 float synth_knob_cutoff_hz(float knob);
 float synth_knob_glide_s(float knob);
+// M TUNE is Macro 1's knob (0.9.0): -1..1, 0 in the middle (with a little dead zone), added to the macro's offset
+// and whatever is routed into it.
+float synth_knob_macro(float knob);
 // Per patch: pitch bend range (1-12 semitones) and unison detune (0-50 cents between the outermost voices).
 int synth_bend_range(void);
 void synth_set_bend_range(int semitones);

@@ -133,10 +133,19 @@ static void apply(void)
 
     dac80501_write(DAC80501_TRIGGER, DAC80501_SOFT_RESET, 0);
     delay_us(100);
-    dac80501_write(DAC80501_CONFIG, 0, 0); // internal reference and DAC powered
-    dac80501_write(DAC80501_GAIN, DAC80501_REF_DIV_GAIN2, 0);
+    dac16_setup();
     dac80501_write(DAC80501_DATA, 0, 0);
 }
+
+// The DAC80501 can't be read back, and a garbled setup frame at boot once left it at another gain (0.8.4: the
+// oscillators and filters off until a reboot), so sh_refresh_dac_setup() sends these again every so often
+void dac16_setup(void)
+{
+    dac80501_write(DAC80501_CONFIG, 0, 0); // internal reference and DAC powered
+    dac80501_write(DAC80501_GAIN, DAC80501_REF_DIV_GAIN2, 0);
+}
+
+void dac16_register(uint8_t command, uint16_t value) { dac80501_write(command, value, 0); }
 
 void dac_init(void)
 {

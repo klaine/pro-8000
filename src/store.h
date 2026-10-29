@@ -20,6 +20,7 @@
 typedef struct {
     char name[PATCH_NAME + 1];
     uint8_t layer_mode, split;
+    uint8_t layer_voices;                // layer 1's voices in the two-layer modes, 1-7; 0 = automatic (0.9.0)
     uint8_t lfo_sync[2], lfo_trigger[2]; // LFO 1, LFO 2
     uint8_t lfo_shape[2][2];             // [layer][LFO 1, LFO 2], lfo_shape_t
     uint8_t lfo2_dests[2];               // per layer, LFO2_TO_* bits
@@ -40,6 +41,9 @@ typedef struct {
     route_t routes[2][ROUTES];
     uint8_t lfo_delay[2], lfo_fade[2]; // per LFO, 0-99 (lfo.h); 0 in patches from before 0.7.9
     int8_t macro_offset[2][2];         // [layer][macro], -99..99 (0.8.1)
+    uint8_t env_trigger[2], env_dahdsr[2]; // per layer, a bit per envelope (0.9.0)
+    uint8_t env_curve[2];                  // per layer, 2 bits per envelope: ENV_CURVE_* (0.9.0)
+    uint8_t env_delay[2][4], env_hold[2][4]; // [layer][amp, filter, Env 3, Env 4], 0-99 (0.9.0)
 } patch_t;
 
 typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t; // (SLOT_STOCK: no longer in slots)

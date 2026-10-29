@@ -240,3 +240,34 @@ float seq_lane(int lane)
     v = (v - SEQ_LANE_ZERO) / 63.0f;
     return v < -1 ? -1 : v > 1 ? 1 : v;
 }
+
+static int recorded, record_base = -1; // the first note recorded is offset 0
+
+void seq_record_start(void)
+{
+    seq_stop();
+    recorded = 0;
+    record_base = -1;
+}
+
+static int record_step(int offset, uint8_t velocity, uint8_t gate)
+{
+    if (recorded >= seq_max_steps(sequence.lanes))
+        return -1;
+    sequence.note[recorded] = (uint8_t)(64 + (offset < -64 ? -64 : offset > 63 ? 63 : offset));
+    sequence.velocity[recorded] = velocity;
+    sequence.gate[recorded] = gate;
+    sequence.extra[recorded] = 0;
+    sequence.length = (uint8_t)++recorded;
+    sequence.flags |= SEQ_ENABLED;
+    return recorded;
+}
+
+int seq_record_note(uint8_t note, uint8_t velocity)
+{
+    if (record_base < 0)
+        record_base = note;
+    return record_step(note - record_base, velocity, 0x80 | 50);
+}
+
+int seq_record_rest(void) { return record_step(0, 0, 50); }

@@ -4,13 +4,13 @@
 //   mixer: A, B and noise levels; filter: cutoff, resonance, envelope amount (bipolar), keyboard tracking
 //   poly-mod: filter envelope (software, added to oscillator A's pitch) and oscillator B (analog), routed to
 //   frequency A and/or the filter by the two poly-mod buttons
-//   LFO 1 (lfo.c): eight shapes, steps included (the shape button steps through them), to frequency, pulse width and/or filter,
-//   free or synced to MIDI clock, with retrigger modes; glide, unison, master tune and volume
+//   LFO 1 (lfo.c): nine shapes, steps and noise included (the shape button steps through them), to frequency, pulse width and/or filter,
+//   free or synced to MIDI clock, with retrigger modes; glide, unison and volume; M TUNE is Macro 1's knob
 //   LFO 2: the same, edited with the LFO knobs and buttons while Arp Up-Dn selects it (its routing lives here, the
 //   buttons keep showing LFO 1's)
 //
 // Layers: two sets of the knobs that act per voice (frequencies, fine, cutoff, envelope amount, both ADSRs,
-// glide, LFO rates and amounts, poly-mod envelope amount, master tune) and two LFOs each, with their own shapes and
+// glide, LFO rates and amounts, poly-mod envelope amount, M TUNE = Macro 1) and two LFOs each, with their own shapes and
 // LFO 2 routing. Layer 1 plays on voices 1-4
 // and layer 2 on voices 5-8, except with layers off, when layer 1 has all 8. Everything else is one set of
 // wires for all voices on the hardware, so it's shared: mixer, resonance, pulse widths, poly-mod osc B amount
@@ -33,6 +33,14 @@
 // Synced cycling: the cycle lasts a clock division (lfo.c's tempo) and the four knobs are weights that share it
 // out (attack, hold, fall, rest in proportion). A phase drives it, so it stays on tempo however long it runs; it
 // restarts at each key.
+// Per envelope and layer, besides (0.9.0): the key-up trigger (the envelope runs when the key is let go: attack,
+// decay for its time, release), DAHDSR (a delay before the attack, during which the level keeps falling as in a
+// release, and a hold at the top), and the curve (analog, as above; linear; swell, a convex attack). Cycling takes
+// precedence over the trigger and DAHDSR. Linear stages cover full scale in their time (a release from half way
+// takes half the time); the swell attack grows 2^5 from just under 0, so it reaches 1 in its time.
+//
+// M TUNE is Macro 1's knob (0.9.0): bipolar, added to the macro's offset (Shift + CUTOFF) and its routes; master tune
+// itself is gone (autotune keeps the voices in tune).
 //
 // Voice modes per layer: poly, mono (every new note retriggers) or legato, with last / low / high note priority;
 // unison plays the layer's mono line on all its voices. Drift wanders each voice's pitch and cutoff slowly at random
@@ -52,7 +60,6 @@
 
 #define OSC_RANGE_SEMITONES   36.0f // frequency knobs: ± this, in semitone steps
 #define FINE_SEMITONES        1.0f  // oscillator B fine: ± (100 cents)
-#define MASTER_TUNE_SEMITONES 1.0f  // ±
 #define BEND_DEFAULT          2     // ± semitones, when the patch doesn't set it
 #define CUTOFF_LOW_NOTE       12.0f // cutoff knob at minimum (about 16 Hz)
 #define CUTOFF_SPAN           120.0f
@@ -77,6 +84,9 @@
 #define DECAY_MIN_S           0.003f
 #define DECAY_MAX_S           20.0f // decay and release, to -60 dB
 #define ATTACK_OVERSHOOT      1.5f
+#define SWELL_OCTAVES         5.0f  // the swell curve's attack: 2^5 from SWELL_OFFSET below 0 to 1 above it
+#define SWELL_OFFSET          (1.0f / 31.0f)
+#define MACRO_DEAD_ZONE       0.02f // M TUNE as Macro 1: this far either side of the middle reads 0
 // The voice VCAs are linear in amplitude above a dead zone: measured 2026-10-27, silent up to 7.3-9.0 % of the CV
 // range depending on the voice (8.9 % on voice 1, fit from -37 dB to full). The envelope starts just under the
 // lowest, so tails fade instead of stopping at about -20 dB; an idle voice still gets 0.
@@ -89,12 +99,12 @@
 
 #define LAYERS 2
 
-typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_RELEASE, ENV_HOLD, ENV_REST } env_stage_t;
+typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_RELEASE, ENV_HOLD, ENV_REST, ENV_DELAY } env_stage_t;
 
 typedef struct {
     env_stage_t stage;
     float level; // 0..1
-    float timer; // seconds in ENV_HOLD / ENV_REST
+    float timer; // seconds in ENV_DELAY / ENV_HOLD / ENV_REST, and in ENV_DECAY when key-up triggered
     float phase; // synced cycling: 0..1 through the cycle
     float start; // synced cycling: the level the current attack started from
 } env_t;
@@ -102,10 +112,12 @@ typedef struct {
 // One envelope's settings, worked out once per layer and pass; the envelopes advance by any dt from them (the amp
 // and filter envelopes several times a pass: synth_envelopes())
 typedef struct {
-    float attack, decay, release; // how fast the distance left to go shrinks: log2 per second (< 0: at once)
+    float attack, decay, release; // how fast the distance left to go shrinks: log2 per second (< 0: at once); on
+                                  // the linear curve full scale per second, and the swell attack's growth
     float sustain;
-    float hold, rest;             // seconds (cycling)
-    int cycle;
+    float hold, rest;             // seconds (cycling; hold also DAHDSR's)
+    float delay, decay_s;         // seconds: DAHDSR's delay, and a key-up envelope's decay before it releases
+    int cycle, curve, key_up;
     int synced;                   // synced cycling: the cycle is `period` seconds, shared out as a / h / f / rest
     float period, a, h, f;
 } env_rates_t;
@@ -164,6 +176,7 @@ static int edit_layer;
 static uint8_t latched[PARAM_COUNT]; // its knob controls the value (per-layer parameters: the edit layer's)
 static int8_t pickup_side[PARAM_COUNT]; // which side of the stored value the knob started on: -1, +1 (0 = unknown)
 static int frozen; // MOD ASSIGN: no knob picks up, however close it is to its value
+static uint32_t frozen_pots; // these knobs don't either (synth_freeze_pots())
 static int env_select; // the ADSR knobs' envelopes: 0 filter and amp; 3 (Shift) Env 3 on the filter knobs, Env 4 on the amp's
 static int shift;      // Shift held or latched: the non-ADSR knobs are frozen
 static int keytrack_switch_seen = -1; // the keytrack switch's last position: a patch's value holds until it moves
@@ -173,6 +186,9 @@ static uint8_t lfo_shape[LAYERS][2]; // lfo_shape_t, per layer and LFO
 static uint8_t lfo2_dests[LAYERS];   // LFO2_TO_* bits
 static uint8_t env_cycle[LAYERS];    // ENV_CYCLE_* bits
 static uint8_t env_sync[LAYERS][4];  // amp, filter, Env 3, Env 4: 0 free, else the clock division + 1
+static uint8_t env_trigger[LAYERS], env_dahdsr[LAYERS]; // a bit per envelope
+static uint8_t env_curve[LAYERS];                       // 2 bits per envelope, ENV_CURVE_*
+static uint8_t env_delay[LAYERS][4], env_hold[LAYERS][4]; // 0-99
 
 // Each envelope's knobs: attack, decay, sustain, release
 static const uint8_t env_params[4][4] = {
@@ -220,13 +236,16 @@ void synth_init(void)
 static int one_layer(void) { return layer_mode == LAYER_OFF || layer_mode >= LAYER_VOICE_PER_CHANNEL; }
 static int per_channel(void) { return layer_mode >= LAYER_VOICE_PER_CHANNEL; }
 
-// Layer 1's share of the voices in the two-layer modes: 4 + 4, or 7 + 1 (1 + 7) when exactly one layer plays mono or
-// legato without unison, since that layer only ever sounds its first voice (a pad with one arp or lead voice on
-// top). Voice mode, unison and layer mode changes all go through synth_all_off(), so a voice never changes layer
-// while it's gated.
+// Layer 1's share of the voices in the two-layer modes: as the patch sets it (1-7), or automatically 4 + 4, or 7 + 1
+// (1 + 7) when exactly one layer plays mono or legato without unison, since that layer only ever sounds its first
+// voice (a pad with one arp or lead voice on top). Voice mode, unison, layer mode and voice count changes all go
+// through synth_all_off(), so a voice never changes layer while it's gated.
+static int layer1_voices; // 0 = automatic
 static int lone_mono(int layer) { return !unison && voice_mode[layer] != VOICE_POLY; }
 static int voice_split(void)
 {
+    if (layer1_voices)
+        return layer1_voices;
     int m1 = lone_mono(0), m2 = lone_mono(1);
     return m1 == m2 ? VOICE_COUNT / 2 : m1 ? 1 : VOICE_COUNT - 1;
 }
@@ -256,6 +275,17 @@ void synth_set_layer_mode(layer_mode_t mode)
 }
 
 int synth_split_note(void) { return split_note; }
+
+int synth_layer_voices(void) { return layer1_voices; }
+
+void synth_set_layer_voices(int n)
+{
+    n = n < 0 || n >= VOICE_COUNT ? 0 : n;
+    if (n == layer1_voices)
+        return;
+    synth_all_off();
+    layer1_voices = n;
+}
 
 void synth_set_split_note(int note) { split_note = note < 0 ? 0 : note > 127 ? 127 : note; }
 
@@ -317,7 +347,54 @@ void synth_set_lfo_shape(int layer, int which, int shape)
 
 int synth_env_cycle(int layer) { return env_cycle[layer]; }
 
-void synth_set_env_cycle(int layer, int bits) { env_cycle[layer] = (uint8_t)(bits & 15); }
+static void retrigger_envs(int layer, unsigned changed);
+static unsigned key_up_envs(int layer) { return env_trigger[layer] & ~env_cycle[layer] & 15u; } // cycling wins
+
+void synth_set_env_cycle(int layer, int bits)
+{
+    unsigned before = key_up_envs(layer);
+    env_cycle[layer] = (uint8_t)(bits & 15);
+    retrigger_envs(layer, before ^ key_up_envs(layer));
+}
+
+// A layer's envelopes whose key-up trigger changed: one that's running starts again as its new trigger has it (a
+// held key's normal envelope attacks), else it releases, so none is left sustaining without a key.
+static void retrigger_envs(int layer, unsigned changed)
+{
+    int first, end;
+    layer_voices(layer, &first, &end);
+    for (int v = first; v < end; v++) {
+        env_t *envs[] = {&voices[v].amp, &voices[v].filter, &voices[v].env3, &voices[v].env4};
+        for (int e = 0; e < 4; e++)
+            if (changed >> e & 1 && envs[e]->stage != ENV_IDLE)
+                envs[e]->stage = voices[v].gate && !(key_up_envs(layer) >> e & 1) ? ENV_ATTACK : ENV_RELEASE;
+    }
+}
+
+int synth_env_trigger(int layer) { return env_trigger[layer]; }
+
+void synth_set_env_trigger(int layer, int bits)
+{
+    unsigned before = key_up_envs(layer);
+    env_trigger[layer] = (uint8_t)(bits & 15);
+    retrigger_envs(layer, before ^ key_up_envs(layer));
+}
+
+int synth_env_dahdsr(int layer) { return env_dahdsr[layer]; }
+void synth_set_env_dahdsr(int layer, int bits) { env_dahdsr[layer] = (uint8_t)(bits & 15); }
+int synth_env_delay(int layer, int env) { return env_delay[layer][env & 3]; }
+void synth_set_env_delay(int layer, int env, int value) { env_delay[layer][env & 3] = (uint8_t)(value < 0 ? 0 : value > 99 ? 99 : value); }
+int synth_env_hold(int layer, int env) { return env_hold[layer][env & 3]; }
+void synth_set_env_hold(int layer, int env, int value) { env_hold[layer][env & 3] = (uint8_t)(value < 0 ? 0 : value > 99 ? 99 : value); }
+int synth_env_curve(int layer) { return env_curve[layer]; }
+
+void synth_set_env_curve(int layer, int bits)
+{
+    for (int e = 0; e < 4; e++)
+        if ((bits >> 2 * e & 3) >= ENV_CURVE_COUNT)
+            bits &= ~(3 << 2 * e);
+    env_curve[layer] = (uint8_t)bits;
+}
 
 int synth_lfo2_dests(int layer) { return lfo2_dests[layer]; }
 
@@ -473,7 +550,7 @@ int synth_dest_for_pot(int pot)
     switch (pot) {
     case POT_FREQ_A: return DEST_PITCH_A;
     case POT_FREQ_B: case POT_FINE: return DEST_PITCH_B;
-    case POT_MASTER_TUNE: return DEST_PITCH;
+    case POT_MASTER_TUNE: return DEST_MACRO1;
     case POT_CUTOFF: return DEST_CUTOFF;
     case POT_FIL_ENV_AMT: return DEST_FIL_ENV_AMT;
     case POT_PMOD_FIL_ENV: return DEST_PMOD_ENV;
@@ -516,6 +593,14 @@ void synth_freeze_knobs(int on)
     for (int i = 0; on && i < PARAM_COUNT; i++)
         if (i != POT_MASTER_VOL)
             unlatch(i);
+}
+
+void synth_freeze_pots(uint32_t mask)
+{
+    for (int i = 0; i < POT_COUNT; i++)
+        if ((mask & ~frozen_pots) >> i & 1)
+            unlatch(param_of_pot(i));
+    frozen_pots = mask;
 }
 
 static int sw(switch_t s)
@@ -566,8 +651,14 @@ void synth_apply_patch(const patch_t *patch)
             lfo_shape[l][w] = patch->lfo_shape[l][w] < LFO_SHAPE_COUNT ? patch->lfo_shape[l][w] : 0;
         lfo2_dests[l] = patch->lfo2_dests[l] & 7;
         env_cycle[l] = patch->env_cycle[l] & 15;
-        for (int e = 0; e < 4; e++)
+        env_trigger[l] = patch->env_trigger[l] & 15;
+        env_dahdsr[l] = patch->env_dahdsr[l] & 15;
+        synth_set_env_curve(l, patch->env_curve[l]);
+        for (int e = 0; e < 4; e++) {
             env_sync[l][e] = patch->env_sync[l][e] <= LFO_DIVISIONS ? patch->env_sync[l][e] : 0;
+            synth_set_env_delay(l, e, patch->env_delay[l][e]);
+            synth_set_env_hold(l, e, patch->env_hold[l][e]);
+        }
         for (int w = 0; w < 2; w++) { // no steps stored (older patches): the default pattern
             int count = patch->step_count[l][w];
             lfo_step_count[LFO_ID(l, w)] = (uint8_t)(count >= 1 && count <= LFO_MAX_STEPS ? count : LFO_DEFAULT_STEPS);
@@ -589,6 +680,7 @@ void synth_apply_patch(const patch_t *patch)
         for (int k = 0; k < 2; k++)
             macro_offset[l][k] = patch->macro_offset[l][k] < -99 ? -99 : patch->macro_offset[l][k];
     layer_mode = patch->layer_mode < LAYER_MODE_COUNT ? (layer_mode_t)patch->layer_mode : LAYER_OFF;
+    layer1_voices = patch->layer_voices < VOICE_COUNT ? patch->layer_voices : 0;
     synth_set_split_note(patch->split);
     for (int w = 0; w < 2; w++) {
         lfo_sync[w] = patch->lfo_sync[w] < LFO_SYNC_COUNT ? (lfo_sync_t)patch->lfo_sync[w] : LFO_SYNC_FREE;
@@ -629,8 +721,14 @@ void synth_capture_patch(patch_t *patch)
             patch->lfo_shape[l][w] = lfo_shape[l][w];
         patch->lfo2_dests[l] = lfo2_dests[l];
         patch->env_cycle[l] = env_cycle[l];
-        for (int e = 0; e < 4; e++)
+        patch->env_trigger[l] = env_trigger[l];
+        patch->env_dahdsr[l] = env_dahdsr[l];
+        patch->env_curve[l] = env_curve[l];
+        for (int e = 0; e < 4; e++) {
             patch->env_sync[l][e] = env_sync[l][e];
+            patch->env_delay[l][e] = env_delay[l][e];
+            patch->env_hold[l][e] = env_hold[l][e];
+        }
         for (int w = 0; w < 2; w++) {
             patch->step_count[l][w] = lfo_step_count[LFO_ID(l, w)];
             patch->step_pattern[l][w] = lfo_pattern[LFO_ID(l, w)];
@@ -645,6 +743,7 @@ void synth_capture_patch(patch_t *patch)
         for (int k = 0; k < 2; k++)
             patch->macro_offset[l][k] = macro_offset[l][k];
     patch->layer_mode = (uint8_t)layer_mode;
+    patch->layer_voices = (uint8_t)layer1_voices;
     patch->split = (uint8_t)split_note;
     patch->voice_mode = (uint8_t)(voice_mode[0] | priority[0] << 2 | voice_mode[1] << 4 | priority[1] << 6);
     patch->drift = (uint8_t)drift_amount;
@@ -715,24 +814,37 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
         x->lfo_age = 0;
     }
     if (retrigger) {
-        x->amp.stage = ENV_ATTACK; // from the current level, so a stolen voice doesn't click
-        x->filter.stage = ENV_ATTACK;
-        x->env3.stage = ENV_ATTACK;
-        x->env4.stage = ENV_ATTACK;
+        // from the current level, so a stolen voice doesn't click (ENV_DELAY goes on to the attack at once without
+        // a delay); key-up envelopes fade out instead, until the key is let go
+        int up = key_up_envs(layer_of((int)(x - voices)));
         env_t *envs[] = {&x->amp, &x->filter, &x->env3, &x->env4};
-        for (int i = 0; i < 4; i++) { // synced cycling starts its cycle here
-            envs[i]->phase = 0;
+        for (int i = 0; i < 4; i++) {
+            if (up >> i & 1) {
+                if (envs[i]->stage != ENV_IDLE)
+                    envs[i]->stage = ENV_RELEASE;
+                continue;
+            }
+            envs[i]->stage = ENV_DELAY;
+            envs[i]->timer = 0;
+            envs[i]->phase = 0; // synced cycling starts its cycle here
             envs[i]->start = envs[i]->level;
         }
     }
 }
 
-static void gate_off(voice_t *x)
+// The key is let go (key_up), or the voice is silenced (synth_all_off()): key-up envelopes start only on a key-up
+static void gate_off(voice_t *x, int key_up)
 {
     x->gate = 0;
+    int up = key_up ? key_up_envs(layer_of((int)(x - voices))) : 0;
     env_t *envs[] = {&x->amp, &x->filter, &x->env3, &x->env4};
     for (int i = 0; i < 4; i++)
-        if (envs[i]->stage != ENV_IDLE)
+        if (up >> i & 1) {
+            envs[i]->stage = ENV_DELAY;
+            envs[i]->timer = 0;
+            if (i == 0)
+                x->fresh = 1; // its pitch goes out before the VCA opens
+        } else if (envs[i]->stage != ENV_IDLE)
             envs[i]->stage = ENV_RELEASE;
 }
 
@@ -913,8 +1025,14 @@ void synth_copy_layer(int from, int to)
     }
     lfo2_dests[to] = lfo2_dests[from];
     env_cycle[to] = env_cycle[from];
-    for (int e = 0; e < 4; e++)
+    synth_set_env_trigger(to, env_trigger[from]);
+    env_dahdsr[to] = env_dahdsr[from];
+    env_curve[to] = env_curve[from];
+    for (int e = 0; e < 4; e++) {
         env_sync[to][e] = env_sync[from][e];
+        env_delay[to][e] = env_delay[from][e];
+        env_hold[to][e] = env_hold[from][e];
+    }
     if (voice_mode[to] != voice_mode[from])
         synth_all_off(); // the voice split may change (voice_split())
     voice_mode[to] = voice_mode[from];
@@ -944,7 +1062,7 @@ void synth_voice_note_on(int voice, uint8_t note, uint8_t velocity)
 void synth_voice_note_off(int voice, uint8_t note)
 {
     if (voice >= 0 && voice < VOICE_COUNT && voices[voice].gate && voices[voice].note == note)
-        gate_off(&voices[voice]);
+        gate_off(&voices[voice], 1);
 }
 
 void synth_voice_bend(int voice, int value)
@@ -987,7 +1105,7 @@ void synth_note_off_layers(uint8_t note, int layers)
             mono_voices(layer, &first, &end);
             for (int v = first; v < end; v++) {
                 if (!held_count[layer])
-                    gate_off(&voices[v]);
+                    gate_off(&voices[v], 1);
                 else if (voices[v].note != priority_note(layer)) { // back to a held note: legato, or mono retriggers
                     if (voice_mode[layer] == VOICE_MONO)
                         gate_on(&voices[v], priority_note(layer), voices[v].velocity, 1);
@@ -999,7 +1117,7 @@ void synth_note_off_layers(uint8_t note, int layers)
         }
         for (int v = first; v < end; v++)
             if (voices[v].gate && voices[v].note == note)
-                gate_off(&voices[v]);
+                gate_off(&voices[v], 1);
     }
 }
 
@@ -1007,7 +1125,7 @@ void synth_all_off(void)
 {
     held_count[0] = held_count[1] = 0;
     for (int v = 0; v < VOICE_COUNT; v++)
-        gate_off(&voices[v]);
+        gate_off(&voices[v], 0);
 }
 
 void synth_pitch_bend(int value, int layers)
@@ -1057,7 +1175,8 @@ float synth_env_time(int stage, float knob, int cycling)
 }
 
 // The rate that covers a stage of `time` seconds: an attack (from 0 to 1 on its way to 1.5: 1/3 of the distance
-// left at the end) or a fall (to -60 dB: 1/1000 left). step() turns it into the multiplier for dt.
+// left at the end; the swell's 2^5 growth) or a fall (to -60 dB: 1/1000 left), or with log2_left = 1 on the linear
+// curve, full scale in that time. step() turns an exponential one into the multiplier for dt.
 static float stage_rate(float time, float log2_left)
 {
     return time <= 0 ? -1.0f : log2_left / time;
@@ -1068,6 +1187,8 @@ static float step(float rate, float dt)
     return rate < 0 ? 0 : fast_exp2(-dt * rate);
 }
 
+float synth_env_extra_time(int value) { return knob_time((float)value / 99.0f, 0, ATTACK_MAX_S); }
+
 // A synced cycle's shares of its period, from the knobs as weights (attack, hold = SUS, fall = DEC, rest = REL)
 static void cycle_shares(const float *p, const uint8_t *knobs, float share[4])
 {
@@ -1077,16 +1198,26 @@ static void cycle_shares(const float *p, const uint8_t *knobs, float share[4])
         share[i] = sum < 0.001f ? 0.25f : w[i] / sum;
 }
 
-static void env_rates(env_rates_t *r, const float *p, const uint8_t *knobs, int cycle, int sync)
+// Envelope e of `layer` from the knobs `p`
+static void env_rates(env_rates_t *r, const float *p, int layer, int e)
 {
+    const uint8_t *knobs = env_params[e];
     int att = knobs[0], dec = knobs[1], sus = knobs[2], rel = knobs[3];
+    int cycle = env_cycle[layer] >> e & 1, sync = env_sync[layer][e], dahdsr = !cycle && env_dahdsr[layer] >> e & 1;
+    int curve = env_curve[layer] >> 2 * e & 3, linear = curve == ENV_CURVE_LINEAR;
+    float fall = linear ? 1.0f : 9.966f; // log2(1000)
     r->cycle = cycle;
-    r->attack = stage_rate(synth_env_time(0, p[att], cycle), 1.585f); // log2(3)
-    r->decay = stage_rate(synth_env_time(1, p[dec], cycle), 9.966f);  // log2(1000)
-    r->release = cycle ? r->decay : stage_rate(synth_env_time(3, p[rel], 0), 9.966f);
+    r->curve = curve;
+    r->key_up = (int)(key_up_envs(layer) >> e & 1);
+    r->attack = stage_rate(synth_env_time(0, p[att], cycle),
+                           linear ? 1.0f : curve == ENV_CURVE_SWELL ? SWELL_OCTAVES : 1.585f); // log2(3)
+    r->decay_s = synth_env_time(1, p[dec], cycle);
+    r->decay = stage_rate(r->decay_s, fall);
+    r->release = cycle ? r->decay : stage_rate(synth_env_time(3, p[rel], 0), fall);
     r->sustain = p[sus];
-    r->hold = cycle ? synth_env_time(2, p[sus], 1) : 0;
+    r->hold = cycle ? synth_env_time(2, p[sus], 1) : dahdsr ? synth_env_extra_time(env_hold[layer][e]) : 0;
     r->rest = cycle ? synth_env_time(3, p[rel], 1) : 0;
+    r->delay = dahdsr ? synth_env_extra_time(env_delay[layer][e]) : 0;
     r->synced = cycle && sync > 0;
     if (r->synced) {
         float share[4];
@@ -1095,8 +1226,21 @@ static void env_rates(env_rates_t *r, const float *p, const uint8_t *knobs, int 
         r->a = share[0];
         r->h = share[1];
         r->f = share[2];
-        r->release = stage_rate(r->f * r->period, 9.966f); // key up: falls with its share of the cycle
+        r->release = stage_rate(r->f * r->period, fall); // key up: falls with its share of the cycle
     }
+}
+
+// The attack's and the fall's shapes over their stage (u 0..1), for synced cycling
+static float attack_shape(int curve, float u)
+{
+    return curve == ENV_CURVE_LINEAR ? u
+         : curve == ENV_CURVE_SWELL ? (fast_exp2(u * SWELL_OCTAVES) - 1.0f) * SWELL_OFFSET
+         : ATTACK_OVERSHOOT * (1.0f - fast_exp2(-u * 1.585f));
+}
+
+static float fall_shape(int curve, float u)
+{
+    return curve == ENV_CURVE_LINEAR ? 1.0f - u : fast_exp2(-u * 9.966f);
 }
 
 // Synced cycling: the level is a function of the phase through the cycle
@@ -1110,13 +1254,13 @@ static void env_synced(env_t *e, float dt, const env_rates_t *r)
     float x = e->phase;
     if (x < r->a) {
         e->stage = ENV_ATTACK;
-        e->level = e->start + (1.0f - e->start) * ATTACK_OVERSHOOT * (1.0f - fast_exp2(-x / r->a * 1.585f));
+        e->level = e->start + (1.0f - e->start) * attack_shape(r->curve, x / r->a);
     } else if ((x -= r->a) < r->h) {
         e->stage = ENV_HOLD;
         e->level = 1.0f;
     } else if ((x -= r->h) < r->f) {
         e->stage = ENV_DECAY;
-        e->level = fast_exp2(-x / r->f * 9.966f);
+        e->level = fall_shape(r->curve, x / r->f);
     } else {
         e->stage = ENV_REST;
         e->level = 0;
@@ -1145,35 +1289,67 @@ float synth_env_share(int env, int stage, float knob)
     return share[slot[stage]];
 }
 
+// A fall towards `target` at `rate` (exponential, or linear: full scale per second)
+static float fall_to(float level, float target, float rate, float dt, int linear)
+{
+    if (rate < 0)
+        return target;
+    if (!linear)
+        return target + (level - target) * step(rate, dt);
+    float d = rate * dt;
+    return level > target ? (level - d > target ? level - d : target) : (level + d < target ? level + d : target);
+}
+
 static void env_update(env_t *e, float dt, const env_rates_t *r)
 {
     if (r->synced && e->stage != ENV_IDLE && e->stage != ENV_RELEASE) {
         env_synced(e, dt, r);
         return;
     }
+    int linear = r->curve == ENV_CURVE_LINEAR;
     switch (e->stage) {
     case ENV_IDLE:
         e->level = 0;
         break;
+    case ENV_DELAY: // the level goes on falling as in a release meanwhile
+        e->timer += dt;
+        if (e->timer < r->delay) {
+            e->level = fall_to(e->level, 0, r->release, dt, linear);
+            break;
+        }
+        e->stage = ENV_ATTACK;
+        // fall through
     case ENV_ATTACK:
-        e->level = ATTACK_OVERSHOOT - (ATTACK_OVERSHOOT - e->level) * step(r->attack, dt);
+        if (r->attack < 0 || r->attack * dt > 24.0f)
+            e->level = 1.0f;
+        else if (linear)
+            e->level += r->attack * dt;
+        else if (r->curve == ENV_CURVE_SWELL)
+            e->level = (e->level + SWELL_OFFSET) * fast_exp2(r->attack * dt) - SWELL_OFFSET;
+        else
+            e->level = ATTACK_OVERSHOOT - (ATTACK_OVERSHOOT - e->level) * step(r->attack, dt);
         if (e->level >= 1.0f) {
             e->level = 1.0f;
-            e->stage = r->cycle ? ENV_HOLD : ENV_DECAY;
+            e->stage = r->cycle || r->hold > 0 ? ENV_HOLD : ENV_DECAY;
             e->timer = 0;
         }
         break;
     case ENV_HOLD:
         e->timer += dt;
-        if (e->timer >= r->hold || !r->cycle)
+        if (e->timer >= r->hold) {
             e->stage = ENV_DECAY;
+            e->timer = 0;
+        }
         break;
     case ENV_DECAY:
-        if (!r->cycle) { // then follows the sustain knob while held
-            e->level = r->sustain + (e->level - r->sustain) * step(r->decay, dt);
+        if (!r->cycle) { // then follows the sustain knob while held; a key-up envelope releases after its decay
+            e->level = fall_to(e->level, r->sustain, r->decay, dt, linear);
+            e->timer += dt;
+            if (r->key_up && e->timer >= r->decay_s)
+                e->stage = ENV_RELEASE;
             break;
         }
-        e->level *= step(r->decay, dt);
+        e->level = fall_to(e->level, 0, r->decay, dt, linear);
         if (e->level < CYCLE_FLOOR) {
             e->level = 0;
             e->stage = ENV_REST;
@@ -1188,7 +1364,7 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
             e->stage = ENV_ATTACK;
         break;
     case ENV_RELEASE:
-        e->level *= step(r->release, dt);
+        e->level = fall_to(e->level, 0, r->release, dt, linear);
         if (e->level < ENV_FLOOR) {
             e->level = 0;
             e->stage = ENV_IDLE;
@@ -1237,6 +1413,14 @@ int synth_knob_semitones(float knob) { return (int)semitone_steps(knob); }
 static float env_amount_of(float knob) { float x = (knob - 0.5f) * 2; return x * (x < 0 ? -x : x); } // -1..1, squared
 float synth_knob_env_amount(float knob) { return env_amount_of(knob) * FILTER_ENV_SEMITONES; }
 float synth_knob_pmod(float knob) { return knob * knob * PMOD_ENV_SEMITONES; }
+
+float synth_knob_macro(float knob)
+{
+    float x = (knob - 0.5f) * 2;
+    float a = x < 0 ? -x : x;
+    a = a <= MACRO_DEAD_ZONE ? 0 : (a - MACRO_DEAD_ZONE) / (1.0f - MACRO_DEAD_ZONE);
+    return x < 0 ? -a : a;
+}
 float synth_knob_cutoff_hz(float knob) { return 440.0f * fast_exp2((CUTOFF_LOW_NOTE + knob * CUTOFF_SPAN - 69.0f) / 12.0f); }
 float synth_knob_glide_s(float knob) { return knob < 0.02f ? 0 : 0.002f * fast_exp2(knob * 10.0f); }
 
@@ -1276,7 +1460,7 @@ static void read_panel(float dt)
             continue;
         }
         int layer = per_layer[p] ? edit_layer : 0; // shared knobs keep one value, in both layers
-        if (!latched[p] && !frozen && !(shift && !adsr_pot(i))) {
+        if (!latched[p] && !frozen && !(frozen_pots >> i & 1) && !(shift && !adsr_pot(i))) {
             float diff = panel[i] - layer_param[layer][p];
             int8_t side = diff < 0 ? -1 : 1;
             if (diff < PICKUP_WINDOW && diff > -PICKUP_WINDOW)
@@ -1372,7 +1556,8 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
     for (int phase = 0; phase < (fast ? 1 : 2); phase++) {
         if (phase == 1)
             for (int k = 0; k < 2; k++) {
-                float m = mod[DEST_MACRO1 + k] + (float)macro_offset[layer][k] / 99.0f;
+                float m = mod[DEST_MACRO1 + k] + (float)macro_offset[layer][k] / 99.0f
+                        + (k ? 0 : synth_knob_macro(layer_param[layer][POT_MASTER_TUNE]));
                 voices[voice].macro[k] = m < -1 ? -1 : m > 1 ? 1 : m;
             }
         for (int r = 0; r < ROUTES; r++) {
@@ -1394,7 +1579,7 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
 static float clamp01(float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
 typedef struct {
-    float coarse_a, coarse_b, fine_b, tune, glide_s, glide_k, env_amount, pmod_env, cutoff, depth, depth2;
+    float coarse_a, coarse_b, fine_b, glide_s, glide_k, env_amount, pmod_env, cutoff, depth, depth2;
 } layer_params_t;
 static layer_params_t lp[LAYERS]; // from the last synth_update()
 static float last_mod[LAYERS][DEST_COUNT]; // the layer-level routes (from its most recent voice), per pass
@@ -1489,6 +1674,7 @@ void synth_tick(float dt, int cutoff, unsigned pitch_voices)
             r.decay *= x->env_rate_mul[e][1];
             r.release *= x->env_rate_mul[e][2];
             r.hold /= x->env_rate_mul[e][1];
+            r.decay_s /= x->env_rate_mul[e][1];
             r.rest /= x->env_rate_mul[e][2];
             r.sustain = clamp01(r.sustain + x->env_sus_add[e]);
             env_update(envs[e], dt, &r);
@@ -1554,9 +1740,8 @@ void synth_update(float dt)
 
     for (int l = 0; l < LAYERS; l++) {
         const float *p = eff[l];
-        int c = env_cycle[l];
         for (int e = 0; e < 4; e++)
-            env_rates(&rates[l][e], p, env_params[e], c >> e & 1, env_sync[l][e]);
+            env_rates(&rates[l][e], p, l, e);
         // LFOs (lfo.c, advanced in the ticks): rate or clock division from the rate knobs
         lfo_knob[l][0] = p[POT_LFO_FREQ];
         lfo_knob[l][1] = p[PARAM_LFO2_RATE];
@@ -1575,7 +1760,6 @@ void synth_update(float dt)
             .coarse_a = semitone_steps(p[POT_FREQ_A]),
             .coarse_b = semitone_steps(p[POT_FREQ_B]),
             .fine_b = (p[POT_FINE] - 0.5f) * 2 * FINE_SEMITONES,
-            .tune = (p[POT_MASTER_TUNE] - 0.5f) * 2 * MASTER_TUNE_SEMITONES,
             .glide_s = glide,
             .glide_k = glide > 0 ? 1.0f - fast_exp2(-dt / glide * 1.4427f) : 1.0f,
             .env_amount = env_amount_of(p[POT_FIL_ENV_AMT]), // -1..1
@@ -1682,7 +1866,7 @@ static void voice_slow(int v, float dt)
         float bent = bend[l] * (float)bend_range; // the layer's (MPE: the master channel's)
         if (per_channel())
             bent += x->bend * (layer_mode == LAYER_MPE ? MPE_BEND_SEMITONES : (float)bend_range);
-        x->pitch_base = x->pitch + bent + q->tune + spread + x->drift[0] * drift * DRIFT_PITCH_SEMITONES;
+        x->pitch_base = x->pitch + bent + spread + x->drift[0] * drift * DRIFT_PITCH_SEMITONES;
         x->pitch_a = q->coarse_a + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
         x->pitch_b = q->coarse_b + q->fine_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
         x->cutoff_rest = q->cutoff + keytrack_amount * (x->pitch - 60.0f) + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES

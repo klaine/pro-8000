@@ -28,6 +28,10 @@ const dac_config_t *dac_config(void);
 // the next frame clocks in: `before_update` (may be 0) runs just before the last two bits, to end that sample. On the
 // SPI probe bus it runs before the frame.
 void dac16_write(uint16_t value, void (*before_update)(void));
+// Sends the DAC80501's config and gain registers again (as at start-up); nothing may sample it meanwhile.
+void dac16_setup(void);
+// Writes any DAC80501 register (a probe; nothing may sample it meanwhile).
+void dac16_register(uint8_t command, uint16_t value);
 void dac12_write(int channel, uint16_t value); // channel 1 or 2; value is 16-bit, the top 12 bits are used
 
 #endif

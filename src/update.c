@@ -1,5 +1,6 @@
 // The erase runs from RAM: code fetches from the bank being erased would stall and then read erased flash.
-// Sector 4 holds the vector table and all of this firmware (it's under 64 kB); sector 5 isn't touched.
+// Erasing sector 4 (the vector table and the start of the firmware) is enough to send the bootloader into update
+// mode; it erases sectors 4 and 5 itself before programming the new image.
 #include "update.h"
 #include "regs.h"
 

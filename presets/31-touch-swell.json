@@ -35,7 +35,7 @@
    "amp-sus": 85,
    "amp-rel": 67,
    "glide": 0,
-   "master-tune": 50,
+   "macro1": 50,
    "lfo-freq": 50,
    "lfo-amount": 0,
    "pmod-fil-env": 0,

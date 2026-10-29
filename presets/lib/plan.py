@@ -16,7 +16,7 @@ import glob, json, os, shlex, sys
 
 PARAMS = ["amp-rel", "amp-sus", "amp-dec", "amp-att", "fil-rel", "fil-sus", "fil-dec", "fil-att",
           "resonance", "fil-env-amt", "freq-a", "freq-b", "fine", "a-pw", "b-pw", "a-level",
-          "glide", "lfo-freq", "lfo-amount", "master-tune", "b-level", "pmod-osc-b", "pmod-fil-env",
+          "glide", "lfo-freq", "lfo-amount", "macro1", "b-level", "pmod-osc-b", "pmod-fil-env",
           "cutoff", "noise",
           "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
           "lfo2-rate", "lfo2-amount"]  # master-vol left out on purpose: it's never stored in a patch

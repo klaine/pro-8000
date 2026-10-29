@@ -55,5 +55,11 @@ void sh_refresh_vca(unsigned skip);      // every VCA but those in `skip` (writt
 void sh_refresh_global(void);            // levels, noise, master volume, PW, resonance: those not written alongside
 // Ends the sample in progress: before anything else drives the DACs or the address lines (the bus probe).
 void sh_hold(void);
+// Holds every channel and sends the DAC80501's config and gain again (the main loop, every 128th pass), so a
+// garbled setup frame heals within about a tenth of a second. sh_dac_setup_resend(0) stops it (a probe, until
+// reboot); sh_dac_register() holds and writes any DAC80501 register (a probe).
+void sh_refresh_dac_setup(void);
+void sh_dac_setup_resend(int on);
+void sh_dac_register(uint8_t command, uint16_t value);
 
 #endif

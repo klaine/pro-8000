@@ -26,7 +26,7 @@ def lfo_filter(semi): return clamp(99 * math.sqrt(semi / 48))   # LFO amount for
 def pitch_depth(semi): return clamp(99 * math.sqrt(semi / 24))  # route depth for +- semi on a pitch destination
 
 PER_LAYER = ["freq-a", "freq-b", "fine", "cutoff", "fil-env-amt", "fil-att", "fil-dec", "fil-sus", "fil-rel",
-             "amp-att", "amp-dec", "amp-sus", "amp-rel", "glide", "master-tune", "lfo-freq", "lfo-amount",
+             "amp-att", "amp-dec", "amp-sus", "amp-rel", "glide", "macro1", "lfo-freq", "lfo-amount",
              "pmod-fil-env", "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus",
              "env4-rel", "lfo2-rate", "lfo2-amount"]
 SHARED = ["a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b"]
@@ -37,7 +37,7 @@ BUTTONS = ["a-saw", "a-tri", "a-square", "b-saw", "b-tri", "b-square", "lfo-pw",
 LAYER_INIT = {"freq-a": 50, "freq-b": 50, "fine": 50, "cutoff": 99, "fil-env-amt": 50,
               "fil-att": 0, "fil-dec": 50, "fil-sus": 99, "fil-rel": 25,
               "amp-att": 0, "amp-dec": 50, "amp-sus": 99, "amp-rel": 25,
-              "glide": 0, "master-tune": 50, "lfo-freq": 50, "lfo-amount": 0, "pmod-fil-env": 0,
+              "glide": 0, "macro1": 50, "lfo-freq": 50, "lfo-amount": 0, "pmod-fil-env": 0,
               "env3-att": 0, "env3-dec": 0, "env3-sus": 0, "env3-rel": 0,
               "env4-att": 0, "env4-dec": 0, "env4-sus": 0, "env4-rel": 0,
               "lfo2-rate": 50, "lfo2-amount": 0}

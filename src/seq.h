@@ -58,4 +58,12 @@ void seq_stop(void); // releases what's sounding
 void seq_update(float dt);
 float seq_lane(int lane); // -1..1 while playing, else 0
 
+// Step recording (Rec + Seq 1 on the panel, 0.9.0): start stops the sequence; then every note writes the next step,
+// from step 1: its offset from the first note recorded, its velocity, a 50 % gate, always, no ratchets. A rest writes
+// a step that's off. The length follows the steps written and the sequence is switched on; the lanes and the
+// settings stay. Both return the steps written so far, or -1 when the sequence is full (nothing written).
+void seq_record_start(void);
+int seq_record_note(uint8_t note, uint8_t velocity);
+int seq_record_rest(void);
+
 #endif

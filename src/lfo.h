@@ -1,5 +1,5 @@
 // The LFOs, two per layer: free-running or locked to MIDI clock (shared), with retrigger modes including a
-// separate phase per voice, and seven shapes. Sync and retrigger are set per LFO (LFO 1 / LFO 2), for both layers.
+// separate phase per voice, and nine shapes. Sync and retrigger are set per LFO (LFO 1 / LFO 2), for both layers.
 #ifndef LFO_H
 #define LFO_H
 
@@ -14,9 +14,10 @@ typedef enum { LFO_TRIGGER_FREE, LFO_TRIGGER_FIRST_KEY, LFO_TRIGGER_EVERY_KEY, L
 // Every shape is bipolar (-1..1) and starts low, except square (high first) and ramp down (from the top).
 // Sample & hold takes a new random value every cycle; drift glides smoothly from one random value to the next.
 // Steps plays the LFO's step pattern over one cycle: +1 for a step that's on, -1 for one that's off, with an 8 ms
-// slope at each change so a gate doesn't click.
+// slope at each change so a gate doesn't click. Noise (0.9.0) is random values at 16 × the LFO's rate, each glided to
+// from the last: a rough random wander at low rates, a fast jitter at the top (up to about 800 values a second).
 typedef enum { LFO_TRIANGLE, LFO_SQUARE, LFO_RAMP_UP, LFO_RAMP_DOWN, LFO_SINE, LFO_SAMPLE_HOLD, LFO_DRIFT,
-               LFO_STEPS, LFO_SHAPE_COUNT } lfo_shape_t;
+               LFO_STEPS, LFO_NOISE, LFO_SHAPE_COUNT } lfo_shape_t;
 
 #define LFO_MAX_STEPS 16
 #define LFO_DEFAULT_STEPS   16

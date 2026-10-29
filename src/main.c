@@ -16,10 +16,12 @@
 //                          and low cycles or SPI divider, GPIO speed, SYNC wait) and the S&H waits in tenths of a us
 //                          (0 = default); acknowledged with 7F 6C <1 if taken>
 //   6D                     the probe settings; replies 6D <the same 10 bytes as 6C>
+//   6E <0|1>               the DAC80501 setup re-send off/on (0.8.5; on again at reboot); acknowledged 7F 6E
+//   6F <reg> <v2> <v1> <v0> write DAC80501 register reg with v2 << 14 | v1 << 7 | v0 (0.8.5); acknowledged 7F 6F
 //   75                     run autotune (about 25 s) and save it; replies 76 <rows measured, of 24>
 //   77 <row>               tuning table row (osc A 1-8, osc B 1-8, filter 1-8); replies
 //                          77 <row> <points> <centihertz, 4 × 7 bits, per point; 0 = not measured>
-//   78 <voice> <osc> <note> set voice's oscillator (0 A, 1 B) to a MIDI note through the tables
+//   78 <voice> <osc> <note> set voice's oscillator (0 A, 1 B) or filter (2, 0.8.4+) to a MIDI note through the tables
 //   7A <0|1>               panel report mode off/on: on sends every control change, and leaves the display to 7B
 //                          60 <pot> <v1> <v0>   61 <switch> <0|1>   62 <key byte> <v1> <v0>   63 <64 ± transitions>
 //                          64 <button> <0|1>
@@ -36,7 +38,11 @@
 //                          synth.h SCALE_*), 31 root (0-11), 32-35 LFO 1 delay, LFO 1 fade, LFO 2 delay, LFO 2 fade
 //                          (0-99), 36-37 CC A / CC B source numbers (1-127, system-wide), 38-41 macro offsets
 //                          (layer 1 macro 1, 2, layer 2 macro 1, 2; the offset + 99), 42 clock source (0 MIDI,
-//                          1 internal, 2 SYNC IN), 43 internal tempo (30-300 BPM); read-only after: env select,
+//                          1 internal, 2 SYNC IN), 43 internal tempo (30-300 BPM), 44-45 key-up envelopes per
+//                          layer, 46-47 DAHDSR envelopes per layer (a bit per envelope, as cycling), 48-49 envelope
+//                          curves per layer (2 bits per envelope: 0 analog, 1 linear, 2 swell), 50-57 envelope delays,
+//                          58-65 holds (0-99; layer 1 amp, filter, Env 3, Env 4, then layer 2; all 0.9.0), 66 layer
+//                          1's voices in the two-layer modes (1-7, 0 automatic; 0.9.0); read-only after: env select,
 //                          preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
@@ -97,7 +103,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 120
+#define SYSEX_MAX 160 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -185,6 +191,37 @@ static uint8_t sustained[128];
 static char loaded_name[PATCH_NAME + 1]; // travels with the sound when it's saved to an empty slot
 static uint32_t typed_at;
 
+// Step recording (0.9.0): hold Rec and press Seq 1 (the edit layer stays); every MIDI note then writes the next step
+// (seq_record_note()) and still plays, without the sequence. Seq 2 writes a rest; Rec or Seq 1 ends it, as does
+// loading a patch. The REC LED blinks meanwhile; REC saves the sequence with the patch as usual.
+static int recording;
+static int rec_used; // this press of Rec ended a recording: Seq 1 doesn't start another until Rec is let go
+
+static void record_end(int show)
+{
+    if (!recording)
+        return;
+    recording = 0;
+    display_led(LED_REC, 0);
+    if (show) {
+        display_text(sequence.flags & SEQ_ENABLED ? "donE" : "no");
+        display_until = ms_ticks + 1000;
+    }
+}
+
+static void record_show(int steps)
+{
+    if (steps < 0) {
+        display_text("FULL");
+        display_until = ms_ticks + 1000;
+        record_end(0);
+        return;
+    }
+    char text[6] = {'S', 't', steps >= 10 ? (char)('0' + steps / 10) : ' ', (char)('0' + steps % 10), 0};
+    display_text(text);
+    display_until = ms_ticks + 1000;
+}
+
 static void patch_label(int n, char *text) // "P  7", "P128": patch n + 1
 {
     int p = n + 1;
@@ -217,6 +254,7 @@ static int load_patch(int n)
         display_until = ms_ticks + 1000;
         return 0;
     }
+    record_end(0);
     seq_stop();
     synth_capture_patch(&undo_copy);
     undo_valid = 1;
@@ -259,6 +297,7 @@ static void init_patch(void)
     patch.split = 60; // LFOs free-running triangles, LFO 2 with no routing
     synth_capture_patch(&undo_copy);
     undo_valid = 1;
+    record_end(0);
     seq_clear();
     synth_apply_patch(&patch);
     synth_set_morph(0, 0);
@@ -299,19 +338,27 @@ static int save_patch(int n)
 
 // Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value. The
 // LFO pages set the LFO that Arp Up-Dn selects ("SYn2" / "trI2" for LFO 2).
-// Key 6 sets cycling for one envelope of the edit layer: pressing 6 again moves to the next envelope.
+// Key 6 sets one envelope of the edit layer (pressing 6 again moves to the next envelope): its mode (ADSR, DAHDSR,
+// either from key up, cycling free or synced), or with Arp Up-Dn its curve. While the page is open, the ATT and DEC
+// knobs set the envelope's delay and hold (DAHDSR) instead of the attack and decay. Arp Up-Dn on key 3 switches between
+// the layer mode and how the two-layer modes share the voices (layer 1 + layer 2, or automatic).
 enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_CYCLE, PAGE_BEND, PAGE_DETUNE,
        PAGE_VOICE, PAGE_DRIFT, PAGE_COUNT }; // keys 1-9, then 0
 
 static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC", "", "bEnd", "dEtU", "UOIC",
                                                 "drFt"};
-static const char cycle_names[4][6] = {"CY.A", "CY.F", "CY.3", "CY.4"}; // amp, filter, Env 3, Env 4
-static int cycle_env; // the envelope page 6 shows
+static const char cycle_names[2][4][6] = {{"En.A", "En.F", "En.3", "En.4"}, {"CU.A", "CU.F", "CU.3", "CU.4"}};
+static int cycle_env;  // the envelope page 6 shows (amp, filter, Env 3, Env 4)
+static int alt_page;   // pages 3 and 6: the second value (Arp Up-Dn): the voice share, the envelope's curve
+// Page 6's modes: ADSR and DAHDSR from key down, then from key up, then cycling (free, then each clock division)
+enum { ENV_MODE_KEY_UP = 2, ENV_MODE_CYCLE = 4, ENV_MODE_COUNT = ENV_MODE_CYCLE + 1 + LFO_DIVISIONS };
 
 static const char *page_name(int page)
 {
     if (page == PAGE_CYCLE)
-        return cycle_names[cycle_env];
+        return cycle_names[alt_page][cycle_env];
+    if (page == PAGE_LAYERS && alt_page)
+        return "Lr.Uo";
     if (synth_lfo_select() && page == PAGE_LFO_SYNC)
         return "SYn2";
     if (synth_lfo_select() && page == PAGE_LFO_TRIGGER)
@@ -325,10 +372,12 @@ static uint32_t show_value_at; // ms_ticks to replace the page name with its val
 static int setting_count(int page)
 {
     static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3,
-                                           2 + LFO_DIVISIONS, // cycle: OFF, FrEE, a clock division
+                                           ENV_MODE_COUNT,
                                            12, 51,            // bend 1-12 semitones, detune 0-50 cents
                                            3, 100};           // the edit layer's voice mode, drift 0-99
-    return counts[page];
+    if (page == PAGE_LAYERS && alt_page)
+        return VOICE_COUNT; // automatic, then layer 1's 1-7
+    return page == PAGE_CYCLE && alt_page ? ENV_CURVE_COUNT : counts[page];
 }
 
 static int setting_get(int page)
@@ -336,16 +385,20 @@ static int setting_get(int page)
     switch (page) {
     case PAGE_LFO_SYNC: return (int)lfo_sync[synth_lfo_select()];
     case PAGE_LFO_TRIGGER: return (int)lfo_trigger[synth_lfo_select()];
-    case PAGE_LAYERS: return (int)synth_layer_mode();
+    case PAGE_LAYERS: return alt_page ? synth_layer_voices() : (int)synth_layer_mode();
     case PAGE_KEYTRACK: return synth_keytrack();
     case PAGE_BEND: return synth_bend_range() - 1;
     case PAGE_DETUNE: return synth_detune();
     case PAGE_VOICE: return synth_voice_mode(synth_edit_layer()) & 3;
     case PAGE_DRIFT: return synth_drift();
-    case PAGE_CYCLE:
-        if (!(synth_env_cycle(synth_edit_layer()) >> cycle_env & 1))
-            return 0;
-        return 1 + synth_env_sync(synth_edit_layer(), cycle_env);
+    case PAGE_CYCLE: {
+        int layer = synth_edit_layer();
+        if (alt_page)
+            return synth_env_curve(layer) >> 2 * cycle_env & 3;
+        if (synth_env_cycle(layer) >> cycle_env & 1)
+            return ENV_MODE_CYCLE + synth_env_sync(layer, cycle_env);
+        return (synth_env_trigger(layer) >> cycle_env & 1) * ENV_MODE_KEY_UP + (synth_env_dahdsr(layer) >> cycle_env & 1);
+    }
     default: return synth_split_note();
     }
 }
@@ -355,7 +408,12 @@ static void setting_set(int page, int value)
     switch (page) {
     case PAGE_LFO_SYNC: lfo_sync[synth_lfo_select()] = (lfo_sync_t)value; break;
     case PAGE_LFO_TRIGGER: lfo_trigger[synth_lfo_select()] = (lfo_trigger_t)value; break;
-    case PAGE_LAYERS: synth_set_layer_mode((layer_mode_t)value); break;
+    case PAGE_LAYERS:
+        if (alt_page)
+            synth_set_layer_voices(value);
+        else
+            synth_set_layer_mode((layer_mode_t)value);
+        break;
     case PAGE_KEYTRACK: synth_set_keytrack(value); break;
     case PAGE_BEND: synth_set_bend_range(value + 1); break;
     case PAGE_DETUNE: synth_set_detune(value); break;
@@ -366,9 +424,20 @@ static void setting_set(int page, int value)
     }
     case PAGE_DRIFT: synth_set_drift(value); break;
     case PAGE_CYCLE: {
-        int bits = synth_env_cycle(synth_edit_layer());
-        synth_set_env_cycle(synth_edit_layer(), value ? bits | 1 << cycle_env : bits & ~(1 << cycle_env));
-        synth_set_env_sync(synth_edit_layer(), cycle_env, value >= 2 ? value - 1 : 0);
+        int layer = synth_edit_layer(), bit = 1 << cycle_env;
+        if (alt_page) {
+            int bits = synth_env_curve(layer) & ~(3 << 2 * cycle_env);
+            synth_set_env_curve(layer, bits | value << 2 * cycle_env);
+            break;
+        }
+        if (value < ENV_MODE_CYCLE) { // DAHDSR and the key-up trigger; cycling off
+            int dahdsr = synth_env_dahdsr(layer), trigger = synth_env_trigger(layer);
+            synth_set_env_dahdsr(layer, value & 1 ? dahdsr | bit : dahdsr & ~bit);
+            synth_set_env_trigger(layer, value >= ENV_MODE_KEY_UP ? trigger | bit : trigger & ~bit);
+        }
+        int cycle = synth_env_cycle(layer);
+        synth_set_env_cycle(layer, value >= ENV_MODE_CYCLE ? cycle | bit : cycle & ~bit);
+        synth_set_env_sync(layer, cycle_env, value > ENV_MODE_CYCLE ? value - ENV_MODE_CYCLE : 0);
         break;
     }
     default: synth_set_split_note(value); break;
@@ -382,8 +451,16 @@ static void show_setting(int page)
         {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY"}, {"OFF", "SPLt", "StAC", "CHAn", "8CH", "nPE"}, {0},
         {"OFF", "HALF", "FULL"},
     };
-    int cycle = page == PAGE_CYCLE ? setting_get(page) : 0;
-    if (page == PAGE_SPLIT)
+    if (page == PAGE_CYCLE) {
+        static const char modes[ENV_MODE_CYCLE + 1][6] = {"AdSr", "dAHd", "UP.AS", "UP.dA", "CYCL"};
+        static const char curves[ENV_CURVE_COUNT][5] = {"AnLG", "LIn", "SUEL"};
+        int v = setting_get(page);
+        display_text(alt_page ? curves[v] : v > ENV_MODE_CYCLE ? lfo_division_name(v - ENV_MODE_CYCLE - 1) : modes[v]);
+    } else if (page == PAGE_LAYERS && alt_page) {
+        int n = synth_layer_voices();
+        char text[5] = {(char)('0' + n), '-', (char)('0' + VOICE_COUNT - n), 0};
+        display_text(n ? text : "AUto");
+    } else if (page == PAGE_SPLIT)
         display_number(synth_split_note());
     else if (page == PAGE_BEND)
         display_number(synth_bend_range());
@@ -395,10 +472,6 @@ static void show_setting(int page)
         static const char modes[3][5] = {"POLY", "nono", "LEG"};
         display_text(modes[setting_get(page)]);
     }
-    else if (cycle >= 2)
-        display_text(lfo_division_name(cycle - 2));
-    else if (page == PAGE_CYCLE)
-        display_text(cycle ? "FrEE" : "OFF");
     else
         display_text(values[page][setting_get(page)]);
 }
@@ -848,6 +921,8 @@ static void idle_display(void)
         show_setting(menu_page);
     else if (menu_open)
         display_text("SEt");
+    else if (recording)
+        display_text("rSEq");
     else if (saving || preset_mode)
         show_patch(current_patch);
     else
@@ -963,6 +1038,48 @@ static void format_time(float s, char *text)
     text[n] = 0;
 }
 
+// The envelope page (Settings 6): ATT nudges the page's envelope's delay and DEC its hold (0-99) by how far they're
+// turned, shown by name and then as a time. The engine keeps those knobs frozen meanwhile (the main loop).
+#define ENV_EXTRA_POTS (1u << POT_AMP_ATT | 1u << POT_AMP_DEC | 1u << POT_FIL_ATT | 1u << POT_FIL_DEC)
+static uint32_t extra_frozen;
+static int extra_last[POT_COUNT], extra_pot = -1;
+static float extra_acc;
+static uint32_t extra_value_at; // when to show the value (after its name)
+
+static void show_env_extra(void)
+{
+    int layer = synth_edit_layer(), hold = extra_pot == POT_AMP_DEC || extra_pot == POT_FIL_DEC;
+    char text[8];
+    format_time(synth_env_extra_time(hold ? synth_env_hold(layer, cycle_env) : synth_env_delay(layer, cycle_env)), text);
+    display_text(text);
+    display_until = ms_ticks + 1500;
+}
+
+static void env_extra_turn(int pot, int raw)
+{
+    int last = extra_last[pot];
+    extra_last[pot] = raw;
+    if (last < 0)
+        return; // the first reading on this page: where the knob is
+    int layer = synth_edit_layer(), hold = pot == POT_AMP_DEC || pot == POT_FIL_DEC;
+    if (pot != extra_pot)
+        extra_acc = 0;
+    extra_acc += (float)(raw - last) * 99.0f / 4095.0f;
+    int step = (int)extra_acc;
+    extra_acc -= (float)step;
+    if (hold)
+        synth_set_env_hold(layer, cycle_env, synth_env_hold(layer, cycle_env) + step);
+    else
+        synth_set_env_delay(layer, cycle_env, synth_env_delay(layer, cycle_env) + step);
+    if (pot != extra_pot) { // its name first, then the value
+        extra_pot = pot;
+        display_text(hold ? "HoLd" : "dLY");
+        display_until = 0;
+        extra_value_at = ms_ticks + 500;
+    } else if (!extra_value_at)
+        show_env_extra();
+}
+
 static void control_event(control_kind_t kind, int index, int32_t value)
 {
     static const led_t button_led[BUTTON_COUNT] = {
@@ -999,8 +1116,30 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         shift_set(shift_active());
         return;
     }
-    if (kind == CONTROL_BUTTON && index == BUTTON_REC && !value)
+    if (kind == CONTROL_BUTTON && index == BUTTON_REC && !value) {
         compare_end(); // (whether or not Shift is still down)
+        rec_used = 0;
+    }
+    if (kind == CONTROL_BUTTON && value && recording
+        && (index == BUTTON_REC || index == BUTTON_SEQ1 || index == BUTTON_SEQ2)) {
+        if (index == BUTTON_SEQ2) {
+            record_show(seq_record_rest());
+            return;
+        }
+        rec_used = index == BUTTON_REC;
+        record_end(1);
+        return;
+    }
+    if (kind == CONTROL_BUTTON && index == BUTTON_SEQ1 && value && controls_button(BUTTON_REC) && !rec_used
+        && !menu_open && !shift_active()) { // Rec + Seq 1: record steps (instead of saving; the edit layer stays)
+        saving = 0;
+        typed_digits = 0;
+        seq_record_start();
+        recording = 1;
+        display_text("rSEq");
+        display_until = 0;
+        return;
+    }
     if (kind == CONTROL_BUTTON && index == BUTTON_SYNC_CLOCK) {
         if (shift_active() && value) { // the clock source
             static const char names[3][5] = {"nIdI", "Int", "SYnC"};
@@ -1080,6 +1219,10 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             }
         }
     }
+    if (kind == CONTROL_POT && extra_frozen >> index & 1) { // the envelope page: delay and hold
+        env_extra_turn(index, (int)value);
+        return;
+    }
     if (kind == CONTROL_POT && !assigning && !browsing)
         last_pot = index;
     if ((assigning || browsing) && kind == CONTROL_BUTTON && value
@@ -1093,6 +1236,14 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         shape_steps += (int)value;
         if (shape_steps >= 4 || shape_steps <= -4)
             step_lfo_shape(shape_steps > 0 ? 1 : -1);
+        return;
+    }
+    if (kind == CONTROL_BUTTON && index == BUTTON_ARP_UP && value && menu_open
+        && (menu_page == PAGE_CYCLE || menu_page == PAGE_LAYERS)) {
+        alt_page = !alt_page; // the envelope page: its mode or its curve; the layer page: the mode or the voice share
+        display_text(page_name(menu_page));
+        display_until = 0;
+        show_value_at = ms_ticks + 700;
         return;
     }
     if (kind == CONTROL_BUTTON && index == BUTTON_ARP_UP && value) {
@@ -1149,8 +1300,11 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             format_time(env_knob_time(index, knob), text);
         } else if (index == POT_FREQ_A || index == POT_FREQ_B) {
             format_signed((float)synth_knob_semitones(knob), text);
-        } else if (index == POT_FINE || index == POT_MASTER_TUNE) {
+        } else if (index == POT_FINE) {
             format_signed((float)synth_knob_cents(knob), text);
+        } else if (index == POT_MASTER_TUNE) { // Macro 1
+            float m = synth_knob_macro(knob) * 99.0f;
+            format_signed((float)(int)(m < 0 ? m - 0.5f : m + 0.5f), text);
         } else if (index == POT_FIL_ENV_AMT) {
             format_signed(synth_knob_env_amount(knob), text); // semitones
         } else if (index == POT_PMOD_FIL_ENV) {
@@ -1230,6 +1384,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && menu_open) {
         int page = index == BUTTON_0 ? PAGE_DRIFT : index - BUTTON_1; // key 1 = first page, key 0 = the tenth
+        if (page != menu_page)
+            alt_page = 0;
         if (page == PAGE_CYCLE)
             cycle_env = menu_page == PAGE_CYCLE ? (cycle_env + 1) % 4 : synth_env_select() ? synth_env_select() + 1 : 0;
         if (page >= 0 && page < PAGE_COUNT) {
@@ -1311,9 +1467,15 @@ typedef enum {
     SET_CC_A, SET_CC_B,                                  // the CC A / B mod sources' controller numbers (1-127)
     SET_MACRO_L1_1, SET_MACRO_L1_2, SET_MACRO_L2_1, SET_MACRO_L2_2, // the macros' offsets + 99 (0-198)
     SET_CLOCK_SOURCE, SET_BPM,                           // 0 MIDI, 1 internal, 2 SYNC IN; 30-300 (system-wide)
+    SET_ENV_TRIGGER_L1, SET_ENV_TRIGGER_L2, SET_ENV_DAHDSR_L1, SET_ENV_DAHDSR_L2, // a bit per envelope (0.9.0)
+    SET_ENV_CURVE_L1, SET_ENV_CURVE_L2,                  // 2 bits per envelope, ENV_CURVE_*
+    SET_ENV_DELAY, // 8 of them, then 8 holds: layer 1 amp, filter, Env 3, Env 4, then layer 2 (0-99)
+    SET_ENV_HOLD = SET_ENV_DELAY + 8,
+    SET_LAYER_VOICES = SET_ENV_HOLD + 8,                 // layer 1's voices in the two-layer modes, 1-7; 0 automatic
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
+_Static_assert(8 + 2 + 2 * SET_COUNT + 1 <= SYSEX_MAX, "the settings reply fits");
 
 static int host_setting_get(int id)
 {
@@ -1345,6 +1507,12 @@ static int host_setting_get(int id)
         return synth_macro_offset((id - SET_MACRO_L1_1) / 2, (id - SET_MACRO_L1_1) % 2) + 99;
     case SET_CLOCK_SOURCE: return clock_source;
     case SET_BPM: return (int)(clock_bpm + 0.5f);
+    case SET_ENV_TRIGGER_L1: case SET_ENV_TRIGGER_L2: return synth_env_trigger(id - SET_ENV_TRIGGER_L1);
+    case SET_ENV_DAHDSR_L1: case SET_ENV_DAHDSR_L2: return synth_env_dahdsr(id - SET_ENV_DAHDSR_L1);
+    case SET_ENV_CURVE_L1: case SET_ENV_CURVE_L2: return synth_env_curve(id - SET_ENV_CURVE_L1);
+    case SET_ENV_DELAY ... SET_ENV_DELAY + 7: return synth_env_delay((id - SET_ENV_DELAY) / 4, (id - SET_ENV_DELAY) % 4);
+    case SET_ENV_HOLD ... SET_ENV_HOLD + 7: return synth_env_hold((id - SET_ENV_HOLD) / 4, (id - SET_ENV_HOLD) % 4);
+    case SET_LAYER_VOICES: return synth_layer_voices();
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -1362,6 +1530,8 @@ static int host_setting_set(int id, int value)
         [SET_VOICE_L1] = 11, [SET_VOICE_L2] = 11, [SET_DRIFT] = 100, [SET_SCALE] = SCALE_COUNT, [SET_ROOT] = 12,
         [SET_LFO1_DELAY ... SET_LFO2_FADE] = 100, [SET_CC_A] = 128, [SET_CC_B] = 128,
         [SET_MACRO_L1_1 ... SET_MACRO_L2_2] = 199, [SET_CLOCK_SOURCE] = 3, [SET_BPM] = 301,
+        [SET_ENV_TRIGGER_L1 ... SET_ENV_DAHDSR_L2] = 16, [SET_ENV_CURVE_L1] = 256, [SET_ENV_CURVE_L2] = 256,
+        [SET_ENV_DELAY ... SET_ENV_HOLD + 7] = 100, [SET_LAYER_VOICES] = VOICE_COUNT,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1402,6 +1572,16 @@ static int host_setting_set(int id, int value)
             return 0;
         clock_set_bpm((float)value);
         break;
+    case SET_ENV_TRIGGER_L1: case SET_ENV_TRIGGER_L2: synth_set_env_trigger(id - SET_ENV_TRIGGER_L1, value); break;
+    case SET_ENV_DAHDSR_L1: case SET_ENV_DAHDSR_L2: synth_set_env_dahdsr(id - SET_ENV_DAHDSR_L1, value); break;
+    case SET_ENV_CURVE_L1: case SET_ENV_CURVE_L2: synth_set_env_curve(id - SET_ENV_CURVE_L1, value); break;
+    case SET_ENV_DELAY ... SET_ENV_DELAY + 7:
+        synth_set_env_delay((id - SET_ENV_DELAY) / 4, (id - SET_ENV_DELAY) % 4, value);
+        break;
+    case SET_ENV_HOLD ... SET_ENV_HOLD + 7:
+        synth_set_env_hold((id - SET_ENV_HOLD) / 4, (id - SET_ENV_HOLD) % 4, value);
+        break;
+    case SET_LAYER_VOICES: synth_set_layer_voices(value); break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -1503,6 +1683,16 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = 0x7F;
         reply[n++] = 0x6C;
         reply[n++] = (uint8_t)ok;
+    }
+    if (data_length == 2 && data[0] == 0x6E) {
+        sh_dac_setup_resend(data[1] != 0);
+        reply[n++] = 0x7F;
+        reply[n++] = 0x6E;
+    }
+    if (data_length == 5 && data[0] == 0x6F) {
+        sh_dac_register(data[1], (uint16_t)(data[2] << 14 | data[3] << 7 | data[4]));
+        reply[n++] = 0x7F;
+        reply[n++] = 0x6F;
     }
     if (data_length == 1 && data[0] == 0x6D) {
         const dac_config_t *c = dac_config();
@@ -1821,9 +2011,10 @@ static void handle_sysex(const uint8_t *message, int length)
                 reply[n++] = (centihertz >> shift) & 0x7F;
         }
     }
-    if (data_length == 4 && data[0] == 0x78 && data[1] < VOICE_COUNT && data[2] < 2) {
-        int row = (data[2] ? TUNING_ROW_OSC_B : TUNING_ROW_OSC_A) + data[1];
-        sh_set((cv_t)((data[2] ? CV_OSC_B1 : CV_OSC_A1) + data[1]), tuning_note_cv(row, data[3]));
+    if (data_length == 4 && data[0] == 0x78 && data[1] < VOICE_COUNT && data[2] < 3) {
+        static const uint8_t rows[] = {TUNING_ROW_OSC_A, TUNING_ROW_OSC_B, TUNING_ROW_FILTER};
+        static const uint8_t cvs[] = {CV_OSC_A1, CV_OSC_B1, CV_FIL1};
+        sh_set((cv_t)(cvs[data[2]] + data[1]), tuning_note_cv(rows[data[2]] + data[1], data[3]));
         reply[n++] = 0x7F;
         reply[n++] = 0x78;
     }
@@ -2011,10 +2202,13 @@ static void handle_midi(void)
                 break;
             } else if (p[3]) { // the sequence takes the key if it's on for that key's layer
                 sustained[p[2] & 0x7F] &= (uint8_t)~synth_channel_layers(channel);
+                if (recording) // the step is written; the note plays without the sequence
+                    record_show(seq_record_note(p[2], p[3]));
                 if (pv >= 0)
                     synth_voice_note_on(pv, p[2], p[3]);
                 else {
-                    int layers = synth_key_layers(p[2], channel), rest = layers & ~seq_key_on(p[2], p[3], layers);
+                    int layers = synth_key_layers(p[2], channel);
+                    int rest = layers & ~(recording ? 0 : seq_key_on(p[2], p[3], layers));
                     if (rest)
                         synth_note_on_layers(p[2], p[3], rest);
                 }
@@ -2170,14 +2364,26 @@ int main(void)
             show_value_at = 0;
             idle_display();
         }
-        if (saving)
-            display_led(LED_REC, (now / 250) & 1);
+        if (saving || recording)
+            display_led(LED_REC, (now / (recording ? 125 : 250)) & 1); // faster while recording steps
         display_led(LED_SYNC_CLOCK, lfo_beat_phase() < 0.12f); // the beat, from whichever clock
         if (sync_press_at && now - sync_press_at >= 600) {
             sync_press_at = 0;
             clock_restart();
             display_text("StAr");
             display_until = now + 600;
+        }
+        uint32_t extra = menu_open && menu_page == PAGE_CYCLE ? ENV_EXTRA_POTS : 0;
+        if (extra != extra_frozen) { // the envelope page opened or closed: ATT / DEC set delay / hold meanwhile
+            extra_frozen = extra;
+            synth_freeze_pots(extra);
+            extra_pot = -1;
+            for (int i = 0; i < POT_COUNT; i++)
+                extra_last[i] = -1;
+        }
+        if (extra_value_at && (int32_t)(now - extra_value_at) > 0) {
+            extra_value_at = 0;
+            show_env_extra();
         }
         if (shift_value_at && (int32_t)(now - shift_value_at) > 0) {
             shift_value_at = 0;
@@ -2202,6 +2408,8 @@ int main(void)
             sh_refresh();
         else
             refresh_cvs();
+        if (passes % 128 == 0) // about every tenth of a second
+            sh_refresh_dac_setup();
         cycles_refresh = DWT_CYCCNT - t0;
         cycles_pass = DWT_CYCCNT - cycles;
         if (cycles_pass > cycles_pass_max)

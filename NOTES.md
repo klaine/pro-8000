@@ -1092,11 +1092,114 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   poly (4 + 4) the first three fall to −33..−86 dB between the arp's visits. Eight voices on the init sound: 2423 µs
   a pass, the ticks 102 µs (no change). Build 64,352 bytes of 65,536: 1.2 kB left in sector 4.
 
+## Checking the filters' tuning, and the flash room (0.8.4, 2026-10-29)
+
+- Autotune has measured the eight filters since the first tuner (self-oscillating, resonance at maximum, mixer off,
+  CVs 0x2000-0xD000), and every cutoff the engine writes goes through the filter's table (`voice_cvs()`), so
+  keytracking and the voices already match. Only the oscillators were ever checked.
+- The probe `78 <voice> <source> <note>` takes source 2 (the filter) from 0.8.4, and `pro800 check` runs a filter
+  pass after the oscillators, as autotune measures them: resonance full, both mixer channels off, notes
+  48-120 (131 Hz to 8.4 kHz). `--osc` or `--filters` runs one pass.
+- Result (0.8.4, tables from an earlier tune): the eight filters match each other within about 6 cents at every
+  note, and all track about 1 % shallow: -51 to -57 cents at note 48, -16 at 96, +4 to +6 at 120. The oscillators
+  read +0 to +3 cents at C2 rising to +4 to +10 at C7 (±0.7 right after a tune), the same slope, so most likely
+  drift since the tables were measured; a `tune` would show. Note 36 reads an octave high on some oscillators,
+  the comparator's known stray edge below about 70 Hz, not a tuning error.
+- What it can't show: at lower resonance the cutoff sits a little off the self-oscillation pitch. That shifts all
+  eight filters alike, so tracking and the match between voices hold.
+- **Flash: 64,360 of 65,536 bytes** (1,176 free). `-Oz` builds the same as `-Os`; `-flto` is 656 bytes over (it
+  inlines more). The biggest functions are the MIDI/SysEx handler (6.4 kB), the panel's control events (4.3 kB)
+  and the engine's update (4.0 kB); the probe-only code (dac-test bus switching, S&H waits) is well under 1 kB.
+  The packer README gives the firmware limit as **128 kB**, and the bootloader erases sectors 4 and 5 with every
+  update.
+- **Tested: code past 0x08020000 runs.** A build with only the vector table in sector 4 and `.text` placed at
+  0x08020000 (129,224 bytes) flashed, booted, answered, timed as usual (903 µs a pass) and put osc A1 on its table
+  at three raw CVs; flashed twice. `link.ld` is now 128K, the packer's limit; the normal build is byte-identical
+  to the 64K one, since nothing is placed past its end yet. Unused space: `.ARM.exidx`/`.ARM.extab` (about 1.7 kB of
+  unwind tables) would go with `-fno-unwind-tables -fno-asynchronous-unwind-tables`.
+- **A boot with the DAC80501 wrong.** The first boot of 0.8.4 (after that test image) played a low rumble: middle
+  C at 25 Hz, osc A1 at 4.92 kHz whatever its CV (0x8000, 0xA000, 0xC000), the filters nowhere near their tables,
+  while the VCAs (the MCU's own DAC) obeyed. The tuning tables were intact. Reflashing 0.8.3, then 0.8.4, the
+  test image and 0.8.4 again all came up right, so it didn't come back in four boots. Everything the DAC80501
+  drives (oscillators and filters) was off and nothing else: most likely one of `apply()`'s setup frames (soft
+  reset, config, gain = reference / 2 × 2) was garbled on a bus that has little margin (good to 0.6 MHz, run at
+  0.5), leaving the DAC at another gain; a pinned 4.92 kHz fits an output clipped at its rail. The DAC can't be
+  read back, so the fix would be re-sending the config and gain frames regularly at a point in the S&H cycle where
+  no channel samples the DAC80501, so a bad boot heals itself. Done in 0.8.5 (below).
+
+## The DAC80501 setup sent again every tenth of a second (0.8.5, 2026-10-29)
+
+- `sh_refresh_dac_setup()`: every 128th main-loop pass (about 8 times a second, both in the engine and in direct
+  mode) it holds every S&H channel, then sends the config and gain frames again (`dac16_setup()`, the same two
+  `apply()` sends at start-up). With every 4051 off, nothing samples the DAC while those frames clock in, even a
+  garbled one, and each channel's own data frame sets the output again before it samples. It costs two 48 µs
+  frames on one pass in 128: timing unchanged (904 µs a pass on average, the longest in 2 s 2,729 µs).
+- Probes: `6E <0|1>` turns the re-send off and on (on again at reboot), `6F <reg> <v2> <v1> <v0>` writes a
+  DAC80501 register. `pro800 dac-heal` uses them: osc A1 at CV 0x8000 read 342.8 Hz; with the re-send off and the
+  gain at reference / 2 × 1 it read 119.6 Hz and stayed there; 0.3 s after the re-send went back on, 342.8 Hz.
+- The raw CVs and `check` read as on 0.8.4 (oscillators +0 to +6 cents, filters -40 to -44 at note 48).
+
+## Envelope modes, Macro 1 on M TUNE, a noise LFO, step recording (0.9.0, 2026-10-29)
+
+- **Envelopes** (per envelope and layer, stored at record bytes 74-95, which were reserved, so older patches read as
+  before): a key-up trigger, DAHDSR, and a curve. Key up: `gate_off()` starts the envelope (`ENV_DELAY`) instead of
+  releasing it, and marks the voice fresh when it's the amp envelope so its pitch goes out before the VCA opens;
+  `synth_all_off()` (patch loads, mode changes) only releases. In `ENV_DECAY` a key-up envelope counts its decay time
+  and then releases, so DEC is how long it stays near the sustain level. `gate_on()` releases a key-up envelope
+  that's still running. DAHDSR: `ENV_DELAY` before every attack (zero delay goes straight through in the same
+  update), during which the level falls at the release rate, so a stolen voice doesn't click; the hold reuses
+  cycling's `ENV_HOLD`. Delay and hold are 0-99 on the attack's knob curve (0-10 s). Cycling wins over both (an
+  envelope that cycles starts at key down). Changing the trigger while a voice sounds restarts (key held, normal
+  trigger) or releases that envelope, so none is left at its sustain level without a key.
+- Curves: analog (as before), linear (rates are full scale per second; the routes' time multipliers apply as to the
+  exponential rates), swell (the attack grows ×2^5 from 1/31 below zero, reaching 1 in its time; decay and release
+  as analog). Synced cycling takes the same shapes from its phase.
+- Panel: Settings 6 became the envelope page: `En.x` modes `AdSr dAHd UP.AS UP.dA CYCL <divisions>`; Arp Up-Dn
+  flips to the curve (`CU.x`: `AnLG LIn SUEL`). While the page is open the four ATT / DEC knobs nudge the page's
+  envelope's delay and hold, relative like Shift's secondaries, and the engine keeps them frozen
+  (`synth_freeze_pots()`, a per-pot version of MOD ASSIGN's freeze). Host settings 44-65 (the read-only ones moved to
+  66-69); the 54 reply is now 151 bytes, so `SYSEX_MAX` went from 120 to 160.
+- **M TUNE is Macro 1's knob:** its parameter (still `POT_MASTER_TUNE`, per layer, stored, in pickup) is read as
+  −1..1 with a 2 % dead zone in the middle and added to Macro 1 with the offset and the routes; MOD ASSIGN on it
+  picks Macro 1. Master tune is gone (every preset had it centred, so they sound the same; the presets' key is
+  `macro1` now, as the tool's).
+- **Noise LFO shape** (`nOIS`, shape 8): 16 random values per LFO cycle, linearly glided, beside the phase (the
+  grid-locked LFOs set the phase directly, so the noise has its own counter). At the top rate (51 Hz) that's ~820
+  values a second, close to the tick rate.
+- **Voices per layer:** `layer_voices` (record byte 37, 0 = the old automatic 4 + 4 / 7 + 1) fixes layer 1's
+  count in split, stack and channel mode (1-7, the rest layer 2's); `voice_split()` returns it. Setting it releases
+  every voice, as the other changes that move the split do. Panel: Settings 3, Arp Up-Dn (`Lr.Uo`: `AUto`, `1-7` …
+  `7-1`); host setting 66 (the read-only ones moved to 67-70). On the synth: stack at 6 + 2 read back and played;
+  the host build gave 2 + 6, 4 + 4 and 6 + 2 voices and a mono layer 2 keeping its first voice.
+- **Step recording:** hold Rec, press Seq 1 (Rec's press has already started a save; the combo cancels it and the
+  edit layer doesn't change). `seq_record_note()` writes the next step relative to the first note; Seq 2 a rest;
+  Rec or Seq 1 ends it; loading a patch ends it. Notes sound through the engine without `seq_key_on()`.
+- Build 69,372 bytes: now past sector 4 into sector 5, which 0.8.4 showed runs.
+- **On the synth** (flashed, P34): the pass is 946 µs on average with no notes (904 on 0.8.5), the longest in 2 s
+  2,769 µs. A key-up amp envelope stayed silent while the key was held and sounded for ~0.6 s after it was let go
+  (`record`, 0.1 s windows); DAHDSR with delay 60 (0.37 s) started the note ~0.4 s after note-on. A host build of
+  `synth.c` with stubbed drivers (in the session's scratchpad, not kept) stepped linear DAHDSR, swell, key-up, the
+  noise LFO and step recording as intended. Not tried on the panel itself: page 6, the ATT / DEC delay and hold, and
+  Rec + Seq 1.
+- **The oscillator waveforms, measured** (osc A alone at C3, filter open, recorded through the Move, one cycle
+  averaged over 0.6 s): the output is a falling saw, so the chain inverts (the synth or the Move's input; the web
+  page draws it as recorded). Against a rising saw, the triangle is lowest at the saw's reset and the pulse is high
+  from the reset for 0.048 + 1.034 × PW of the cycle (0.15 at PW 10, 0.57 at 50, 0.98 at 90; silent at 95). Levels:
+  triangle 1.37 × the saw's peak-to-peak; the pulse's steps 0.83 × the saw's reset. The waves simply add: saw + tri
+  and tri + square fit weighted sums of the solo recordings at equal weights to 0.3 % of the energy.
+- Saw + square looked odd at first (a fit gave the pulse at −0.23 of its level with the width flipped), so a PW sweep
+  (5-95, solo square and saw + square at each): the mix has two upward steps per cycle (output frame), 0.815 and
+  0.185 of the saw's reset, d apart. A saw plus a full pulse of width d is exactly that, shifted in time: its reset
+  is the small step (the pulse falls there) and the pulse edge the big one. A time shift can't be seen or heard in
+  a periodic wave, so the "weak flipped pulse" and the plain sum are the same waveform; the plain sum is the
+  physical reading. The mix levels across the sweep (−0.2 to −2.8 dB against the saw alone) match it within 0.5 dB.
+  The web page's picture (before: equal-level waves averaged, a rising saw, the pulse width scaled 0.05-0.95; its
+  phases were right) now adds the waves at the measured levels and widths, upside down as recorded.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.
 - Audition the preset bank on the synth and tune levels and cutoffs.
-- **Flash room**: 2 kB left in sector 4. Try the bootloader with an image into sector 5 (see 0.8.2), or trim.
 
 Nothing here is needed for the synth to work; this is what's open, consolidated 2026-10-28 after the review, the
 0.7.7 / 0.7.8 measurements and the dac-test sweep. What each buys is in its line.

@@ -137,6 +137,10 @@
   .face .env-side canvas.viz { flex: none; width: 100%; min-width: 0; height: 52px; margin: 0; }
   .env-tools { display: flex; gap: 5px; align-items: center; min-width: 0; }
   .env-tools select { flex: 1; min-width: 0; }
+  .env-tools-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .env-extra { display: flex; gap: 6px; justify-content: flex-start; }
+  .env-extra[hidden] { display: none; }
+  .env-extra .knob { transform: scale(.8); transform-origin: top left; margin: 0 -10px -12px 0; }
   .face .env-tools select { padding: 2px 5px; font-size: 11px; background: #0b0b0c; }
   .face .env-tools .chip { padding: 2px 7px; font-size: 10.5px; white-space: nowrap; }
   .ps-amp > .pflex { flex: 1; }
@@ -430,6 +434,7 @@
       <h3>Buttons that do new jobs</h3>
       <table class="ct">
         <tr><td><kbd>Seq 1</kbd> / <kbd>Seq 2</kbd></td><td>Choose the layer the knobs edit <code class="lcd">L  1</code> <code class="lcd">L  2</code></td></tr>
+        <tr><td>Hold <kbd>Rec</kbd> + <kbd>Seq 1</kbd></td><td>Record steps from MIDI <code class="lcd">rSEq</code> (REC blinks fast): each note is the next step <code class="lcd">St 3</code>, <kbd>Seq 2</kbd> a rest, <kbd>Rec</kbd> or <kbd>Seq 1</kbd> ends <code class="lcd">donE</code>. The first note is offset 0. <kbd>Rec</kbd> then saves it with the patch.</td></tr>
         <tr><td><kbd>Arp Up-Dn</kbd></td><td>LFO knobs, Shape button and LFO routing edit LFO 1 or LFO 2 (LED lit = LFO 2) <code class="lcd">LFO1</code> <code class="lcd">LFO2</code></td></tr>
         <tr><td><kbd>Arp Assign</kbd></td><td>Mod assign: the mod matrix (LED blinks) <code class="lcd">SrC</code></td></tr>
         <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways</td></tr>
@@ -447,7 +452,7 @@
     <section class="cs">
       <h3>The display</h3>
       <ul>
-        <li>A knob shows its value while turned, in real units: semitones (FREQ A/B), cents (FINE, M TUNE), Hz with a point from 1 kHz (CUTOFF), ms / s (envelopes, GLIDE), divisions when synced (LFO FREQ).</li>
+        <li>A knob shows its value while turned, in real units: semitones (FREQ A/B), cents (FINE), −99..99 (M TUNE, Macro 1), Hz with a point from 1 kHz (CUTOFF), ms / s (envelopes, GLIDE), divisions when synced (LFO FREQ).</li>
         <li>No plus sign: positive values have none.</li>
         <li><b>A dot after the value</b> = the knob hasn't picked up yet. Turn it past (or onto) the stored value and it takes over. Happens after loading a patch, switching layer / LFO / envelope, or editing from the web page.</li>
       </ul>
@@ -467,6 +472,7 @@
       <h3>Layers</h3>
       <ol>
         <li><kbd>Settings</kbd> <kbd>3</kbd> <code class="lcd">LAYr</code>, <kbd>VALUE</kbd>: <code class="lcd">OFF</code> <code class="lcd">SPLt</code> <code class="lcd">StAC</code> <code class="lcd">CHAn</code> (MIDI channel 2 = layer 2) <code class="lcd">8CH</code> (a voice per channel 1-8) <code class="lcd">nPE</code> (MPE: channel 1 master, 2-9 a voice each).</li>
+        <li>Voices per layer: on that page <kbd>Arp Up-Dn</kbd> <code class="lcd">Lr.Uo</code>, <kbd>VALUE</kbd>: <code class="lcd">AUto</code> (4 + 4, 7 + 1 with one layer mono) or <code class="lcd">1-7</code> … <code class="lcd">7-1</code> (layer 1 - layer 2).</li>
         <li>Split point: <kbd>Settings</kbd> <kbd>4</kbd>, then <kbd>VALUE</kbd> or play the note.</li>
         <li><kbd>Seq 1</kbd> / <kbd>Seq 2</kbd> choose the layer you edit.</li>
       </ol>
@@ -477,7 +483,7 @@
       <h3>LFOs</h3>
       <ol>
         <li><kbd>Arp Up-Dn</kbd> picks LFO 1 / LFO 2 (LED lit = 2).</li>
-        <li><kbd>LFO Shape</kbd>: <code class="lcd">trI</code> <code class="lcd">PULS</code> <code class="lcd">SA.UP</code> <code class="lcd">SA.dn</code> <code class="lcd">SInE</code> <code class="lcd">S-H</code> <code class="lcd">drFt</code> <code class="lcd">StEP</code></li>
+        <li><kbd>LFO Shape</kbd>: <code class="lcd">trI</code> <code class="lcd">PULS</code> <code class="lcd">SA.UP</code> <code class="lcd">SA.dn</code> <code class="lcd">SInE</code> <code class="lcd">S-H</code> <code class="lcd">drFt</code> <code class="lcd">StEP</code> <code class="lcd">nOIS</code></li>
         <li>LFO 2 routing: select it, press LFO → Freq / Filter / PW <code class="lcd">Fr.on</code> <code class="lcd">FL.oF</code>. The button positions keep showing LFO 1.</li>
         <li>Sync: <kbd>Settings</kbd> <kbd>1</kbd> <code class="lcd">SYnC</code>/<code class="lcd">SYn2</code> → <code class="lcd">FrEE</code> <code class="lcd">CLoC</code>. With the clock, LFO FREQ picks <code class="lcd">8bAr</code> … <code class="lcd">1-32</code>.</li>
         <li>Retrigger: <kbd>Settings</kbd> <kbd>2</kbd> <code class="lcd">trIG</code>/<code class="lcd">trI2</code> → <code class="lcd">FrEE</code> <code class="lcd">1St</code> <code class="lcd">EACH</code> <code class="lcd">PoLY</code> (per voice).</li>
@@ -491,9 +497,11 @@
         <li>Shift (<kbd>Sync Source</kbd>) + the filter ADSR knobs edit Env 3, + the amp ADSR knobs Env 4 (with pickup). The keyboard-tracking switch is keyboard tracking.</li>
         <li>Env 3 / 4 do nothing until a mod route uses them (sources 7, 8).</li>
         <li>Keytracking itself: <kbd>Settings</kbd> <kbd>5</kbd> <code class="lcd">trAC</code> → <code class="lcd">OFF</code> <code class="lcd">HALF</code> <code class="lcd">FULL</code>.</li>
-        <li>Cycling: <kbd>Settings</kbd> <kbd>6</kbd> <code class="lcd">CY.A</code> <code class="lcd">CY.F</code> <code class="lcd">CY.3</code> <code class="lcd">CY.4</code> (<kbd>6</kbd> again: next), <kbd>VALUE</kbd>: <code class="lcd">OFF</code>, <code class="lcd">FrEE</code>, or a division (synced).</li>
+        <li>Mode: <kbd>Settings</kbd> <kbd>6</kbd> <code class="lcd">En.A</code> <code class="lcd">En.F</code> <code class="lcd">En.3</code> <code class="lcd">En.4</code> (<kbd>6</kbd> again: next), <kbd>VALUE</kbd>: <code class="lcd">AdSr</code> <code class="lcd">dAHd</code>, from key up <code class="lcd">UP.AS</code> <code class="lcd">UP.dA</code>, cycling <code class="lcd">CYCL</code> or a division (synced).</li>
+        <li>On that page <kbd>ATT</kbd> sets the delay <code class="lcd">dLY</code> and <kbd>DEC</kbd> the hold <code class="lcd">HoLd</code> (DAHDSR); the knobs leave the attack and decay alone meanwhile.</li>
+        <li>Curve: on that page <kbd>Arp Up-Dn</kbd> <code class="lcd">CU.A</code>…, <kbd>VALUE</kbd>: <code class="lcd">AnLG</code> <code class="lcd">LIn</code> <code class="lcd">SUEL</code>.</li>
       </ol>
-      <p class="dim small">Cycling knobs: ATT rise, SUS hold, DEC fall, REL rest. Synced: the four are shares of the division (shown in %).</p>
+      <p class="dim small">Key up: the envelope runs when the key is let go (attack, decay for its time, release) and fades at the next key. Cycling knobs: ATT rise, SUS hold, DEC fall, REL rest; synced, the four are shares of the division (shown in %).</p>
     </section>
 
     <section class="cs cs-wide">
@@ -520,7 +528,8 @@
         </table>
         <table class="ct">
           <tr><th>Touch</th><th>Destination</th></tr>
-          <tr><td>FREQ A / FREQ B, FINE / M TUNE</td><td>Pitch A <code class="lcd">P.A</code>, B <code class="lcd">P.b</code>, both <code class="lcd">PIt</code></td></tr>
+          <tr><td>FREQ A / FREQ B, FINE</td><td>Pitch A <code class="lcd">P.A</code>, B <code class="lcd">P.b</code>, both <code class="lcd">PIt</code></td></tr>
+          <tr><td>M TUNE</td><td>Macro 1 <code class="lcd">nAC1</code></td></tr>
           <tr><td>CUTOFF</td><td>Cutoff <code class="lcd">CUt</code></td></tr>
           <tr><td>FIL ENV AMT / PMOD FIL ENV</td><td>Env amounts <code class="lcd">F.EA</code> <code class="lcd">P.EA</code></td></tr>
           <tr><td>AMP SUS</td><td>VCA gain <code class="lcd">VCA</code></td></tr>
@@ -537,10 +546,10 @@
       <table class="ct">
         <tr><td><kbd>1</kbd></td><td><code class="lcd">SYnC</code> LFO sync</td></tr>
         <tr><td><kbd>2</kbd></td><td><code class="lcd">trIG</code> LFO retrigger</td></tr>
-        <tr><td><kbd>3</kbd></td><td><code class="lcd">LAYr</code> layer mode</td></tr>
+        <tr><td><kbd>3</kbd></td><td><code class="lcd">LAYr</code> layer mode (<kbd>Arp Up-Dn</kbd>: <code class="lcd">Lr.Uo</code> voices per layer)</td></tr>
         <tr><td><kbd>4</kbd></td><td><code class="lcd">SPLt</code> split note</td></tr>
         <tr><td><kbd>5</kbd></td><td><code class="lcd">trAC</code> keytracking</td></tr>
-        <tr><td><kbd>6</kbd></td><td><code class="lcd">CY.x</code> cycling envelope</td></tr>
+        <tr><td><kbd>6</kbd></td><td><code class="lcd">En.x</code> envelope mode (<kbd>Arp Up-Dn</kbd>: <code class="lcd">CU.x</code> curve; ATT / DEC: delay / hold)</td></tr>
         <tr><td><kbd>7</kbd></td><td><code class="lcd">bEnd</code> bend range, 1-12 st</td></tr>
         <tr><td><kbd>8</kbd></td><td><code class="lcd">dEtU</code> unison detune, 0-50 ct</td></tr>
         <tr><td><kbd>9</kbd></td><td><code class="lcd">UOIC</code> voice mode <code class="lcd">POLY</code> <code class="lcd">nono</code> <code class="lcd">LEG</code></td></tr>
@@ -581,7 +590,8 @@
     <h2>Mod matrix</h2>
     <p class="hint">Sixteen routes per layer. Each route adds source × depth to its destination, per voice. The ones
       marked <span class="tag">wire</span> are a single wire for all voices, so they follow the most recently played
-      note. Macro 1 and Macro 2 are both destinations and sources: route anything into a macro, then the macro into
+      note. Macro 1 and Macro 2 are both destinations and sources (the M TUNE knob is Macro 1's own knob, added to its
+      offset): route anything into a macro, then the macro into
       several destinations with their own depths; a macro moves once a pass (1-2.4 ms). Envelope stage destinations
       scale that stage's time up to 16× either way at depth 99 (sustain adds to the level). On the panel: Arp Assign,
       then a source (a number key, a touch of an LFO or ADSR knob, or scroll with VALUE), then a destination (touch
@@ -1081,8 +1091,10 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "lfoSelect", "shape11", "shape12", "shape21", "shape22", "lfo2Dests1", "lfo2Dests2", "cycle1", "cycle2",
   "cycleSync1_0", "cycleSync1_1", "cycleSync1_2", "cycleSync1_3", "cycleSync2_0", "cycleSync2_1", "cycleSync2_2",
   "cycleSync2_3", "bend", "detune", "voice1", "voice2", "drift", "scale", "root", "lfoDelay1", "lfoFade1", "lfoDelay2", "lfoFade2",
-  "ccA", "ccB", "macro11", "macro12", "macro21", "macro22", "clockSource", "bpm", "envSelect",
-  "presetMode", "patch", "morph"];
+  "ccA", "ccB", "macro11", "macro12", "macro21", "macro22", "clockSource", "bpm",
+  "envUp1", "envUp2", "dahdsr1", "dahdsr2", "curve1", "curve2", // 0.9.0: a bit per envelope; 2 bits per envelope
+  ...[1, 2].flatMap(l => [0, 1, 2, 3].map(e => `envDelay${l}_${e}`)), ...[1, 2].flatMap(l => [0, 1, 2, 3].map(e => `envHold${l}_${e}`)),
+  "layerVoices", "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 let settings = null, params = null, paramsLayer = 0;
 
@@ -1107,7 +1119,7 @@ const DEFAULTS = { [P.FREQ_A]: .5, [P.FREQ_B]: .5, [P.FINE]: .5, [P.TUNE]: .5, [
 const NAMES = { [P.FREQ_A]: "Osc A frequency", [P.PW_A]: "Osc A pulse width", [P.LEVEL_A]: "Osc A level",
   [P.FREQ_B]: "Osc B frequency", [P.FINE]: "Osc B fine", [P.PW_B]: "Osc B pulse width", [P.LEVEL_B]: "Osc B level",
   [P.NOISE]: "Noise", [P.CUTOFF]: "Cutoff", [P.RES]: "Resonance", [P.ENV_AMT]: "Filter env amount",
-  [P.PMOD_ENV]: "Poly-mod filter env", [P.PMOD_B]: "Poly-mod osc B", [P.GLIDE]: "Glide", [P.TUNE]: "Master tune",
+  [P.PMOD_ENV]: "Poly-mod filter env", [P.PMOD_B]: "Poly-mod osc B", [P.GLIDE]: "Glide", [P.TUNE]: "Macro 1 (M TUNE)",
   [P.LFO_RATE]: "LFO 1 rate", [P.LFO_AMT]: "LFO 1 amount", [P.LFO2_RATE]: "LFO 2 rate", [P.LFO2_AMT]: "LFO 2 amount" };
 
 // Envelopes: [title, cycle bit, attack, decay, sustain, release parameter]
@@ -1136,12 +1148,26 @@ function envTime(stage, k, cyc) {
   if (stage === 2) return -1;                                          // sustain: a level
   return knobTime(k, 0.003, 20);                                       // decay, release (to -60 dB)
 }
+// 0.9.0: per envelope a key-up trigger, DAHDSR (delay and hold, 0-99 on the attack's curve) and a curve; cycling
+// takes an envelope over
+const ENV_MODES_FIXED = ["ADSR", "DAHDSR", "ADSR from key up", "DAHDSR from key up"];
+const CURVES = ["Analog", "Linear", "Swell"];
+const envFlag = (key, bit) => !!(settings && settings[key + (paramsLayer + 1)] & bit);
+const keyUp = bit => !cycling(bit) && envFlag("envUp", bit);
+const dahdsr = bit => !cycling(bit) && envFlag("dahdsr", bit);
+const envCurve = bit => settings ? settings["curve" + (paramsLayer + 1)] >> 2 * envIndex(bit) & 3 : 0;
+const envExtraKey = (which, bit) => `env${which}${paramsLayer + 1}_${envIndex(bit)}`; // which: "Delay" / "Hold"
+const extraTime = v => knobTime(v / 99, 0, 10);
+// the curves' shapes over a stage, u 0..1 (synth.c attack_shape() / fall_shape())
+const attackShape = (curve, u) => curve === 1 ? u : curve === 2 ? (2 ** (5 * u) - 1) / 31 : Math.min(1, 1.5 * (1 - 3 ** -u));
+const fallShape = (curve, u) => curve === 1 ? 1 - u : 1000 ** -u;
 const DIVISIONS = ["8 bars", "4 bars", "2 bars", "1 bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
   "1/16T", "1/32"];
 const SHAPES = [["Triangle", "M1 14 9 2 17 14 25 2 33 14"], ["Square", "M1 2H9V14H17V2H25V14H33"],
   ["Ramp up", "M1 14 17 2V14L33 2"], ["Ramp down", "M1 2 17 14V2L33 14"],
   ["Sine", "M1 14C5 14 5 2 9 2S13 14 17 14 21 2 25 2 29 14 33 14"], ["S&H", "M1 10H7V3H13V12H19V6H25V13H33"],
-  ["Drift", "M1 10C6 10 6 3 11 3S16 12 21 12 25 6 33 6"], ["Steps", "M1 14V3H5V14H9V3H13V14H17V3H21V3H25V14H33"]];
+  ["Drift", "M1 10C6 10 6 3 11 3S16 12 21 12 25 6 33 6"], ["Steps", "M1 14V3H5V14H9V3H13V14H17V3H21V3H25V14H33"],
+  ["Noise", "M1 9 3 5 5 11 7 4 9 10 11 6 13 13 15 3 17 9 19 6 21 12 23 4 25 8 27 5 29 12 31 7 33 9"]];
 const STEPS_SHAPE = 7;
 // LFO depth bars: mod-matrix routes from LFO 1 / LFO 2 (sources 1 / 11) to these destinations
 const LFO_SOURCE = [1, 11];
@@ -1197,7 +1223,9 @@ function lfoHz(v) { return 0.05 * 2 ** (v * 10); }
 function format(i, v) {
   const signed = x => (x > 0 ? "+" : "") + x;
   if (i === P.FREQ_A || i === P.FREQ_B) return signed(Math.floor((v - 0.5) * 72 + 36.5) - 36) + " st";
-  if (i === P.FINE || i === P.TUNE) return signed(Math.round((v - 0.5) * 200)) + " ct";
+  if (i === P.FINE) return signed(Math.round((v - 0.5) * 200)) + " ct";
+  if (i === P.TUNE) { const x = (v - 0.5) * 2, a = Math.max(0, (Math.abs(x) - .02) / .98); // Macro 1, a dead zone
+    return signed(Math.round(Math.sign(x) * a * 99)); }
   if (i === P.ENV_AMT) { const x = (v - 0.5) * 2, st = 72 * x * Math.abs(x); // squared, ±72 semitones
     return (Math.abs(st) < 9.95 ? signed(+st.toFixed(1)) : signed(Math.round(st))) + " st"; }
   if (i === P.PMOD_ENV) { const st = 48 * v * v; return (st < 9.95 ? st.toFixed(1) : Math.round(st)) + " st"; }
@@ -1554,15 +1582,20 @@ function trace(g, w, ht, f, n = 240, { fill = false, color } = {}) { // f(x 0..1
   if (fill) { g.lineTo(w, ht / 2); g.lineTo(0, ht / 2); g.closePath(); g.fillStyle = css("--trace-fill"); g.fill(); }
   g.strokeStyle = color || css("--trace"); g.lineWidth = 1.6; g.stroke();
 }
-// The waveform an oscillator puts out: its enabled waves summed, two cycles
+// The waveform an oscillator puts out, two cycles, as measured at the audio output (0.9.0, C3 through the open filter,
+// recorded through the Move; a PW sweep 5-95 with saw + square): the enabled waves add at their own levels (triangle
+// 1.37 × the saw's peak-to-peak, the pulse's steps 0.83 × the saw's reset). Against a rising saw the triangle is
+// lowest at the saw's reset and the pulse is high from the reset for 0.048 + 1.034 × PW of the cycle (gone from about
+// 95). The output as recorded is all of that upside down (a falling saw), drawn so here.
+const WAVE_LEVEL = { saw: 1, tri: 1.37, sq: .83 };
 function oscWave(saw, tri, sq, pw, level) {
   return x => {
-    const p = (x * 2) % 1;
+    const p = (x * 2) % 1, duty = .048 + 1.034 * pw;
     let y = 0, n = 0;
-    if (buttons && buttons[saw]) { y += 2 * p - 1; n++; }
-    if (buttons && buttons[tri]) { y += p < .5 ? 4 * p - 1 : 3 - 4 * p; n++; }
-    if (buttons && buttons[sq]) { y += p < .05 + .9 * pw ? 1 : -1; n++; }
-    return n ? y / n * (.25 + .75 * level) : 0;
+    if (buttons && buttons[saw]) { y += WAVE_LEVEL.saw * (2 * p - 1); n += WAVE_LEVEL.saw; }
+    if (buttons && buttons[tri]) { y += WAVE_LEVEL.tri * (p < .5 ? 4 * p - 1 : 3 - 4 * p); n += WAVE_LEVEL.tri; }
+    if (buttons && buttons[sq] && duty > 0 && duty < 1) { y += WAVE_LEVEL.sq * (p < duty ? 1 : -1); n += WAVE_LEVEL.sq; }
+    return n ? -y / n * (.25 + .75 * level) : 0;
   };
 }
 // A 4-pole low-pass with resonance: dB at f (Hz)
@@ -1586,23 +1619,33 @@ function drawFilter(g, w, ht) {
   g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
   g.fillText(fc < 1000 ? Math.round(fc) + " Hz" : (fc / 1000).toFixed(1) + " kHz", Math.min(w - 50, Math.max(2, cx + 4)), 12);
 }
-// An envelope: ADSR (sustain plateau in the middle), or two cycles when cycling
+// An envelope: (D)AHDSR (sustain plateau in the middle; from key up, a stretch at rest first and no plateau), or
+// two cycles when cycling, each stage on the envelope's curve
 function drawEnv(bit) {
   return (g, w, ht) => {
     const [, , a, d, s, r] = envOf(bit), base = ht - 4, top = 6, Y = v => base - v * (base - top);
-    const pts = [];
+    const curve = envCurve(bit), pts = [];
     const seg = (n, f) => { for (let k = 1; k <= n; k++) pts.push(f(k / n)); };
-    const attack = (from, u) => from + (1 - from) * 1.5 * (1 - 3 ** -u);
+    const attack = (from, u) => from + (1 - from) * attackShape(curve, u);
+    let label;
     if (!cycling(bit)) {
-      const ta = envTime(0, params[a]), td = envTime(1, params[d]), tr = envTime(3, params[r]), sus = params[s];
+      const up = keyUp(bit), dh = dahdsr(bit), sus = params[s];
+      const ta = envTime(0, params[a]), td = envTime(1, params[d]), tr = envTime(3, params[r]);
+      const tdl = dh ? extraTime(settings[envExtraKey("Delay", bit)]) : 0, th = dh ? extraTime(settings[envExtraKey("Hold", bit)]) : 0;
       const scale = t => Math.log10(1 + t * 40); // compress long times so short ones stay visible
-      const wa = scale(ta), wd = scale(td), wr = scale(tr), hold = .6, total = wa + wd + wr + hold;
+      const wl = scale(tdl), wa = scale(ta), wh = scale(th), wd = scale(td), wr = scale(tr), held = up ? .35 : 0;
+      const plateau = up ? 0 : .6, total = held + wl + wa + wh + wd + plateau + wr;
       let x = 0;
       pts.push([0, 0]);
+      if (up) { pts.push([held / total, 0]); x += held / total; } // the key is down: at rest
+      if (wl) { pts.push([x + wl / total, 0]); x += wl / total; }
       seg(30, u => [x + u * wa / total, attack(0, u)]); x += wa / total;
-      seg(40, u => [x + u * wd / total, sus + (1 - sus) * 1000 ** -u]); x += wd / total;
-      pts.push([x + hold / total, sus]); x += hold / total;
-      seg(40, u => [x + u * wr / total, sus * 1000 ** -u]);
+      if (wh) { pts.push([x + wh / total, 1]); x += wh / total; }
+      seg(40, u => [x + u * wd / total, sus + (1 - sus) * fallShape(curve, u)]); x += wd / total;
+      if (plateau) { pts.push([x + plateau / total, sus]); x += plateau / total; }
+      seg(40, u => [x + u * wr / total, sus * fallShape(curve, u)]);
+      if (up) { g.strokeStyle = css("--dim"); g.setLineDash([2, 3]); g.beginPath(); g.moveTo(held * w / total, top); g.lineTo(held * w / total, base); g.stroke(); g.setLineDash([]); }
+      label = [dh ? "DAHDSR" : "", up ? "from key up" : ""].filter(Boolean).join(" · ");
     } else {
       let sh;
       if (cycleSync(bit)) sh = cycleShares(bit);
@@ -1611,12 +1654,15 @@ function drawEnv(bit) {
       let x = 0;
       pts.push([0, 0]);
       for (let c = 0; c < 2; c++) {
-        seg(24, u => [x + u * sh[0] / 2, Math.min(1, attack(0, u))]); x += sh[0] / 2;
+        seg(24, u => [x + u * sh[0] / 2, attack(0, u)]); x += sh[0] / 2;
         pts.push([x + sh[1] / 2, 1]); x += sh[1] / 2;
-        seg(30, u => [x + u * sh[2] / 2, 1000 ** -u]); x += sh[2] / 2;
+        seg(30, u => [x + u * sh[2] / 2, fallShape(curve, u)]); x += sh[2] / 2;
         pts.push([x, 0], [x + sh[3] / 2, 0]); x += sh[3] / 2;
       }
+      const sync = cycleSync(bit);
+      label = sync ? "cycle · " + DIVISIONS[sync - 1] : "cycle";
     }
+    if (curve) label = [label, CURVES[curve].toLowerCase()].filter(Boolean).join(" · ");
     g.beginPath();
     pts.forEach(([x, v], k) => k ? g.lineTo(x * w, Y(v)) : g.moveTo(x * w, Y(v)));
     g.lineTo(w, base); g.lineTo(0, base); g.closePath(); g.fillStyle = css("--trace-fill"); g.fill();
@@ -1624,8 +1670,7 @@ function drawEnv(bit) {
     pts.forEach(([x, v], k) => k ? g.lineTo(x * w, Y(v)) : g.moveTo(x * w, Y(v)));
     g.strokeStyle = css("--trace"); g.lineWidth = 1.6; g.stroke();
     g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
-    const sync = cycleSync(bit);
-    g.fillText(!cycling(bit) ? "" : sync ? "cycle · " + DIVISIONS[sync - 1] : "cycle", 4, 12);
+    g.fillText(label, 4, 12);
   };
 }
 // An LFO: two cycles of its shape, scaled by its amount
@@ -1640,6 +1685,8 @@ function lfoValue(shape, x, st) {
     case 5: return RANDOM[cyc % 16];
     case 6: { const s = p * p * (3 - 2 * p); return RANDOM[cyc % 16] + (RANDOM[(cyc + 1) % 16] - RANDOM[cyc % 16]) * s; }
     case 7: { if (!st) return 0; const n = st.count, k = Math.min(n - 1, Math.floor(p * n)); return st.bits >> k & 1 ? 1 : -1; }
+    case 8: { const q = x * 16, k = Math.floor(q), f = q - k; // 16 random values a cycle, glided
+      return RANDOM[(k * 7) % 16] + (RANDOM[((k + 1) * 7) % 16] - RANDOM[(k * 7) % 16]) * f; }
     default: return p < .5 ? 4 * p - 1 : 3 - 4 * p;
   }
 }
@@ -1647,7 +1694,7 @@ function drawLfo(which) {
   return (g, w, ht) => {
     const n = which + 1, shape = settings[`shape${paramsLayer + 1}${n}`], amt = params[which ? P.LFO2_AMT : P.LFO_AMT];
     const scale = .2 + .8 * amt * amt;
-    trace(g, w, ht, x => lfoValue(shape, x * 2, steps[which]) * scale, shape === 7 ? 400 : 240, { fill: false });
+    trace(g, w, ht, x => lfoValue(shape, x * 2, steps[which]) * scale, shape === 7 || shape === 8 ? 400 : 240, { fill: false });
     g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
     g.fillText(format(which ? P.LFO2_RATE : P.LFO_RATE, params[which ? P.LFO2_RATE : P.LFO_RATE]) + (amt < .01 ? " · amount 0" : ""), 4, 12);
   };
@@ -1661,22 +1708,42 @@ function copyButton(title, onclick) {
   paints.push(() => { if (settings) b.textContent = `⇆ layer ${2 - settings.editLayer}`; });
   return b;
 }
-// An envelope's mode menu (ADSR / cycle / synced cycle) and its copy-from-the-other-layer button, for the envelope
-// env() names now (the faceplate's filter section follows the Env select switch)
+// An envelope's mode menu (ADSR / DAHDSR, either from key up / cycle / synced cycle), its curve, its delay and hold
+// knobs (shown for DAHDSR), and its copy-from-the-other-layer button, for the envelope env() names now (the
+// faceplate's filter section follows the Env select switch)
 function envTools(env) {
   const E = typeof env === "function" ? env : () => env;
-  const modes = ["ADSR", "Cycle (free)", ...DIVISIONS.map(x => "Cycle · " + x)];
+  const modes = [...ENV_MODES_FIXED, "Cycle (free)", ...DIVISIONS.map(x => "Cycle · " + x)];
   const mode = settingSelect("", modes, () => {
     if (!settings) return undefined;
     const bit = E()[1], sync = settings[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`];
-    return !cycling(bit) ? 0 : sync ? sync + 1 : 1;
+    return cycling(bit) ? 4 + sync : envFlag("envUp", bit) * 2 + envFlag("dahdsr", bit);
   }, async v => {
-    const bit = E()[1], key = "cycle" + (paramsLayer + 1), bits = settings ? settings[key] : 0;
-    await setSetting(SET_ID[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`], v >= 2 ? v - 1 : 0);
-    await setSetting(SET_ID[key], v ? bits | bit : bits & ~bit);
-  }, "ADSR, or cycling while a key is held: attack, hold, fall, rest; synced cycles share a clock division");
-  return h("div", { class: "env-tools" }, mode,
-    copyButton("copy this envelope from the other layer", () => copyEnvelope(E()[1], E()[0])));
+    if (!settings) return;
+    const bit = E()[1], L = paramsLayer + 1;
+    const put = (key, on) => setSetting(SET_ID[key + L], on ? settings[key + L] | bit : settings[key + L] & ~bit);
+    touch(E()[0], modes[v]);
+    if (v < 4) { await put("dahdsr", v & 1); await put("envUp", v >= 2); }
+    await setSetting(SET_ID[`cycleSync${L}_${envIndex(bit)}`], v > 4 ? v - 4 : 0);
+    await put("cycle", v >= 4);
+  }, "ADSR or DAHDSR (a delay before the attack, a hold at the top), from the key going down or (key up) from its " +
+     "release; or cycling while a key is held: attack, hold, fall, rest; synced cycles share a clock division");
+  const curve = settingSelect("", CURVES, () => settings ? envCurve(E()[1]) : undefined, v => {
+    if (!settings) return;
+    const e = envIndex(E()[1]), key = "curve" + (paramsLayer + 1);
+    touch(`${E()[0]} curve`, CURVES[v]);
+    setSetting(SET_ID[key], settings[key] & ~(3 << 2 * e) | v << 2 * e);
+  }, "the stages' shapes: Analog (an RC attack, exponential decay and release), Linear (straight lines), Swell (an " +
+     "attack that starts slowly and rises faster)");
+  const extraText = u => { const t = extraTime(Math.round(u * 99)); return t === 0 ? "0 ms" : seconds(t); };
+  const extras = h("div", { class: "env-extra" },
+    settingKnob(() => envExtraKey("Delay", E()[1]), "Delay", "DAHDSR: the wait before the attack (on the synth: Settings 6, the ATT knob)", extraText),
+    settingKnob(() => envExtraKey("Hold", E()[1]), "Hold", "DAHDSR: the time at the top before the decay (on the synth: Settings 6, the DEC knob)", extraText));
+  paints.push(() => { extras.hidden = !settings || !dahdsr(E()[1]); });
+  return h("div", { class: "env-tools-wrap" },
+    h("div", { class: "env-tools" }, mode, curve,
+      copyButton("copy this envelope from the other layer", () => copyEnvelope(E()[1], E()[0]))),
+    extras);
 }
 function envSection(env) {
   const [title, bit, a, d, s, r] = env;
@@ -2028,12 +2095,14 @@ const SCALES = ["Off", "Major", "Minor", "Dorian", "Phrygian", "Lydian", "Mixoly
 const MORPH_DEST = 24;
 // a 0-99 setting as a knob
 function settingKnob(key, label, title, show = u => String(Math.round(u * 99))) {
-  let local = null, at = 0, timer = 0;
-  const get = () => local !== null && Date.now() - at < 1500 ? local : (settings ? settings[key] / 99 : 0);
+  const K = typeof key === "function" ? key : () => key; // a function: the setting follows the edit layer
+  let local = null, at = 0, timer = 0, localKey = null;
+  const get = () => local !== null && Date.now() - at < 1500 && localKey === K() ? local : (settings ? settings[K()] / 99 : 0);
   return modelKnob(label, get, u => {
     if (offline()) return;
-    local = u; at = Date.now(); touch(label, show(u));
-    clearTimeout(timer); timer = setTimeout(() => setSetting(SET_ID[key], Math.round(u * 99)), 60);
+    local = u; at = Date.now(); localKey = K(); touch(label, show(u));
+    const id = SET_ID[K()];
+    clearTimeout(timer); timer = setTimeout(() => setSetting(id, Math.round(u * 99)), 60);
   }, show, 0, title);
 }
 // Macro 1 and 2 of the edit layer as knobs: the knob is the macro's offset (−99..+99, the setting macro<layer><k>;
@@ -2130,7 +2199,7 @@ function mutateControls() {
 
 const ENV_SELECT_NAMES = ["Filter envelope", "Env 3", "Env 4", "Env 3 (Shift on the synth)"];
 const LFO_SHAPE_NAMES = [["TRI", "Triangle"], ["SQR", "Square"], ["UP", "Ramp up"], ["DN", "Ramp down"], ["SIN", "Sine"],
-  ["S&H", "Sample & hold"], ["DRF", "Drift"], ["STP", "Steps"]];
+  ["S&H", "Sample & hold"], ["DRF", "Drift"], ["STP", "Steps"], ["NOI", "Noise"]];
 function buildPanel() {
   const box = document.getElementById("synth");
   const ps = (id, title, ...body) => h("div", { class: `ps ps-${id}` }, title ? h("h3", {}, title) : null, ...body);
@@ -2197,7 +2266,7 @@ function buildPanel() {
         pflex(prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))),
           h("div", { class: "env-side" }, viz("env", (g, w, ht) => drawEnv(selectedEnv()[1])(g, w, ht)), envTools(selectedEnv))),
         envCaption)),
-    h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Master tune"), power),
+    h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Macro 1"), power),
     ps("amp", "Amplifier", pflex(prow(knob(P.AMP_ATT, "Attack"), knob(P.AMP_DEC, "Decay"), knob(P.AMP_SUS, "Sustain"), knob(P.AMP_REL, "Release")),
       h("div", { class: "env-side" }, viz("env", drawEnv(1)), envTools(ENVS[1])))),
     h("div", { class: "loose loose-vol" }, knob(P.VOL, "Volume")));
@@ -2212,6 +2281,9 @@ function buildPanel() {
       settingSelect("Layers", ["Off: one sound, 8 voices", "Split", "Stack", "By MIDI channel (ch 2 = layer 2)",
           "A voice per MIDI channel (ch 1-8), each with its own bend, pressure and CC 74", "MPE (ch 1 master, ch 2-9 a voice each, 48 semitones of bend)"],
         () => settings && settings.layers, v => setSetting(SET_ID.layers, v)),
+      settingSelect("Voices", ["Automatic: 4 + 4, or 7 + 1 with one layer mono", ...[1, 2, 3, 4, 5, 6, 7].map(n => `${n} + ${8 - n}`)],
+        () => settings && settings.layerVoices, v => setSetting(SET_ID.layerVoices, v),
+        "how the two-layer modes (split, stack, by channel) share the 8 voices: layer 1 + layer 2; on the synth Settings 3, then Arp Up-Dn"),
       settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
         () => settings && settings.split, v => setSetting(SET_ID.split, v)),
       settingSelect("Filter keytracking", ["Off", "Half", "Full"], () => settings && settings.keytrack, v => setSetting(SET_ID.keytrack, v),
@@ -2354,9 +2426,15 @@ async function copyEnvelope(bit, title) {
     return;
   const knobs = Object.keys(ENV_KNOB).filter(i => ENV_KNOB[i][0] === bit).map(Number);
   let ok = await copyParams(knobs, from, to);
-  const cycle = settings[`cycle${to + 1}`], on = settings[`cycle${from + 1}`] & bit;
   ok = ok && await set7D(`cycleSync${to + 1}_${env}`, settings[`cycleSync${from + 1}_${env}`]);
-  ok = ok && await set7D(`cycle${to + 1}`, on ? cycle | bit : cycle & ~bit);
+  for (const key of ["cycle", "envUp", "dahdsr"]) {
+    const mine = settings[`${key}${to + 1}`], on = settings[`${key}${from + 1}`] & bit;
+    ok = ok && await set7D(`${key}${to + 1}`, on ? mine | bit : mine & ~bit);
+  }
+  const curves = settings[`curve${to + 1}`] & ~(3 << 2 * env) | settings[`curve${from + 1}`] & 3 << 2 * env;
+  ok = ok && await set7D(`curve${to + 1}`, curves);
+  for (const which of ["Delay", "Hold"])
+    ok = ok && await set7D(`env${which}${to + 1}_${env}`, settings[`env${which}${from + 1}_${env}`]);
   const status = document.getElementById("status");
   status.textContent = ok ? `Copied layer ${from + 1}'s ${title.toLowerCase()} to layer ${to + 1}` : "Copying failed";
   status.className = ok ? "ok" : "bad";

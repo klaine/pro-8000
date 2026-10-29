@@ -44,9 +44,13 @@ Probe (our firmware 0.0.9+):
                                         time TUNE_CPR (the tuning comparator) in the synth
   pro800 tune                           run autotune in the synth (about 25 s) and save it
   pro800 tuning                         print the tuning tables (Hz per CV point)
-  pro800 check [notes...]               play notes through the tables on every oscillator, print cents off
+  pro800 check [notes...] [--osc|--filters]
+                                        play notes through the tables on every oscillator and filter (filters
+                                        self-oscillating, 0.8.4+), print cents off
   pro800 dac-test [--bus-only|--timing-only|--clock]
   pro800 sh-waits <settle µs> <sample µs>  the S&H waits for channels written alone (RAM only; 0 0 = default)
+  pro800 dac-heal                       set the DAC80501's gain wrong on purpose and check the firmware's re-send
+                                        puts it right (0.8.5+; silent)
                                         sweep DAC80501 buses and S&H waits, checked by osc A1's pitch (0.7.4+;
                                         silent; changes nothing stored)
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
@@ -617,57 +621,122 @@ func tuning() {
     }
 }
 
-// Plays notes through the tables on every oscillator and measures them with TUNE_CPR; prints the error in cents.
+// Plays notes through the tables on every oscillator and filter and measures them with TUNE_CPR; prints the error
+// in cents. pro800 check [notes...] [--osc | --filters]. Filters are measured as autotune measures them,
+// self-oscillating at full resonance with the mixer off (filters from firmware 0.8.4).
 func check() {
-    let notes = args.isEmpty ? [36, 48, 60, 72, 84, 96] : args.compactMap { Int($0) }
+    let onlyOsc = flag("--osc"), onlyFilters = flag("--filters")
+    let given = args.compactMap { Int($0) }
+    let oscNotes = given.isEmpty ? [36, 48, 60, 72, 84, 96] : given
+    let filterNotes = given.isEmpty ? [48, 60, 72, 84, 96, 108, 120] : given
     let midi = Midi(port: portName)
     func ack(_ data: [UInt8]) { probeAck(midi, data) }
     func setCV(_ name: String, _ value: Int) {
         ack([0x70, UInt8(cvNames.firstIndex(of: name)!), UInt8(value >> 14), UInt8((value >> 7) & 0x7F), UInt8(value & 0x7F)])
     }
+    // sets the source (0 osc A, 1 osc B, 2 filter) of voice v to the note through the tables; measures; cents off
+    func cents(_ v: Int, _ source: Int, _ note: Int) -> Double? {
+        let data: [UInt8] = [0x78, UInt8(v - 1), UInt8(source), UInt8(note)]
+        guard let r = midi.request(data, expect: [0x7F, 0x78], timeout: 2), r[sysexHeader.count] == 0x7F else {
+            fail(source == 2 ? "no acknowledgement: checking filters needs firmware 0.8.4 or later (or pass --osc)"
+                             : "no acknowledgement (is our firmware running?)")
+        }
+        let expected = 440 * pow(2, Double(note - 69) / 12)
+        let periods = min(255, max(6, Int(expected * 0.08)))
+        pump(source == 2 ? 0.06 : 0.03)
+        // the comparator now and then reads an octave high below ~50 Hz: retry big errors, keep the best
+        var best: Double?
+        for _ in 0..<3 {
+            if let (hz, _) = measureOnce(midi, periods: periods, timeoutMs: 2047) {
+                let c = 1200 * log2(hz / expected)
+                if best == nil || abs(c) < abs(best!) { best = c }
+                if abs(c) < 50 { break }
+            }
+        }
+        return best
+    }
+    var worst = [0.0, 0.0]
+    func row(_ name: String, _ v: Int, _ source: Int, _ notes: [Int]) {
+        setCV("amp\(v)", 0xFFFF)
+        var line = name.padding(toLength: 20, withPad: " ", startingAt: 0)
+        for note in notes {
+            if let c = cents(v, source, note) {
+                worst[source / 2] = max(worst[source / 2], abs(c))
+                line += String(format: "%+6.1f", c)
+            } else {
+                line += "     -"
+            }
+        }
+        print(line)
+        setCV("amp\(v)", 0)
+    }
     ack([0x74, 1])
     setCV("master", 0); setCV("res", 0); setCV("pwa", 0xFFFF); setCV("pwb", 0)
     for v in 1...8 { setCV("amp\(v)", 0); setCV("fil\(v)", 0xFFFF) }
-    print("cents off per note: " + notes.map { String(format: "%6d", $0) }.joined())
-    var worst = 0.0
-    for osc in 0...1 {
-        ack([0x71, 0, osc == 0 ? 1 : 0]); ack([0x71, 3, osc == 1 ? 1 : 0])
-        setCV("vola", osc == 0 ? 0xFFFF : 0); setCV("volb", osc == 1 ? 0xFFFF : 0)
-        for v in 1...8 {
-            setCV("amp\(v)", 0xFFFF)
-            var line = "osc \(osc == 0 ? "A" : "B")\(v)             "
-            for note in notes {
-                ack([0x78, UInt8(v - 1), UInt8(osc), UInt8(note)])
-                let expected = 440 * pow(2, Double(note - 69) / 12)
-                let periods = min(255, max(6, Int(expected * 0.08)))
-                pump(0.03)
-                // the comparator now and then reads an octave high below ~50 Hz: retry big errors, keep the best
-                var best: Double?
-                for _ in 0..<3 {
-                    if let (hz, _) = measureOnce(midi, periods: periods, timeoutMs: 2047) {
-                        let c = 1200 * log2(hz / expected)
-                        if best == nil || abs(c) < abs(best!) { best = c }
-                        if abs(c) < 50 { break }
-                    }
-                }
-                if let cents = best {
-                    worst = max(worst, abs(cents))
-                    line += String(format: "%+6.1f", cents)
-                } else {
-                    line += "     -"
-                }
-            }
-            print(line)
-            setCV("amp\(v)", 0)
+    if !onlyFilters {
+        print("cents off per note: " + oscNotes.map { String(format: "%6d", $0) }.joined())
+        for osc in 0...1 {
+            ack([0x71, 0, osc == 0 ? 1 : 0]); ack([0x71, 3, osc == 1 ? 1 : 0])
+            setCV("vola", osc == 0 ? 0xFFFF : 0); setCV("volb", osc == 1 ? 0xFFFF : 0)
+            for v in 1...8 { row("osc \(osc == 0 ? "A" : "B")\(v)", v, osc, oscNotes) }
         }
     }
+    if !onlyOsc {
+        ack([0x71, 0, 0]); ack([0x71, 3, 0]); setCV("vola", 0); setCV("volb", 0); setCV("res", 0xFFFF)
+        if !onlyFilters { print("") }
+        print("filters, self-oscillating at full resonance")
+        print("cents off per note: " + filterNotes.map { String(format: "%6d", $0) }.joined())
+        for v in 1...8 {
+            row("filter \(v)", v, 2, filterNotes)
+            setCV("fil\(v)", 0xFFFF)
+        }
+        setCV("res", 0)
+    }
     ack([0x74, 0])
-    print(String(format: "worst: %.1f cents", worst))
+    if !onlyFilters { print(String(format: "worst oscillator: %.1f cents", worst[0])) }
+    if !onlyOsc { print(String(format: "worst filter: %.1f cents", worst[1])) }
 }
 
 // Sweeps the CV path's speed (firmware 0.7.4): DAC80501 buses and S&H waits, each checked by oscillator A1's pitch
 // through the tuning comparator against the safe default. pro800 dac-test [--bus-only | --timing-only]
 // Everything is a probe: the synth goes back to the default at the end, and on any reboot.
+// Checks the DAC80501 setup re-send (0.8.5): in direct mode, osc A1 at CV 0x8000 through TUNE_CPR, then with the re-send
+// off and the gain at reference / 2 × 1 (half the CV range: about 92 Hz instead of 343), then with the re-send on
+// again. pro800 dac-heal
+func dacHeal() {
+    let midi = Midi(port: portName)
+    func ack(_ data: [UInt8]) {
+        guard let r = midi.request(data, expect: [0x7F, data[0]], timeout: 2), r[sysexHeader.count] == 0x7F else {
+            fail("no acknowledgement (firmware 0.8.5 or later?)")
+        }
+    }
+    func setCV(_ name: String, _ value: Int) {
+        probeAck(midi, [0x70, UInt8(cvNames.firstIndex(of: name)!), UInt8(value >> 14), UInt8((value >> 7) & 0x7F), UInt8(value & 0x7F)])
+    }
+    func hz() -> Double? {
+        pump(0.05)
+        var readings: [Double] = []
+        for _ in 0..<3 { if let (f, _) = measureOnce(midi, periods: 16, timeoutMs: 1500) { readings.append(f) } }
+        return readings.isEmpty ? nil : readings.sorted()[readings.count / 2]
+    }
+    func show(_ label: String) { print(label + (hz().map { String(format: "%8.1f Hz", $0) } ?? "  no signal")) }
+    defer { ack([0x6E, 1]); probeAck(midi, [0x74, 0]) }
+    probeAck(midi, [0x74, 1])
+    setCV("master", 0); setCV("res", 0); setCV("pwa", 0xFFFF); setCV("pwb", 0); setCV("volb", 0); setCV("vola", 0xFFFF)
+    for v in 1...8 { setCV("amp\(v)", 0); setCV("fil\(v)", 0xFFFF) }
+    probeAck(midi, [0x71, 0, 1]); probeAck(midi, [0x71, 3, 0])
+    setCV("osca1", 0x8000); setCV("amp1", 0xFFFF)
+    show("osc A1 at 0x8000, as set up:          ")
+    ack([0x6E, 0])
+    ack([0x6F, 0x04, 0, 0x02, 0x00]) // gain register: reference / 2, buffer gain 1
+    show("gain wrong, re-send off:              ")
+    show("still wrong a moment later:           ")
+    ack([0x6E, 1])
+    pump(0.3)
+    show("re-send on again, 0.3 s later:        ")
+    setCV("amp1", 0)
+}
+
 // pro800 sh-waits <settle µs> <sample µs>: the S&H waits for channels written on their own (RAM only, default
 // bus; 0 0 restores the defaults). For measuring the VCA path through the Move, which dac-test can't judge.
 func shWaits() {
@@ -865,21 +934,25 @@ func state() {
     print("keyboard tracking: \(keytrack)")
 }
 
-let shapeNames = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps"]
+let shapeNames = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]
 let lfo2DestNames = ["pitch", "filter", "pw"]
 let layerModes = ["off", "split", "stack", "channel", "8ch", "mpe"], triggerModes = ["free", "first", "every", "voice"]
+let cycleNames = ["amp", "filter", "env3", "env4"]
 let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo2-sync", "lfo2-trigger", "edit-layer",
                     "lfo", "shape 1 1", "shape 1 2", "shape 2 1", "shape 2 2", "lfo2-dests 1", "lfo2-dests 2",
                     "cycle 1", "cycle 2", "cycle-sync 1 amp", "cycle-sync 1 filter", "cycle-sync 1 env3",
                     "cycle-sync 1 env4", "cycle-sync 2 amp", "cycle-sync 2 filter", "cycle-sync 2 env3",
                     "cycle-sync 2 env4", "bend", "detune", "voice 1", "voice 2", "drift", "scale", "root",
                     "lfo-delay", "lfo-fade", "lfo2-delay", "lfo2-fade", "cc-a", "cc-b", "macro 1 1", "macro 1 2", "macro 2 1",
-                   "macro 2 2", "clock", "bpm", "env-select", "preset-mode", "patch", "morph"]
+                   "macro 2 2", "clock", "bpm", "env-up 1", "env-up 2", "dahdsr 1", "dahdsr 2", "env-curve 1", "env-curve 2"]
+    + (1...2).flatMap { l in cycleNames.map { "env-delay \(l) \($0)" } }
+    + (1...2).flatMap { l in cycleNames.map { "env-hold \(l) \($0)" } }
+    + ["layer-voices", "env-select", "preset-mode", "patch", "morph"]
+let curveNames = ["analog", "linear", "swell"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                   "pentatonic-minor", "blues", "whole-tone", "chromatic"]
 let rootNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 let voiceModes = ["poly", "mono", "legato"], priorities = ["last", "low", "high"]
-let cycleNames = ["amp", "filter", "env3", "env4"]
 let divisionNames = ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
                      "1/16T", "1/32"]
 // the latching buttons (switch_t indices) the engine reports with 4C and takes with 4B
@@ -899,12 +972,14 @@ func setSetting() {
                                                "lfo2-sync": (5, ["free", "clock"]), "lfo2-trigger": (6, triggerModes),
                                                "lfo": (8, ["1", "2"])]
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
-        "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | keytrack off|half|full | lfo 1|2 | " +
+        "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | " +
         "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
         "clock midi|internal|sync-in | bpm <30-300> | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
+        "env-up|dahdsr <layer 1|2> none|amp,filter,env3,env4 | env-curve <layer 1|2> amp|filter|env3|env4 " +
+        "\(curveNames.joined(separator: "|")) | env-delay|env-hold <layer 1|2> amp|filter|env3|env4 <0-99> | " +
         "button \(buttonNames.values.sorted().joined(separator: "|")) on|off"
     var id: UInt8, v: Int
     if args.count == 2, args[0] == "morph" { // the morph target: a slot, or none (SysEx 44)
@@ -936,6 +1011,8 @@ func setSetting() {
         (id, v) = (UInt8(38 + 2 * (layer - 1) + (m - 1)), off + 99)
     } else if args.count == 2, args[0] == "clock", let i = ["midi", "internal", "sync-in"].firstIndex(of: args[1]) {
         (id, v) = (42, i)
+    } else if args.count == 2, args[0] == "layer-voices", let n = args[1] == "auto" ? 0 : Int(args[1]), (0...7).contains(n) {
+        (id, v) = (66, n)
     } else if args.count == 2, args[0] == "bpm", let b = Int(args[1]), (30...300).contains(b) {
         (id, v) = (43, b)
     } else if args.count == 4, args[0] == "voice", let layer = Int(args[1]), (1...2).contains(layer),
@@ -971,13 +1048,25 @@ func setSetting() {
         probeAck(Midi(port: portName), [0x4B, UInt8(i), args[2] == "on" ? 1 : 0])
         print("\(args[1]) \(args[2])")
         return
-    } else if args.count == 3, args[0] == "cycle", let layer = Int(args[1]), (1...2).contains(layer) {
+    } else if args.count == 3, ["cycle", "env-up", "dahdsr"].contains(args[0]), let layer = Int(args[1]), (1...2).contains(layer) {
         var bits = 0
         for name in args[2].split(separator: ",") where name != "none" {
             guard let i = cycleNames.firstIndex(of: String(name)) else { fail(usage) }
             bits |= 1 << i
         }
-        (id, v) = (UInt8(15 + layer - 1), bits)
+        let first = ["cycle": 15, "env-up": 44, "dahdsr": 46][args[0]]!
+        (id, v) = (UInt8(first + layer - 1), bits)
+    } else if args.count == 4, args[0] == "env-curve", let layer = Int(args[1]), (1...2).contains(layer),
+              let env = cycleNames.firstIndex(of: args[2]), let curve = curveNames.firstIndex(of: args[3]) {
+        // the other envelopes' curves stay: read them first
+        guard let reply = Midi(port: portName).request([0x54], expect: [0x54], timeout: 2) else { fail("no reply") }
+        let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)]), i = 48 + layer - 1
+        guard Int(b[0]) > i else { fail("the firmware has no envelope curves (0.9.0 or later?)") }
+        let bits = Int(b[1 + 2 * i]) << 7 | Int(b[2 + 2 * i])
+        (id, v) = (UInt8(i), bits & ~(3 << (2 * env)) | curve << (2 * env))
+    } else if args.count == 4, ["env-delay", "env-hold"].contains(args[0]), let layer = Int(args[1]), (1...2).contains(layer),
+              let env = cycleNames.firstIndex(of: args[2]), let a = Int(args[3]), (0...99).contains(a) {
+        (id, v) = (UInt8((args[0] == "env-delay" ? 50 : 58) + (layer - 1) * 4 + env), a)
     } else {
         fail(usage)
     }
@@ -1003,9 +1092,11 @@ func settings() {
         case 7, 8: text = "\(v + 1)"
         case 9...12: text = shapeNames[safe: v] ?? text
         case 13, 14: text = lfo2DestText(v)
-        case 15, 16:
+        case 15, 16, 44...47:
             let on = cycleNames.indices.filter { v >> $0 & 1 != 0 }.map { cycleNames[$0] }
             text = on.isEmpty ? "none" : on.joined(separator: ",")
+        case 48, 49: text = cycleNames.indices.map { "\(cycleNames[$0]) \(curveNames[safe: v >> (2 * $0) & 3] ?? "?")" }.joined(separator: ", ")
+        case 50...65: text = String(format: "%d (%.3f s)", v, 10 * (pow(2, Double(v) / 99 * 12) - 1) / 4095)
         case 17...24: text = v == 0 ? "free" : divisionNames[safe: v - 1] ?? text
         case 25: text = "±\(v) semitones"
         case 26: text = "\(v) cents"
@@ -1017,9 +1108,10 @@ func settings() {
         case 38...41: text = String(format: "%+d", v - 99)
         case 42: text = ["midi", "internal", "sync-in"][safe: v] ?? text
         case 43: text = "\(v) BPM"
-        case 44: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 46: text = slotName(v)
-        case 47: text = v == 0 ? "none" : slotName(v - 1)
+        case 66: text = v == 0 ? "automatic" : "\(v) + \(8 - v)"
+        case 67: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 69: text = slotName(v)
+        case 70: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
@@ -1045,10 +1137,11 @@ extension Array {
     subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
 
-// Parameter names, in the firmware's order (the knobs by hardware position, then Env 3, Env 4, LFO 2)
+// Parameter names, in the firmware's order (the knobs by hardware position, then Env 3, Env 4, LFO 2); macro1 is the
+// M TUNE knob (0.9.0)
 let paramNames = ["amp-rel", "amp-sus", "amp-dec", "amp-att", "fil-rel", "fil-sus", "fil-dec", "fil-att",
                   "resonance", "fil-env-amt", "freq-a", "freq-b", "fine", "a-pw", "b-pw", "a-level",
-                  "glide", "lfo-freq", "lfo-amount", "master-tune", "master-vol", "b-level", "pmod-osc-b", "pmod-fil-env",
+                  "glide", "lfo-freq", "lfo-amount", "macro1", "master-vol", "b-level", "pmod-osc-b", "pmod-fil-env",
                   "cutoff", "noise",
                   "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
                   "lfo2-rate", "lfo2-amount"]
@@ -1575,6 +1668,7 @@ case "tuning": tuning()
 case "check": check()
 case "dac-test": dacTest()
 case "sh-waits": shWaits()
+case "dac-heal": dacHeal()
 case "panel": panel()
 case "state": state()
 case "set": setSetting()

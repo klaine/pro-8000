@@ -19,8 +19,10 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - Patches: `patches`, `patch load|save|clear <slot>`, `format --yes` (wipe every slot), `eeprom <file>` (read),
     `eeprom-write <image> --yes` (write and verify, e.g. back to stock).
   - Engine: `set lfo-sync|lfo2-sync free|clock`, `set lfo-trigger|lfo2-trigger free|first|every|voice`, `set layers
-    off|split|stack|channel`, `set split <note>`, `set keytrack`, `set lfo 1|2`, `set shape <layer> <lfo> <shape>`,
-    `set lfo2-dests <layer> …`, `settings`, `params`, `param <layer> <name> <0-99>`, `layer 1|2`, `route`, `routes`,
+    off|split|stack|channel`, `set split <note>`, `set layer-voices auto|1-7`, `set keytrack`, `set lfo 1|2`, `set shape <layer> <lfo> <shape>`,
+    `set lfo2-dests <layer> …`, `set env-up|dahdsr <layer> …`, `set env-curve <layer> <env> analog|linear|swell`,
+    `set env-delay|env-hold <layer> <env> <0-99>` (0.9.0), `settings`, `params`, `param <layer> <name> <0-99>`
+    (M TUNE is `macro1` from 0.9.0), `layer 1|2`, `route`, `routes`,
     `clock <bpm> [seconds]`, `timing`.
   - Patches also: `patch rename <slot> <name>`, `factory` (list), `factory import <f> <slot> [--force]`.
   - From 0.8.0: 128 patches (P1-P128, program change 0-127), 768-byte records with the step sequence inside
@@ -29,8 +31,9 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     has no MIDI): tabs Sound (the faceplate on top, then the extras and the mod matrix), Device cheat sheet (keep it in
     step with `MANUAL.md`), Patches, Play, System, Panel mapping (map in `tools/web/panel-map.json`).
   - Probe commands for our firmware: `direct on|off`, `cv`, `gate`, `measure` (the tuning comparator),
-    `tune`, `tuning` (print the tables), `check` (cents error of every oscillator through the tables),
-    `dac-test` (sweeps the DAC80501 bus and the S&H waits, 0.7.4+; RAM-only probe, silent).
+    `tune`, `tuning` (print the tables), `check` (cents error of every oscillator and, from 0.8.4, every filter through the tables),
+    `dac-test` (sweeps the DAC80501 bus and the S&H waits, 0.7.4+; RAM-only probe, silent), `dac-heal` (sets the
+    DAC80501's gain wrong and checks the firmware's setup re-send puts it right, 0.8.5+; silent).
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
 - `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, because the bootloader takes it as XYZ.
@@ -40,7 +43,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 
 - `tools/pro800.swift`: the USB MIDI tool (one file, CoreMIDI + AVFoundation).
 - `src/`: `startup.c` (vector table, reset handler that cleans up after the bootloader), `link.ld`
-  (app at `0x08010000`, max 64 kB: flash sector 4), `regs.h` (the registers we use; no vendor headers), drivers, `main.c`.
+  (app at `0x08010000`, max 128 kB: flash sector 4 and half of sector 5), `regs.h` (the registers we use; no vendor headers), drivers, `main.c`.
 - `reference/`: GliGli's p600fw (GPL v3) and the packer + schematic. Third-party, git-ignored.
 - `backup/`: read-only SysEx dumps of the synth's patches. Git-ignored.
 
@@ -49,7 +52,9 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 - Flashing the synth, or sending it anything other than read-only requests, only when the user asks.
 - **Never** connect a debugger to unlock the flash: that erases the chip, bootloader included. Recovery is
   always through the bootloader (hold buttons 0 and 7 at power-up) and a stock firmware `.syx`.
-- The firmware must fit in flash sector 4 (64 kB, enforced by `link.ld`): sector 5 holds the tuning tables.
+- The firmware must fit in 128 kB (the packer's limit, enforced by `link.ld`): sector 4 and the first half of
+  sector 5, which the bootloader erases and programs with each update (tested in 0.8.4). The tuning tables live in
+  the EEPROM.
 - The EEPROM (`EEP_*` on PE1–PE6) holds the user's patches in our format (`src/store.h`). Write it only through
   `store.c` or the tool's `--yes` commands; keep `backup/2026-10-27/eeprom-stock.bin` (the way back to stock).
 - At startup, drive every S&H enable (`EN1`–`EN9`) high before anything else, so no CV channel samples

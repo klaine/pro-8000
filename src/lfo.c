@@ -11,7 +11,8 @@
 // rate smoothly in every mode; a grid-locked LFO slides back onto the grid once the modulation stops.
 //
 // Every phase carries two random values for the random shapes: the one it holds (sample & hold) and the next one
-// (drift glides towards it); both move on when the phase wraps or is retriggered.
+// (drift glides towards it); both move on when the phase wraps or is retriggered. The noise shape runs its own
+// faster sequence of random values beside the phase (noise_advance()).
 #include "lfo.h"
 #include "clock.h"
 #include "fastmath.h"
@@ -44,6 +45,7 @@ uint16_t lfo_pattern[LFO_COUNT] = {LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN, LFO
 uint8_t lfo_step_count[LFO_COUNT] = {LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS};
 
 #define STEP_SLOPE_S 0.008f // a gate (LFO → VCA) opens over half of it: about 2 updates
+#define NOISE_VALUES 16.0f  // the noise shape's random values per cycle
 
 static const struct {
     float quarters; // LFO period
@@ -55,11 +57,13 @@ static const struct {
 };
 #define DIVISION_COUNT ((int)(sizeof divisions / sizeof divisions[0]))
 
-static const char shape_names[LFO_SHAPE_COUNT][6] = {"trI", "PULS", "SA.UP", "SA.dn", "SInE", "S-H", "drFt", "StEP"};
+static const char shape_names[LFO_SHAPE_COUNT][6] = {"trI", "PULS", "SA.UP", "SA.dn", "SInE", "S-H", "drFt", "StEP",
+                                                      "nOIS"};
 
 typedef struct {
     float phase;
     float held, next; // random values, -1..1
+    float noise, noise_from, noise_to; // the noise shape: 0..1 between two random values
 } phase_t;
 
 static struct {
@@ -105,6 +109,17 @@ static void advance(phase_t *p, float step)
     if (p->phase >= 1.0f) {
         p->phase -= (float)(int)p->phase;
         new_cycle(p);
+    }
+}
+
+// The noise shape's values move on NOISE_VALUES times a cycle, whatever the phase does (it jumps on the grid)
+static void noise_advance(phase_t *p, float step)
+{
+    p->noise += step * NOISE_VALUES;
+    if (p->noise >= 1.0f) {
+        p->noise -= (float)(int)p->noise;
+        p->noise_from = p->noise_to;
+        p->noise_to = random_value();
     }
 }
 
@@ -250,11 +265,14 @@ void lfo_update(int lfo, float dt, float knob, float octaves)
     } else {
         advance(p, rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f));
     }
+    noise_advance(p, rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f));
 }
 
 void lfo_update_voice(int lfo, int voice, float dt, float octaves)
 {
-    advance(&lfos[lfo].voice[voice], lfos[lfo].rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f));
+    float step = lfos[lfo].rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f);
+    advance(&lfos[lfo].voice[voice], step);
+    noise_advance(&lfos[lfo].voice[voice], step);
 }
 
 // sin(2π x) for x in [0, 1), within about 0.1%
@@ -277,6 +295,7 @@ float lfo_value(int lfo, int voice, lfo_shape_t shape)
     case LFO_RAMP_DOWN: return 1 - 2 * x;
     case LFO_SINE: return -sine(x < 0.75f ? x + 0.25f : x - 0.75f); // -cos: starts low, like the triangle
     case LFO_SAMPLE_HOLD: return p->held;
+    case LFO_NOISE: return p->noise_from + (p->noise_to - p->noise_from) * p->noise;
     case LFO_DRIFT: {
         float s = x * x * (3 - 2 * x); // smoothstep
         return p->held + (p->next - p->held) * s;

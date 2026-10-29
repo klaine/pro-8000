@@ -163,6 +163,26 @@ void sh_timing(uint32_t *settle, uint32_t *sample)
 
 void sh_hold(void) { hold(); }
 
+// With every channel held, nothing samples the DAC80501, so even a garbled frame can't reach a capacitor; the next
+// channel's own data frame sets the output again. Off only for the probe that tests it.
+static int dac_setup_resend = 1;
+
+void sh_refresh_dac_setup(void)
+{
+    if (!dac_setup_resend)
+        return;
+    hold();
+    dac16_setup();
+}
+
+void sh_dac_setup_resend(int on) { dac_setup_resend = on; }
+
+void sh_dac_register(uint8_t command, uint16_t value)
+{
+    hold();
+    dac16_register(command, value);
+}
+
 void sh_gate(gate_t gate, int on) { gpio_write(GPIOE_BASE, gate_pins[gate], on); }
 
 void sh_refresh_pitch(unsigned voices)

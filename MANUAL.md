@@ -1,11 +1,11 @@
 # PRO-800 custom firmware: user manual
 
-For firmware 0.8.2. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For firmware 0.9.0. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
-- two LFOs per layer with eight shapes (a programmable step pattern among them), clock sync and per-voice
+- two LFOs per layer with nine shapes (a programmable step pattern and noise among them), clock sync and per-voice
   retrigger;
-- four envelopes per voice;
+- four envelopes per voice (ADSR or DAHDSR, from key down or key up, three curves, cycling);
 - an 8-route mod matrix per layer;
 - a step sequence per patch, played from a key and transposed by it, with up to four automation lanes;
 - autotune that keeps every oscillator within about a cent;
@@ -23,13 +23,13 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Keyboard-tracking switch | Keyboard tracking, as printed: off, half, full. A loaded patch's setting holds until you move the switch. |
 | Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |
 | Sync Clock | The clock: tap the tempo (its LED blinks on the beat of whichever clock is in use), hold it to restart the bar, Shift + press to cycle the clock source. |
-| LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`. |
+| LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`, `nOIS`. |
 | VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. |
 | Seq 1 / Seq 2 | Choose the layer the knobs edit (LED). |
 | Arp Up-Dn | Choose LFO 1 or LFO 2 for the LFO knobs, the shape button and the LFO routing buttons (LED lit = LFO 2). |
 | Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning). |
 | Preset | Preset mode (a patch loaded) ↔ manual mode (the panel is live). |
-| Rec | Save (blinks, choose the slot, Rec again). |
+| Rec | Save (blinks, choose the slot, Rec again). Hold Rec and press Seq 1: record sequence steps from MIDI (`rSEq`, see Sequencer). |
 | Perf | Load the init sound: one sawtooth, filter open. |
 | Settings | Opens the settings menu (keys 1-5). |
 | Tune | Autotune (about 25 s, silent). |
@@ -39,7 +39,8 @@ The display shows a knob's value while you turn it, in real units where it has o
 | Knob | Shows | Range and curve |
 |---|---|---|
 | FREQ A / B | semitones (`-12`, `  7`) | ±36, whole semitones |
-| FINE, M TUNE | cents | ±100 |
+| FINE | cents | ±100 |
+| M TUNE | Macro 1, signed (`-45`, `  12`) | −99..99, 0 in the middle |
 | CUTOFF | Hz; with a point from 1 kHz on, kHz (` 737`, ` 1.24`, ` 16.7`) | 16 Hz-16.7 kHz, exponential |
 | FIL ENV AMT | semitones, signed (`-4.5`, `  18`) | ±72, squared: fine near the centre (25 % from the centre = 4.5, half = 18) |
 | PMOD FIL ENV | semitones (` 3.00`, ` 12.0`) | 0-48, squared (a quarter = 3, half = 12) |
@@ -79,7 +80,7 @@ web page's MIDI router).
 |---|---|---|---|---|---|
 | 5 | Glide | 21 | Noise | 29 | PMOD filter env |
 | 14 | FREQ A | 22 | Filter env amount | 30 | PMOD osc B |
-| 15 | FREQ B | 23-26 | Filter A / D / S / R | 31 | Master tune |
+| 15 | FREQ B | 23-26 | Filter A / D / S / R | 31 | M TUNE (Macro 1) |
 | 16 | FINE | 27 / 28 | LFO 2 rate / amount | 70 / 72 / 73 / 75 | Amp S / R / A / D |
 | 17 / 18 | PW A / B | 71 | Resonance | 76 / 77 | LFO 1 rate / amount |
 | 19 / 20 | Level A / B | 74 | Cutoff | 85-88, 89-90 + 102-103 | Env 3, Env 4 A / D / S / R |
@@ -137,11 +138,16 @@ Settings → key 3 (`LAYr`) has six modes:
 | Mode | Voices | Notes |
 |---|---|---|
 | `OFF` | Layer 1 on all 8 voices | — |
-| `SPLt` | 4 each (7 + 1 with one layer mono) | Layer 1 below the split note, layer 2 from it up. Set the note with Settings → key 4, VALUE, or by playing it while that page shows. |
-| `StAC` | 4 each (7 + 1 with one layer mono) | Both layers on every note. A sequence on one layer's keys plays that layer while the other plays the keys: a pad with an arpeggio on top. |
-| `CHAn` | 4 each (7 + 1 with one layer mono) | MIDI channel 2 plays layer 2, every other channel layer 1. |
+| `SPLt` | 4 each (7 + 1 with one layer mono), or as set below | Layer 1 below the split note, layer 2 from it up. Set the note with Settings → key 4, VALUE, or by playing it while that page shows. |
+| `StAC` | 4 each (7 + 1 with one layer mono), or as set below | Both layers on every note. A sequence on one layer's keys plays that layer while the other plays the keys: a pad with an arpeggio on top. |
+| `CHAn` | 4 each (7 + 1 with one layer mono), or as set below | MIDI channel 2 plays layer 2, every other channel layer 1. |
 | `8CH` | Layer 1, one voice per MIDI channel | Channels 1-8 each play one voice, mono, with their own pitch bend (the bend-range setting), pressure and CC 74. Channels 9-16 play nothing. For sequencers that drive eight mono lines. |
 | `nPE` | Layer 1, one voice per member channel | MPE, lower zone: channel 1 is the master (its bend, mod wheel, pressure and pedal reach every voice, its notes play polyphonically), channels 2-9 each play one voice with 48 semitones of bend, their own pressure and CC 74. The usual MPE controller default; the firmware doesn't read the RPNs that change it. |
+
+**Voices per layer** (0.9.0): on the `LAYr` page, Arp Up-Dn switches to `Lr.Uo`, how split, stack and channel
+mode share the eight voices: VALUE chooses `AUto` (4 + 4, or 7 + 1 with one layer mono or legato) or layer 1's
+count, `1-7` … `7-1` (layer 1 - layer 2); Arp Up-Dn goes back. A stack of a 6-voice pad and a 2-voice lead is
+`6-2`. Changing it releases every note. It's stored in the patch; the web page has it as Voices next to Layers.
 
 In both per-channel modes the mod matrix's `Timbre` source is that voice's CC 74, and `Aftertouch` its channel
 pressure, so a slide or a press shapes each note on its own.
@@ -152,7 +158,7 @@ Seq 1 / Seq 2 choose the layer the knobs edit (`L  1` / `L  2`).
 - FREQ A/B and FINE;
 - CUTOFF and FIL ENV AMT;
 - all four ADSRs;
-- GLIDE and M TUNE (layer fine-tune);
+- GLIDE and M TUNE (Macro 1's knob);
 - both LFOs: rate, amount and shape, plus LFO 2's routing;
 - PMOD FIL ENV;
 - the mod routes.
@@ -193,6 +199,7 @@ The setting is per LFO, shared by both layers, and saved in the patch.
 | `S-H` | Sample & hold: a new random step every cycle |
 | `drFt` | Drift: smooth glides between random values |
 | `StEP` | Steps: a pattern of 1-16 on/off steps, edited on the web page |
+| `nOIS` | Noise: a new random value 16 times a cycle, glided to: a rough wander at low rates, a fast jitter at the top (up to about 800 values a second) |
 
 ### Step patterns and trance gates
 
@@ -262,13 +269,42 @@ before every one of those four steps, so a note starts within about 0.3-0.6 ms o
 LFOs into pitch, cutoff and the VCA move at that rate too; each voice's pitch goes out once a pass with its value at
 that moment, and the knobs and other routes update once a pass.
 
+### Envelope modes, curves, delay and hold
+
+Settings → key 6 sets one envelope: `En.A` (amp), `En.F` (filter), `En.3` or `En.4`. It opens on the envelope the
+filter ADSR knobs edit, or amp; press 6 again for the next one. VALUE chooses its mode:
+
+| Value | Mode |
+|---|---|
+| `AdSr` | ADSR from the key going down (the default) |
+| `dAHd` | DAHDSR: a delay before the attack and a hold at the top before the decay |
+| `UP.AS` | ADSR from key up: the envelope runs when you let go of the key |
+| `UP.dA` | DAHDSR from key up |
+| `CYCL` | Cycling on its own times (below) |
+| `8bAr` … `1-32` | Synced cycling (below) |
+
+- **Delay and hold:** while page 6 is open, the ATT knob sets the envelope's delay (`dLY`) and the DEC knob its hold
+  (`HoLd`), each 0-10 s on the attack's curve, by how far you turn them; the display shows the time. Meanwhile those
+  knobs leave the attack and decay alone (they pick up again after). They count in the `dAHd` modes only. During
+  the delay the level goes on falling as in a release, so a retriggered note doesn't click.
+- **Key up:** while the key is down the envelope rests at zero. When you let go it runs its delay, attack and hold,
+  then the decay for its time towards the sustain level, then the release. A new note on that voice fades it with
+  the release time. Use it for a sound that starts when you lift your finger: a key-up amp envelope plays only after
+  the key (a release "thump"), a key-up Env 3 → CUTOFF opens the filter as a note ends. With sustain at 0 it's an
+  attack-decay blip; with sustain up, DEC is how long it holds there before the release.
+- **Curve:** on page 6 Arp Up-Dn switches to the envelope's curve (`CU.A` …), and back. VALUE: `AnLG` (analog: the
+  concave attack and exponential decay and release described above, the default), `LIn` (linear: straight lines;
+  each stage covers full scale in its time, so a release from half way takes half of it) or `SUEL` (swell: an attack
+  that starts slowly and rises faster, the analog decay and release).
+
+All of these are per layer and stored in the patch. On the web page, each envelope has a Mode menu, a Curve menu and,
+in the DAHDSR modes, Delay and Hold knobs.
+
 ### Cycling envelopes
 
-Any envelope can cycle while the key is held, like a one-shot LFO per note that restarts itself. Turn it on in
-Settings → key 6, which shows `CY.A` (amp), `CY.F` (filter), `CY.3` or `CY.4`. It opens on the envelope the filter
-ADSR knobs edit, or amp; press 6 again for the next one. VALUE chooses `OFF`, `FrEE` (cycling on its own times) or
-a clock division (`8bAr` … `1-32`, synced cycling, below). This is per layer and stored in the patch. On the web
-page, each envelope has a Mode menu with the same choices.
+Any envelope can cycle while the key is held, like a one-shot LFO per note that restarts itself: on page 6 choose
+`CYCL` (cycling on its own times) or a clock division (`8bAr` … `1-32`, synced cycling, below). Cycling takes the
+envelope over: DAHDSR and key up don't apply while it cycles; the curve does.
 
 While it cycles, the knobs mean:
 
@@ -322,6 +358,11 @@ only plays it.
   mod sources Seq A-D: choose a destination next to each lane (a route at depth 99 on the layer you're editing) or
   route them in the Mod matrix with any depth. Steps and lanes share the space in the sequence's slot: 60 steps
   with no lanes, 48 with 1, 40 with 2, 34 with 3, 30 with 4.
+- **Recording on the panel (0.9.0):** hold Rec and press Seq 1 (`rSEq`; the edit layer stays, and REC blinks fast).
+  Each MIDI note you play is the next step from step 1 (`St 3`): its offset from the first note, its velocity, a
+  50 % gate. Seq 2 writes a rest. Rec or Seq 1 ends it (`donE`); `FULL` when the steps run out. The length follows,
+  the sequence is switched on, and its lanes and settings stay. The notes sound while you record, without the
+  sequence. Rec then saves it with the patch as usual.
 - **On the web page also:** Euclid fills the steps with k hits spread evenly over the length; Record writes notes
   you play (the on-screen keys or the routed MIDI input, e.g. the Move) into the steps one by one, relative to the
   first; Reset steps.
@@ -351,7 +392,10 @@ holding again leaves. `nonE` means the layer has no routes.
 
 Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn still work while assigning.
 
-**Macros:** `nAC1` and `nAC2` are destinations and sources at once. Route anything into a macro (several things, if
+**Macros:** `nAC1` and `nAC2` are destinations and sources at once. The M TUNE knob is Macro 1's own knob (0.9.0;
+master tune is gone, autotune keeps the voices in tune): its position, −1 to 1 with 0 in the middle, adds to the
+macro along with its offset (Shift + CUTOFF) and whatever is routed into it, so Macro 1 → anything is a hand knob
+for those destinations. Route anything into a macro (several things, if
 you like; the sum is the macro's value, −1 to 1), then route the macro to as many destinations as you want, each
 with its own depth and sign: mod wheel → Macro 1, Macro 1 → cutoff 40, resonance 20, A pulse width −30. The web
 page's Mod matrix shows each macro's inputs and outputs on one line. A macro is worked out once a pass (1-2.4 ms),
@@ -386,7 +430,7 @@ The Morph destination (web page only) fades toward the morph target patch (see V
 |---|---|---|---|
 | FREQ A | Pitch A | `P.A` | ±24 semitones ‡ |
 | FREQ B or FINE | Pitch B | `P.b` | ±24 semitones ‡ |
-| M TUNE | Pitch A and B | `PIt` | ±24 semitones ‡ |
+| M TUNE | Macro 1 | `nAC1` | ±1 |
 | CUTOFF | Cutoff | `CUt` | ±96 semitones |
 | FIL ENV AMT | Filter envelope amount | `F.EA` | full scale |
 | PMOD FIL ENV | Poly-mod envelope amount | `P.EA` | full scale |
@@ -492,10 +536,10 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 |---|---|---|
 | 1 | `SYnC` / `SYn2`: selected LFO's sync | `FrEE`, `CLoC` |
 | 2 | `trIG` / `trI2`: selected LFO's retrigger | `FrEE`, `1St`, `EACH`, `PoLY` |
-| 3 | `LAYr`: layer mode | `OFF`, `SPLt`, `StAC`, `CHAn`, `8CH`, `nPE` |
+| 3 | `LAYr`: layer mode (Arp Up-Dn: `Lr.Uo`, the voices per layer) | `OFF`, `SPLt`, `StAC`, `CHAn`, `8CH`, `nPE`; `AUto`, `1-7` … `7-1` |
 | 4 | `SPLt`: split note | 0-127, or play a note |
 | 5 | `trAC`: keyboard tracking (also the switch) | `OFF`, `HALF`, `FULL` |
-| 6 | `CY.A` / `CY.F` / `CY.3` / `CY.4`: cycling envelope (6 again: next one) | `OFF`, `FrEE`, `8bAr` … `1-32` |
+| 6 | `En.A` / `En.F` / `En.3` / `En.4`: envelope mode (6 again: next one; Arp Up-Dn: its curve, `CU.A` …; ATT / DEC: delay / hold) | `AdSr`, `dAHd`, `UP.AS`, `UP.dA`, `CYCL`, `8bAr` … `1-32`; curve `AnLG`, `LIn`, `SUEL` |
 | 7 | `bEnd`: pitch bend range | 1-12 semitones (default 2) |
 | 8 | `dEtU`: unison detune, cents between the outermost voices | 0-50 (default 14) |
 | 9 | `UOIC`: the edit layer's voice mode | `POLY`, `nono`, `LEG` |
@@ -518,7 +562,7 @@ WebMIDI with SysEx, which Safari and the desktop app's built-in browser don't of
 
 | Tab | What it does |
 |---|---|
-| **Sound** | On top, the synth's own faceplate: oscillators, poly-mod, LFO-MOD (with a rotary for LFO 1's eight shapes), noise, glide, filter (its Env select switch is the keyboard-tracking switch, as on the synth: down, middle and up make the four ADSR knobs edit the filter envelope, Env 3 or Env 4; it follows the synth's switch, and a click holds until you move that), amplifier, master tune and volume, with knurled knobs and bat-lever switches laid out as on the synth. Values show under the pointer, or always with the Values switch. A red arc around a knob is its modulation range: how far the edit layer's mod routes can move it from where it stands (both ways for sources that swing either side of the middle, one way for 0-to-1 sources); hover for the routes. Each oscillator section shows its waveform, the filter section its response curve (above its knobs) and the envelope its ADSR knobs are editing, and the amplifier its envelope; under each envelope picture are its Mode menu (ADSR / cycle / synced cycle) and ⇆ to copy it from the other layer (in the filter section they follow the Env select switch). Below it, "Beyond the panel": Env 3 and Env 4 (picture, Mode, knobs, ⇆), LFO 1 and LFO 2 (shape, rate, amount, delay and fade, sync, retrigger, routing, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape; LFO 1's rate, amount, shape and routing are also on the faceplate), voice settings (layers, filter keytracking, voice mode and note priority, drift, scale and root, morph, Mutate, bend, detune), the mod matrix (with a knob for each macro's offset: its ring is what the routes into the macro can add, the text beside it what feeds and what it drives) and the sequencer. Drag a knob up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch; click the patch's name there to rename it (Enter or clicking away saves it to the slot, Escape leaves it). Layer 1 / Layer 2 are in the header; knobs, depth bars and the mod matrix edit that layer. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. Amber knobs are shared by both layers (mixer levels, noise, resonance, PW A / B, poly-mod osc B, volume). |
+| **Sound** | On top, the synth's own faceplate: oscillators, poly-mod, LFO-MOD (with a rotary for LFO 1's nine shapes), noise, glide, filter (its Env select switch is the keyboard-tracking switch, as on the synth: down, middle and up make the four ADSR knobs edit the filter envelope, Env 3 or Env 4; it follows the synth's switch, and a click holds until you move that), amplifier, Macro 1 (M TUNE) and volume, with knurled knobs and bat-lever switches laid out as on the synth. Values show under the pointer, or always with the Values switch. A red arc around a knob is its modulation range: how far the edit layer's mod routes can move it from where it stands (both ways for sources that swing either side of the middle, one way for 0-to-1 sources); hover for the routes. Each oscillator section shows its waveform (as measured at the output: the enabled waves added at their own levels and pulse width, the saw falling), the filter section its response curve (above its knobs) and the envelope its ADSR knobs are editing, and the amplifier its envelope; under each envelope picture are its Mode menu (ADSR / DAHDSR, either from key up / cycle / synced cycle), Curve menu, Delay and Hold knobs (DAHDSR) and ⇆ to copy it from the other layer (in the filter section they follow the Env select switch). Below it, "Beyond the panel": Env 3 and Env 4 (picture, Mode, knobs, ⇆), LFO 1 and LFO 2 (shape, rate, amount, delay and fade, sync, retrigger, routing, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape; LFO 1's rate, amount, shape and routing are also on the faceplate), voice settings (layers, filter keytracking, voice mode and note priority, drift, scale and root, morph, Mutate, bend, detune), the mod matrix (with a knob for each macro's offset: its ring is what the routes into the macro can add, the text beside it what feeds and what it drives) and the sequencer. Drag a knob up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch; click the patch's name there to rename it (Enter or clicking away saves it to the slot, Escape leaves it). Layer 1 / Layer 2 are in the header; knobs, depth bars and the mod matrix edit that layer. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. Amber knobs are shared by both layers (mixer levels, noise, resonance, PW A / B, poly-mod osc B, volume). |
 | **Device cheat sheet** | How to reach everything this firmware adds from the synth's own panel: the remapped buttons, the display, patches, layers, LFOs, envelopes, mod assign with its source keys and destinations, the settings menu, MIDI and recovery, and what's web-only. |
 | **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 400 as a `.bin`. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. |
