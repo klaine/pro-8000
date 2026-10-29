@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRO-800 Custom Firmware</title>
+<meta name="description" content="Documentation for a custom firmware for the Behringer PRO-800: how it works, and the sound design it opens up.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23160705'/%3E%3Cpath d='M5 21 L11 11 L16 21 L21 11 L27 21' fill='none' stroke='%23ff5b3d' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
+<!--STYLE-->
+<style>
+  .home { max-width: 1180px; margin: 0 auto; padding: 8px 24px 80px; }
+  .docs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 18px; }
+  .doc {
+    display: block; text-decoration: none; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+    border-radius: 18px; padding: 22px 24px 24px; box-shadow: var(--shadow); transition: transform .15s ease, border-color .15s ease;
+  }
+  .doc:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .doc svg { width: 100%; height: auto; display: block; margin-bottom: 16px; }
+  .doc h2 { font-size: 1.5rem; margin-bottom: 8px; }
+  .doc p { color: var(--ink-2); margin: 0 0 12px; }
+  .doc .go { color: var(--accent); font-weight: 650; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 36px; font-size: 15px; color: var(--ink-2); }
+  .facts b { color: var(--ink); display: block; }
+  @media (max-width: 560px) { .home { padding: 8px 16px 64px; } }
+</style>
+<!--COMMON-->
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="logo">PRO<b>·</b>800</span><span class="sub">custom firmware</span></a>
+  <nav>
+    <a href="how-it-works.html">How it works</a>
+    <a href="sound-design.html">Sound design</a>
+    <a href="editor/">Editor</a>
+    <a href="https://github.com/klaine/pro-8000">Source</a>
+  </nav>
+  <button class="theme-btn" type="button" aria-label="Switch light or dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+</header>
+
+<div class="hero">
+  <div class="kicker">Behringer PRO-800 · firmware 0.9.0</div>
+  <h1>A new brain for eight analog voices</h1>
+  <p class="lede">A from-scratch replacement firmware for the PRO-800. The voice board stays fully analog; the firmware adds two layers, four LFOs, four envelopes per voice, a 16-route mod matrix with macros, per-note expression up to MPE, a sequence in every patch, autotune within a cent, and a 64-sound preset bank.</p>
+</div>
+
+<main class="home">
+  <div class="docs">
+    <a class="doc" href="how-it-works.html">
+      <svg viewBox="0 0 400 120" aria-hidden="true">
+        <rect class="box-dig" x="6" y="30" width="110" height="60" rx="10"/><text x="61" y="65" class="t-b" text-anchor="middle">brain</text>
+        <path class="ln-dig" d="M116 60 H148"/>
+        <rect class="box-sh" x="150" y="38" width="90" height="44" rx="10"/><text x="195" y="65" class="t-sm" text-anchor="middle">DAC + S&amp;H</text>
+        <path class="ln-ana thick" d="M240 60 H272"/>
+        <rect class="box-ana" x="274" y="14" width="120" height="92" rx="10"/>
+        <g class="f-ana"><rect x="290" y="30" width="88" height="8" rx="2" opacity=".5"/><rect x="290" y="44" width="88" height="8" rx="2" opacity=".5"/><rect x="290" y="58" width="88" height="8" rx="2" opacity=".5"/><rect x="290" y="72" width="88" height="8" rx="2" opacity=".5"/></g>
+        <text x="334" y="98" class="t-xs" text-anchor="middle">8 analog voices</text>
+      </svg>
+      <h2>How the firmware works</h2>
+      <p>A guided tour from the circuit board up: how three DACs keep 41 voltages alive, the main loop, the journey from a key press to a voltage, autotune, the engine, storage and safe updates.</p>
+      <span class="go">Read the tour →</span>
+    </a>
+    <a class="doc" href="sound-design.html">
+      <svg viewBox="0 0 400 120" aria-hidden="true">
+        <path class="curve" d="M6 60 C26 20 46 20 66 60 S106 100 126 60 S166 20 186 60"/>
+        <path class="curve-mod" d="M6 92 L36 92 L36 70 L66 70 L66 92 L96 92 L96 70 L126 70 L126 92 L186 92"/>
+        <path class="curve-ana" d="M210 100 C220 20 230 20 250 50 C270 80 300 70 394 70"/>
+        <path class="curve-dig" d="M210 100 C215 40 225 30 240 60 C260 95 300 85 394 85"/>
+      </svg>
+      <h2>New territory for sound design</h2>
+      <p>What the new engine lets you do: layers up to MPE, per-voice and tempo-locked LFOs, step gates, envelopes that loop or start on key up, the patch bay and its macros, expression, drift, scales, sequences and morph. With interactive figures and recipes.</p>
+      <span class="go">Explore the sounds →</span>
+    </a>
+  </div>
+  <a class="launch" href="editor/">
+    <svg viewBox="0 0 220 90" aria-hidden="true">
+      <rect x="2" y="2" width="216" height="86" rx="10" fill="var(--surface-3)" stroke="var(--line)"/>
+      <rect x="14" y="14" width="60" height="26" rx="4" fill="#120807"/>
+      <text x="44" y="33" font-family="ui-monospace, Menlo, monospace" font-size="15" font-weight="700" fill="var(--accent)" text-anchor="middle" letter-spacing="2">P8.0</text>
+      <g fill="none" stroke="var(--ink)" stroke-width="2">
+        <circle cx="100" cy="27" r="10"/><circle cx="134" cy="27" r="10"/><circle cx="168" cy="27" r="10"/><circle cx="202" cy="27" r="10"/>
+        <circle cx="100" cy="64" r="10"/><circle cx="134" cy="64" r="10"/><circle cx="168" cy="64" r="10"/><circle cx="202" cy="64" r="10"/>
+      </g>
+      <g stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round">
+        <path d="M100 27 L94 19"/><path d="M134 27 L136 17"/><path d="M168 27 L176 21"/><path d="M202 27 L198 18"/>
+        <path d="M100 64 L104 55"/><path d="M134 64 L126 60"/><path d="M168 64 L172 55"/><path d="M202 64 L209 70"/>
+      </g>
+      <g fill="var(--accent)"><rect x="14" y="54" width="12" height="20" rx="2" opacity=".9"/><rect x="30" y="54" width="12" height="20" rx="2" opacity=".35"/><rect x="46" y="54" width="12" height="20" rx="2" opacity=".9"/><rect x="62" y="54" width="12" height="20" rx="2" opacity=".35"/></g>
+    </svg>
+    <div>
+      <h2>The editor, in your browser</h2>
+      <p>Every knob and switch, the extras, the mod matrix, patches, the sequencer and the settings, over USB SysEx. Chrome or Edge, with the synth on USB; no install.</p>
+    </div>
+    <span class="go">Open the editor →</span>
+  </a>
+  <div class="facts">
+    <div><b>Same hardware</b>Installs through the synth's own bootloader over USB; the bootloader is never touched.</div>
+    <div><b>Always recoverable</b>Hold 0 and 7 at power-up to reach the bootloader and flash any firmware, stock included.</div>
+    <div><b>Edited from a browser</b>The <a href="editor/">WebMIDI editor</a> and a command-line tool talk to the synth over USB SysEx.</div>
+  </div>
+</main>
+
+<footer class="site">PRO-800 custom firmware · documentation for 0.9.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a></footer>
+</body>
+</html>

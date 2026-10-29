@@ -36,6 +36,9 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     DAC80501's gain wrong and checks the firmware's setup re-send puts it right, 0.8.5+; silent).
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
+- `scripts/pages.sh` builds the GitHub Pages site (`docs/` → `build/pages/`, with the editor from `tools/web/` as
+  `editor/`) and writes the `pages` branch as one parentless commit; `--push` force-pushes it. The site is
+  https://klaine.github.io/pro-8000/ (repository `klaine/pro-8000`).
 - `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, because the bootloader takes it as XYZ.
 - `MANUAL.md` is the user manual (panel operation, the web page, recovery); keep it in step with panel changes.
 
@@ -44,6 +47,9 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 - `tools/pro800.swift`: the USB MIDI tool (one file, CoreMIDI + AVFoundation).
 - `src/`: `startup.c` (vector table, reset handler that cleans up after the bootloader), `link.ld`
   (app at `0x08010000`, max 128 kB: flash sector 4 and half of sector 5), `regs.h` (the registers we use; no vendor headers), drivers, `main.c`.
+- `docs/`: the source of the two published guides (`index.html`, `how-it-works.html`, `sound-design.html`;
+  `build.py` inlines `style.css` and `common.js`). They name the firmware version and describe its behaviour:
+  keep them in step with `MANUAL.md` when a feature changes.
 - `reference/`: GliGli's p600fw (GPL v3) and the packer + schematic. Third-party, git-ignored.
 - `backup/`: read-only SysEx dumps of the synth's patches. Git-ignored.
 

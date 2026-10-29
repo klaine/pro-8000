@@ -1,0 +1,1223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New Sound Design Territory</title>
+<meta name="description" content="What the custom PRO-800 firmware opens up for sound design: layers, per-voice LFOs, looping envelopes, a mod matrix, expression, scales, sequences and morphing, with recipes.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23160705'/%3E%3Cpath d='M5 21 L11 11 L16 21 L21 11 L27 21' fill='none' stroke='%23ff5b3d' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
+<!--STYLE-->
+<style>
+  .shapes { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .shape-btn {
+    border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 6px 6px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--ink-2); font: 600 12.5px/1.2 var(--sans);
+  }
+  .shape-btn svg { width: 100%; height: 30px; }
+  .shape-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+  .shape-btn .led { font-size: 10.5px; }
+  .gate-cells { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; margin: 4px 0 12px; }
+  .gate-cells button {
+    aspect-ratio: 1 / 1.3; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; padding: 0;
+    font: 600 11px var(--mono); color: var(--ink-3);
+  }
+  .gate-cells button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .gate-cells button.now { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .gate-cells button:nth-child(4n+1) { box-shadow: inset 0 -3px 0 var(--line); }
+  @media (max-width: 560px) { .gate-cells { grid-template-columns: repeat(8, 1fr); } }
+  .sliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 18px; margin-bottom: 12px; }
+  .sliders label { display: grid; grid-template-columns: 52px 1fr 40px; gap: 8px; align-items: center; font-size: 14px; color: var(--ink-2); }
+  .sliders input { width: 100%; }
+  .sliders output { font-family: var(--mono); font-size: 12.5px; color: var(--ink); text-align: right; }
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 26px 0; }
+  .vs > div { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .vs h4 { margin-bottom: 8px; }
+  .vs p { font-size: 15px; color: var(--ink-2); margin: 8px 0 0; }
+  @media (max-width: 640px) { .vs { grid-template-columns: 1fr; } }
+  .desc { font-size: 15px; color: var(--ink-2); margin: 12px 0 0; min-height: 3em; }
+  .desc b { color: var(--ink); }
+</style>
+<!--COMMON-->
+</head>
+<body>
+<svg class="defs" aria-hidden="true"><defs>
+  <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="f-ink3"/></marker>
+  <marker id="ah-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="f-acc"/></marker>
+  <marker id="ah-mod" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="f-mod"/></marker>
+  <marker id="ah-dig" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="f-dig"/></marker>
+</defs></svg>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="logo">PRO<b>·</b>800</span><span class="sub">custom firmware</span></a>
+  <nav>
+    <a href="how-it-works.html">How it works</a>
+    <a href="sound-design.html" aria-current="page">Sound design</a>
+    <a href="editor/">Editor</a>
+    <a href="https://github.com/klaine/pro-8000">Source</a>
+  </nav>
+  <button class="theme-btn" type="button" aria-label="Switch light or dark theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+</header>
+
+<div class="hero">
+  <div class="kicker">Firmware 0.9.0 · sound design</div>
+  <h1>New territory for sound design</h1>
+  <p class="lede">Same sixteen analog oscillators, same filters, same warm voice board. What changes is how much they can <em>move</em>, and how independently each note can live. This page walks through what the custom firmware adds, with things to try and recipes to start from.</p>
+  <div class="meta"><span class="chip">2 layers</span><span class="chip">4 LFOs, per-voice capable</span><span class="chip">4 envelopes per voice</span><span class="chip">16 mod routes per layer, 2 macros</span><span class="chip">A sequence in every patch</span><span class="chip">64 presets to start from</span></div>
+</div>
+
+<div class="layout">
+<nav class="toc" aria-label="Contents">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#shift">The big shift</a></li>
+    <li><a href="#layers">Two sounds at once</a></li>
+    <li><a href="#lfos">LFOs that keep time</a></li>
+    <li><a href="#gates">Rhythm from an LFO</a></li>
+    <li><a href="#envelopes">Envelopes that loop</a></li>
+    <li><a href="#matrix">The patch bay</a></li>
+    <li><a href="#meta">Modulating modulation</a></li>
+    <li><a href="#expression">Expression per note</a></li>
+    <li><a href="#organic">Drift and life</a></li>
+    <li><a href="#scales">Melodies from noise</a></li>
+    <li><a href="#sequencer">A sequence per patch</a></li>
+    <li><a href="#morph">Morph</a></li>
+    <li><a href="#recipes">Recipes</a></li>
+    <li><a href="#limits">Where the line is</a></li>
+  </ol>
+</nav>
+
+<article>
+
+<!-- 1 ------------------------------------------------------------------------------------------------>
+<section id="shift">
+  <span class="sec-num">01</span>
+  <h2>The big shift: from fixed wiring to a patch bay</h2>
+  <div class="prose">
+    <p class="lead-in">On the stock PRO-800, modulation travels along paths printed on the panel: the LFO goes to pitch, pulse width or filter; poly-mod sends oscillator B and the filter envelope to oscillator A or the filter. Those are wonderful paths, and they're all still here. But they're fixed.</p>
+    <p>This firmware adds a <strong>mod matrix</strong>: any of 27 sources can be routed, with its own depth, to any of 46 destinations, 16 routes per layer, and two <strong>macros</strong> gather several sources into one hand. And because the voltages for pitch, filter and volume are worked out separately for each voice, most routes act <em>per note</em>: each note gets its own velocity, its own envelopes, its own random value, its own pressure, even its own LFO.</p>
+  </div>
+  <figure>
+    <div class="fig"><div class="svg-wrap" style="--min:660px">
+      <svg viewBox="0 0 880 262" role="img" aria-labelledby="h1t">
+        <title id="h1t">Left: the stock firmware's fixed paths from one LFO and poly-mod. Right: many sources patched freely to many destinations, per voice.</title>
+        <text x="20" y="26" class="t-b">Stock: fixed paths</text>
+        <g id="hero-left"></g>
+        <line x1="440" y1="14" x2="440" y2="252" class="grid"/>
+        <text x="464" y="26" class="t-b">This firmware: a patch bay</text>
+        <g id="hero-right"></g>
+      </svg>
+    </div></div>
+    <figcaption><b>Figure 1.</b> The panel's own routings stay exactly where they were. The mod matrix sits on top: any source, any destination, a depth for each route, and two independent layers each with their own 16 routes.</figcaption>
+  </figure>
+
+  <div class="tbl"><table>
+    <thead><tr><th></th><th>Stock firmware</th><th>This firmware</th></tr></thead>
+    <tbody>
+      <tr><td><b>Sounds at once</b></td><td>One</td><td>Two layers: split, stacked, or by MIDI channel</td></tr>
+      <tr><td><b>LFOs</b></td><td>One</td><td>Two per layer, nine shapes, a delay and fade-in per note, locked to the clock in 15 divisions, optionally one per voice</td></tr>
+      <tr><td><b>Envelopes per voice</b></td><td>Two (filter, amp)</td><td>Four: ADSR or DAHDSR, from key down or key up, three curves, and any of them can loop, freely or in time</td></tr>
+      <tr><td><b>Modulation</b></td><td>The panel's fixed paths</td><td>The same paths, plus 16 routes per layer from 27 sources to 46 destinations, and two macros</td></tr>
+      <tr><td><b>Per-note expression</b></td><td>Velocity, aftertouch</td><td>Poly aftertouch per voice; MPE with per-note bend, pressure and slide; eight mono channels, each with its own bend and pressure</td></tr>
+      <tr><td><b>Sequencing</b></td><td>An arpeggiator and two sequences</td><td>A sequence inside every patch, played and transposed from the keys, with probability, ratchets, an arpeggiator and 4 automation lanes; steps can be recorded from the panel</td></tr>
+      <tr><td><b>Clock</b></td><td>Internal, MIDI or the SYNC IN jack, for the arpeggiator and sequencer</td><td>MIDI clock (USB or 5-pin), an internal clock with tap tempo, or the SYNC IN jack, driving the LFOs, looping envelopes and the sequence alike</td></tr>
+      <tr><td><b>Tuning</b> (measured on one synth)</td><td>2–8 cents off</td><td>within 0.7 cents, C1 to C8</td></tr>
+      <tr><td><b>Patches</b></td><td>400</td><td>128, each with its own sequence, and a 64-sound bank to start from</td></tr>
+      <tr><td><b>Trade-offs</b></td><td></td><td>No MIDI OUT or THRU yet, and SysEx (the editor, updates) over USB only; the sequencer, scales and morph are edited on the web page</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note-sm">The stock column lists what's on the stock panel (firmware 1.4.6); its settings menu holds further options not compared here.</p>
+</section>
+
+<!-- 2 ------------------------------------------------------------------------------------------------>
+<section id="layers">
+  <span class="sec-num">02</span>
+  <h2>Two sounds at once</h2>
+  <div class="prose">
+    <p>Every per-voice control now exists twice, as <strong>layer 1</strong> and <strong>layer 2</strong>. <kbd>Seq 1</kbd> and <kbd>Seq 2</kbd> pick which one the knobs edit; a knob then waits until you turn it to the stored value before taking over, so nothing jumps. Each layer has its own oscillator tuning, filter, all four envelopes, glide, two LFOs, poly-mod envelope amount and 16 mod routes. Choose how notes reach them in <kbd>Settings</kbd> → <kbd>3</kbd> <span class="led">LAYr</span>:</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <div class="controls"><div class="seg" id="lay-mode" role="group" aria-label="Layer mode">
+        <button type="button" data-v="off" aria-pressed="false">OFF</button><button type="button" data-v="split" aria-pressed="true">SPLt</button><button type="button" data-v="stack" aria-pressed="false">StAC</button><button type="button" data-v="channel" aria-pressed="false">CHAn</button><button type="button" data-v="8ch" aria-pressed="false">8CH</button><button type="button" data-v="mpe" aria-pressed="false">nPE</button>
+      </div></div>
+      <div class="svg-wrap" style="--min:600px"><svg id="lay-svg" viewBox="0 0 880 236" role="img" aria-label="A keyboard coloured by which layer each key plays, and the eight voices coloured by layer"></svg></div>
+      <p class="desc" id="lay-desc"></p>
+      <div class="legend"><span><i class="k-dig"></i>layer 1</span><span><i class="k-acc"></i>layer 2</span></div>
+    </div>
+    <figcaption><b>Figure 2.</b> The six layer modes. With two layers on, each gets four voices, or seven and one when one layer is mono. The two per-channel modes play one sound with a voice per MIDI channel.</figcaption>
+  </figure>
+  <div class="prose">
+    <p>Some things stay shared, because the hardware has one wire for them: the waveform buttons, the mixer, resonance, pulse widths, poly-mod oscillator B and master volume. The art of layering here is to make the two layers different through what <em>is</em> per layer: tuning (an octave or a fifth apart), filter and envelopes, glide, LFOs and routes.</p>
+  </div>
+</section>
+
+<!-- 3 ------------------------------------------------------------------------------------------------>
+<section id="lfos">
+  <span class="sec-num">03</span>
+  <h2>LFOs that keep time, and think per voice</h2>
+  <div class="prose">
+    <p>Each layer has <strong>two LFOs</strong> (<kbd>Arp Up-Dn</kbd> picks which one the LFO knobs and buttons edit), so four in all. Each has nine shapes, and three settings that change what kind of movement you get:</p>
+    <ul>
+      <li><strong>Sync</strong> (<kbd>Settings</kbd> → <kbd>1</kbd>): free-running from 0.05 to 51 Hz, or locked to the clock: MIDI clock from USB or the 5-pin socket, the firmware's own clock (tap the tempo on <kbd>Sync Clock</kbd>), or the SYNC IN jack. Locked, LFO FREQ picks one of 15 divisions from <span class="led">8bAr</span> down to <span class="led">1-32</span>, including dotted and triplet values. MIDI Start, or holding Sync Clock, lines it up with the bar.</li>
+      <li><strong>Retrigger</strong> (<kbd>Settings</kbd> → <kbd>2</kbd>): when the LFO's cycle restarts. The most interesting one is <span class="led">PoLY</span>: every voice runs its own LFO, started by its own note.</li>
+      <li><strong>Delay and fade-in</strong> (Shift + LFO FREQ, Shift + LFO AMOUNT): the LFO waits after a note starts and then fades in, per voice, from 20 ms to about 5 s. Vibrato that arrives late, with no route needed.</li>
+    </ul>
+    <p>Pick a shape and a retrigger mode below. Three notes start at different moments (▼) and are held, then released; a new note follows.</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <div class="shapes" id="lfo-shapes"></div>
+      <div class="controls"><div class="seg" id="lfo-trig" role="group" aria-label="Retrigger mode">
+        <button type="button" data-v="free" aria-pressed="false">FrEE</button><button type="button" data-v="first" aria-pressed="false">1St</button><button type="button" data-v="each" aria-pressed="false">EACH</button><button type="button" data-v="poly" aria-pressed="true">PoLY</button>
+      </div></div>
+      <div class="svg-wrap" style="--min:600px"><svg id="lfo-svg" viewBox="0 0 880 300" role="img" aria-label="Three voices' LFO curves over time for the chosen shape and retrigger mode"></svg></div>
+      <p class="desc" id="lfo-desc"></p>
+    </div>
+    <figcaption><b>Figure 3.</b> The bold part of each line is what that voice hears while its key is held; the faint line is where its LFO would be. Shapes start low, except square (high first) and ramp down (from the top).</figcaption>
+  </figure>
+  <div class="callout analogy"><span class="label">Why per-voice LFOs matter</span>With one shared LFO, a chord wobbles as a block: every note rises and falls together. With <span class="led">PoLY</span>, each note starts its own cycle when you play it, so a chord's notes move against each other. On pitch it's like an ensemble rather than one player; on the filter, a pad shimmers instead of pumping.</div>
+  <div class="prose">
+    <p>Three of the shapes are new kinds of movement rather than new waveforms. <span class="led">drFt</span> glides smoothly from one random value to the next: slow, it's the wandering of old hardware; fast, it's a liquid, unpredictable wobble. <span class="led">nOIS</span> picks a new random value sixteen times per cycle and glides to it: a rough wander at low rates, a fizzing jitter at the top, up to about 800 values a second. <span class="led">StEP</span> plays a pattern of 1 to 16 on/off steps per cycle, which is the next section.</p>
+  </div>
+</section>
+
+<!-- 4 ------------------------------------------------------------------------------------------------>
+<section id="gates">
+  <span class="sec-num">04</span>
+  <h2>Rhythm from an LFO: step patterns</h2>
+  <div class="prose">
+    <p>The <span class="led">StEP</span> shape turns an LFO into a little rhythm programmer: up to 16 steps per cycle, each on or off, with an 8 ms slope at every change so nothing clicks. Route it to the VCA at full depth and you have a trance gate; to the filter, a rhythmic wah; to pitch, octave jumps. Each LFO of each layer has its own pattern, saved with the patch.</p>
+    <p>Click the steps to change the pattern, then press <b>Listen</b>. (A browser approximation of a gated chord at 124 BPM, one cycle per bar, so each step is a 16th note.)</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <div class="controls">
+        <button class="btn primary" type="button" id="gate-play">▶ Listen</button>
+        <div class="seg" id="gate-presets" role="group" aria-label="Patterns">
+          <button type="button" data-v="trance" aria-pressed="true">Trance gate</button><button type="button" data-v="euclid" aria-pressed="false">Euclid 5/16</button><button type="button" data-v="off" aria-pressed="false">Off-beats</button><button type="button" data-v="invert" aria-pressed="false">Invert</button><button type="button" data-v="rotate" aria-pressed="false">Rotate ▶</button>
+        </div>
+      </div>
+      <div class="gate-cells" id="gate-cells" aria-label="Sixteen steps"></div>
+      <div class="svg-wrap" style="--min:520px"><svg id="gate-svg" viewBox="0 0 880 150" role="img" aria-label="The gate pattern applied to a held chord's volume over one bar"></svg></div>
+    </div>
+    <figcaption><b>Figure 4.</b> Top: the pattern (the default is the "ta-ta-taa" trance gate <code>1 0 1 0 1 1 0 0</code>, twice). Bottom: the held chord's volume through the VCA. On the synth the pattern is edited on the web page's Sound tab, or with <code>pro800 set steps</code>.</figcaption>
+  </figure>
+  <div class="callout"><span class="label">On the synth</span>Select an LFO, press <kbd>LFO Shape</kbd> until the display shows <span class="led">StEP</span>, set Sync to <span class="led">CLoC</span> and LFO FREQ to <span class="led">1bAr</span> (16 steps = 16ths). No MIDI clock? Tap the tempo on <kbd>Sync Clock</kbd> and the internal clock drives it. Then route it: <kbd>Arp Assign</kbd>, <kbd>1</kbd> for the LFO, touch <b>AMP SUS</b> (the VCA destination), turn VALUE to <span class="led">  99</span>, <kbd>Arp Assign</kbd> again. Lower depths only dip the volume instead of cutting it. Retrigger <span class="led">EACH</span> starts the pattern with every chord.</div>
+</section>
+
+<!-- 5 ------------------------------------------------------------------------------------------------>
+<section id="envelopes">
+  <span class="sec-num">05</span>
+  <h2>Four envelopes, and envelopes that loop</h2>
+  <div class="prose">
+    <p>Every voice now has four ADSRs. Filter and amp work as always. <strong>Env 3</strong> and <strong>Env 4</strong> do nothing until a mod route uses them, and then they can shape anything per note: the depth of a vibrato, a pitch scoop, the poly-mod amount, an LFO's speed. Hold <strong>Shift</strong> (the Sync Source button) and the filter ADSR knobs edit Env 3, the amp ADSR knobs Env 4.</p>
+    <p>Better still, <strong>any envelope can cycle</strong> while the key is held: on <kbd>Settings</kbd> → <kbd>6</kbd>, the envelope page, turn VALUE to <span class="led">CYCL</span> or a clock division. The cycle is attack, hold at the top, fall, rest, and again: an LFO that belongs to one note and restarts with it. Free cycling uses the knob times. <strong>Synced</strong> cycling takes a clock division instead, and the four knobs become weights that share the cycle out, so it can never drift off the beat.</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <div class="controls"><span class="readout">Division:</span><div class="seg" id="cyc-div" role="group" aria-label="Division">
+        <button type="button" data-v="1" aria-pressed="false">1-4</button><button type="button" data-v="0.5" aria-pressed="false">1-8</button><button type="button" data-v="0.25" aria-pressed="true">1-16</button>
+      </div></div>
+      <div class="sliders" id="cyc-sliders">
+        <label>ATT <input type="range" min="0" max="99" value="10" data-i="0"><output>0</output></label>
+        <label>SUS <input type="range" min="0" max="99" value="25" data-i="1"><output>0</output></label>
+        <label>DEC <input type="range" min="0" max="99" value="55" data-i="2"><output>0</output></label>
+        <label>REL <input type="range" min="0" max="99" value="10" data-i="3"><output>0</output></label>
+      </div>
+      <div class="svg-wrap" style="--min:560px"><svg id="cyc-svg" viewBox="0 0 880 200" role="img" aria-label="A synced cycling envelope over one bar at 120 BPM"></svg></div>
+      <p class="desc" id="cyc-desc"></p>
+    </div>
+    <figcaption><b>Figure 5.</b> A synced cycling envelope over one bar at 120 BPM. ATT is the rise, SUS becomes the hold at the top, DEC the fall, REL the rest at zero; each gets its share of the cycle in proportion. Turning one up takes time from the others.</figcaption>
+  </figure>
+  <h3>Envelopes that start when you let go</h3>
+  <div class="prose">
+    <p><kbd>Settings</kbd> → <kbd>6</kbd> shows one envelope at a time (<span class="led">En.A</span>, <span class="led">En.F</span>, <span class="led">En.3</span>, <span class="led">En.4</span>; press 6 again for the next) and VALUE picks its mode. Besides the classic ADSR, each envelope can be a <strong>DAHDSR</strong>, with a delay before the attack and a hold at the top, or run from key <em>up</em>: it rests at zero while you hold the key and plays its whole shape when you release it. On the same page, <kbd>Arp Up-Dn</kbd> switches to the envelope's <strong>curve</strong>: the analog one, straight lines, or a swell that starts slowly and accelerates. All of it is per layer and saved in the patch.</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <div class="controls">
+        <div class="seg" id="em-mode" role="group" aria-label="Mode"><button type="button" data-v="adsr" aria-pressed="true">AdSr</button><button type="button" data-v="dahdsr" aria-pressed="false">dAHd</button><button type="button" data-v="up" aria-pressed="false">UP.AS</button><button type="button" data-v="up-dahdsr" aria-pressed="false">UP.dA</button></div>
+        <div class="seg" id="em-curve" role="group" aria-label="Curve"><button type="button" data-v="analog" aria-pressed="true">AnLG</button><button type="button" data-v="linear" aria-pressed="false">LIn</button><button type="button" data-v="swell" aria-pressed="false">SUEL</button></div>
+      </div>
+      <div class="sliders" id="em-sliders">
+        <label>dLY <input type="range" min="0" max="99" value="45" data-k="delay"><output>0</output></label>
+        <label>HoLd <input type="range" min="0" max="99" value="45" data-k="hold"><output>0</output></label>
+      </div>
+      <div class="svg-wrap" style="--min:560px"><svg id="em-svg" viewBox="0 0 880 230" role="img" aria-label="One envelope in the chosen mode and curve, with the time the key is held shaded"></svg></div>
+      <p class="desc" id="em-desc"></p>
+    </div>
+    <figcaption><b>Figure 6.</b> The envelope modes and curves, drawn by the firmware's formulas. The shaded band is the time the key is held. In the DAHDSR modes the ATT and DEC knobs set the delay and hold while page 6 is open (0–10 s each); the sliders here stand in for them.</figcaption>
+  </figure>
+  <div class="prose">
+    <p>What they're for:</p>
+    <ul>
+      <li>A <strong>key-up amp envelope</strong> is a note that sounds only after the key: a release "thump", or on a second layer, a note that answers the one you played.</li>
+      <li>A <strong>key-up Env 3 → CUTOFF</strong> opens the filter as a note ends, so the tail blooms instead of fading.</li>
+      <li>A <strong>DAHDSR with a long delay</strong> on Env 4 → pitch is a pitch blip that arrives late in a held note.</li>
+      <li>The <strong>swell curve</strong> on a pad's amp attack rises like a bowed string; the <strong>linear</strong> curve gives even, synthetic fades.</li>
+    </ul>
+    <p>Things to try with cycling:</p>
+    <ul>
+      <li>A synced amp envelope at <span class="led">1-16</span>: every held chord pulses in sixteenths, with shaped edges and on the beat.</li>
+      <li>A cycling Env 3 routed to <b>CUTOFF</b>: each note gets its own filter "wah" that restarts with the note.</li>
+      <li>A cycling Env 4 routed to <b>pitch A</b> with a long rest: a recurring blip, like a bird call inside a pad.</li>
+      <li>Env 3 with a slow attack routed to <b>LFO AMOUNT</b>: vibrato that fades in on long notes only (or use the LFO's own delay and fade, Shift + the LFO knobs).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 6 ------------------------------------------------------------------------------------------------>
+<section id="matrix">
+  <span class="sec-num">06</span>
+  <h2>The patch bay: the mod matrix</h2>
+  <div class="prose">
+    <p>Each layer has 16 routes. Each route is a source, a destination and a depth from −99 to +99. You build them from the panel with <strong>MOD ASSIGN</strong>:</p>
+    <ol class="steps">
+      <li><b>Press <kbd>Arp Assign</kbd>.</b> Its LED blinks and the display shows <span class="led">SrC</span>. The knobs stay in pickup while you assign, so touching one won't change the sound.</li>
+      <li><b>Pick the source.</b> A number key (1 LFO, again for the other LFO; 2 filter env; 3 amp env; 4 velocity; 5 mod wheel; 6 aftertouch; 7 Env 3; 8 Env 4; 9 random; 0 note), or touch a knob that stands for one (an LFO knob, an ADSR knob), or turn VALUE to scroll through all 27.</li>
+      <li><b>Pick the destination.</b> Turn its knob a little, or press its LFO routing button; the knob you touched last before pressing Arp Assign is already offered. AMP SUS means the VCA, the other ADSR knobs mean that envelope's stage, and VALUE scrolls through the rest.</li>
+      <li><b>Turn VALUE for the depth</b>, then press <kbd>Arp Assign</kbd> to finish. Depth 0 removes the route. Hold Arp Assign for half a second to browse the layer's routes one by one.</li>
+    </ol>
+    <p>Pick an idea below to see its routes in the patch bay:</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <div class="controls"><div class="seg" id="pb-recipes" role="group" aria-label="Route ideas"></div></div>
+      <div class="svg-wrap" style="--min:700px"><svg id="pb-svg" viewBox="0 0 880 520" role="img" aria-label="Mod matrix sources on the left, destinations on the right, with the chosen idea's routes drawn between them"></svg></div>
+      <p class="desc" id="pb-desc"></p>
+      <div class="legend"><span><i class="k-mod"></i>per voice: every note its own amount</span><span><i class="k-sh"></i>single wire: follows the newest note</span></div>
+    </div>
+    <figcaption><b>Figure 7.</b> All 27 sources and 46 destinations. On the panel, VALUE scrolls to the ones without a key or a knob of their own; Morph is set on the web page.</figcaption>
+  </figure>
+  <div class="prose">
+    <p>Depths are tuned so the whole range is useful. Pitch routes follow a squared curve: depth 5 is 6 cents, 10 is a quarter of a semitone, 20 a semitone, 50 six semitones, 99 two octaves. Cutoff at 99 is eight octaves. An envelope stage or the glide time scales by up to 16× either way. The VCA destination is a gain on the amp envelope, so it can never open a voice that isn't playing: velocity → VCA at 99 is plain velocity sensitivity, and aftertouch → VCA at 99 keeps a note silent until you press.</p>
+  </div>
+</section>
+
+<!-- 7 ------------------------------------------------------------------------------------------------>
+<section id="meta">
+  <span class="sec-num">07</span>
+  <h2>Modulating the modulation</h2>
+  <div class="prose">
+    <p>Some destinations aren't sounds at all: they're the other modulators. LFO rates and amounts, the LFO routing depths, the filter and poly-mod envelope amounts, every envelope stage and the glide time can all be routed to. That's where sounds start to feel alive, because the movement itself changes over time or from note to note.</p>
+  </div>
+  <figure>
+    <div class="fig"><div class="svg-wrap" style="--min:560px">
+      <svg id="meta-svg" viewBox="0 0 880 250" role="img" aria-label="A slow LFO 2 sweeps the rate of LFO 1, which speeds up and slows down"></svg>
+    </div></div>
+    <figcaption><b>Figure 8.</b> LFO 2 (a slow triangle) routed to LFO 1's rate at depth 50, which is ±2 octaves. LFO 1 is synced at <span class="led">1-8</span>, so it sweeps smoothly between 1/2 and 1/32. When the sweep stops, a synced LFO slides back onto the bar within a cycle or two.</figcaption>
+  </figure>
+  <div class="cards">
+    <div class="card"><span class="tag">Env → LFO amount</span><h4>Vibrato that arrives late</h4><p>Env 3 with a slow attack opens the vibrato depth on held notes only. Short notes stay clean.</p></div>
+    <div class="card"><span class="tag">Velocity → LFO rate</span><h4>Faster vibrato for harder notes</h4><p>With <span class="led">PoLY</span> retrigger the rate is per voice, so each note's vibrato speed follows how hard you played it.</p></div>
+    <div class="card"><span class="tag">Velocity → filter env amount</span><h4>Brighter attacks when you dig in</h4><p>The filter envelope sweeps further on loud notes, the way acoustic instruments get brighter as they get louder.</p></div>
+    <div class="card"><span class="tag">Note → poly-mod env amount</span><h4>Different pitch blips up the keyboard</h4><p>Low notes get a bigger pitch sweep from the poly-mod envelope than high notes, or the reverse with a negative depth.</p></div>
+    <div class="card"><span class="tag">Velocity → attack time</span><h4>A pad when stroked, a stab when hit</h4><p>Envelope stages are destinations: velocity → amp attack at −60 shrinks a 1.5 s swell to about 200 ms on hard notes. Decay, release and glide work the same way, per voice.</p></div>
+    <div class="card"><span class="tag">Note → amp decay</span><h4>Shorter notes up the keyboard</h4><p>Like a marimba, whose high bars ring shorter: note number → amp decay at −40, and velocity → decay the other way so hard hits ring on.</p></div>
+  </div>
+
+  <h3>Macros: one gesture, many knobs</h3>
+  <div class="prose">
+    <p>A <strong>macro</strong> is a source and a destination at once. Route whatever you like into Macro 1 (the wheel, pressure, a CC, an LFO) and the sum, −1 to 1, becomes the macro's value; then route Macro 1 out to as many destinations as you want, each with its own depth and sign. The <strong>M TUNE</strong> knob is Macro 1's own hand knob (master tune is gone; autotune keeps the voices in tune), and Shift + CUTOFF sets a resting offset, so a macro can be a performance knob, a pedal and a modulator all at once. Macro 2 works the same, with its offset on Shift + RESONANCE.</p>
+  </div>
+  <figure>
+    <div class="fig"><div class="svg-wrap" style="--min:600px">
+      <svg id="macro-svg" viewBox="0 0 880 236" role="img" aria-label="Several sources summed into Macro 1, which fans out to four destinations with their own depths"></svg>
+    </div></div>
+    <figcaption><b>Figure 9.</b> Macro 1 as a "brightness" control: three sources and the knob feed it, and it drives four things. On the web page the mod matrix shows each macro's inputs and outputs on one line, with a knob for its offset. P64 Two Macros in the bank has one macro for brightness and one for motion.</figcaption>
+  </figure>
+</section>
+
+<!-- 8 ------------------------------------------------------------------------------------------------>
+<section id="expression">
+  <span class="sec-num">08</span>
+  <h2>Expression per note</h2>
+  <div class="prose">
+    <p>Velocity, aftertouch, a random value and the note's position are all <em>per voice</em> sources. That's what lets a single route make every note of a chord different.</p>
+    <p><strong>Poly aftertouch</strong> is the standout. A controller that sends per-note pressure (the Ableton Move's pads do) moves only the voice playing that note. Route aftertouch to cutoff and one finger can lean into a single note of a chord and open just that note's filter. Channel pressure still works too and moves all voices; each voice uses whichever is larger.</p>
+    <p>Two layer modes go further. <strong>MPE</strong> gives every note its own MIDI channel, so each has its own pitch bend (48 semitones), its own pressure and its own slide (CC 74, the <span class="led">tInb</span> source) from an MPE controller. <strong>8CH</strong> gives eight mono lines, one per channel, each with its own bend and pressure, for a sequencer that drives them.</p>
+  </div>
+  <figure>
+    <div class="fig"><div class="svg-wrap" style="--min:600px">
+      <svg id="pat-svg" viewBox="0 0 880 250" role="img" aria-label="Three notes of a chord with different pressure; the pressed note's filter opens further"></svg>
+    </div></div>
+    <figcaption><b>Figure 10.</b> A chord on three pads with <b>aftertouch → cutoff</b>. Pressing harder on E opens only E's filter, so that one note brightens inside the chord.</figcaption>
+  </figure>
+  <div class="vs">
+    <div><h4>Random, new every note</h4><span class="led">rAnd</span><p>A value from −1 to +1, rolled when the note starts. Small amounts to cutoff and pitch B give the slight unevenness of a real player. Large amounts make every note a surprise.</p></div>
+    <div><h4>Note position</h4><span class="led">notE</span><p>The key, centred on middle C. Beyond keyboard tracking: route it to LFO rate (higher notes, faster vibrato), to the poly-mod amount, to envelope amounts, or negative to tame the top.</p></div>
+    <div><h4>Gate</h4><span class="led">GAtE</span><p>1 while the key is down, 0 in the release. Gate → cutoff makes the tail go dark the moment you let go; gate → LFO amount stops vibrato in the release.</p></div>
+    <div><h4>Voice number</h4><span class="led">VoIC</span><p>Where the voice sits in its layer, 0 to 1. Into pitch B it spreads a chord's voices a few cents apart; into cutoff, each a different brightness. In 8CH mode it tells the channels apart.</p></div>
+  </div>
+</section>
+
+<!-- 9 ------------------------------------------------------------------------------------------------>
+<section id="organic">
+  <span class="sec-num">09</span>
+  <h2>Drift and life</h2>
+  <div class="prose">
+    <p>Autotune puts every oscillator within a cent, which is great for chords that stay in tune all evening, but perfect can sound static. <strong>Drift</strong> (<kbd>Settings</kbd> → <kbd>0</kbd>, 0–99) puts the life back on purpose: each voice's pitch (up to 15 cents) and cutoff (up to a semitone) wander slowly and independently, picking a new target every second or so and gliding towards it.</p>
+  </div>
+  <figure>
+    <div class="fig"><div class="svg-wrap" style="--min:600px">
+      <svg id="drift-svg" viewBox="0 0 880 230" role="img" aria-label="Eight unison voices' pitch over six seconds, steady with drift off and wandering with drift on"></svg>
+    </div></div>
+    <figcaption><b>Figure 11.</b> Eight voices in unison over six seconds. Left: drift off, only the fixed unison spread. Right: drift at 60. The voices beat against each other in ways that keep changing, like an old poly that's never quite settled.</figcaption>
+  </figure>
+  <div class="prose">
+    <p>Related controls: <strong>unison detune</strong> (<kbd>Settings</kbd> → <kbd>8</kbd>, or Shift + M TUNE) sets how far apart the outermost unison voices are, 0–50 cents; Shift + GLIDE nudges the drift. An LFO on <span class="led">drFt</span> or <span class="led">nOIS</span> with <span class="led">PoLY</span> retrigger, routed to pitch at a small amount, gives a faster, more obvious per-voice wander than the Drift setting. Voice modes per layer (poly, mono, legato, with last, low or high note priority) shape how lines connect.</p>
+  </div>
+</section>
+
+<!-- 10 ------------------------------------------------------------------------------------------------>
+<section id="scales">
+  <span class="sec-num">10</span>
+  <h2>Melodies from noise: scale quantize</h2>
+  <div class="prose">
+    <p>Set a scale and root on the web page, and each voice's pitch snaps to the nearest note of that scale: the note itself plus the pitch modulation both oscillators get (LFO → Freq, LFO 2 → pitch, routes to pitch A + B). Suddenly random sources play tunes: a sample-and-hold LFO on pitch becomes a melody in key, and a sequence's transpositions can't go wrong. Twelve scales are built in, from major and minor through the modes to pentatonics, blues and whole tone.</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <div class="controls">
+        <button class="btn primary" type="button" id="sc-play">▶ Listen</button>
+        <label>Scale <select id="sc-scale"></select></label>
+        <button class="btn" type="button" id="sc-new">New random line</button>
+      </div>
+      <div class="svg-wrap" style="--min:560px"><svg id="sc-svg" viewBox="0 0 880 280" role="img" aria-label="A random stepped pitch line and the scale notes it snaps to"></svg></div>
+    </div>
+    <figcaption><b>Figure 12.</b> Grey: an S&amp;H LFO's raw random pitch, one value per step, within ±12 semitones of the key you hold (A). Red: what you hear after snapping to the scale. Rows in the scale are tinted. The snapping rounds to the nearest note; ties go up.</figcaption>
+  </figure>
+</section>
+
+<!-- 11 ------------------------------------------------------------------------------------------------>
+<section id="sequencer">
+  <span class="sec-num">11</span>
+  <h2>A sequence inside every patch</h2>
+  <div class="prose">
+    <p>The stock sequencers are replaced by something different: <strong>each of the 128 patches carries its own step sequence</strong>, played from the keyboard. Press a key and the sequence starts, transposed so that a step of 0 plays that key. Press another key while holding and it transposes from the next step without restarting. Let go and it stops. The notes go through the normal voices, envelopes and modulation, so the sequence is part of the sound, not a separate machine.</p>
+  </div>
+  <figure>
+    <div class="fig"><div class="svg-wrap" style="--min:660px">
+      <svg id="seq-svg" viewBox="0 0 880 330" role="img" aria-label="Sixteen sequence steps with notes, gate lengths, a tie, a rest, probability, ratchets, and an automation lane below"></svg>
+    </div></div>
+    <figcaption><b>Figure 13.</b> One sequence, annotated. Each step has a note offset, a gate length (100 % ties into the next step), a velocity, a probability and 1–4 ratchets. Lanes below are extra values per step that act as mod sources.</figcaption>
+  </figure>
+  <div class="prose">
+    <ul>
+      <li><strong>Probability</strong> from 100 % down to 12.5 %: some steps sometimes don't play, so a loop never quite repeats.</li>
+      <li><strong>Ratchets</strong>: a step plays as 2, 3 or 4 quick notes.</li>
+      <li><strong>Arpeggio mode</strong>: instead of transposing, the steps walk the held notes (up, down, up-down, random or as played), and each step's offset shifts the note it plays (+12 for an octave jump).</li>
+      <li><strong>Automation lanes</strong>: up to four rows of values, optionally gliding between steps, routed like any mod source. Lane → cutoff gives a different brightness per step; lane → Morph gives a different <em>sound</em> per step.</li>
+      <li><strong>Recording on the panel</strong>: hold <kbd>Rec</kbd> and press <kbd>Seq 1</kbd> (<span class="led">rSEq</span>), then play the steps one by one, <kbd>Seq 2</kbd> for a rest, and <kbd>Rec</kbd> to finish. The sequence is on, and Rec saves it with the patch.</li>
+      <li><strong>A pad with an arpeggio on top</strong>: in stack mode, a sequence on layer 2's keys plays layer 2 while layer 1 plays the keys as a pad. Put layer 2 in mono and the pad gets seven voices, the arp one.</li>
+      <li><strong>Timing</strong>: a clock division at the MIDI clock's tempo or the sequence's own BPM, with swing. Euclid fills, step recording and a layer filter (a sequenced bass in one half of a split, played normally in the other) are on the web page.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 12 ------------------------------------------------------------------------------------------------>
+<section id="morph">
+  <span class="sec-num">12</span>
+  <h2>Morph: between two patches</h2>
+  <div class="prose">
+    <p>Pick another patch as the <strong>morph target</strong> (web page, Voice section) and route any source to the <strong>Morph</strong> destination. That source now fades every knob of this patch towards the target's values: cutoff, envelopes, tuning, LFO rates, all at once. Buttons, routes and settings stay this patch's own.</p>
+  </div>
+  <figure>
+    <div class="fig">
+      <div class="controls">
+        <label>Morph amount <input type="range" id="mo-amt" min="0" max="100" value="35" style="width:220px"></label>
+        <span class="readout" id="mo-read"></span>
+      </div>
+      <div class="svg-wrap" style="--min:560px"><svg id="mo-svg" viewBox="0 0 880 190" role="img" aria-label="Six knobs moving between a dark pluck patch and a bright pad target as the morph amount changes"></svg></div>
+    </div>
+    <figcaption><b>Figure 14.</b> Six of the knobs, morphing from a dark pluck (blue dots) towards a slow bright pad (purple dots). On the synth the amount comes from a route: the mod wheel for a hand-played change, an LFO for slow evolution, a sequencer lane for a different sound each step, velocity for harder sounds on harder notes.</figcaption>
+  </figure>
+</section>
+
+<!-- 13 ------------------------------------------------------------------------------------------------>
+<section id="recipes">
+  <span class="sec-num">13</span>
+  <h2>Recipes</h2>
+  <div class="prose">
+    <p>Sixty-four ready-made sounds cover all of this: the bank in <code>presets/</code> (installed with <code>presets/install.sh</code>) fills P1–P64 with eight each of basses, leads, polys, pads, plucks, sequences, effects and curiosities, and its <code>DESIGN.md</code> explains the techniques. The recipes below are the same ideas by hand. Start from <kbd>Perf</kbd> (a plain sawtooth, filter open) unless it says otherwise. Display codes are what you'll see on the synth.</p>
+  </div>
+  <div class="cards">
+    <div class="card"><span class="tag">Pad · per-voice LFO</span><h4>Shimmering ensemble pad</h4>
+      <ol><li>Saw on A and B, FINE a few cents up; slow amp attack, long release.</li>
+      <li><kbd>Arp Up-Dn</kbd> to LFO 2; <kbd>LFO Shape</kbd> to <span class="led">drFt</span>; LFO FREQ around 0.3 Hz.</li>
+      <li><kbd>Settings</kbd> <kbd>2</kbd> → <span class="led">PoLY</span>. Press LFO → Freq (shows <span class="led">Fr.on</span>), AMOUNT low.</li>
+      <li><kbd>Settings</kbd> <kbd>0</kbd> drift → 30.</li></ol>
+      <p>Each note of a chord wanders on its own: wide, alive, never static.</p></div>
+    <div class="card"><span class="tag">Lead · Env 3</span><h4>Delayed vibrato</h4>
+      <ol><li>LFO 1 → Freq on, LFO AMOUNT at 0, LFO FREQ about 5.5 Hz, retrigger <span class="led">EACH</span>.</li>
+      <li>Hold Shift (Sync Source): the filter ADSR knobs now edit Env 3. Attack about 1 s, sustain full.</li>
+      <li><kbd>Arp Assign</kbd>, <kbd>7</kbd>, touch LFO AMOUNT, VALUE 5–10.</li></ol>
+      <p>Short notes stay clean; held notes bloom into vibrato. The short way: Shift + LFO FREQ sets LFO 1's delay, Shift + LFO AMOUNT its fade-in.</p></div>
+    <div class="card"><span class="tag">Rhythm · step LFO</span><h4>Trance gate chords</h4>
+      <ol><li>Send MIDI clock, or tap <kbd>Sync Clock</kbd> for the internal one. LFO 2: <span class="led">StEP</span>, Sync <span class="led">CLoC</span>, FREQ <span class="led">1bAr</span>, retrigger <span class="led">EACH</span>.</li>
+      <li>Draw a pattern on the web page, or keep the default.</li>
+      <li>"Route to VCA" on the web page, or <kbd>Arp Assign</kbd>, <kbd>1</kbd> (the selected LFO 2), touch AMP SUS, VALUE 99.</li></ol>
+      <p>Held chords chop in sixteenths, locked to the track.</p></div>
+    <div class="card"><span class="tag">Classic · S&amp;H</span><h4>Sample &amp; hold filter</h4>
+      <ol><li>Resonance up, cutoff mid, a bright saw.</li>
+      <li>LFO 2: <span class="led">S-H</span>, <span class="led">CLoC</span> at <span class="led">1-16</span>.</li>
+      <li>LFO 2 → Filter on (<span class="led">FL.on</span>), AMOUNT to taste.</li></ol>
+      <p>The bubbling computer-music filter, on the beat.</p></div>
+    <div class="card"><span class="tag">Generative · scale</span><h4>A melody from one held key</h4>
+      <ol><li>LFO 2: <span class="led">S-H</span>, <span class="led">CLoC</span> at <span class="led">1-8</span>, retrigger <span class="led">1St</span>; LFO 2 → Freq, AMOUNT high.</li>
+      <li><kbd>Settings</kbd> <kbd>6</kbd> shows <span class="led">En.A</span>: VALUE to <span class="led">1-8</span>, synced cycling. Short attack, short hold, medium fall.</li>
+      <li>Web page: Scale minor pentatonic, root to taste.</li></ol>
+      <p>Hold a note: a plucked line in key, a new pitch on every eighth.</p></div>
+    <div class="card"><span class="tag">Bass · rate modulation</span><h4>Wobble that changes speed</h4>
+      <ol><li>LFO 1 → Filter, synced at <span class="led">1-8</span>; resonance up.</li>
+      <li>LFO 2: triangle, free, about 0.25 Hz.</li>
+      <li><kbd>Arp Assign</kbd>, <kbd>1</kbd> <kbd>1</kbd> (LFO 2), with LFO 1 selected touch LFO FREQ (<span class="led">L.rt</span>), VALUE 50.</li></ol>
+      <p>The wobble accelerates to 1/32 and slows to 1/2, then lands back on the beat.</p></div>
+    <div class="card"><span class="tag">Expressive · poly pressure</span><h4>Bowed pressure pad</h4>
+      <ol><li>A soft pad with a medium release.</li>
+      <li><kbd>Arp Assign</kbd>, <kbd>6</kbd>, touch AMP SUS, VALUE 99.</li>
+      <li>Still assigning: touch CUTOFF, VALUE 30.</li></ol>
+      <p>Silent until you press. On the Move's pads every note swells and brightens on its own.</p></div>
+    <div class="card"><span class="tag">Performance · layers</span><h4>Sequenced bass, live lead</h4>
+      <ol><li><kbd>Settings</kbd> <kbd>3</kbd> → <span class="led">SPLt</span>; <kbd>4</kbd>, then play C3.</li>
+      <li><kbd>Seq 1</kbd>: a short, plucky bass. On the web page, a sequence for layer 1's keys only.</li>
+      <li><kbd>Seq 2</kbd>: a lead with GLIDE. <kbd>Arp Assign</kbd>, <kbd>8</kbd>, touch FREQ A, VALUE −20; with Shift held, the amp ADSR knobs set Env 4: fast decay, no sustain.</li></ol>
+      <p>Left hand starts and transposes the bass line; right hand plays a lead that scoops up a semitone into each note.</p></div>
+    <div class="card"><span class="tag">Rhythm · synced envelope</span><h4>Pulsing chords</h4>
+      <ol><li><kbd>Settings</kbd> <kbd>6</kbd> → <span class="led">En.A</span>, VALUE to <span class="led">1-16</span>.</li>
+      <li>ATT low, SUS a little (hold), DEC most of it, REL 0.</li>
+      <li>Optional: the filter envelope the same, at <span class="led">1-8</span>.</li></ol>
+      <p>Every held chord pulses with shaped edges, on the beat however long you hold.</p></div>
+    <div class="card"><span class="tag">Performance · morph</span><h4>Two sounds on the mod wheel</h4>
+      <ol><li>Save a bright, slow version of your sound to another slot.</li>
+      <li>Web page, Voice: morph to that slot, by the mod wheel.</li></ol>
+      <p>The wheel crossfades every knob: a pluck becomes a pad, a bass becomes a lead, mid-phrase.</p></div>
+    <div class="card"><span class="tag">Strings · random</span><h4>Humanised section</h4>
+      <ol><li>Saw pad, a little unison detune or drift 20.</li>
+      <li><kbd>Arp Assign</kbd>, <kbd>9</kbd>: touch CUTOFF, VALUE 8; touch FINE, VALUE 5.</li>
+      <li><kbd>4</kbd> (velocity): touch AMP SUS, VALUE 60.</li></ol>
+      <p>Every note a slightly different brightness and tuning, like a section rather than a machine.</p></div>
+    <div class="card"><span class="tag">Texture · cycling Env 3</span><h4>Per-note wah</h4>
+      <ol><li>Resonant filter, cutoff low.</li>
+      <li><kbd>Settings</kbd> <kbd>6</kbd>, press 6 until <span class="led">En.3</span>, VALUE to <span class="led">CYCL</span>; with Shift held, set Env 3's times to a few hundred ms.</li>
+      <li><kbd>Arp Assign</kbd>, <kbd>7</kbd>, touch CUTOFF, VALUE 40.</li></ol>
+      <p>Each note gets its own wah cycle, out of step with the others, so chords ripple.</p></div>
+    <div class="card"><span class="tag">Sound · key-up envelope</span><h4>Release thump</h4>
+      <ol><li><kbd>Settings</kbd> <kbd>6</kbd> → <span class="led">En.A</span>, VALUE to <span class="led">UP.AS</span>.</li>
+      <li>Amp envelope: attack short, decay 300 ms, sustain 0.</li>
+      <li>Optional: in stack mode, give layer 2 this envelope and layer 1 a normal one.</li></ol>
+      <p>Silent while you hold the key, a note when you let go: the second layer answers the first.</p></div>
+    <div class="card"><span class="tag">Pad · stage modulation</span><h4>Touch swell</h4>
+      <ol><li>A saw pad, amp attack about 1.5 s.</li>
+      <li><kbd>Arp Assign</kbd>, <kbd>4</kbd> (velocity), touch AMP ATT, VALUE −60.</li>
+      <li>Still assigning: <kbd>4</kbd>, touch CUTOFF, VALUE 30.</li></ol>
+      <p>Stroke the keys for a pad, hit them for a stab. The same patch.</p></div>
+    <div class="card"><span class="tag">Lead · macro</span><h4>Press to scream</h4>
+      <ol><li><kbd>Arp Assign</kbd>, <kbd>6</kbd> (aftertouch), touch M TUNE (<span class="led">nAC1</span>), VALUE 60; then <kbd>5</kbd> (wheel), M TUNE, VALUE 99.</li>
+      <li>Turn VALUE through the sources to <span class="led">nAC1</span>; touch CUTOFF, VALUE 40; again to <span class="led">nAC1</span>, touch RESONANCE, VALUE 20; and LFO AMOUNT, VALUE 30.</li></ol>
+      <p>One gesture opens the filter, adds bite and brings in vibrato. The M TUNE knob plays the same macro by hand.</p></div>
+    <div class="card"><span class="tag">Panel · sequencer</span><h4>Record a riff</h4>
+      <ol><li>Hold <kbd>Rec</kbd>, press <kbd>Seq 1</kbd>: <span class="led">rSEq</span>.</li>
+      <li>Play the steps in order; <kbd>Seq 2</kbd> for a rest.</li>
+      <li>Press <kbd>Rec</kbd> (<span class="led">donE</span>). Hold any key: the riff plays from it.</li></ol>
+      <p>Then <kbd>Rec</kbd>, slot, <kbd>Rec</kbd> saves it with the patch.</p></div>
+  </div>
+</section>
+
+<!-- 14 ------------------------------------------------------------------------------------------------>
+<section id="limits">
+  <span class="sec-num">14</span>
+  <h2>Where the analog hardware draws the line</h2>
+  <div class="prose">
+    <p>The firmware sets voltages; it can't rewire the voice board. Knowing the edges helps you design around them:</p>
+    <ul>
+      <li><strong>Shared wires.</strong> Waveforms, sync, mixer levels, noise, resonance, pulse widths and the poly-mod oscillator B amount are one setting for all eight voices. Routes to them follow the most recently played note, which works well for mono lines and as a "last note sets the colour" effect in chords.</li>
+      <li><strong>One audio output.</strong> The voices are summed on the voice board, so the two layers can't go to separate outputs.</li>
+      <li><strong>Modulation speed.</strong> Software modulation updates every 0.3–2.4 ms (the VCAs fastest), plenty for LFOs, envelopes and gates, but not audio-rate FM. For that, the analog poly-mod path is still there: oscillator B and the filter envelope into oscillator A's pitch and the filter, at audio rate.</li>
+    </ul>
+    <p>For how all of this works inside, see <a href="how-it-works.html">How the firmware works</a>.</p>
+  </div>
+</section>
+
+</article>
+</div>
+
+<footer class="site">
+  PRO-800 custom firmware · documentation for 0.9.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
+  <a href="index.html">Home</a><a href="how-it-works.html">← How it works</a>
+</footer>
+
+<script>
+// One audio context for the listening examples; starting one example stops the other
+var AU = { ctx: null, stopper: null };
+AU.get = function () {
+  if (!AU.ctx) { var C = window.AudioContext || window.webkitAudioContext; if (!C) return null; AU.ctx = new C(); }
+  if (AU.ctx.state === "suspended") AU.ctx.resume();
+  return AU.ctx;
+};
+AU.claim = function (stop) { if (AU.stopper && AU.stopper !== stop) AU.stopper(); AU.stopper = stop; };
+
+// LFO shapes as the firmware draws them: phase 0..1 → -1..1; r(n) is the run's random value for cycle n
+var SHAPES = [
+  { id: "tri", name: "Triangle", led: "trI", f: function (p) { return p < 0.5 ? -1 + 4 * p : 3 - 4 * p; } },
+  { id: "sq", name: "Square", led: "PULS", f: function (p) { return p < 0.5 ? 1 : -1; } },
+  { id: "up", name: "Ramp up", led: "SA.UP", f: function (p) { return -1 + 2 * p; } },
+  { id: "dn", name: "Ramp down", led: "SA.dn", f: function (p) { return 1 - 2 * p; } },
+  { id: "sine", name: "Sine", led: "SInE", f: function (p) { return -Math.cos(2 * Math.PI * p); } },
+  { id: "sh", name: "S & H", led: "S-H", f: function (p, n, r) { return r(n); } },
+  { id: "drift", name: "Drift", led: "drFt", f: function (p, n, r) { var a = r(n), b = r(n + 1); return a + (b - a) * (1 - Math.cos(Math.PI * p)) / 2; } },
+  { id: "steps", name: "Steps", led: "StEP", f: function (p) { return (0x3535 >> Math.floor(p * 16)) & 1 ? 1 : -1; } },
+  { id: "noise", name: "Noise", led: "nOIS", f: function (p, n, r) { var k = p * 16, i = Math.floor(k); var a = r(n * 16 + i), b = r(n * 16 + i + 1); return a + (b - a) * (k - i); } }
+];
+function hashRand(run, n) { var x = Math.sin(run * 127.1 + n * 311.7) * 43758.5453; return 2 * (x - Math.floor(x)) - 1; }
+
+// Figure 1: fixed paths vs patch bay
+(function () {
+  var L = document.getElementById("hero-left"), R = document.getElementById("hero-right");
+  function chip(g, x, y, w, text, cls) {
+    S("rect", { x: x, y: y, width: w, height: 26, rx: 7, class: cls }, g);
+    S("text", { x: x + w / 2, y: y + 17, class: "t-sm", "text-anchor": "middle", text: text }, g);
+  }
+  chip(L, 20, 60, 120, "LFO", "box-mod"); chip(L, 20, 120, 120, "Osc B (poly-mod)", "box-mod"); chip(L, 20, 180, 120, "Filter env", "box-mod");
+  chip(L, 270, 44, 140, "Pitch", "box"); chip(L, 270, 88, 140, "Pulse width", "box"); chip(L, 270, 132, 140, "Filter", "box"); chip(L, 270, 176, 140, "Osc A pitch", "box");
+  [[73, 57], [73, 101], [73, 145], [133, 145], [133, 189], [193, 145], [193, 189]].forEach(function (p) {
+    S("path", { d: "M140 " + p[0] + " C205 " + p[0] + " 205 " + p[1] + " 268 " + p[1], class: "ln", "marker-end": "url(#ah)" }, L);
+  });
+  S("text", { x: 20, y: 254, class: "t-xs", text: "fixed paths, switched on or off" }, L);
+  var src = ["LFO 1, LFO 2", "Env 1–4", "Velocity, bend", "Pressure, CC 74", "Random, voice", "Seq lanes", "Macros"];
+  var dst = ["Pitch A / B", "Cutoff, VCA", "Env stages", "LFO rate, depth", "PW, mixer", "Glide, volume", "Morph, macros"];
+  src.forEach(function (t, i) { chip(R, 464, 40 + i * 27, 100, t, "box-mod"); });
+  dst.forEach(function (t, i) { chip(R, 744, 40 + i * 27, 116, t, "box"); });
+  var r = rng(11);
+  for (var k = 0; k < 13; k++) {
+    var a = Math.floor(r() * 7), b = Math.floor(r() * 7), y1 = 53 + a * 27, y2 = 53 + b * 27;
+    S("path", { d: "M564 " + y1 + " C650 " + y1 + " 660 " + y2 + " 742 " + y2, class: "ln-mod", opacity: 0.55 }, R);
+  }
+  S("text", { x: 464, y: 254, class: "t-xs", text: "any source → any destination, a depth for each, per voice" }, R);
+})();
+
+// Figure 2: layer modes on a keyboard
+(function () {
+  var svg = document.getElementById("lay-svg"), desc = document.getElementById("lay-desc");
+  var DESC = {
+    off: "<b>OFF:</b> layer 1 plays all eight voices. The classic PRO-800: one sound, eight-note polyphony.",
+    split: "<b>SPLt:</b> layer 1 below the split note, layer 2 from it up, four voices each (seven and one if one layer is mono). Bass in the left hand, a lead or pad in the right. Set the split with <kbd>Settings</kbd> → <kbd>4</kbd>, or play the note while that page shows.",
+    stack: "<b>StAC:</b> every key plays both layers, one voice from each, so four-note chords of a two-part sound. Tune the layers an octave apart, give them different envelopes, or let one layer move per voice while the other holds still. With a sequence on one layer's keys, that layer plays the sequence and the other plays the keys: a pad with an arpeggio on top.",
+    channel: "<b>CHAn:</b> the MIDI channel decides. Channel 2 plays layer 2, every other channel layer 1. Two Move or DAW tracks play two different parts on one synth; each channel's bend, wheel, pressure and pedal reach only its layer.",
+    "8ch": "<b>8CH:</b> one sound, and MIDI channels 1–8 each own one voice, mono, with their own pitch bend, pressure and CC 74. For sequencers that drive eight lines. With the voice-number source the channels can even sound different: P57 in the bank grades from a dark sliding bass on channel 1 to a bright pluck on channel 8.",
+    mpe: "<b>nPE:</b> MPE, lower zone. Channel 1 is the master (its bend, wheel, pressure and pedal reach every voice), channels 2–9 each play one voice with 48 semitones of bend, their own pressure and their own CC 74 slide: every note bends, swells and brightens on its own."
+  };
+  var white = [0, 2, 4, 5, 7, 9, 11], ww = 840 / 29, keys = [], x = 20;
+  for (var n = 36; n <= 84; n++) {
+    var pc = n % 12;
+    if (white.indexOf(pc) >= 0) { keys.push({ n: n, x: x, w: ww - 2, h: 120, black: false }); x += ww; }
+    else keys.push({ n: n, x: x - ww * 0.3, w: ww * 0.6, h: 74, black: true });
+  }
+  function draw(mode) {
+    clear(svg);
+    var top = 34;
+    var perChannel = mode === "8ch" || mode === "mpe";
+    if (mode === "channel") {
+      S("text", { x: 20, y: 22, class: "t-sm", text: "Any key on MIDI channel 1 (or 3–16) → layer 1 · any key on channel 2 → layer 2" }, svg);
+    } else if (mode === "8ch") {
+      S("text", { x: 20, y: 22, class: "t-sm", text: "Channels 1–8 each play one voice, mono · channels 9–16 play nothing" }, svg);
+    } else if (mode === "mpe") {
+      S("text", { x: 20, y: 22, class: "t-sm", text: "Channel 1 is the master · channels 2–9 each play one voice, with 48 semitones of bend" }, svg);
+    } else if (mode === "split") {
+      S("text", { x: 20, y: 22, class: "t-sm", text: "split note: C4" }, svg);
+    }
+    function lay(n) { return mode === "off" || perChannel ? 1 : mode === "split" ? (n < 60 ? 1 : 2) : 0; }
+    [false, true].forEach(function (black) {
+      keys.filter(function (k) { return k.black === black; }).forEach(function (k) {
+        var l = lay(k.n);
+        if (mode === "stack") {
+          S("rect", { x: k.x, y: top, width: k.w, height: k.h / 2, class: black ? "f-dig" : "box-dig" }, svg);
+          S("rect", { x: k.x, y: top + k.h / 2, width: k.w, height: k.h / 2, class: black ? "f-acc" : "box-acc" }, svg);
+        } else {
+          var cls = l === 1 ? (black ? "f-dig" : "box-dig") : l === 2 ? (black ? "f-acc" : "box-acc") : (black ? "f-ink3" : "box-plain");
+          S("rect", { x: k.x, y: top, width: k.w, height: k.h, rx: black ? 2 : 3, class: cls }, svg);
+        }
+        if (!black && k.n % 12 === 0) S("text", { x: k.x + k.w / 2, y: top + k.h - 8, class: "t-xs", "text-anchor": "middle", text: "C" + (k.n / 12 - 1) }, svg);
+      });
+    });
+    if (mode === "split") S("line", { x1: keys[24].x - 1, x2: keys[24].x - 1, y1: top - 6, y2: top + 128, class: "ln-acc thick" }, svg);
+    for (var v = 0; v < 8; v++) {
+      var l2 = mode === "off" || perChannel ? 1 : v < 4 ? 1 : 2, vx = 20 + v * 106;
+      S("rect", { x: vx, y: 178, width: 98, height: 40, rx: 8, class: l2 === 1 ? "box-dig" : "box-acc" }, svg);
+      S("text", { x: vx + 49, y: perChannel ? 196 : 203, class: "t-sm t-b", "text-anchor": "middle", text: "voice " + (v + 1) }, svg);
+      if (perChannel) S("text", { x: vx + 49, y: 212, class: "t-xs", "text-anchor": "middle", text: "MIDI ch " + (v + (mode === "mpe" ? 2 : 1)) }, svg);
+    }
+    S("text", { x: 20, y: 172, class: "t-xs", text: mode === "off" ? "all eight voices on layer 1" : perChannel ? "one sound (layer 1), a voice per MIDI channel" : "voices 1–4: layer 1 · voices 5–8: layer 2" }, svg);
+    desc.innerHTML = DESC[mode];
+  }
+  segmented(document.getElementById("lay-mode"), draw);
+  draw("split");
+})();
+
+// Figure 3: LFO shapes and retrigger modes
+(function () {
+  var box = document.getElementById("lfo-shapes"), svg = document.getElementById("lfo-svg"), desc = document.getElementById("lfo-desc");
+  var shape = SHAPES[0], mode = "poly", rate = 1.25, T = 4.2;
+  SHAPES.forEach(function (s, i) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "shape-btn"; b.setAttribute("aria-pressed", i === 0);
+    var t = document.createElementNS(NS, "svg"); t.setAttribute("viewBox", "0 0 100 30"); t.setAttribute("preserveAspectRatio", "none");
+    S("path", { d: plot(function (u) { var c = u * 3; return s.f(c % 1, Math.floor(c), function (n) { return hashRand(2, n); }); }, 240,
+                         function (u) { return 4 + u * 92; }, function (v) { return 15 - v * 11; }), class: "curve", "stroke-width": 2 }, t);
+    b.appendChild(t);
+    var nm = document.createElement("span"); nm.textContent = s.name; b.appendChild(nm);
+    var led = document.createElement("span"); led.className = "led"; led.textContent = s.led; b.appendChild(led);
+    b.addEventListener("click", function () {
+      Array.prototype.forEach.call(box.children, function (x) { x.setAttribute("aria-pressed", x === b); });
+      shape = s; draw();
+    });
+    box.appendChild(b);
+  });
+  var gates = [[[0.3, 2.5], [3.0, 4.2]], [[1.15, 2.5]], [[1.75, 2.5]]];
+  var ons = [0.3, 1.15, 1.75, 3.0];
+  var DESC = {
+    free: "<b>FrEE:</b> one LFO runs all the time; keys don't touch it. Every voice hears the same wave, wherever it happens to be.",
+    first: "<b>1St:</b> the shared LFO restarts on the first key after all were released (0.3 s and 3.0 s), so a phrase always starts the same way. Notes added to a held chord join it mid-cycle.",
+    each: "<b>EACH:</b> the shared LFO restarts on every key. All held notes jump together whenever a new one starts.",
+    poly: "<b>PoLY:</b> each voice runs its own LFO from its own note-on. The three notes move independently, out of step with each other."
+  };
+  // the phase source for voice v at time t: [phase in cycles, run id], or null before the voice's first note
+  function phaseAt(v, t) {
+    if (mode === "poly") {
+      var start = null, run = 0;
+      gates[v].forEach(function (g, i) { if (t >= g[0]) { start = g[0]; run = 10 * v + i + 1; } });
+      return start === null ? null : [(t - start) * rate, run];
+    }
+    var resets = mode === "free" ? [] : mode === "first" ? [0.3, 3.0] : ons, s0 = 0, run0 = 0;
+    resets.forEach(function (r, i) { if (t >= r) { s0 = r; run0 = i + 1; } });
+    return [(t - s0) * rate, run0];
+  }
+  function draw() {
+    clear(svg);
+    var x0 = 70, w = 790, X = function (t) { return x0 + t / T * w; };
+    for (var s = 0; s <= 4; s++) S("text", { x: X(s), y: 292, class: "t-xs", "text-anchor": "middle", text: s + " s" }, svg);
+    gates.forEach(function (gs, v) {
+      var yc = 52 + v * 84, Y = function (val) { return yc - val * 26; };
+      S("text", { x: 14, y: yc + 4, class: "t-sm t-b", text: "voice " + (v + 1) }, svg);
+      S("line", { x1: x0, x2: x0 + w, y1: yc, y2: yc, class: "grid" }, svg);
+      gs.forEach(function (g) {
+        S("rect", { x: X(g[0]), y: yc - 34, width: X(g[1]) - X(g[0]), height: 68, rx: 4, class: "f-soft-acc" }, svg);
+        S("path", { d: "M" + (X(g[0]) - 6) + " " + (yc - 44) + " h12 l-6 8 z", class: "f-acc" }, svg);
+      });
+      function val(t) {
+        var ph = phaseAt(v, t);
+        if (!ph) return null;
+        var c = ph[0];
+        return shape.f(c - Math.floor(c), Math.floor(c), function (n) { return hashRand(ph[1] + 1, n); });
+      }
+      var ghost = "", bold = "", prevOn = false, prevOk = false, N = 700;
+      for (var i = 0; i <= N; i++) {
+        var t = i / N * T, v2 = val(t);
+        if (v2 === null) { prevOk = false; prevOn = false; continue; }
+        var on = gs.some(function (g) { return t >= g[0] && t <= g[1]; });
+        var pt = X(t).toFixed(1) + " " + Y(v2).toFixed(1);
+        ghost += (prevOk ? "L" : "M") + pt;
+        if (on) bold += (prevOn ? "L" : "M") + pt;
+        prevOk = true; prevOn = on;
+      }
+      S("path", { d: ghost, class: "curve-ghost" }, svg);
+      S("path", { d: bold, class: "curve" }, svg);
+    });
+    desc.innerHTML = DESC[mode];
+  }
+  segmented(document.getElementById("lfo-trig"), function (v) { mode = v; draw(); });
+  draw();
+})();
+
+// Figure 4: step gate editor with sound
+(function () {
+  var cells = document.getElementById("gate-cells"), svg = document.getElementById("gate-svg"), playBtn = document.getElementById("gate-play");
+  var pattern = [], btns = [];
+  function setPattern(bits) { pattern = bits.slice(); render(); }
+  var PRESETS = {
+    trance: function () { return [1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0]; },
+    euclid: function () { var a = []; for (var i = 0; i < 16; i++) a.push(Math.floor((i * 5) / 16) !== Math.floor(((i - 1) * 5) / 16) || i === 0 ? 1 : 0); return a; },
+    off: function () { return [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0]; },
+    invert: function () { return pattern.map(function (b) { return 1 - b; }); },
+    rotate: function () { return [pattern[15]].concat(pattern.slice(0, 15)); }
+  };
+  for (var i = 0; i < 16; i++) {
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = i + 1; b.setAttribute("aria-label", "Step " + (i + 1));
+    (function (k) { b.addEventListener("click", function () { pattern[k] = 1 - pattern[k]; render(); }); })(i);
+    cells.appendChild(b); btns.push(b);
+  }
+  segmented(document.getElementById("gate-presets"), function (v) { setPattern(PRESETS[v]()); });
+  function render() {
+    btns.forEach(function (b, k) { b.classList.toggle("on", !!pattern[k]); b.setAttribute("aria-pressed", !!pattern[k]); });
+    clear(svg);
+    var x0 = 20, w = 840, sw = w / 16, Y0 = 128, H = 100, d = "M" + x0 + " " + Y0, slope = 6;
+    for (var k = 0; k < 16; k++) {
+      S("line", { x1: x0 + k * sw, x2: x0 + k * sw, y1: 20, y2: Y0, class: "grid", opacity: k % 4 ? 0.5 : 1 }, svg);
+      var on = pattern[k], prev = pattern[(k + 15) % 16], y = on ? Y0 - H : Y0;
+      if (k === 0) d = "M" + x0 + " " + y;
+      else if (on !== prev) d += "L" + (x0 + k * sw - slope / 2) + " " + (prev ? Y0 - H : Y0) + "L" + (x0 + k * sw + slope / 2) + " " + y;
+      d += "L" + (x0 + (k + 1) * sw) + " " + y;
+    }
+    S("path", { d: d + "L" + (x0 + w) + " " + Y0 + "L" + x0 + " " + Y0 + "Z", class: "f-soft-acc" }, svg);
+    S("path", { d: d, class: "curve" }, svg);
+    S("text", { x: x0, y: 146, class: "t-xs", text: "1" }, svg);
+    S("text", { x: x0 + w / 2, y: 146, class: "t-xs", "text-anchor": "middle", text: "one bar = one LFO cycle at 1bAr" }, svg);
+    S("text", { x: x0 + w, y: 146, class: "t-xs", "text-anchor": "end", text: "16" }, svg);
+  }
+  // sound
+  var timer = null, nodes = null, nextTime = 0, step = 0, raf = 0, BPM = 124, STEP = 60 / BPM / 4, marks = [];
+  function stop() {
+    if (!nodes) return;
+    var c = AU.ctx, t = c.currentTime;
+    nodes.out.gain.setTargetAtTime(0, t, 0.02);
+    var n = nodes; setTimeout(function () { n.oscs.forEach(function (o) { o.stop(); }); n.out.disconnect(); }, 200);
+    nodes = null; clearInterval(timer); cancelAnimationFrame(raf);
+    btns.forEach(function (b) { b.classList.remove("now"); });
+    playBtn.textContent = "▶ Listen";
+  }
+  function start() {
+    var c = AU.get(); if (!c) { playBtn.textContent = "No audio here"; return; }
+    AU.claim(stop);
+    var out = c.createGain(); out.gain.value = 0.16; out.connect(c.destination);
+    var gate = c.createGain(); gate.gain.value = 0; gate.connect(out);
+    var lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1700; lp.Q.value = 3; lp.connect(gate);
+    var oscs = [220, 261.63, 329.63, 220.6, 262.4, 330.4].map(function (f) {
+      var o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = f;
+      var g = c.createGain(); g.gain.value = 0.16; o.connect(g); g.connect(lp); o.start(); return o;
+    });
+    nodes = { out: out, gate: gate, oscs: oscs };
+    nextTime = c.currentTime + 0.06; step = 0; marks = [];
+    timer = setInterval(function () {
+      while (nextTime < c.currentTime + 0.12) {
+        gate.gain.setTargetAtTime(pattern[step] ? 1 : 0, nextTime, 0.0027);
+        marks.push([nextTime, step]);
+        step = (step + 1) % 16; nextTime += STEP;
+      }
+    }, 25);
+    (function frame() {
+      var t = c.currentTime, cur = -1;
+      while (marks.length && marks[0][0] <= t) cur = marks.shift()[1];
+      if (cur >= 0) btns.forEach(function (b, k) { b.classList.toggle("now", k === cur); });
+      raf = requestAnimationFrame(frame);
+    })();
+    playBtn.textContent = "■ Stop";
+  }
+  playBtn.addEventListener("click", function () { nodes ? stop() : start(); });
+  setPattern(PRESETS.trance());
+})();
+
+// Figure 5: synced cycling envelope
+(function () {
+  var svg = document.getElementById("cyc-svg"), desc = document.getElementById("cyc-desc"), div = 0.25;
+  var inputs = Array.prototype.slice.call(document.querySelectorAll("#cyc-sliders input"));
+  function draw() {
+    var w = inputs.map(function (i) { return +i.value / 99; }), sum = w[0] + w[1] + w[2] + w[3];
+    var sh = w.map(function (x) { return sum < 0.001 ? 0.25 : x / sum; });
+    inputs.forEach(function (i, k) { i.nextElementSibling.textContent = Math.round(sh[k] * 100) + "%"; });
+    clear(svg);
+    var x0 = 20, W = 840, Y0 = 170, H = 130, bar = 2; // one bar at 120 BPM = 2 s
+    for (var q = 0; q <= 16; q++) {
+      var gx = x0 + q / 16 * W;
+      S("line", { x1: gx, x2: gx, y1: 24, y2: Y0, class: "grid", opacity: q % 4 ? 0.45 : 1 }, svg);
+    }
+    for (var b = 0; b < 4; b++) S("text", { x: x0 + b / 4 * W + 4, y: 190, class: "t-xs", text: "beat " + (b + 1) }, svg);
+    var period = div * 0.5; // quarter = 0.5 s
+    function level(t) {
+      var x = (t % period) / period;
+      if (x < sh[0]) return 1.5 * (1 - Math.pow(2, -x / sh[0] * 1.585));
+      if ((x -= sh[0]) < sh[1]) return 1;
+      if ((x -= sh[1]) < sh[2]) return Math.pow(2, -x / sh[2] * 9.966);
+      return 0;
+    }
+    var d = plot(function (u) { return level(u * bar); }, 1600, function (u) { return x0 + u * W; }, function (v) { return Y0 - v * H; });
+    S("path", { d: d + "L" + (x0 + W) + " " + Y0 + "L" + x0 + " " + Y0 + "Z", class: "f-soft-acc" }, svg);
+    S("path", { d: d, class: "curve" }, svg);
+    S("text", { x: x0, y: 16, class: "t-xs", text: "key held for the whole bar →" }, svg);
+    var ms = period * 1000;
+    desc.innerHTML = "Cycle = <b>" + (div === 1 ? "1/4" : div === 0.5 ? "1/8" : "1/16") + "</b> = " + ms + " ms at 120 BPM: attack " +
+      Math.round(sh[0] * ms) + " ms, hold " + Math.round(sh[1] * ms) + " ms, fall " + Math.round(sh[2] * ms) + " ms, rest " + Math.round(sh[3] * ms) + " ms.";
+  }
+  inputs.forEach(function (i) { i.addEventListener("input", draw); });
+  segmented(document.getElementById("cyc-div"), function (v) { div = +v; draw(); });
+  draw();
+})();
+
+// Figure 6: envelope modes and curves
+function envLevel(t, o) {
+  var dah = o.mode.indexOf("dahdsr") >= 0, up = o.mode.indexOf("up") === 0;
+  var A = o.att, D = o.dec, R = o.rel, dl = dah ? o.delay : 0, hd = dah ? o.hold : 0;
+  function attack(x) {
+    return o.curve === "linear" ? x : o.curve === "swell" ? (Math.pow(2, 5 * x) - 1) / 31 : Math.min(1, 1.5 * (1 - Math.pow(3, -x)));
+  }
+  function fall(from, to, v, time) {
+    if (o.curve === "linear") return Math.max(to, from - v / time);
+    return to + (from - to) * Math.pow(1000, -v / time);
+  }
+  var start = up ? o.off : o.on;
+  if (t < start) return 0;
+  var u = t - start;
+  if (u < dl) return 0;
+  u -= dl;
+  if (u < A) return attack(u / A);
+  u -= A;
+  if (u < hd) return 1;
+  u -= hd;
+  if (up) {
+    if (u < D) return fall(1, o.sus, u, D);
+    return fall(fall(1, o.sus, D, D), 0, u - D, R);
+  }
+  if (t < o.off) return fall(1, o.sus, u, D);
+  var held = o.off - start - dl - A - hd;
+  return fall(held < 0 ? attack(Math.max(0, held + A) / A) : fall(1, o.sus, held, D), 0, t - o.off, R);
+}
+(function () {
+  var svg = document.getElementById("em-svg"), desc = document.getElementById("em-desc");
+  var o = { curve: "analog", mode: "adsr", on: 0.05, off: 0.48, att: 0.08, dec: 0.14, sus: 0.5, rel: 0.12, delay: 0, hold: 0 };
+  var inputs = Array.prototype.slice.call(document.querySelectorAll("#em-sliders input"));
+  var DESC = {
+    adsr: "<b>AdSr:</b> the classic. The attack starts when the key goes down, the release when it comes up.",
+    dahdsr: "<b>dAHd:</b> DAHDSR. A delay before the attack (the level keeps falling from wherever it was, so a retriggered note doesn't click) and a hold at the top before the decay. On the synth, the ATT and DEC knobs set the delay and hold while page 6 is open.",
+    up: "<b>UP.AS:</b> from key up. Nothing while you hold the key. When you let go, the envelope runs: attack, then the decay towards the sustain level for the DEC time, then the release. A sound that starts when you lift your finger.",
+    "up-dahdsr": "<b>UP.dA:</b> from key up, with the delay and hold: the note's answer comes a moment after the key is released and holds before it fades."
+  };
+  function knobSeconds(k) { return 10 * (Math.pow(2, 12 * k) - 1) / 4095; }
+  function draw() {
+    inputs.forEach(function (i) {
+      var k = +i.value / 99, sec = knobSeconds(k);
+      o[i.dataset.k] = k * 0.16;
+      i.nextElementSibling.textContent = sec < 1 ? Math.round(sec * 1000) + " ms" : sec.toFixed(2) + " s";
+    });
+    var dah = o.mode.indexOf("dahdsr") >= 0;
+    inputs.forEach(function (i) { i.disabled = !dah; i.parentNode.style.opacity = dah ? 1 : 0.45; });
+    clear(svg);
+    var X = function (t) { return 40 + t * 820; }, Y = function (l) { return 190 - l * 150; };
+    S("rect", { x: X(o.on), y: 24, width: X(o.off) - X(o.on), height: 170, rx: 4, class: "f-soft-acc" }, svg);
+    S("text", { x: (X(o.on) + X(o.off)) / 2, y: 18, class: "t-xs", "text-anchor": "middle", text: "key held" }, svg);
+    [0, 0.5, 1].forEach(function (l) { S("line", { x1: 40, x2: 860, y1: Y(l), y2: Y(l), class: "grid" }, svg); });
+    S("line", { x1: 40, x2: 860, y1: Y(o.sus), y2: Y(o.sus), class: "ln dash", opacity: 0.5 }, svg);
+    S("text", { x: 856, y: Y(o.sus) - 4, class: "t-xs", "text-anchor": "end", text: "sustain" }, svg);
+    S("path", { d: plot(function (t) { return envLevel(t, o); }, 700, X, Y) + "L" + X(1) + " " + Y(0) + "L" + X(0) + " " + Y(0) + "Z", class: "f-soft-acc" }, svg);
+    S("path", { d: plot(function (t) { return envLevel(t, o); }, 700, X, Y), class: "curve" }, svg);
+    [[o.on, "key down"], [o.off, "key up"]].forEach(function (m) {
+      S("line", { x1: X(m[0]), x2: X(m[0]), y1: 24, y2: 194, class: "ln dash" }, svg);
+      S("text", { x: X(m[0]) + 5, y: 214, class: "t-xs", text: m[1] }, svg);
+    });
+    desc.innerHTML = DESC[o.mode];
+  }
+  inputs.forEach(function (i) { i.addEventListener("input", draw); });
+  segmented(document.getElementById("em-mode"), function (v) { o.mode = v; draw(); });
+  segmented(document.getElementById("em-curve"), function (v) { o.curve = v; draw(); });
+  draw();
+})();
+
+// Figure 8: a macro's inputs and outputs
+(function () {
+  var g = document.getElementById("macro-svg");
+  var ins = [["Mod wheel", "+99"], ["Aftertouch", "+60"], ["CC 11 (expression)", "+50"], ["M TUNE knob", "by hand"], ["Offset (Shift + CUTOFF)", "−20"]];
+  var outs = [["Cutoff", "+40"], ["Resonance", "+20"], ["PW B", "−30"], ["LFO 1 amount", "+30"]];
+  ins.forEach(function (t, i) {
+    var y = 30 + i * 40;
+    S("rect", { x: 16, y: y - 13, width: 190, height: 26, rx: 7, class: "box-mod" }, g);
+    S("text", { x: 28, y: y + 4, class: "t-xs", text: t[0] }, g);
+    S("text", { x: 196, y: y + 4, class: "t-xs t-b", "text-anchor": "end", text: t[1] }, g);
+    S("path", { d: "M206 " + y + " C300 " + y + " 300 118 360 118", class: "ln-mod" }, g);
+  });
+  S("circle", { cx: 420, cy: 118, r: 58, class: "box-acc" }, g);
+  S("text", { x: 420, y: 108, class: "t-b", "text-anchor": "middle", text: "Σ" }, g);
+  S("text", { x: 420, y: 126, class: "t-sm t-b", "text-anchor": "middle", text: "Macro 1" }, g);
+  S("text", { x: 420, y: 142, class: "t-xs", "text-anchor": "middle", text: "−1 … 1" }, g);
+  outs.forEach(function (t, i) {
+    var y = 50 + i * 44;
+    S("path", { d: "M478 118 C540 118 540 " + y + " 616 " + y, class: "ln-acc", "marker-end": "url(#ah-acc)" }, g);
+    S("rect", { x: 620, y: y - 13, width: 220, height: 26, rx: 7, class: "box" }, g);
+    S("text", { x: 632, y: y + 4, class: "t-xs", text: t[0] }, g);
+    S("text", { x: 830, y: y + 4, class: "t-xs t-b t-acc", "text-anchor": "end", text: t[1] }, g);
+  });
+  S("text", { x: 16, y: 228, class: "t-xs", text: "the routes into the macro, summed with the knob and the offset" }, g);
+  S("text", { x: 840, y: 228, class: "t-xs", "text-anchor": "end", text: "the routes from it, each with its own depth and sign" }, g);
+})();
+
+// Figure 7: the patch bay
+(function () {
+  var svg = document.getElementById("pb-svg"), desc = document.getElementById("pb-desc"), seg = document.getElementById("pb-recipes");
+  var SRC = ["LFO 1", "LFO 2", "LFO 1 as 0–1", "LFO 2 as 0–1", "Filter env", "Amp env", "Env 3", "Env 4", "Velocity", "Mod wheel", "Aftertouch",
+             "Pitch bend", "CC 74 (timbre)", "CC A", "CC B", "Sustain pedal", "Gate", "Random", "Note", "Voice number", "Fixed (1)",
+             "Seq lane A", "Seq lane B", "Seq lane C", "Seq lane D", "Macro 1", "Macro 2"];
+  var ROWS = [
+    ["Pitch", [["pa", "A"], ["pb", "B"], ["pab", "A + B"]]],
+    ["Filter", [["cut", "Cutoff"], ["fea", "Env amount"]]],
+    ["Amp", [["vca", "VCA"], ["vol", "Volume", 1]]],
+    ["Poly-mod", [["pea", "Env amount"], ["pob", "Osc B amount", 1]]],
+    ["LFO 1", [["l1a", "Amount"], ["l1r", "Rate"], ["l1p", "→ Pitch"], ["l1f", "→ Filter"], ["l1w", "→ PW", 1]]],
+    ["LFO 2", [["l2a", "Amount"], ["l2r", "Rate"], ["l2p", "→ Pitch"], ["l2f", "→ Filter"], ["l2w", "→ PW", 1]]],
+    ["Amp env", [["ea_a", "Attack"], ["ea_d", "Decay"], ["ea_s", "Sustain"], ["ea_r", "Release"]]],
+    ["Filter env", [["ef_a", "Attack"], ["ef_d", "Decay"], ["ef_s", "Sustain"], ["ef_r", "Release"]]],
+    ["Env 3", [["e3_a", "Attack"], ["e3_d", "Decay"], ["e3_s", "Sustain"], ["e3_r", "Release"]]],
+    ["Env 4", [["e4_a", "Attack"], ["e4_d", "Decay"], ["e4_s", "Sustain"], ["e4_r", "Release"]]],
+    ["Voice", [["glide", "Glide"], ["det", "Detune", 1]]],
+    ["Mixer", [["al", "A level", 1], ["bl", "B level", 1], ["noise", "Noise", 1]]],
+    ["Shape", [["res", "Resonance", 1], ["pwa", "PW A", 1], ["pwb", "PW B", 1]]],
+    ["Patch", [["morph", "Morph"], ["m1", "Macro 1"], ["m2", "Macro 2"]]]
+  ];
+  var IDEAS = [
+    ["Delayed vibrato", [[6, "l1a", 8]], "<b>Env 3 → LFO 1 amount.</b> With LFO 1 → Freq on and its AMOUNT at zero, Env 3's slow attack fades the vibrato in. Each note has its own Env 3, so only long notes get it. (The LFO's own delay and fade do the same without a route.)"],
+    ["Velocity vibrato", [[8, "l1r", 40]], "<b>Velocity → LFO 1 rate</b>, with retrigger <span class=\"led\">PoLY</span>. Every note's vibrato runs at its own speed: soft notes slow and gentle, hard notes fast and nervous."],
+    ["Touch = speed", [[8, "ea_a", -60], [8, "cut", 30]], "<b>Velocity → amp attack time</b> (negative: harder is faster) and <b>velocity → cutoff</b>. The same patch is a 1.5 s pad when you stroke the keys and a 200 ms stab when you hit them. P31 Touch Swell in the bank is built on this."],
+    ["One hand, three knobs", [[10, "m1", 60], [9, "m1", 99], [25, "cut", 40], [25, "res", 20], [25, "l1a", 30]], "<b>Aftertouch and the mod wheel → Macro 1</b>, and <b>Macro 1 → cutoff, resonance and LFO 1 amount</b>. One gesture opens the filter, adds bite and brings in vibrato; the M TUNE knob plays the macro by hand. P11 Press to Scream."],
+    ["Bowed pad", [[10, "vca", 99], [10, "cut", 30]], "<b>Aftertouch → VCA</b> at 99 keeps each note silent until you press; <b>aftertouch → cutoff</b> brightens it as you press harder. With poly pressure, every note swells on its own."],
+    ["Spread, no unison", [[19, "pb", 6], [19, "cut", 10]], "<b>Voice number → pitch B and cutoff.</b> Each of the eight voices gets its own few cents of detune and its own brightness, so chords spread like an ensemble while staying fully polyphonic. Most of the bank's polys and pads use it."],
+    ["MPE slide", [[12, "cut", 50], [10, "l1a", 40]], "In MPE mode CC 74 is per voice: <b>timbre → cutoff</b> opens that note's filter as you slide up the key, and <b>aftertouch → LFO 1 amount</b> gives it its own vibrato under pressure. P58 MPE Glide."],
+    ["Wobble sweep", [[1, "l1r", 50]], "<b>LFO 2 → LFO 1 rate</b> at 50 (±2 octaves). A synced wobble on the filter speeds up and slows down with LFO 2's slow triangle."],
+    ["Humanise", [[17, "cut", 8], [17, "pb", 5]], "<b>Random → cutoff</b> and <b>random → pitch B</b> at small depths: every note gets a slightly different brightness and a few cents of detune, rolled fresh at each note."],
+    ["Per-step timbre", [[21, "cut", 99], [22, "morph", 99]], "<b>Seq lane A → cutoff</b> and <b>lane B → Morph</b>: the sequence plays a different brightness, and a different blend of two patches, on every step."],
+    ["Gate drop", [[16, "cut", 30], [20, "det", 20]], "<b>Gate → cutoff</b> opens the filter only while a key is down, so releases go dark (P47 Swing Walk); <b>Fixed → detune</b> is a plain offset, here 10 cents more spread for this patch only."]
+  ];
+  var srcY = {}, srcX = {}, dstPos = {}, sw = 124, top = 16, pitch = 18;
+  SRC.forEach(function (s, i) { srcY[i] = top + i * pitch + 8; srcX[i] = 16; });
+  function base() {
+    clear(svg);
+    SRC.forEach(function (s, i) {
+      S("rect", { x: srcX[i], y: srcY[i] - 8, width: sw, height: 16, rx: 5, class: "box-mod" }, svg);
+      S("text", { x: srcX[i] + 8, y: srcY[i] + 4, class: "t-xs", text: s }, svg);
+    });
+    ROWS.forEach(function (row, r) {
+      var y = top + r * 35 + 12, x = 400;
+      S("text", { x: 392, y: y + 4, class: "t-xs t-b", "text-anchor": "end", text: row[0] }, svg);
+      row[1].forEach(function (c) {
+        var w = 16 + c[1].length * 6.4;
+        S("rect", { x: x, y: y - 12, width: w, height: 24, rx: 7, class: c[2] ? "box-sh" : "box" }, svg);
+        S("text", { x: x + w / 2, y: y + 4, class: "t-xs", "text-anchor": "middle", text: c[1] }, svg);
+        dstPos[c[0]] = [x, y, w];
+        x += w + 5;
+      });
+    });
+  }
+  function show(k) {
+    base();
+    var idea = IDEAS[k];
+    idea[1].forEach(function (r) {
+      var x1 = srcX[r[0]] + sw, y1 = srcY[r[0]], p = dstPos[r[1]], mx = (x1 + p[0]) / 2;
+      S("path", { d: "M" + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + p[1] + " " + (p[0] - 3) + " " + p[1], class: "ln-acc thick", "marker-end": "url(#ah-acc)" }, svg);
+      S("rect", { x: srcX[r[0]] - 2, y: y1 - 10, width: sw + 4, height: 20, rx: 6, class: "ln-acc thick" }, svg);
+      S("rect", { x: p[0] - 2, y: p[1] - 14, width: p[2] + 4, height: 28, rx: 8, class: "ln-acc thick" }, svg);
+      var lx = (x1 + p[0]) / 2, ly = (y1 + p[1]) / 2;
+      S("rect", { x: lx - 18, y: ly - 10, width: 36, height: 20, rx: 6, class: "f-surface" }, svg);
+      S("text", { x: lx, y: ly + 4, class: "t-xs t-acc t-b", "text-anchor": "middle", text: (r[2] > 0 ? "+" : "") + r[2] }, svg);
+    });
+    desc.innerHTML = idea[2];
+  }
+  IDEAS.forEach(function (idea, i) {
+    var b = document.createElement("button"); b.type = "button"; b.dataset.v = i; b.textContent = idea[0];
+    b.setAttribute("aria-pressed", i === 0); seg.appendChild(b);
+  });
+  segmented(seg, function (v) { show(+v); });
+  show(0);
+})();
+
+// Figure 7: LFO 2 sweeping LFO 1's rate
+(function () {
+  var svg = document.getElementById("meta-svg"), x0 = 90, W = 770, T = 8, N = 3000;
+  function lfo2(t) { var p = (t / T + 0.25) % 1; return p < 0.5 ? -1 + 4 * p : 3 - 4 * p; }
+  S("text", { x: 14, y: 54, class: "t-sm t-b", text: "LFO 2" }, svg);
+  S("text", { x: 14, y: 70, class: "t-xs", text: "slow triangle" }, svg);
+  S("path", { d: plot(function (u) { return lfo2(u * T); }, 400, function (u) { return x0 + u * W; }, function (v) { return 56 - v * 34; }), class: "curve-mod" }, svg);
+  S("text", { x: 14, y: 168, class: "t-sm t-b", text: "LFO 1" }, svg);
+  S("text", { x: 14, y: 184, class: "t-xs", text: "rate swept" }, svg);
+  var d = "", ph = 0, dt = T / N, base = 2; // 1/8 at 120 BPM = 4 Hz; drawn slower to stay legible
+  for (var i = 0; i <= N; i++) {
+    var t = i * dt;
+    ph += base * Math.pow(2, 2 * lfo2(t)) * dt;
+    var p = ph % 1, v = p < 0.5 ? -1 + 4 * p : 3 - 4 * p;
+    d += (i ? "L" : "M") + (x0 + t / T * W).toFixed(1) + " " + (170 - v * 44).toFixed(1);
+  }
+  S("path", { d: d, class: "curve", "stroke-width": 1.6 }, svg);
+  S("text", { x: x0 + W * 0.25, y: 236, class: "t-xs", "text-anchor": "middle", text: "LFO 2 high: LFO 1 fastest (towards 1/32)" }, svg);
+  S("text", { x: x0 + W * 0.75, y: 236, class: "t-xs", "text-anchor": "middle", text: "LFO 2 low: LFO 1 slowest (towards 1/2)" }, svg);
+})();
+
+// Figure 8: poly aftertouch on a chord
+(function () {
+  var svg = document.getElementById("pat-svg");
+  var notes = [["C4", 0.15], ["E4", 0.85], ["G4", 0.25]];
+  notes.forEach(function (n, i) {
+    var x = 30 + i * 285, cut = 0.3 + n[1] * 0.5;
+    S("text", { x: x, y: 28, class: "t-b", text: n[0] }, svg);
+    S("text", { x: x + 40, y: 28, class: "t-xs", text: i === 1 ? "pressed hard" : "resting lightly" }, svg);
+    S("text", { x: x, y: 56, class: "t-xs", text: "pressure" }, svg);
+    S("rect", { x: x + 60, y: 46, width: 180, height: 12, rx: 6, class: "f-surface2" }, svg);
+    S("rect", { x: x + 60, y: 46, width: 180 * n[1], height: 12, rx: 6, class: "f-mod" }, svg);
+    var X = function (u) { return x + u * 240; }, Y = function (db) { return 100 - db * 1.9; };
+    S("rect", { x: x, y: 80, width: 240, height: 130, rx: 8, class: "box-plain" }, svg);
+    S("path", { d: plot(function (u) { var r = u / cut; return r < 1 ? -2 * r * r : -2 - 70 * Math.log2(r) / 1.6; }, 120, X,
+                        function (db) { return Math.min(206, Y(-db * -1) + 10); }), class: i === 1 ? "curve" : "curve-ana" }, svg);
+    S("line", { x1: X(cut), x2: X(cut), y1: 84, y2: 206, class: "ln dash" }, svg);
+    S("text", { x: X(cut) + 4, y: 200, class: "t-xs", text: "cutoff" }, svg);
+    S("text", { x: x, y: 232, class: "t-xs", text: "this voice's filter, frequency →" }, svg);
+  });
+})();
+
+// Figure 9: drift
+(function () {
+  var svg = document.getElementById("drift-svg");
+  function panel(x0, amount, title) {
+    var W = 400, yc = 120, k = 4.5, r = rng(amount ? 21 : 1);
+    S("text", { x: x0, y: 20, class: "t-b", text: title }, svg);
+    S("rect", { x: x0, y: 32, width: W, height: 170, rx: 8, class: "box-plain" }, svg);
+    S("line", { x1: x0, x2: x0 + W, y1: yc, y2: yc, class: "grid" }, svg);
+    for (var v = 0; v < 8; v++) {
+      var spread = (v / 7 - 0.5) * 14, d = "", cur = 0, to = 0, timer = 0, dt = 0.01;
+      for (var i = 0; i <= 600; i++) {
+        if (amount) {
+          timer -= dt;
+          if (timer <= 0) { to = r() * 2 - 1; timer = 1.2 + 0.8 * (r() * 2 - 1); }
+          cur += (to - cur) * dt * 2;
+        }
+        var cents = spread + cur * 15 * amount;
+        d += (i ? "L" : "M") + (x0 + i / 600 * W).toFixed(1) + " " + (yc - cents * k).toFixed(1);
+      }
+      S("path", { d: d, class: amount ? "curve" : "curve-dig", "stroke-width": 1.5, opacity: 0.8 }, svg);
+    }
+    S("text", { x: x0 + 6, y: 222, class: "t-xs", text: "0 s" }, svg);
+    S("text", { x: x0 + W - 6, y: 222, class: "t-xs", "text-anchor": "end", text: "6 s" }, svg);
+  }
+  panel(20, 0, "Drift 0: unison spread only");
+  panel(460, 0.6, "Drift 60: every voice wanders");
+})();
+
+// Figure 10: scale quantize with sound
+(function () {
+  var SCALES = [["Major", [0, 2, 4, 5, 7, 9, 11]], ["Minor", [0, 2, 3, 5, 7, 8, 10]], ["Dorian", [0, 2, 3, 5, 7, 9, 10]],
+                ["Pentatonic minor", [0, 3, 5, 7, 10]], ["Blues", [0, 3, 5, 6, 7, 10]], ["Whole tone", [0, 2, 4, 6, 8, 10]],
+                ["Chromatic", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]], ["Off (no snapping)", null]];
+  var sel = document.getElementById("sc-scale"), svg = document.getElementById("sc-svg"), playBtn = document.getElementById("sc-play");
+  SCALES.forEach(function (s, i) { var o = document.createElement("option"); o.value = i; o.textContent = s[0]; sel.appendChild(o); });
+  sel.value = 3;
+  var root = 57, seed = 4, raw = [];
+  function newLine() { var r = rng(seed++); raw = []; for (var i = 0; i < 16; i++) raw.push((r() * 2 - 1) * 12); }
+  function inScale(n, sc) { return sc.indexOf(((n - root) % 12 + 12) % 12) >= 0; }
+  function q(p) {
+    var sc = SCALES[+sel.value][1];
+    if (!sc) return root + p;
+    var pitch = root + p, centre = Math.floor(pitch + 0.5);
+    for (var d = 0; d <= 6; d++) { if (inScale(centre + d, sc)) return centre + d; if (inScale(centre - d, sc)) return centre - d; }
+    return centre;
+  }
+  function draw(cur) {
+    clear(svg);
+    var sc = SCALES[+sel.value][1], x0 = 50, W = 810, sw = W / 16, Y = function (n) { return 140 - (n - root) * 10; };
+    for (var n = root - 12; n <= root + 12; n++) {
+      if (sc && inScale(n, sc)) S("rect", { x: x0, y: Y(n) - 5, width: W, height: 10, class: "f-soft-acc" }, svg);
+      if ((n - root) % 12 === 0) S("text", { x: x0 - 8, y: Y(n) + 4, class: "t-xs", "text-anchor": "end", text: "A" + (Math.floor(n / 12) - 1) }, svg);
+    }
+    var d = "";
+    raw.forEach(function (p, i) {
+      var x = x0 + i * sw, yr = 140 - p * 10;
+      d += (i ? "L" + x + " " + (140 - raw[i - 1] * 10) : "M" + x + " " + yr) + "L" + x + " " + yr + "L" + (x + sw) + " " + yr;
+    });
+    S("path", { d: d, class: "curve-ghost", "stroke-width": 2, opacity: 0.8 }, svg);
+    raw.forEach(function (p, i) {
+      var x = x0 + i * sw, qn = q(p);
+      S("rect", { x: x + 3, y: Y(qn) - 4, width: sw - 6, height: 8, rx: 3, class: "f-acc", opacity: cur === undefined || cur === i ? 1 : 0.55 }, svg);
+    });
+    S("line", { x1: x0, x2: x0 + W, y1: Y(root), y2: Y(root), class: "ln dash" }, svg);
+    S("text", { x: x0 + W, y: Y(root) - 6, class: "t-xs", "text-anchor": "end", text: "the key you hold" }, svg);
+  }
+  sel.addEventListener("change", function () { draw(); });
+  document.getElementById("sc-new").addEventListener("click", function () { newLine(); draw(); });
+  newLine(); draw();
+  var timers = [], playing = false;
+  function stop() { timers.forEach(clearTimeout); timers = []; playing = false; playBtn.textContent = "▶ Listen"; draw(); }
+  playBtn.addEventListener("click", function () {
+    if (playing) { stop(); return; }
+    var c = AU.get(); if (!c) { playBtn.textContent = "No audio here"; return; }
+    AU.claim(stop); playing = true; playBtn.textContent = "■ Stop";
+    var t0 = c.currentTime + 0.05, st = 60 / 112 / 2;
+    raw.forEach(function (p, i) {
+      var t = t0 + i * st, f = 440 * Math.pow(2, (q(p) - 69) / 12);
+      var o = c.createOscillator(), o2 = c.createOscillator(), lp = c.createBiquadFilter(), g = c.createGain();
+      o.type = "sawtooth"; o2.type = "square"; o.frequency.value = f; o2.frequency.value = f * 1.003;
+      lp.type = "lowpass"; lp.Q.value = 4; lp.frequency.setValueAtTime(3200, t); lp.frequency.exponentialRampToValueAtTime(500, t + 0.2);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.13, t + 0.006); g.gain.setTargetAtTime(0, t + 0.02, 0.09);
+      o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(c.destination);
+      o.start(t); o2.start(t); o.stop(t + 0.7); o2.stop(t + 0.7);
+      timers.push(setTimeout(function () { if (playing) draw(i); }, (t - c.currentTime) * 1000));
+    });
+    timers.push(setTimeout(stop, (t0 + 16 * st - c.currentTime) * 1000 + 300));
+  });
+})();
+
+// Figure 11: sequence anatomy
+(function () {
+  var svg = document.getElementById("seq-svg"), x0 = 70, W = 790, sw = W / 16, Y = function (o) { return 130 - o * 7; };
+  var steps = [[0, 50], [12, 30], [7, 50], [0, 100], [3, 60], null, [7, 40, 0.5], [10, 50, 1, 3],
+               [0, 50], [12, 30], [5, 70], [7, 50, 0.5], [3, 100], [5, 50], [0, 40, 1, 2], null];
+  var lane = [-80, -40, 0, 20, 60, 90, 60, 20, -20, -60, -90, -50, 0, 40, 80, 30];
+  for (var i = 0; i <= 16; i++) S("line", { x1: x0 + i * sw, x2: x0 + i * sw, y1: 20, y2: 300, class: "grid", opacity: i % 4 ? 0.45 : 1 }, svg);
+  S("text", { x: 14, y: Y(0) + 4, class: "t-xs", text: "key" }, svg);
+  S("text", { x: 14, y: Y(12) + 4, class: "t-xs", text: "+12" }, svg);
+  S("line", { x1: x0, x2: x0 + W, y1: Y(0), y2: Y(0), class: "ln dash" }, svg);
+  steps.forEach(function (s, i) {
+    var x = x0 + i * sw;
+    if (!s) { S("text", { x: x + sw / 2, y: Y(0) + 24, class: "t-xs", "text-anchor": "middle", text: "rest" }, svg); return; }
+    var len = s[1] >= 100 ? sw + 2 : (sw - 4) * s[1] / 100, rat = s[3] || 1, op = s[2] || 1;
+    for (var k = 0; k < rat; k++) {
+      var w = rat > 1 ? (sw - 4) / rat - 3 : len;
+      S("rect", { x: x + 2 + k * (sw - 4) / rat, y: Y(s[0]) - 5, width: w, height: 10, rx: 3, class: "f-acc", opacity: op }, svg);
+    }
+    if (op < 1) S("text", { x: x + sw / 2, y: Y(s[0]) - 10, class: "t-xs", "text-anchor": "middle", text: "50%" }, svg);
+  });
+  function note(x, y, text) { S("text", { x: x, y: y, class: "t-xs t-b", text: text }, svg); }
+  note(x0 + 3 * sw + 4, Y(0) - 12, "tie");
+  note(x0 + 7 * sw + 4, Y(10) - 12, "ratchet ×3");
+  note(x0 + sw + 4, Y(12) - 12, "short gate");
+  S("text", { x: 14, y: 196, class: "t-xs t-b", text: "lane A" }, svg);
+  S("text", { x: 14, y: 210, class: "t-xs", text: "→ cutoff" }, svg);
+  S("line", { x1: x0, x2: x0 + W, y1: 240, y2: 240, class: "grid" }, svg);
+  lane.forEach(function (v, i) {
+    var x = x0 + i * sw + 6, h = v / 99 * 52;
+    S("rect", { x: x, y: v > 0 ? 240 - h : 240, width: sw - 12, height: Math.abs(h), rx: 2, class: "f-mod", opacity: 0.85 }, svg);
+  });
+  S("path", { d: plot(function (u) { var p = u * 15, i = Math.floor(p), f = p - i; return lane[i] + (lane[Math.min(15, i + 1)] - lane[i]) * f; }, 300,
+                      function (u) { return x0 + sw / 2 + u * 15 * sw; }, function (v) { return 240 - v / 99 * 52; }), class: "curve-mod", "stroke-width": 1.4, opacity: 0.7 }, svg);
+  S("text", { x: x0 + W, y: 316, class: "t-xs", "text-anchor": "end", text: "line: the lane with glide on, moving smoothly between steps" }, svg);
+})();
+
+// Figure 12: morph
+(function () {
+  var svg = document.getElementById("mo-svg"), amt = document.getElementById("mo-amt"), read = document.getElementById("mo-read");
+  var K = [["Cutoff", 0.28, 0.82], ["Env amount", 0.75, 0.55], ["Attack", 0.02, 0.62], ["Release", 0.25, 0.8], ["LFO amount", 0.1, 0.45], ["Resonance", 0.55, 0.2]];
+  var knobs = K.map(function (k, i) {
+    var cx = 75 + i * 146, cy = 78;
+    S("circle", { cx: cx, cy: cy, r: 40, class: "box-plain" }, svg);
+    S("path", { d: arc(cx, cy, 48, 0, 1), class: "grid", "stroke-width": 4 }, svg);
+    var a = S("path", { class: "ln-acc", "stroke-width": 4 }, svg);
+    var ptr = S("line", { x1: cx, y1: cy, class: "ln-acc thick", "stroke-linecap": "round" }, svg);
+    S("text", { x: cx, y: 150, class: "t-sm t-b", "text-anchor": "middle", text: k[0] }, svg);
+    var tA = S("circle", { r: 3.5, class: "f-dig" }, svg), tB = S("circle", { r: 3.5, class: "f-mod" }, svg);
+    var pa = pos(cx, cy, 48, k[1]), pb = pos(cx, cy, 48, k[2]);
+    tA.setAttribute("cx", pa[0]); tA.setAttribute("cy", pa[1]); tB.setAttribute("cx", pb[0]); tB.setAttribute("cy", pb[1]);
+    return { k: k, cx: cx, cy: cy, a: a, ptr: ptr };
+  });
+  S("circle", { cx: 300, cy: 178, r: 4, class: "f-dig" }, svg); S("text", { x: 310, y: 182, class: "t-xs", text: "this patch (dark pluck)" }, svg);
+  S("circle", { cx: 480, cy: 178, r: 4, class: "f-mod" }, svg); S("text", { x: 490, y: 182, class: "t-xs", text: "morph target (bright pad)" }, svg);
+  function pos(cx, cy, r, v) { var ang = (-225 + v * 270) * Math.PI / 180; return [cx + r * Math.cos(ang), cy + r * Math.sin(ang)]; }
+  function arc(cx, cy, r, v0, v1) {
+    var p0 = pos(cx, cy, r, v0), p1 = pos(cx, cy, r, v1), large = (v1 - v0) * 270 > 180 ? 1 : 0;
+    return "M" + p0[0].toFixed(1) + " " + p0[1].toFixed(1) + " A" + r + " " + r + " 0 " + large + " 1 " + p1[0].toFixed(1) + " " + p1[1].toFixed(1);
+  }
+  function draw() {
+    var m = +amt.value / 100;
+    knobs.forEach(function (k) {
+      var v = k.k[1] + (k.k[2] - k.k[1]) * m, p = pos(k.cx, k.cy, 34, v);
+      k.a.setAttribute("d", arc(k.cx, k.cy, 48, 0, Math.max(0.001, v)));
+      k.ptr.setAttribute("x2", p[0]); k.ptr.setAttribute("y2", p[1]);
+    });
+    read.textContent = Math.round(m * 100) + " % of the way to the target";
+  }
+  amt.addEventListener("input", draw);
+  draw();
+})();
+</script>
+</body>
+</html>
