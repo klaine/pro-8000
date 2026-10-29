@@ -1,4 +1,4 @@
-// The PRO-800 firmware: the synth engine (synth.c) plays MIDI notes from USB (any channel) with the sound set on
+// The PRO-800 firmware: the synth engine (synth.c) plays MIDI notes from USB (any channel, or the one set) with the sound set on
 // the front panel. Turning a pot shows its value (0-99) for a moment; Tune runs autotune; a button's LED lights
 // while it's held. It answers the stock firmware's version request and enters the bootloader's update mode on the
 // stock update-mode SysEx, so flashing doesn't need the panel buttons.
@@ -802,6 +802,26 @@ static void shift_set(int on)
 
 static int shift_active(void) { return shift_held || shift_latched; }
 
+// The MIDI channel the synth listens on: 1-16, 0 every channel (Shift + NOISE, or the host's setting)
+static int midi_channel;
+
+static void set_midi_channel(int channel)
+{
+    if (channel == midi_channel)
+        return;
+    midi_channel = channel;
+    store_set_midi_channel(channel);
+    synth_all_off(); // a key held on a channel no longer heard would never be let go
+}
+
+static void show_shift_value(void)
+{
+    if (shift_pot == POT_NOISE && !shift_value)
+        display_text("ALL");
+    else
+        display_number(shift_value);
+}
+
 // A knob turned under Shift: the secondary it nudges, by `delta` of 4095
 static void shift_turn(int pot, int delta)
 {
@@ -809,6 +829,7 @@ static void shift_turn(int pot, int delta)
         {POT_LFO_FREQ, "dLY", 0, 99},    {POT_LFO_AMOUNT, "FAdE", 0, 99}, {POT_GLIDE, "drFt", 0, 99},
         {POT_MASTER_TUNE, "dEtU", 0, 50}, {POT_FINE, "bEnd", 1, 12},      {POT_CUTOFF, "nAC1", -99, 99},
         {POT_RESONANCE, "nAC2", -99, 99}, {POT_A_LEVEL, "CC.A", 1, 127},   {POT_B_LEVEL, "CC.b", 1, 127},
+        {POT_NOISE, "CHnL", 0, 16},
     };
     unsigned t = 0;
     for (; t < sizeof table / sizeof table[0] && table[t].pot != pot; t++)
@@ -825,6 +846,7 @@ static void shift_turn(int pot, int delta)
     case POT_CUTOFF: value = synth_macro_offset(layer, 0); break;
     case POT_RESONANCE: value = synth_macro_offset(layer, 1); break;
     case POT_A_LEVEL: value = synth_cc_number(0); break;
+    case POT_NOISE: value = midi_channel; break;
     default: value = synth_cc_number(1); break;
     }
     shift_acc[pot] += (float)delta * (float)(table[t].high - table[t].low) / 4095.0f;
@@ -841,6 +863,7 @@ static void shift_turn(int pot, int delta)
     case POT_CUTOFF: synth_set_macro_offset(layer, 0, value); break;
     case POT_RESONANCE: synth_set_macro_offset(layer, 1, value); break;
     case POT_A_LEVEL: synth_set_cc_number(0, value); store_set_cc_number(0, value); break;
+    case POT_NOISE: set_midi_channel(value); break;
     default: synth_set_cc_number(1, value); store_set_cc_number(1, value); break;
     }
     shift_value = value;
@@ -850,7 +873,7 @@ static void shift_turn(int pot, int delta)
         display_until = 0;
         shift_value_at = ms_ticks + 500;
     } else if (!shift_value_at) {
-        display_number(value);
+        show_shift_value();
         display_until = ms_ticks + 1500;
     }
 }
@@ -1529,6 +1552,7 @@ typedef enum {
     SET_ENV_COUNT, // 8 of them, as the delays: cycles, 0 endless
     SET_ENV_COUNT_END = SET_ENV_COUNT + 7,
     SET_ENV_TEMPO_L1, SET_ENV_TEMPO_L2, // a bit per envelope: stage times in note values
+    SET_MIDI_CHANNEL,                                    // 1-16, 0 every channel (system-wide)
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1572,6 +1596,7 @@ static int host_setting_get(int id)
     case SET_LAYER_VOICES: return synth_layer_voices();
     case SET_ENV_COUNT ... SET_ENV_COUNT_END: return synth_env_count((id - SET_ENV_COUNT) / 4, (id - SET_ENV_COUNT) % 4);
     case SET_ENV_TEMPO_L1: case SET_ENV_TEMPO_L2: return synth_env_tempo(id - SET_ENV_TEMPO_L1);
+    case SET_MIDI_CHANNEL: return midi_channel;
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -1592,6 +1617,7 @@ static int host_setting_set(int id, int value)
         [SET_ENV_TRIGGER_L1 ... SET_ENV_DAHDSR_L2] = 16, [SET_ENV_CURVE_L1] = 256, [SET_ENV_CURVE_L2] = 256,
         [SET_ENV_DELAY ... SET_ENV_HOLD + 7] = 100, [SET_LAYER_VOICES] = VOICE_COUNT,
         [SET_ENV_COUNT ... SET_ENV_COUNT_END] = 100, [SET_ENV_TEMPO_L1] = 16, [SET_ENV_TEMPO_L2] = 16,
+        [SET_MIDI_CHANNEL] = 17,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1646,6 +1672,7 @@ static int host_setting_set(int id, int value)
         synth_set_env_count((id - SET_ENV_COUNT) / 4, (id - SET_ENV_COUNT) % 4, value);
         break;
     case SET_ENV_TEMPO_L1: case SET_ENV_TEMPO_L2: synth_set_env_tempo(id - SET_ENV_TEMPO_L1, value); break;
+    case SET_MIDI_CHANNEL: set_midi_channel(value); break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -2245,6 +2272,26 @@ static void realtime(uint8_t status, uint16_t data, uint32_t cycles)
         lfo_clock_song_position(data); // for the next Continue
 }
 
+// A channel message's channel counted from the MIDI channel setting, or -1 if the synth isn't listening to it. Set
+// to every channel, it's the channel as it comes; set to N, it's N (0 from here on) and, in the layer modes that
+// play by channel, the ones after it: channel mode N and N + 1, a voice per channel N to N + 7, MPE N (the master)
+// to N + 8.
+static int listen_channel(uint8_t status)
+{
+    int channel = status & 0x0F;
+    if (!midi_channel)
+        return channel;
+    channel -= midi_channel - 1;
+    int span;
+    switch (synth_layer_mode()) {
+    case LAYER_CHANNEL: span = 2; break;
+    case LAYER_VOICE_PER_CHANNEL: span = VOICE_COUNT; break;
+    case LAYER_MPE: span = VOICE_COUNT + 1; break;
+    default: span = 1; break;
+    }
+    return channel >= 0 && channel < span ? channel : -1;
+}
+
 static void handle_midi(void)
 {
     static uint8_t sysex[SYSEX_MAX];
@@ -2254,6 +2301,12 @@ static void handle_midi(void)
     while (usb_midi_read(p) || din_midi_read(p)) { // USB first, then the 5-pin socket
         uint8_t cin = p[0] & 0x0F;
         uint8_t status = p[1] & 0xF0;
+        if (cin >= 0x8 && cin <= 0xE) { // a channel message: from here on its channel counts from the setting
+            int channel = listen_channel(p[1]);
+            if (channel < 0)
+                continue;
+            p[1] = (uint8_t)(status | channel);
+        }
         switch (cin) {
         case 0x9: {
             if (direct_mode)
@@ -2375,6 +2428,7 @@ int main(void)
     for (int k = 0; k < 2; k++)
         if (store_cc_number(k))
             synth_set_cc_number(k, store_cc_number(k));
+    midi_channel = store_midi_channel();
     clock_source = store_clock_source();
     clock_bpm = (float)store_bpm_tenths() / 10.0f;
     clock_period = (uint32_t)((float)system_hz * 60.0f / (clock_bpm * 24.0f));
@@ -2451,7 +2505,7 @@ int main(void)
         }
         if (shift_value_at && (int32_t)(now - shift_value_at) > 0) {
             shift_value_at = 0;
-            display_number(shift_value);
+            show_shift_value();
             display_until = now + 1500;
         }
         if (assign_press_at && now - assign_press_at >= 600) {

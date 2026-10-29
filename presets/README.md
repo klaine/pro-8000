@@ -28,6 +28,10 @@ MIDI and waits for the synth's acknowledgement, so the whole bank takes a while 
 The sounds then load with a program change, with the number keys in preset mode, or from the web page's Patches
 tab (which also shows the names).
 
+The web page's Patches tab reads and writes this format too (Sound as JSON): open one of these files there to load it
+into the sound without the tool, or download the sound you're playing as a file like these, which `install.sh` then
+installs (give it a `slot`). It adds a `firmware` key, the version it was read from, which nothing here needs.
+
 ## The files
 
 One JSON file per patch, `<slot>-<name>.json`:
@@ -39,7 +43,7 @@ One JSON file per patch, `<slot>-<name>.json`:
 | `buttons` | The latching buttons that are on (`a-saw` … `sync`, the tool's `set button` names); every other one is off |
 | `params.shared` | The pots the layers share (mixer levels, noise, resonance, PW A / B, poly-mod osc B), 0-99 |
 | `params.1`, `params.2` | Each layer's knobs, Env 3 / 4 and LFO 2, 0-99, by the tool's `param` names; layer 2 only when the patch uses it |
-| `settings` | `set` commands as `"<setting> [args]": value`, e.g. `"shape 1 2": "sh"`, `"cycle-sync 1 env3": "1/4"`, `"voice 1": "legato last"`; every setting is listed, defaults included |
+| `settings` | `set` commands as `"<setting> [args]": value`, e.g. `"shape 1 2": "sh"`, `"cycle-sync 1 env3": "1/4"`, `"voice 1": "legato last"`; every setting is listed, defaults included. From 0.9.0 also `"env-up 1"`, `"dahdsr 1"`, `"env-tempo 1"` (a list of envelopes, as `cycle`), `"env-curve 1 amp"` (`analog` / `linear` / `swell`), `"env-delay 1 amp"`, `"env-hold 1 amp"` (0-99), `"env-count 1 amp"` (`loop` or 1-99), `"layer-voices"` (`auto` or 1-7), and the `noise` shape |
 | `routes.1`, `routes.2` | Mod routes as `[source, destination, depth]`, the tool's `route` names, up to 16 per layer |
 | `sequence` | The step sequence (arp group and P48): `on`, `step` (a clock division), `clock`, `bpm`, `swing`, `once`, `keys` (both / 1 / 2), `arp`, `lanes`, `smooth` (lanes that glide, e.g. `"A"`) and `steps`, each `{note, gate, vel, prob, ratchets, a-d}` with defaults left out (`note` 0, `gate` 50, the key's velocity, always, one hit); `{"rest": true}` is a rest, `gate` 100 a tie |
 | `morph` | The morph target's slot (P59 only) |

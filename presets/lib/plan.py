@@ -32,7 +32,7 @@ DESTS = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env
          "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
          "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
          "glide", "detune", "volume", "macro1", "macro2"]
-SHAPES = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps"]
+SHAPES = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]
 DIVISIONS = ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
              "1/16T", "1/32"]
 SCALES = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
@@ -111,6 +111,19 @@ def setting_line(key, value):
     elif name == "macro":
         check(len(w) == 3 and w[1] in LAYERS and w[2] in ("1", "2"), "macro: " + key)
         in_range(value, -99, 99, "macro offset")
+    elif name in ("env-up", "dahdsr", "env-tempo"):  # 0.9.0: a list of envelopes
+        check(len(w) == 2 and w[1] in LAYERS, name + ": " + key)
+        check(v == "none" or all(e in ENVS for e in v.split(",")), name + ": " + v)
+    elif name == "env-curve":
+        check(len(w) == 3 and w[1] in LAYERS and w[2] in ENVS and v in ["analog", "linear", "swell"], "env-curve: %s %s" % (key, v))
+    elif name in ("env-delay", "env-hold"):
+        check(len(w) == 3 and w[1] in LAYERS and w[2] in ENVS, name + ": " + key)
+        in_range(value, 0, 99, name)
+    elif name == "env-count":
+        check(len(w) == 3 and w[1] in LAYERS and w[2] in ENVS, "env-count: " + key)
+        check(v == "loop" or (isinstance(value, int) and 1 <= value <= 99), "env-count: loop or 1-99, not %r" % value)
+    elif name == "layer-voices":
+        check(len(w) == 1 and (v == "auto" or (isinstance(value, int) and 1 <= value <= 7)), "layer-voices: auto or 1-7, not %r" % value)
     else:
         raise Bad("unknown setting: " + key)
     return "set " + key + " " + v
@@ -130,11 +143,11 @@ def sequence_lines(seq):
     check(arp in ARPS, "arp: " + arp)
     smooth = seq.get("smooth", "")
     check(all(c in "ABCD" for c in smooth), "smooth: " + smooth)
-    bpm = in_range(seq.get("bpm", 120), 20, 255, "bpm")
+    bpm = in_range(seq.get("bpm", 120), 30, 255, "bpm")  # the firmware keeps it in a byte
     swing = in_range(seq.get("swing", 0), 0, 75, "swing")
     head = ("seq set on=%d length=%d step=%s clock=%d bpm=%d swing=%d once=%d keys=%s arp=%s lanes=%d smooth=%s"
             % (1 if seq.get("on", True) else 0, len(steps), step, 1 if seq.get("clock", True) else 0, bpm, swing,
-               1 if seq.get("once") else 0, keys, arp, lanes, smooth or "none"))
+               1 if seq.get("once") else 0, keys, "updown" if arp == "up-down" else arp, lanes, smooth or "none"))
     lines = [head]
     for i, s in enumerate(steps):
         parts = ["seq step %d" % (i + 1)]

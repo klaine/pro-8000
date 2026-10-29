@@ -62,6 +62,9 @@ int store_formatted(void); // 1 if store_init() just did that (an older format o
 // The CC A / CC B mod source numbers (0 = the default), kept in the global block
 int store_cc_number(int which);
 void store_set_cc_number(int which, int number);
+// The MIDI channel the synth listens on (1-16, 0 = every channel), kept in the global block
+int store_midi_channel(void);
+void store_set_midi_channel(int channel);
 // The clock source (0 MIDI, 1 internal, 2 SYNC IN) and the internal tempo in tenths of a BPM, kept in the global block
 int store_clock_source(void);
 int store_bpm_tenths(void);

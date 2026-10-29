@@ -1,7 +1,7 @@
 // Patch EEPROM layout (128 kB, from 0.8.0 / format 2; the stock image in backup/ is the way back to stock firmware):
 //   0x00000-0x17FFF  128 patch records of 768 bytes, each a patch and its step sequence
 //   0x19000-0x1F3FF  the stock factory bank (100 patches of 256 bytes), left as it is, for importing
-//   0x1F400          global block: format, last patch, preset or manual mode, the CC A / B numbers
+//   0x1F400          global block: format, last patch, preset or manual mode, the CC A / B numbers, the MIDI channel
 //   0x1F500-0x1FBFF  the autotune tables (tuning.c)
 //
 // Patch record (768 bytes, little-endian), two halves with their own checksums so the sequence can be written alone:
@@ -90,7 +90,7 @@
 static struct {
     int valid;
     uint16_t last_patch;
-    uint8_t preset_mode, format, cc[2], clock_source;
+    uint8_t preset_mode, format, cc[2], clock_source, midi_channel;
     uint16_t bpm; // ×10
 } global;
 
@@ -118,6 +118,7 @@ static int write_global(void)
     b[7] = FORMAT;
     b[8] = global.cc[0];
     b[9] = global.cc[1];
+    b[10] = global.midi_channel; // 0.9.0; 0 in older blocks: every channel, as before
     put32(b + 12, checksum(b, 12));
     put16(b + 16, global.bpm); // the clock, outside the checksum (older blocks have anything here: range-checked)
     b[18] = global.clock_source;
@@ -152,6 +153,7 @@ void store_init(void)
     global.format = global.valid ? b[7] : 0;
     global.cc[0] = global.valid ? b[8] : 0;
     global.cc[1] = global.valid ? b[9] : 0;
+    global.midi_channel = global.valid && b[10] <= 16 ? b[10] : 0;
     global.bpm = get16(b + 16);
     global.clock_source = b[18];
     if (!global.valid || global.bpm < 300 || global.bpm > 3000) // 30-300 BPM
@@ -171,6 +173,17 @@ int store_formatted(void) { return formatted; }
 int store_format(void) { return format_patches(); }
 
 int store_cc_number(int which) { return global.cc[which & 1]; }
+
+int store_midi_channel(void) { return global.midi_channel; }
+
+void store_set_midi_channel(int channel)
+{
+    if (channel < 0 || channel > 16 || global.midi_channel == channel)
+        return;
+    global.midi_channel = (uint8_t)channel;
+    if (global.valid)
+        write_global();
+}
 
 int store_clock_source(void) { return global.clock_source; }
 int store_bpm_tenths(void) { return global.bpm; }

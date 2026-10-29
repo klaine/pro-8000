@@ -6,7 +6,7 @@
 //   pro800 listen [seconds]               print everything the synth sends (default 20 s)
 //   pro800 backup <dir> [first] [last]    dump system settings and patches as .syx (stock firmware only)
 //   pro800 play <note> [options]          play a note, optionally recording and measuring it
-//       --channel N (1-16 or "all", default 6)  --hold S (default 2)  --velocity V (default 100)
+//       --channel N (1-16 or "all"; default the synth's MIDI channel, else 6)  --hold S (default 2)  --velocity V (default 100)
 //       --record [audio device]  (default "Ableton Move Audio")  --wav <file>
 //   pro800 record [seconds] [--window S] [--device D] [--wav file]
 //                                         record the synth's audio, print level and pitch per window
@@ -30,7 +30,7 @@ Read-only:
   pro800 listen [seconds]               print everything the synth sends (default 20 s)
   pro800 backup <dir> [first] [last]    dump system settings and patches as .syx (stock firmware only)
   pro800 play <note> [options]          play a note, optionally recording and measuring it
-      --channel N (1-16 or "all", default 6)  --hold S (default 2)  --velocity V (default 100)
+      --channel N (1-16 or "all"; default the synth's MIDI channel, else 6)  --hold S (default 2)  --velocity V (default 100)
       --record [audio device]  (default "Ableton Move Audio")  --wav <file>
   pro800 record [seconds] [--window S] [--device D] [--wav file]
                                         record the synth's audio, print level and pitch per window
@@ -66,7 +66,8 @@ Probe (our firmware 0.0.9+):
                                         cycle <layer> none|amp,filter,env3,env4 (cycling envelopes),
                                         steps <layer> <lfo> x.x.xx.. (the step shape's pattern, 1-16),
                                         cycle-sync <layer> <env> free|1/16|… (a cycle's length from the clock),
-                                        button a-saw|…|sync on|off (the panel's latching buttons)
+                                        button a-saw|…|sync on|off (the panel's latching buttons),
+                                        midi-channel all|1-16 (the channel it listens on; 0.9.0)
   pro800 settings                       print every setting
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
@@ -447,7 +448,7 @@ func play() {
     guard let noteArg = args.first, let note = UInt8(noteArg), note < 128 else {
         fail("usage: pro800 play <note 0-127> [--channel N|all] [--hold S] [--velocity V] [--record [device]] [--wav file]")
     }
-    let channelArg = option("--channel") ?? "6"
+    let channelArg = option("--channel") ?? "\(synthChannel() ?? 6)"
     let hold = Double(option("--hold") ?? "2") ?? 2
     let velocity = UInt8(option("--velocity") ?? "100") ?? 100
     let record = option("--record")
@@ -947,7 +948,7 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
                     "lfo-delay", "lfo-fade", "lfo2-delay", "lfo2-fade", "cc-a", "cc-b", "macro 1 1", "macro 1 2", "macro 2 1",
                    "macro 2 2", "clock", "bpm", "env-up 1", "env-up 2", "dahdsr 1", "dahdsr 2", "env-curve 1", "env-curve 2"]
     + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
-    + ["env-tempo 1", "env-tempo 2", "env-select", "preset-mode", "patch", "morph"]
+    + ["env-tempo 1", "env-tempo 2", "midi-channel", "env-select", "preset-mode", "patch", "morph"]
 let curveNames = ["analog", "linear", "swell"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                   "pentatonic-minor", "blues", "whole-tone", "chromatic"]
@@ -974,7 +975,7 @@ func setSetting() {
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
         "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | " +
         "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
-        "clock midi|internal|sync-in | bpm <30-300> | " +
+        "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
@@ -1014,6 +1015,8 @@ func setSetting() {
         (id, v) = (42, i)
     } else if args.count == 2, args[0] == "layer-voices", let n = args[1] == "auto" ? 0 : Int(args[1]), (0...7).contains(n) {
         (id, v) = (66, n)
+    } else if args.count == 2, args[0] == "midi-channel", let c = args[1] == "all" ? 0 : Int(args[1]), (0...16).contains(c) {
+        (id, v) = (77, c)
     } else if args.count == 2, args[0] == "bpm", let b = Int(args[1]), (30...300).contains(b) {
         (id, v) = (43, b)
     } else if args.count == 4, args[0] == "voice", let layer = Int(args[1]), (1...2).contains(layer),
@@ -1078,6 +1081,16 @@ func setSetting() {
     print("\(args.joined(separator: " "))")
 }
 
+// The MIDI channel the synth listens on (1-16), or nil when it takes every channel or can't say (stock firmware, or
+// ours before the setting): what play, cc and bend send on without --channel
+func synthChannel() -> Int? {
+    guard let reply = Midi(port: portName).request([0x54], expect: [0x54], timeout: 1) else { return nil }
+    let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)]), id = 77
+    guard b.count > 0, Int(b[0]) - 4 > id, b.count > 2 + 2 * id else { return nil }
+    let v = Int(b[1 + 2 * id]) << 7 | Int(b[2 + 2 * id])
+    return (1...16).contains(v) ? v : nil
+}
+
 // pro800 settings: every setting, as the firmware has them now
 func settings() {
     guard let reply = Midi(port: portName).request([0x54], expect: [0x54], timeout: 2) else {
@@ -1117,9 +1130,10 @@ func settings() {
         case 42: text = ["midi", "internal", "sync-in"][safe: v] ?? text
         case 43: text = "\(v) BPM"
         case 66: text = v == 0 ? "automatic" : "\(v) + \(8 - v)"
-        case 77: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 79: text = slotName(v)
-        case 80: text = v == 0 ? "none" : slotName(v - 1)
+        case 77: text = v == 0 ? "all" : "\(v)"
+        case 78: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 80: text = slotName(v)
+        case 81: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
@@ -1195,7 +1209,7 @@ func seqSet() {
     let d = Array(h[(sysexHeader.count + 1)...])
     var length = Int(d[0]), lanes = Int(d[1]), division = Int(d[2]), bpm = Int(d[3]) << 7 | Int(d[4]), flags = Int(d[5])
     var swing = Int(d[6]), smooth = Int(d[7]), arp = Int(d[9])
-    let usage = "usage: pro800 seq set on=0|1 length=1-64 step=<division> clock=0|1 bpm=30-300 swing=0-75 once=0|1 " +
+    let usage = "usage: pro800 seq set on=0|1 length=1-64 step=<division> clock=0|1 bpm=30-255 swing=0-75 once=0|1 " +
                 "keys=both|1|2 arp=\(arpModeNames.joined(separator: "|")) lanes=0-4 smooth=none|A..D"
     for kv in args.dropFirst() {
         let parts = kv.split(separator: "=", maxSplits: 1).map(String.init)
@@ -1208,7 +1222,7 @@ func seqSet() {
         case "once": bit(4)
         case "length": guard let v = Int(value), (1...64).contains(v) else { fail(usage) }; length = v
         case "step": guard let i = divisionNames.firstIndex(of: value) else { fail(usage) }; division = i
-        case "bpm": guard let v = Int(value), (30...300).contains(v) else { fail(usage) }; bpm = v
+        case "bpm": guard let v = Int(value), (30...255).contains(v) else { fail(usage) }; bpm = v
         case "swing": guard let v = Int(value), (0...75).contains(v) else { fail(usage) }; swing = v
         case "keys": guard let i = ["both", "1", "2"].firstIndex(of: value) else { fail(usage) }; flags = flags & ~(3 << 3) | i << 3
         case "arp": guard let i = arpModeNames.firstIndex(of: value) else { fail(usage) }; arp = i
@@ -1530,7 +1544,7 @@ func timing() {
 
 // pro800 cc <controller> <value> [--channel N]
 func cc() {
-    let channel = UInt8((Int(option("--channel") ?? "1") ?? 1) - 1) & 0x0F
+    let channel = UInt8((Int(option("--channel") ?? "") ?? synthChannel() ?? 1) - 1) & 0x0F
     guard args.count == 2, let num = Int(args[0]), let value = Int(args[1]), (0...127).contains(num), (0...127).contains(value) else {
         fail("usage: pro800 cc <controller 0-127> <value 0-127> [--channel N]")
     }
@@ -1541,7 +1555,7 @@ func cc() {
 
 // pro800 bend <0-16383> [--channel N]: pitch bend (8192 = centre)
 func bend() {
-    let channel = UInt8((Int(option("--channel") ?? "1") ?? 1) - 1) & 0x0F
+    let channel = UInt8((Int(option("--channel") ?? "") ?? synthChannel() ?? 1) - 1) & 0x0F
     guard args.count == 1, let value = Int(args[0]), (0...16383).contains(value) else {
         fail("usage: pro800 bend <0-16383> [--channel N]  (8192 = centre)")
     }

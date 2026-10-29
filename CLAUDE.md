@@ -13,7 +13,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - Changes the synth: `update-mode` (reboot into the bootloader) and `flash <file.syx> --yes`. Flash checks
     that the file is a packed update and paces it below the bootloader's 9.64 kB/s, waiting after the header
     for the flash erase. `--dry-run` only checks the file.
-  - The synth listens on MIDI channel 6; `play` defaults to it.
+  - Our firmware plays on every MIDI channel unless one is set (`set midi-channel all|1-16`, Shift + NOISE);
+    `play`, `cc` and `bend` default to that channel, else 6 (the stock firmware's) for `play` and 1 for the others.
   - `install <file.syx> --yes`: update-mode + flash + wait until the new firmware answers (it autotunes first).
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
   - Patches: `patches`, `patch load|save|clear <slot>`, `format --yes` (wipe every slot), `eeprom <file>` (read),

@@ -1216,6 +1216,42 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   to set one layer's level against the other's. On the synth (P24, layer 1, velocity 127): no route −24.8 dBFS,
   ±50 −31.3 / −31.5, 99 at the noise floor. The web page's modulation arc now shows 0..1 sources into VOL (and FIX)
   turning it down.
+- **Sounds as JSON on the web page** (Patches tab): the preset files' format (`presets/README.md`), so the 64 presets
+  load in the browser and a downloaded sound installs with `install.sh`. `readSound()` reads the settings (54), both
+  layers' parameters (53), the buttons (4C), the four step patterns (4D), both layers' routes (57) and the sequence
+  (48 / 46); `planSound()` turns JSON into SysEx after the init sound (5F), as `plan.py` does, checking every name
+  and range first, and leaves out settings the firmware hasn't got (with a note). Saving renames the slot (5D, 59)
+  so the JSON's name survives. `plan.py` gained the 0.9.0 settings and the noise shape, and its `seq set` passes the
+  tool's `updown`. Sequence BPM is 30-255: the firmware keeps it in a byte (`sequence_t.bpm`), so the tool's
+  `seq set bpm=300` wraps. Tested in Node with the page's own code against a fake synth answering the same SysEx: all
+  64 presets load, read back, load again to the same state and match the files (knobs on the 0-99 grid, lanes ±1:
+  they're 63 steps a side), and `plan.py` accepts all 64 read-backs; bad names and ranges are refused before anything
+  is sent. In the built-in browser (fake synth): Load and Show through the buttons. Not run against the synth itself:
+  WebMIDI isn't in the built-in browser.
+- **Patches tab fixes:** Import took only 0.7.x's 256-byte "P8P1" files while Export has written 768-byte "P8P2"
+  records since 0.8.0, so no exported patch could go back. It now takes a 768-byte P8P2 record whose patch half
+  passes store.c's checksum (0-507 at 508), says a P8P1 file is from 0.7.x, and writes nothing otherwise. "Back up
+  everything" read 400 records (past the patch area into the factory bank and the tables); it reads the 128 now
+  (98,304 bytes). The tool's `seq set bpm` is 30-255 like the JSON. Tested in Node with the page's handlers against
+  a fake EEPROM answering 79 / 5A: a good record lands byte for byte, damaged, P8P1 and short files leave the slot
+  alone, and the backup is 2,048 reads ending at 0x18000; the JS checksum matches store.c's on generated records.
+- **MIDI channel** (system-wide, Shift + NOISE `CHnL`, setting 77, `pro800 set midi-channel all|1-16`, the web
+  page by CC A / B): 0 every channel (as before), else the channel messages (notes, CCs, bend, pressure, program
+  change) on other channels are dropped in `handle_midi`, before anything reads them; clock and SysEx pass. A heard
+  message's channel is rewritten relative to the setting, so the per-channel layer modes count from it: channel
+  mode N / N + 1, a voice per channel N to N + 7, MPE N (master) to N + 8. Kept in the global block's byte 10 (inside
+  its checksum; 0 in every older block, so it reads as every channel). Changing it lets every voice go, since a key
+  held on a channel no longer heard would never be let go. The read-only settings move to 78-81 (82 in all, 175 of
+  the 176-byte SysEx buffer). The tool's `play`, `cc` and `bend` send on the synth's channel when one is set; the
+  web page's Play tab follows it. On the synth (CC 5 = glide, read back with `params`; the Move's audio input gave no
+  samples that day): every channel took channel 6; set to 3, channel 6 was ignored and 3 heard, and `cc` without
+  `--channel` used 3; channel mode from 3: 3 → layer 1, 4 → layer 2, 5 and 2 ignored; the global block read 03 at
+  byte 10, 00 after setting it back.
+- **Flashing with the web editor open fails.** The bootloader's port is called "PRO 800" too, so a page left open
+  in Chrome reconnects and polls it (54, every 0.9 s) in the middle of the update: the header never gets its `03 31`
+  and every block after it answers `01 00 07`, the image is rejected (`noFW` at power-up) and the synth waits in
+  `boot`. A power-cycle doesn't help while the page polls; closing it does (then `03 31`, and `01 00 00` at the end).
+  Neither the file nor the size was at fault: the previous build failed the same way.
 - **On the synth** (flashed, P34): the pass is 946 µs on average with no notes (904 on 0.8.5), the longest in 2 s
   2,769 µs. A key-up amp envelope stayed silent while the key was held and sounded for ~0.6 s after it was let go
   (`record`, 0.1 s windows); DAHDSR with delay 60 (0.37 s) started the note ~0.4 s after note-on. A host build of
