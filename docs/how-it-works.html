@@ -34,6 +34,7 @@
   <div class="kicker">PRO-8000 0.9.0 · technical tour</div>
   <h1>How the firmware works</h1>
   <p class="lede">The PRO-800 makes its sound with eight fully analog voices. This firmware is the brain that plays them: it reads your hands and your MIDI, does the maths, and sets the voltages that the analog circuits follow. Here's how, from the circuit board up.</p>
+  <p class="note-sm">Built on what Music Tribe, Behringer's parent company, published in <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer">PRO800-Firmware-Packer</a>: the main-board <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer/blob/main/Schematics/PRO800_Main_Schematics.pdf">schematic</a> and the packer that turns a firmware into an update the synth's bootloader accepts.</p>
   <p class="note-sm risk"><b>Wildly experimental:</b> use it at your own risk, with no liability if it harms your hardware. <a href="index.html#experimental">The disclaimer</a></p>
   <div class="meta"><span class="chip">STM32F446 · 168 MHz</span><span class="chip">Written from scratch in C</span><span class="chip">No operating system</span><span class="chip">About 69 kB</span></div>
 </div>
@@ -131,7 +132,7 @@
   <span class="sec-num">02</span>
   <h2>What's on the board</h2>
   <div class="prose">
-    <p>The firmware talks to the hardware directly, register by register, with no vendor libraries. Everything it knows about the board came from Behringer's published main-board schematic and from measuring the synth itself. The voice board's circuit isn't published, so its behaviour (how many DAC steps make an octave, where the amplifiers start to open) was measured with test firmware and recordings.</p>
+    <p>The firmware talks to the hardware directly, register by register, with no vendor libraries. Everything it knows about the board came from Behringer's published <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer/blob/main/Schematics/PRO800_Main_Schematics.pdf">main-board schematic</a> and from measuring the synth itself. The voice board's circuit isn't published, so its behaviour (how many DAC steps make an octave, where the amplifiers start to open) was measured with test firmware and recordings.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:720px">

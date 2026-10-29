@@ -1,9 +1,13 @@
 # PRO-8000
 
-PRO-8000 is an alternative firmware for the Behringer PRO-800 (STM32F446), packed with Music Tribe's
-PRO800-Firmware-Packer and flashed through the synth's own bootloader. Written from scratch for this hardware, with
-GliGli's p600fw (Prophet-600 firmware) as the reference for how the analog side behaves. It's an independent project,
-not affiliated with Behringer or Music Tribe.
+PRO-8000 is an alternative firmware for the Behringer PRO-800 (STM32F446), flashed through the synth's own
+bootloader. Written from scratch for this hardware, with GliGli's p600fw (Prophet-600 firmware) as the reference for
+how the analog side behaves. It's an independent project, not affiliated with Behringer or Music Tribe.
+
+It exists because Music Tribe, Behringer's parent company, published
+[PRO800-Firmware-Packer](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer): the main-board
+[schematic](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer/blob/main/Schematics/PRO800_Main_Schematics.pdf), the
+chip's memory layout, and the packer that turns a firmware image into an update the bootloader accepts.
 
 > [!WARNING]
 > **Wildly experimental.** A hobby project, built and tested on a single synth. It replaces the PRO-800's firmware,
@@ -286,7 +290,8 @@ The bootloader sits at the start of the flash, write-protected; nothing here eve
 
 ## Build
 
-Needs zig (as the C cross-compiler) and the Music Tribe packer in `reference/`, plus Xcode's swiftc for the tool.
+Needs zig (as the C cross-compiler), Music Tribe's packer cloned into `reference/PRO800-Firmware-Packer/` from
+[its repository](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer), and Xcode's swiftc for the tool.
 
 ```bash
 scripts/build.sh
