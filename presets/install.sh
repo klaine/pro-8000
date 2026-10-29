@@ -2,7 +2,7 @@
 # presets/install.sh: load the preset bank (presets/*.json) into the PRO-800 over USB with build/pro800.
 #
 # Each preset starts from the init sound (`patch init`), gets its buttons, knobs, settings and mod routes, and is
-# saved to its slot (P1-P64) and renamed, so running this twice gives the same result. Every step is one
+# saved to its slot (P1-P66) and renamed, so running this twice gives the same result. Every step is one
 # `build/pro800` command, printed as it runs.
 #
 # usage: presets/install.sh [--dry-run] [--only <slots>] [--tool <path>] [--port <name>]
@@ -89,5 +89,5 @@ printf '%s\n' "$plan" | while IFS= read -r line; do
 done
 
 if [ "$dry" -eq 0 ]; then
-    echo "done. The patches are in slots P1-P64 (program change 0-63)."
+    echo "done. The patches are in slots P1-P66 (program change 0-65)."
 fi

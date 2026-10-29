@@ -9,7 +9,7 @@
  "buttons": [
   "a-tri",
   "b-tri",
-  "pmod-freq-a"
+  "pmod-filter"
  ],
  "params": {
   "shared": {
@@ -25,10 +25,10 @@
    "freq-a": 50,
    "freq-b": 80,
    "fine": 50,
-   "cutoff": 74,
+   "cutoff": 45,
    "fil-env-amt": 64,
    "fil-att": 0,
-   "fil-dec": 63,
+   "fil-dec": 34,
    "fil-sus": 20,
    "fil-rel": 63,
    "amp-att": 0,

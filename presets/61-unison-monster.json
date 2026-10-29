@@ -50,6 +50,9 @@
    "env4-rel": 0,
    "lfo2-rate": 26,
    "lfo2-amount": 13
+  },
+  "2": {
+   "amp-dec": 49
   }
  },
  "settings": {

@@ -63,7 +63,7 @@
   <h1>New territory for sound design</h1>
   <p class="lede">Same sixteen analog oscillators, same filters, same warm voice board. What changes is how much they can <em>move</em>, and how independently each note can live. This page walks through what the custom firmware adds, with things to try and recipes to start from.</p>
   <p class="note-sm risk"><b>Wildly experimental:</b> use it at your own risk, with no liability if it harms your hardware. <a href="index.html#experimental">The disclaimer</a></p>
-  <div class="meta"><span class="chip">2 layers</span><span class="chip">4 LFOs, per-voice capable</span><span class="chip">4 envelopes per voice</span><span class="chip">16 mod routes per layer, 2 macros</span><span class="chip">A sequence in every patch</span><span class="chip">64 presets to start from</span></div>
+  <div class="meta"><span class="chip">2 layers</span><span class="chip">4 LFOs, per-voice capable</span><span class="chip">4 envelopes per voice</span><span class="chip">16 mod routes per layer, 2 macros</span><span class="chip">A sequence in every patch</span><span class="chip">66 presets to start from</span></div>
 </div>
 
 <div class="layout">
@@ -122,7 +122,7 @@
       <tr><td><b>Sequencing</b></td><td>An arpeggiator and two sequences</td><td>A sequence inside every patch, played and transposed from the keys, with probability, ratchets, an arpeggiator and 4 automation lanes; steps can be recorded from the panel</td></tr>
       <tr><td><b>Clock</b></td><td>Internal, MIDI or the SYNC IN jack, for the arpeggiator and sequencer</td><td>MIDI clock (USB or 5-pin), an internal clock with tap tempo, or the SYNC IN jack, driving the LFOs, looping envelopes and the sequence alike</td></tr>
       <tr><td><b>Tuning</b> (measured on one synth)</td><td>2–8 cents off</td><td>within 0.7 cents, C1 to C8</td></tr>
-      <tr><td><b>Patches</b></td><td>400</td><td>128, each with its own sequence, and a 64-sound bank to start from</td></tr>
+      <tr><td><b>Patches</b></td><td>400</td><td>128, each with its own sequence, and a 66-sound bank to start from</td></tr>
       <tr><td><b>Trade-offs</b></td><td></td><td>No MIDI OUT or THRU yet, and SysEx (the editor, updates) over USB only; the sequencer, scales and morph are edited on the web page</td></tr>
     </tbody>
   </table></div>
@@ -444,7 +444,7 @@
   <span class="sec-num">13</span>
   <h2>Recipes</h2>
   <div class="prose">
-    <p>Sixty-four ready-made sounds cover all of this: the bank in <code>presets/</code> (installed from the editor's Patches tab with "Install the 64-preset bank", or with <code>presets/install.sh</code>) fills P1–P64 with eight each of basses, leads, polys, pads, plucks, sequences, effects and curiosities, and its <code>DESIGN.md</code> explains the techniques. The recipes below are the same ideas by hand. Start from <kbd>Perf</kbd> (a plain sawtooth, filter open) unless it says otherwise. Display codes are what you'll see on the synth.</p>
+    <p>Ready-made sounds cover all of this: the bank in <code>presets/</code> (installed from the editor's Patches tab with "Install the preset bank", or with <code>presets/install.sh</code>) fills P1–P64 with eight each of basses, leads, polys, pads, plucks, sequences, effects and curiosities, and P65–P66 with two more, and its <code>DESIGN.md</code> explains the techniques. The recipes below are the same ideas by hand. Start from <kbd>Perf</kbd> (a plain sawtooth, filter open) unless it says otherwise. Display codes are what you'll see on the synth.</p>
   </div>
   <div class="cards">
     <div class="card"><span class="tag">Pad · per-voice LFO</span><h4>Shimmering ensemble pad</h4>

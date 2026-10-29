@@ -4,7 +4,7 @@
  "group": "pad",
  "notes": {
   "sound": "Two saws with a 1.5 s swell that shrinks to about 200 ms when you hit hard, so the same patch is a pad or a stab by touch; the filter follows with its own slower swell from Env 3. Per-voice spread and drift underneath.",
-  "shows": "Velocity into the amp attack time (16\u00d7 range), Env 3 as a second filter envelope, spread, drift."
+  "shows": "Velocity into the amp attack time (16× range), Env 3 as a second filter envelope, spread, drift."
  },
  "buttons": [
   "a-saw",
@@ -13,7 +13,7 @@
  "params": {
   "shared": {
    "a-level": 76,
-   "b-level": 72,
+   "b-level": 73,
    "noise": 0,
    "resonance": 14,
    "a-pw": 50,

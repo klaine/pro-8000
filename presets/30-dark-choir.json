@@ -4,7 +4,7 @@
  "group": "pad",
  "notes": {
   "sound": "A narrow pulse (18 %) slowly width-modulated over a saw an octave down, a dark filter with half keytracking; LFO 2 (sine) moves the width while LFO 1 vibrato fades in late. Pressure opens it like a swell pedal.",
-  "shows": "LFO 2 \u2192 PW on its own rate, LFO 1 delay and fade, aftertouch to cutoff."
+  "shows": "LFO 2 → PW on its own rate, LFO 1 delay and fade, aftertouch to cutoff."
  },
  "buttons": [
   "a-square",

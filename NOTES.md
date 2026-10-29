@@ -1336,6 +1336,14 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   the SysEx: 94 factory sounds into the 94 empty slots of a fresh-install memory, format, 95 into 128 (sounds 95-99
   set up as non-stock and skipped), all 64 presets over factory copies (64 saves and names, 64 distinct sounds,
   6,094 messages), a two-preset bank pasted in the JSON box, and a bank with a typo refused with nothing written.
+- **The preset bank is what's on the author's synth** (asked for): every patch read with the web page's own
+  `readSound()` against the synth, through a new `pro800 sysex` (requests on stdin, replies on stdout, one MIDI
+  connection), loading each slot and then the current one back (it had no unsaved edits; the script rebuilds them
+  if there are). `presets/*.json` were rewritten from those reads: each keeps its notes, group and key order, and
+  lists what it listed plus whatever differs from the init sound (read from the synth too). 40 of 64 had changed:
+  edits on the synth (P2, P5, P11, P25, P26, P34, P37, P60, P62 most), and ±1 rounding from the tool's install
+  (`amp-rel 44` read back as 45, lanes ±1). P65 "Pad + Arp!" and P66 "BsSQ/LD.Split 1" are new (group `user`).
+  Checked: each file on top of the init sound matches its read exactly, and `plan.py` takes all 66.
 
 ## Backlog
 

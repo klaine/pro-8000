@@ -12,10 +12,10 @@
  ],
  "params": {
   "shared": {
-   "a-level": 80,
-   "b-level": 75,
+   "a-level": 99,
+   "b-level": 99,
    "noise": 0,
-   "resonance": 16,
+   "resonance": 46,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -27,7 +27,7 @@
    "cutoff": 38,
    "fil-env-amt": 79,
    "fil-att": 0,
-   "fil-dec": 54,
+   "fil-dec": 57,
    "fil-sus": 15,
    "fil-rel": 45,
    "amp-att": 0,
@@ -49,6 +49,9 @@
    "env4-rel": 0,
    "lfo2-rate": 16,
    "lfo2-amount": 0
+  },
+  "2": {
+   "amp-dec": 43
   }
  },
  "settings": {

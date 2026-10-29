@@ -4,7 +4,7 @@
  "group": "bass",
  "notes": {
   "sound": "A pulse under slow width modulation over a saw an octave down, legato; LFO 2 drifts the width per voice at its own pace, and pressure widens it. Thick without being static.",
-  "shows": "LFO 1 \u2192 PW with LFO 2 (drift, per voice) also into PW A; legato glide; aftertouch to pulse width."
+  "shows": "LFO 1 → PW with LFO 2 (drift, per voice) also into PW A; legato glide; aftertouch to pulse width."
  },
  "buttons": [
   "a-square",
@@ -34,7 +34,7 @@
    "amp-att": 0,
    "amp-dec": 58,
    "amp-sus": 85,
-   "amp-rel": 46,
+   "amp-rel": 45,
    "glide": 41,
    "macro1": 50,
    "lfo-freq": 28,

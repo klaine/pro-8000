@@ -9,7 +9,7 @@
  "buttons": [
   "a-saw",
   "b-tri",
-  "pmod-freq-a"
+  "pmod-filter"
  ],
  "params": {
   "shared": {
@@ -19,7 +19,7 @@
    "resonance": 12,
    "a-pw": 50,
    "b-pw": 50,
-   "pmod-osc-b": 0
+   "pmod-osc-b": 56
   },
   "1": {
    "freq-a": 50,
@@ -34,7 +34,7 @@
    "amp-att": 0,
    "amp-dec": 58,
    "amp-sus": 75,
-   "amp-rel": 44,
+   "amp-rel": 45,
    "glide": 0,
    "macro1": 50,
    "lfo-freq": 50,
@@ -50,6 +50,9 @@
    "env4-rel": 0,
    "lfo2-rate": 50,
    "lfo2-amount": 0
+  },
+  "2": {
+   "amp-dec": 49
   }
  },
  "settings": {

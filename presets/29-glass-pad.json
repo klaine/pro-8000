@@ -9,7 +9,7 @@
  "buttons": [
   "a-tri",
   "b-tri",
-  "pmod-freq-a"
+  "pmod-filter"
  ],
  "params": {
   "shared": {

@@ -1,0 +1,117 @@
+{
+ "slot": 65,
+ "name": "Pad + Arp!",
+ "group": "user",
+ "buttons": [
+  "a-saw",
+  "b-saw",
+  "b-square"
+ ],
+ "params": {
+  "shared": {
+   "resonance": 23,
+   "a-level": 94,
+   "b-level": 90
+  },
+  "1": {
+   "amp-rel": 77,
+   "amp-sus": 67,
+   "amp-dec": 82,
+   "amp-att": 73,
+   "fil-rel": 78,
+   "fil-sus": 55,
+   "fil-dec": 84,
+   "fil-att": 69,
+   "fil-env-amt": 79,
+   "freq-b": 33,
+   "cutoff": 33,
+   "env3-att": 99,
+   "env3-sus": 99,
+   "env3-rel": 5,
+   "lfo2-rate": 21
+  },
+  "2": {
+   "amp-sus": 15,
+   "amp-dec": 66,
+   "fil-sus": 28,
+   "fil-dec": 41,
+   "fil-env-amt": 84,
+   "freq-a": 66,
+   "freq-b": 66,
+   "cutoff": 40,
+   "env4-att": 47,
+   "env4-dec": 95,
+   "env4-sus": 43,
+   "lfo2-rate": 28
+  }
+ },
+ "settings": {
+  "layers": "stack",
+  "shape 1 2": "sine",
+  "shape 2 2": "sine",
+  "voice 2": "mono last",
+  "macro 2 1": 54
+ },
+ "routes": {
+  "2": [
+   [
+    "macro1",
+    "vca",
+    19
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    13
+   ],
+   [
+    "lfo2",
+    "pitch-a",
+    7
+   ],
+   [
+    "lfo2",
+    "pitch-b",
+    4
+   ],
+   [
+    "lfo2",
+    "a-pw",
+    22
+   ],
+   [
+    "lfo2",
+    "b-pw",
+    22
+   ],
+   [
+    "env3",
+    "vca",
+    54
+   ]
+  ]
+ },
+ "sequence": {
+  "on": true,
+  "length": 8,
+  "step": "1/8",
+  "clock": true,
+  "bpm": 120,
+  "swing": 0,
+  "once": false,
+  "keys": "2",
+  "arp": "up",
+  "lanes": 0,
+  "smooth": "",
+  "steps": [
+   {},
+   {},
+   {},
+   {},
+   {},
+   {},
+   {},
+   {}
+  ]
+ }
+}

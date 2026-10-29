@@ -641,12 +641,12 @@
     </div>
     <p class="hint">Fill the patch memory in one go (each asks first). After installing from the stock firmware the
       slots still hold stock-format data: format them first. The factory bank goes into the empty slots in order; the
-      preset bank (64 sounds) into its own slots, P1-P64. "Install a bank file…" takes a bank such as the release's
+      preset bank (66 sounds) into its own slots, P1-P66. "Install a bank file…" takes a bank such as the release's
       <code>pro8000-presets-…json</code>.</p>
     <div class="row" id="bank-row">
       <button id="bank-format" title="every slot empty, with its sequence; back up first">Format the patch memory</button>
       <button id="bank-factory" title="the 100 sounds the PRO-800 shipped with, into the empty slots in order">Copy the whole factory bank</button>
-      <button id="bank-presets" title="the 64 PRO-8000 presets, into P1-P64">Install the 64-preset bank</button>
+      <button id="bank-presets" title="the PRO-8000 preset bank, 66 sounds into P1-P66">Install the preset bank</button>
       <button id="bank-open" title="a preset bank file, such as the release's pro8000-presets-….json">Install a bank file…</button>
       <input type="file" id="bank-file" accept=".json,application/json" hidden>
       <span class="msg" id="bank-msg"></span>

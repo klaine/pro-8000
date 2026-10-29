@@ -25,7 +25,7 @@
    "freq-a": 50,
    "freq-b": 33,
    "fine": 50,
-   "cutoff": 47,
+   "cutoff": 45,
    "fil-env-amt": 70,
    "fil-att": 0,
    "fil-dec": 52,
@@ -34,14 +34,14 @@
    "amp-att": 0,
    "amp-dec": 60,
    "amp-sus": 75,
-   "amp-rel": 44,
+   "amp-rel": 45,
    "glide": 0,
    "macro1": 50,
    "lfo-freq": 50,
    "lfo-amount": 0,
    "pmod-fil-env": 0,
    "env3-att": 0,
-   "env3-dec": 50,
+   "env3-dec": 69,
    "env3-sus": 0,
    "env3-rel": 0,
    "env4-att": 0,
@@ -89,7 +89,7 @@
    [
     "env3",
     "pitch-a",
-    61
+    52
    ],
    [
     "velocity",

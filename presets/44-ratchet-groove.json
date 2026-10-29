@@ -15,7 +15,7 @@
    "a-level": 70,
    "b-level": 70,
    "noise": 0,
-   "resonance": 30,
+   "resonance": 31,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -111,11 +111,9 @@
   "smooth": "",
   "steps": [
    {
-    "note": 0,
     "gate": 60
    },
    {
-    "note": 0,
     "gate": 60,
     "ratchets": 2
    },
@@ -124,7 +122,6 @@
     "gate": 60
    },
    {
-    "note": 0,
     "gate": 60,
     "ratchets": 3
    },
@@ -133,7 +130,6 @@
     "gate": 60
    },
    {
-    "note": 0,
     "gate": 60,
     "prob": 4,
     "ratchets": 2

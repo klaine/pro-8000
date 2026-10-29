@@ -15,7 +15,7 @@
    "a-level": 75,
    "b-level": 40,
    "noise": 0,
-   "resonance": 30,
+   "resonance": 31,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -110,9 +110,7 @@
   "lanes": 0,
   "smooth": "",
   "steps": [
-   {
-    "note": 0
-   },
+   {},
    {
     "note": 3,
     "prob": 6
@@ -142,14 +140,12 @@
     "note": 3
    },
    {
-    "note": 0,
     "prob": 5
    },
    {
     "note": -2
    },
    {
-    "note": 0,
     "prob": 4
    },
    {

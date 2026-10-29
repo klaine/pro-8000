@@ -33,7 +33,7 @@
    "amp-att": 0,
    "amp-dec": 55,
    "amp-sus": 0,
-   "amp-rel": 44,
+   "amp-rel": 45,
    "glide": 0,
    "macro1": 50,
    "lfo-freq": 50,
@@ -106,19 +106,15 @@
   "smooth": "",
   "steps": [
    {
-    "note": 0,
     "gate": 40
    },
    {
-    "note": 0,
     "gate": 40
    },
    {
-    "note": 0,
     "gate": 40
    },
    {
-    "note": 0,
     "gate": 40
    },
    {
@@ -126,11 +122,9 @@
     "gate": 40
    },
    {
-    "note": 0,
     "gate": 40
    },
    {
-    "note": 0,
     "gate": 40
    },
    {

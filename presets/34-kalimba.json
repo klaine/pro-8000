@@ -15,7 +15,7 @@
    "a-level": 85,
    "b-level": 30,
    "noise": 8,
-   "resonance": 30,
+   "resonance": 31,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -27,13 +27,13 @@
    "cutoff": 57,
    "fil-env-amt": 77,
    "fil-att": 0,
-   "fil-dec": 41,
+   "fil-dec": 53,
    "fil-sus": 0,
-   "fil-rel": 44,
+   "fil-rel": 60,
    "amp-att": 0,
    "amp-dec": 64,
    "amp-sus": 0,
-   "amp-rel": 55,
+   "amp-rel": 63,
    "glide": 0,
    "macro1": 50,
    "lfo-freq": 50,
@@ -93,7 +93,7 @@
    [
     "random",
     "cutoff",
-    10
+    21
    ],
    [
     "voice",

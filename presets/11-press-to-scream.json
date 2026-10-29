@@ -23,7 +23,7 @@
   },
   "1": {
    "freq-a": 50,
-   "freq-b": 66,
+   "freq-b": 33,
    "fine": 50,
    "cutoff": 49,
    "fil-env-amt": 73,
@@ -34,7 +34,7 @@
    "amp-att": 0,
    "amp-dec": 52,
    "amp-sus": 90,
-   "amp-rel": 46,
+   "amp-rel": 45,
    "glide": 33,
    "macro1": 50,
    "lfo-freq": 68,
@@ -99,17 +99,17 @@
    [
     "macro1",
     "cutoff",
-    50
+    10
    ],
    [
     "macro1",
     "resonance",
-    30
+    59
    ],
    [
     "macro1",
     "lfo-amount",
-    35
+    17
    ],
    [
     "velocity",

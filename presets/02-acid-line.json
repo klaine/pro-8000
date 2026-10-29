@@ -8,15 +8,16 @@
  },
  "buttons": [
   "a-saw",
-  "b-square"
+  "b-square",
+  "a-square"
  ],
  "params": {
   "shared": {
-   "a-level": 80,
-   "b-level": 55,
+   "a-level": 99,
+   "b-level": 0,
    "noise": 0,
-   "resonance": 70,
-   "a-pw": 50,
+   "resonance": 67,
+   "a-pw": 1,
    "b-pw": 30,
    "pmod-osc-b": 0
   },
@@ -24,7 +25,7 @@
    "freq-a": 50,
    "freq-b": 50,
    "fine": 50,
-   "cutoff": 31,
+   "cutoff": 40,
    "fil-env-amt": 85,
    "fil-att": 0,
    "fil-dec": 45,
@@ -114,6 +115,16 @@
     "mod-wheel",
     "resonance",
     30
+   ],
+   [
+    "velocity",
+    "a-pw",
+    50
+   ],
+   [
+    "random",
+    "cutoff",
+    6
    ]
   ]
  }

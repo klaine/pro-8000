@@ -1,4 +1,4 @@
-# Preset bank: 64 sounds for the custom firmware
+# Preset bank: 66 sounds for the custom firmware
 
 Sixty-four patches for firmware 0.8.1 and later, in slots P1-P64 (program change 0-63): 8 basses, 8 leads, 8 polys,
 8 pads, 8 plucks, 8 arps and sequences, 8 effects and 8 curiosities that show the engine off. They're built for the
@@ -6,13 +6,17 @@ real PRO-800: two oscillators, the 4-pole filter, no effects, and every knob val
 curves (`MANUAL.md`: semitone steps on FREQ A / B, the squared filter-envelope and LFO curves, the exponential cutoff,
 the 15 clock divisions), so `fil-env-amt 78` is +24 semitones and `cutoff 39` is 250 Hz on the display.
 
+P65 and P66 (group `user`) are two more, made on the synth. The files hold the sounds as they are on the author's
+synth (read back with the web page's "Show the current sound"), so some differ a little from what their notes
+describe.
+
 Nothing here touches the master volume. The mod wheel adds LFO 1 depth on every patch, so any patch with the
 LFO → Freq button on (most leads) has wheel vibrato on top of what the notes say. Clock-synced patches run at 120 BPM
 until a MIDI clock arrives.
 
 ## Install
 
-From the web editor (any computer with Chrome or Edge): Patches tab, **Install the 64-preset bank**, or **Install a
+From the web editor (any computer with Chrome or Edge): Patches tab, **Install the preset bank**, or **Install a
 bank file…** with the release's `pro8000-presets-<version>.json`. The bank is these files in one, made by
 `lib/bundle.py` (`scripts/web.sh` and `scripts/pages.sh` put it next to the editor as `presets.json`, and
 `scripts/build.sh` writes the release copy into `build/`). With the command-line tool on macOS:
@@ -43,7 +47,7 @@ One JSON file per patch, `<slot>-<name>.json`:
 
 | Key | Contents |
 |---|---|
-| `slot`, `name`, `group` | Slot 1-64, a name of up to 16 characters, one of bass / lead / poly / pad / pluck / arp / fx / other |
+| `slot`, `name`, `group` | Slot 1-128 (the bank uses 1-66), a name of up to 16 characters, one of bass / lead / poly / pad / pluck / arp / fx / other / user |
 | `notes.sound`, `notes.shows` | What it sounds like, and which engine features it demonstrates |
 | `buttons` | The latching buttons that are on (`a-saw` … `sync`, the tool's `set button` names); every other one is off |
 | `params.shared` | The pots the layers share (mixer levels, noise, resonance, PW A / B, poly-mod osc B), 0-99 |

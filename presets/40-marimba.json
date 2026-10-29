@@ -3,7 +3,7 @@
  "name": "Marimba",
  "group": "pluck",
  "notes": {
-  "sound": "A triangle with a quiet square two octaves up (the bar's 4:1 partial) and a touch of noise for the mallet; a 60 ms filter pluck, a decay that shortens up the keyboard (note \u2192 decay) and lengthens with velocity.",
+  "sound": "A triangle with a quiet square two octaves up (the bar's 4:1 partial) and a touch of noise for the mallet; a 60 ms filter pluck, a decay that shortens up the keyboard (note → decay) and lengthens with velocity.",
   "shows": "Note number into the amp decay, velocity into the decay and cutoff, noise as the mallet."
  },
  "buttons": [

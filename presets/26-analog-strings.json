@@ -29,7 +29,7 @@
    "cutoff": 57,
    "fil-env-amt": 64,
    "fil-att": 57,
-   "fil-dec": 65,
+   "fil-dec": 64,
    "fil-sus": 70,
    "fil-rel": 64,
    "amp-att": 55,
@@ -39,7 +39,7 @@
    "glide": 0,
    "macro1": 50,
    "lfo-freq": 26,
-   "lfo-amount": 30,
+   "lfo-amount": 7,
    "pmod-fil-env": 0,
    "env3-att": 0,
    "env3-dec": 0,
@@ -120,7 +120,7 @@
    [
     "lfo2",
     "pitch-b",
-    4
+    2
    ],
    [
     "lfo2",
@@ -146,6 +146,16 @@
     "velocity",
     "amp-att",
     -20
+   ],
+   [
+    "lfo",
+    "pitch-a",
+    1
+   ],
+   [
+    "voice",
+    "pitch-b",
+    3
    ]
   ],
   "2": [

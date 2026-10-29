@@ -74,6 +74,8 @@ Probe (our firmware 0.0.9+):
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
   pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, 0 removes); pro800 routes lists them
   pro800 timing                         engine, CV refresh and main-loop pass times
+  pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
+                                        replies on stdout as hex; over one MIDI connection
   pro800 engine                         the engine's state: held keys, voice gates and envelope stages, keytrack,
                                         switch overrides (read-only probe, 0.9.1+)
   pro800 cc <controller> <value>        send a control change (e.g. 1 = mod wheel)
@@ -1525,6 +1527,25 @@ func routes() {
 }
 
 // pro800 timing: how long the engine, the CV refresh and a main-loop pass take
+// pro800 sysex: for scripts. Requests from stdin, one per line ("<request hex> [; <reply prefix hex>]", the bytes after
+// the PRO-800 header; the prefix defaults to the request's command byte), each reply on stdout as hex from the command
+// byte on, without F7, or "none"; all over one MIDI connection. Sends whatever it's given: read-only only if the
+// requests are.
+func sysexPipe() {
+    let midi = Midi(port: portName)
+    while let line = readLine() {
+        let parts = line.split(separator: ";", maxSplits: 1).map { $0.split(separator: " ").compactMap { UInt8($0, radix: 16) } }
+        guard let request = parts.first, !request.isEmpty else { print("none"); fflush(stdout); continue }
+        let expect = parts.count > 1 && !parts[1].isEmpty ? parts[1] : [request[0]]
+        if let reply = midi.request(request, expect: expect, timeout: 5), reply.count > sysexHeader.count + 1 {
+            print(reply[sysexHeader.count..<(reply.count - 1)].map { String(format: "%02x", $0) }.joined(separator: " "))
+        } else {
+            print("none")
+        }
+        fflush(stdout)
+    }
+}
+
 // pro800 engine: the engine-state probe (55), read-only
 func engine() {
     guard let reply = Midi(port: portName).request([0x55], expect: [0x55], timeout: 2) else {
@@ -1732,6 +1753,7 @@ case "route": route()
 case "routes": routes()
 case "timing": timing()
 case "engine": engine()
+case "sysex": sysexPipe()
 case "cc": cc()
 case "bend": bend()
 case "eeprom-write": eepromWrite()

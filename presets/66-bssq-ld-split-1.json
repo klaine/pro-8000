@@ -1,0 +1,119 @@
+{
+ "slot": 66,
+ "name": "BsSQ/LD.Split 1",
+ "group": "user",
+ "buttons": [
+  "a-square",
+  "b-saw",
+  "lfo-pw"
+ ],
+ "params": {
+  "shared": {
+   "resonance": 24,
+   "a-pw": 63,
+   "b-pw": 52,
+   "a-level": 80,
+   "b-level": 70
+  },
+  "1": {
+   "amp-rel": 55,
+   "amp-sus": 0,
+   "amp-dec": 66,
+   "fil-rel": 52,
+   "fil-sus": 18,
+   "fil-dec": 44,
+   "fil-env-amt": 87,
+   "freq-a": 33,
+   "glide": 25,
+   "lfo-freq": 28,
+   "lfo-amount": 32,
+   "cutoff": 40,
+   "lfo2-rate": 20
+  },
+  "2": {
+   "amp-rel": 39,
+   "amp-sus": 52,
+   "amp-dec": 49,
+   "fil-sus": 53,
+   "fil-dec": 53,
+   "fil-env-amt": 79,
+   "freq-b": 33,
+   "glide": 36,
+   "lfo-freq": 83,
+   "cutoff": 51
+  }
+ },
+ "settings": {
+  "layers": "split",
+  "layer-voices": 1,
+  "keytrack": "half",
+  "lfo-sync": "clock",
+  "lfo-trigger": "first",
+  "lfo2-trigger": "voice",
+  "shape 1 1": "square",
+  "shape 1 2": "drift",
+  "shape 2 1": "square",
+  "voice 1": "legato last",
+  "voice 2": "legato last",
+  "lfo-fade 1": 85
+ },
+ "routes": {
+  "1": [
+   [
+    "lfo2",
+    "a-pw",
+    25
+   ],
+   [
+    "aftertouch",
+    "a-pw",
+    30
+   ],
+   [
+    "velocity",
+    "cutoff",
+    30
+   ],
+   [
+    "velocity",
+    "vca",
+    45
+   ]
+  ],
+  "2": [
+   [
+    "fixed",
+    "vca",
+    38
+   ],
+   [
+    "lfo",
+    "vca",
+    82
+   ]
+  ]
+ },
+ "sequence": {
+  "on": true,
+  "length": 4,
+  "step": "1/16",
+  "clock": true,
+  "bpm": 120,
+  "swing": 0,
+  "once": false,
+  "keys": "1",
+  "arp": "off",
+  "lanes": 0,
+  "smooth": "",
+  "steps": [
+   {
+    "rest": true
+   },
+   {},
+   {
+    "note": 12
+   },
+   {}
+  ]
+ }
+}

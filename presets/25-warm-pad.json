@@ -15,7 +15,7 @@
    "a-level": 74,
    "b-level": 72,
    "noise": 0,
-   "resonance": 12,
+   "resonance": 21,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -109,6 +109,11 @@
     "velocity",
     "amp-att",
     -35
+   ],
+   [
+    "lfo2",
+    "resonance",
+    36
    ]
   ]
  }

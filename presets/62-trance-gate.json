@@ -15,7 +15,7 @@
    "a-level": 70,
    "b-level": 70,
    "noise": 0,
-   "resonance": 15,
+   "resonance": 40,
    "a-pw": 50,
    "b-pw": 50,
    "pmod-osc-b": 0
@@ -24,7 +24,7 @@
    "freq-a": 50,
    "freq-b": 50,
    "fine": 53,
-   "cutoff": 51,
+   "cutoff": 62,
    "fil-env-amt": 64,
    "fil-att": 0,
    "fil-dec": 60,
@@ -36,7 +36,7 @@
    "amp-rel": 50,
    "glide": 0,
    "macro1": 50,
-   "lfo-freq": 21,
+   "lfo-freq": 27,
    "lfo-amount": 0,
    "pmod-fil-env": 0,
    "env3-att": 0,
@@ -47,8 +47,8 @@
    "env4-dec": 0,
    "env4-sus": 0,
    "env4-rel": 0,
-   "lfo2-rate": 14,
-   "lfo2-amount": 50
+   "lfo2-rate": 20,
+   "lfo2-amount": 23
   }
  },
  "settings": {
@@ -56,9 +56,9 @@
   "split": 60,
   "keytrack": "full",
   "lfo-sync": "clock",
-  "lfo-trigger": "every",
+  "lfo-trigger": "first",
   "lfo2-sync": "clock",
-  "lfo2-trigger": "free",
+  "lfo2-trigger": "first",
   "shape 1 1": "steps",
   "shape 1 2": "sine",
   "shape 2 1": "tri",
@@ -75,14 +75,14 @@
   "scale": "off",
   "root": "C",
   "lfo-delay 1": 0,
-  "lfo-fade 1": 0,
+  "lfo-fade 1": 56,
   "lfo-delay 2": 0,
   "lfo-fade 2": 0,
   "macro 1 1": 0,
   "macro 1 2": 0,
   "macro 2 1": 0,
   "macro 2 2": 0,
-  "steps 1 1": "x.x.xx..x.x.xx.."
+  "steps 1 1": "x.x.xxx.x.x.xxx."
  },
  "routes": {
   "1": [

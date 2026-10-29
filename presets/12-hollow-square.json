@@ -9,7 +9,7 @@
  "buttons": [
   "a-square",
   "b-square",
-  "lfo-freq"
+  "lfo-filter"
  ],
  "params": {
   "shared": {
