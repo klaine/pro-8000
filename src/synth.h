@@ -21,6 +21,14 @@ typedef enum {
     LAYER_MODE_COUNT
 } layer_mode_t;
 
+typedef enum {
+    OSC_TUNE_SEMITONES,
+    OSC_TUNE_OCTAVE,
+    OSC_TUNE_FREE,
+    OSC_TUNE_FIXED,
+    OSC_TUNE_MODE_COUNT
+} oscillator_tune_mode_t;
+
 void synth_init(void);
 void synth_note_on(uint8_t note, uint8_t velocity, int channel); // channel 0-15
 // The per-channel layer modes: the voice a MIDI channel (0-15) plays, or -1 (none, or MPE's master channel), and
@@ -88,6 +96,8 @@ void synth_set_split_note(int note);
 // The layer the per-layer knobs edit (0 or 1). Switching it puts those knobs in pickup.
 int synth_edit_layer(void);
 void synth_set_edit_layer(int layer);
+oscillator_tune_mode_t synth_osc_tune_mode(int layer, int osc);
+void synth_set_osc_tune_mode(int layer, int osc, int mode);
 // Keyboard tracking (0 off, 1 half, 2 full) is a setting now: the keyboard-tracking switch picks which envelope
 // the filter ADSR knobs edit (0 = bottom: filter envelope, 1 = middle: Env 3, 2 = top: Env 4).
 int synth_keytrack(void);
@@ -193,6 +203,7 @@ float synth_knob_snap(int pot, float knob);
 // What a knob position means for FREQ A / B (whole semitones, ±36) and FINE (cents, ±100).
 int synth_knob_semitones(float knob);
 int synth_knob_cents(float knob);
+float synth_knob_tune_value(int layer, int osc, float knob); // semitones, or MIDI note number in Fixed mode
 // ... and the other knobs with units: filter env amount and poly-mod filter env (semitones), cutoff (Hz), glide
 // (time constant in seconds, 0 = off). LFO rates: lfo.h.
 float synth_knob_env_amount(float knob);

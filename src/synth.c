@@ -171,6 +171,8 @@ static int last_voice[2] = {-1, -1}; // per layer: the most recently played voic
 static float panel[POT_COUNT];
 static float pot_reading[POT_COUNT], pot_slope[POT_COUNT]; // the muxed pots' latest reading, and the glide to it
 static float layer_param[LAYERS][PARAM_COUNT] = {[0][PARAM_LFO2_RATE] = 0.5f, [1][PARAM_LFO2_RATE] = 0.5f};
+static uint8_t osc_tune_modes[LAYERS][2];
+static int knob_held[POT_COUNT]; // each stepped knob's step
 static int pots_primed;
 static int edit_layer;
 static uint8_t latched[PARAM_COUNT]; // its knob controls the value (per-layer parameters: the edit layer's)
@@ -295,6 +297,24 @@ static void unlatch(int param)
 {
     latched[param] = 0;
     pickup_side[param] = 0;
+}
+
+oscillator_tune_mode_t synth_osc_tune_mode(int layer, int osc)
+{
+    return layer >= 0 && layer < LAYERS && osc >= 0 && osc < 2
+         ? (oscillator_tune_mode_t)osc_tune_modes[layer][osc] : OSC_TUNE_SEMITONES;
+}
+
+void synth_set_osc_tune_mode(int layer, int osc, int mode)
+{
+    if (layer < 0 || layer >= LAYERS || osc < 0 || osc >= 2 || mode < 0 || mode >= OSC_TUNE_MODE_COUNT)
+        return;
+    osc_tune_modes[layer][osc] = (uint8_t)mode;
+    int pot = osc == 0 ? POT_FREQ_A : POT_FREQ_B;
+    unlatch(pot);
+    int steps = mode == OSC_TUNE_SEMITONES ? 72 : mode == OSC_TUNE_OCTAVE ? 6 : 0;
+    if (steps)
+        knob_held[pot] = (int)(panel[pot] * (float)steps + 0.5f);
 }
 
 void synth_set_edit_layer(int layer)
@@ -643,6 +663,8 @@ void synth_apply_patch(const patch_t *patch)
                 layer_param[l][i] = (float)patch->pots[per_layer[i] ? l : 0][i] / 65535.0f;
         for (int i = 0; i < EXTRA_PARAMS; i++)
             layer_param[l][POT_COUNT + i] = (float)patch->extra[l][i] / 65535.0f;
+        for (int osc = 0; osc < 2; osc++)
+            osc_tune_modes[l][osc] = (patch->osc_tune[l] >> (2 * osc)) & 3;
         for (int r = 0; r < ROUTES; r++) {
             route_t x = patch->routes[l][r];
             routes[l][r] = x.source < SRC_COUNT && x.dest < DEST_COUNT ? x : (route_t){0};
@@ -715,6 +737,7 @@ void synth_capture_patch(patch_t *patch)
             else
                 patch->extra[l][i - POT_COUNT] = u;
         }
+        patch->osc_tune[l] = (uint8_t)(osc_tune_modes[l][0] | (osc_tune_modes[l][1] << 2));
         for (int r = 0; r < ROUTES; r++)
             patch->routes[l][r] = routes[l][r];
         for (int w = 0; w < 2; w++)
@@ -1386,8 +1409,11 @@ static float semitone_steps(float knob)
 // Stepped knobs (FREQ A / B; LFO FREQ while its LFO is clock-synced): how many steps, 0 for the others
 static int knob_steps(int pot)
 {
-    if (pot == POT_FREQ_A || pot == POT_FREQ_B)
-        return (int)(2 * OSC_RANGE_SEMITONES);
+    if (pot == POT_FREQ_A || pot == POT_FREQ_B) {
+        int osc = pot == POT_FREQ_A ? 0 : 1;
+        int mode = osc_tune_modes[edit_layer][osc];
+        return mode == OSC_TUNE_SEMITONES ? 72 : mode == OSC_TUNE_OCTAVE ? 6 : 0;
+    }
     return pot == POT_LFO_FREQ && lfo_sync[lfo_select] == LFO_SYNC_CLOCK ? LFO_DIVISIONS - 1 : 0;
 }
 
@@ -1395,7 +1421,6 @@ static int knob_steps(int pot)
 // flip it back and forth; the knob then reads as the middle of its step, so the engine, the display and a saved
 // patch all round it the same way.
 #define STEP_HYSTERESIS 0.25f
-static int knob_held[POT_COUNT]; // each stepped knob's step
 
 float synth_knob_snap(int pot, float knob)
 {
@@ -1403,12 +1428,25 @@ float synth_knob_snap(int pot, float knob)
     if (!steps)
         return knob;
     float x = knob * (float)steps;
-    if (x > (float)knob_held[pot] + 0.5f + STEP_HYSTERESIS || x < (float)knob_held[pot] - 0.5f - STEP_HYSTERESIS)
+    if (x > (float)knob_held[pot] + 0.5f + STEP_HYSTERESIS || x < (float)knob_held[pot] - 0.5f - STEP_HYSTERESIS) {
         knob_held[pot] = (int)(x + 0.5f);
+        if (knob_held[pot] < 0) knob_held[pot] = 0;
+        if (knob_held[pot] > steps) knob_held[pot] = steps;
+    }
     return (float)knob_held[pot] / (float)steps;
 }
 
 int synth_knob_semitones(float knob) { return (int)semitone_steps(knob); }
+
+float synth_knob_tune_value(int layer, int osc, float knob)
+{
+    switch (synth_osc_tune_mode(layer, osc)) {
+    case OSC_TUNE_OCTAVE: return (float)((int)(knob * 6.0f + 0.5f) - 3);
+    case OSC_TUNE_FREE: return (knob - 0.5f) * 72.0f;
+    case OSC_TUNE_FIXED: return 24.0f + knob * 84.0f;
+    default: return semitone_steps(knob);
+    }
+}
 
 static float env_amount_of(float knob) { float x = (knob - 0.5f) * 2; return x * (x < 0 ? -x : x); } // -1..1, squared
 float synth_knob_env_amount(float knob) { return env_amount_of(knob) * FILTER_ENV_SEMITONES; }
@@ -1613,6 +1651,7 @@ static void voice_cvs(int v, int cutoff, int pitch)
         return;
     }
     int l = layer_of(v);
+    const layer_params_t *q = &lp[l];
     float mod[DEST_COUNT] = {0};
     if (fast_routes[l])
         evaluate_routes(l, v, mod, 1);
@@ -1635,11 +1674,20 @@ static void voice_cvs(int v, int cutoff, int pitch)
     if (pitch) {
         float pitch_mod = lfo * x->to_pitch[0] + lfo2 * x->to_pitch[1] + x->pitch_slow
                         + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
-        if (scale) // snap the note with its modulation to the scale
-            pitch_mod = quantize((float)x->note + pitch_mod) - (float)x->note;
-        float common = x->pitch_base + pitch_mod;
-        float a = common + x->pitch_a + x->pmod_env * x->filter.level + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
-        float b = common + x->pitch_b + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
+        float pitch_mod_a = pitch_mod, pitch_mod_b = pitch_mod;
+        int fixed_a = osc_tune_modes[l][0] == OSC_TUNE_FIXED;
+        int fixed_b = osc_tune_modes[l][1] == OSC_TUNE_FIXED;
+        if (scale) {
+            float anchor_a = fixed_a ? q->coarse_a : (float)x->note;
+            float anchor_b = fixed_b ? q->coarse_b : (float)x->note;
+            pitch_mod_a = quantize(anchor_a + pitch_mod) - anchor_a;
+            pitch_mod_b = quantize(anchor_b + pitch_mod) - anchor_b;
+        }
+        float pitch_adjust = x->pitch_base - x->pitch;
+        float a = (fixed_a ? x->pitch_a + pitch_adjust : x->pitch_base + x->pitch_a) + pitch_mod_a
+                + x->pmod_env * x->filter.level + mod[DEST_PITCH_A] * MOD_PITCH_SEMITONES;
+        float b = (fixed_b ? x->pitch_b + pitch_adjust : x->pitch_base + x->pitch_b) + pitch_mod_b
+                + mod[DEST_PITCH_B] * MOD_PITCH_SEMITONES;
         sh_set(CV_OSC_A1 + v, tuning_note_cv(TUNING_ROW_OSC_A + v, a));
         sh_set(CV_OSC_B1 + v, tuning_note_cv(TUNING_ROW_OSC_B + v, b));
     }
@@ -1757,8 +1805,8 @@ void synth_update(float dt)
         }
         float glide = synth_knob_glide_s(p[POT_GLIDE]); // time constant, s
         lp[l] = (layer_params_t){
-            .coarse_a = semitone_steps(p[POT_FREQ_A]),
-            .coarse_b = semitone_steps(p[POT_FREQ_B]),
+            .coarse_a = synth_knob_tune_value(l, 0, p[POT_FREQ_A]),
+            .coarse_b = synth_knob_tune_value(l, 1, p[POT_FREQ_B]),
             .fine_b = (p[POT_FINE] - 0.5f) * 2 * FINE_SEMITONES,
             .glide_s = glide,
             .glide_k = glide > 0 ? 1.0f - fast_exp2(-dt / glide * 1.4427f) : 1.0f,

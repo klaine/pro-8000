@@ -947,7 +947,8 @@ let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "l
                    "macro 2 2", "clock", "bpm", "env-up 1", "env-up 2", "dahdsr 1", "dahdsr 2", "env-curve 1", "env-curve 2"]
     + (1...2).flatMap { l in cycleNames.map { "env-delay \(l) \($0)" } }
     + (1...2).flatMap { l in cycleNames.map { "env-hold \(l) \($0)" } }
-    + ["layer-voices", "env-select", "preset-mode", "patch", "morph"]
+     + ["layer-voices", "osc-tune 1 A", "osc-tune 1 B", "osc-tune 2 A", "osc-tune 2 B",
+         "env-select", "preset-mode", "patch", "morph"]
 let curveNames = ["analog", "linear", "swell"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                   "pentatonic-minor", "blues", "whole-tone", "chromatic"]
@@ -980,6 +981,7 @@ func setSetting() {
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
         "env-up|dahdsr <layer 1|2> none|amp,filter,env3,env4 | env-curve <layer 1|2> amp|filter|env3|env4 " +
         "\(curveNames.joined(separator: "|")) | env-delay|env-hold <layer 1|2> amp|filter|env3|env4 <0-99> | " +
+        "osc-tune <layer 1|2> <a|b> semitones|octave|free|fixed | " +
         "button \(buttonNames.values.sorted().joined(separator: "|")) on|off"
     var id: UInt8, v: Int
     if args.count == 2, args[0] == "morph" { // the morph target: a slot, or none (SysEx 44)
@@ -1013,6 +1015,10 @@ func setSetting() {
         (id, v) = (42, i)
     } else if args.count == 2, args[0] == "layer-voices", let n = args[1] == "auto" ? 0 : Int(args[1]), (0...7).contains(n) {
         (id, v) = (66, n)
+    } else if args.count == 4, args[0] == "osc-tune", let layer = Int(args[1]), (1...2).contains(layer),
+              let osc = ["a", "b"].firstIndex(of: args[2]),
+              let mode = ["semitones", "octave", "free", "fixed"].firstIndex(of: args[3]) {
+        (id, v) = (UInt8(67 + (layer - 1) * 2 + osc), mode)
     } else if args.count == 2, args[0] == "bpm", let b = Int(args[1]), (30...300).contains(b) {
         (id, v) = (43, b)
     } else if args.count == 4, args[0] == "voice", let layer = Int(args[1]), (1...2).contains(layer),
@@ -1109,6 +1115,7 @@ func settings() {
         case 42: text = ["midi", "internal", "sync-in"][safe: v] ?? text
         case 43: text = "\(v) BPM"
         case 66: text = v == 0 ? "automatic" : "\(v) + \(8 - v)"
+        case 67...70: text = ["semitones", "octave", "free", "fixed"][safe: v] ?? text
         case 67: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
         case 69: text = slotName(v)
         case 70: text = v == 0 ? "none" : slotName(v - 1)

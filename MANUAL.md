@@ -33,14 +33,14 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Control | What it does now |
 |---|---|
 | Knobs | As printed, with a few changes. LFO FREQ / LFO AMOUNT edit LFO 1 or LFO 2. With Shift (Sync Source) held, the filter ADSR knobs edit Env 3, the amp ADSR knobs Env 4, and the other knobs secondary values (see Shift). |
-| FREQ A / FREQ B | ±36 semitones (6 octaves in all) in semitone steps; the display shows the interval, e.g. `-12`, ` 7`. |
+| FREQ A / FREQ B | Their tuning mode is per oscillator and layer; hold Seq 1 or Seq 2 while turning a FREQ knob to cycle its mode. |
 | FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
 | Keyboard-tracking switch | Keyboard tracking, as printed: off, half, full. A loaded patch's setting holds until you move the switch. |
 | Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |
 | Sync Clock | The clock: tap the tempo (its LED blinks on the beat of whichever clock is in use), hold it to restart the bar, Shift + press to cycle the clock source. |
 | LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`, `nOIS`. |
 | VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. |
-| Seq 1 / Seq 2 | Choose the layer the knobs edit (LED). |
+| Seq 1 / Seq 2 | Choose the layer the knobs edit (LED); hold one while turning FREQ A or B to change that oscillator's tuning mode. |
 | Arp Up-Dn | Choose LFO 1 or LFO 2 for the LFO knobs, the shape button and the LFO routing buttons (LED lit = LFO 2). |
 | Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning). |
 | Preset | Preset mode (a patch loaded) ↔ manual mode (the panel is live). |
@@ -53,7 +53,7 @@ The display shows a knob's value while you turn it, in real units where it has o
 
 | Knob | Shows | Range and curve |
 |---|---|---|
-| FREQ A / B | semitones (`-12`, `  7`) | ±36, whole semitones |
+| FREQ A / B | depends on tuning mode | semitones: ±36 in steps; octave: ±3 octaves; free: continuous ±36 semitones; fixed: C1-C8 |
 | FINE | cents | ±100 |
 | M TUNE | Macro 1, signed (`-45`, `  12`) | −99..99, 0 in the middle |
 | CUTOFF | Hz; with a point from 1 kHz on, kHz (` 737`, ` 1.24`, ` 16.7`) | 16 Hz-16.7 kHz, exponential |
@@ -63,6 +63,11 @@ The display shows a knob's value while you turn it, in real units where it has o
 | GLIDE | time constant (` 150` ms, ` 1.25` s), `OFF` at the bottom | 2 ms-2 s |
 | Envelope times | ms / s (see Envelopes) | |
 | everything else | 0-99 | |
+
+Each layer stores a separate mode for FREQ A and FREQ B. The modes are **Semitones** (the original ±36-semitone
+range in one-semitone steps), **Octave** (−3 to +3 octaves in octave steps), **Free** (continuous ±36 semitones),
+and **Fixed** (continuous C1-C8, independent of played notes). Fixed mode still responds to pitch bend and pitch
+modulation. Its display shows the equivalent frequency in Hz or kHz. Mode changes are saved with the patch.
 
 A digit display can't show a plus sign, so positive values have none. A dot after the value means the knob hasn't
 **picked up** the stored value yet. Turn it past the stored value (or onto it) and it takes over. This happens:
