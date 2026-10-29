@@ -1,12 +1,27 @@
-# PRO-800 custom firmware: user manual
+# PRO-8000: user manual
 
-For firmware 0.9.0. This firmware replaces the stock PRO-800 firmware. Same front panel, different engine:
+For PRO-8000 0.9.0, an alternative firmware for the Behringer PRO-800, flashed through the synth's own bootloader.
+It's an independent project, not affiliated with Behringer or Music Tribe. It exists because Music Tribe, Behringer's
+parent company, published [PRO800-Firmware-Packer](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer):
+the main-board
+[schematic](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer/blob/main/Schematics/PRO800_Main_Schematics.pdf),
+the chip's memory layout, and the packer that turns a firmware image into an update the bootloader accepts.
+
+> [!WARNING]
+> **Wildly experimental.** A hobby project, built and tested on a single synth. It replaces the PRO-800's firmware,
+> drives its analog circuits directly and rewrites its patch memory. Use it entirely at your own risk: it comes as
+> is, without warranty of any kind (see [LICENSE](LICENSE)), and the authors accept no liability if it harms your
+> synth, your patches or anything connected to it. Flashing unofficial firmware may also void the synth's warranty.
+> Back up your patches first, and know the way back:
+> [Updating, recovery and going back to stock](#updating-recovery-and-going-back-to-stock).
+
+PRO-8000 replaces the stock PRO-800 firmware. Same front panel, different engine:
 
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with nine shapes (a programmable step pattern and noise among them), clock sync and per-voice
   retrigger;
 - four envelopes per voice (ADSR or DAHDSR, from key down or key up, three curves, cycling);
-- an 8-route mod matrix per layer;
+- a 16-route mod matrix per layer;
 - a step sequence per patch, played from a key and transposed by it, with up to four automation lanes;
 - autotune that keeps every oscillator within about a cent;
 - a browser editor.
