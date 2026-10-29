@@ -449,7 +449,7 @@
         <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways</td></tr>
         <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
         <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
-        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span>. With Rec: compare; Perf: undo; Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
+        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
         <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live)</td></tr>
         <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
         <tr><td><kbd>Perf</kbd></td><td>Load the init sound (one saw, filter open)</td></tr>
@@ -470,7 +470,7 @@
     <section class="cs">
       <h3>Patches</h3>
       <ul>
-        <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a pause ends it), or <kbd>VALUE</kbd> steps through them (<code class="lcd">P  7</code>, <code class="lcd">P128</code>).</li>
+        <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a pause ends it), or <kbd>VALUE</kbd> steps through them (<code class="lcd">P  7</code>, <code class="lcd">P128</code>). An empty slot loads the init sound.</li>
         <li><b>Save:</b> <kbd>Rec</kbd>, two digits or <kbd>VALUE</kbd>, <kbd>Rec</kbd>. <kbd>Preset</kbd> cancels.</li>
         <li><b>Init:</b> <kbd>Perf</kbd>, then <kbd>Rec</kbd> to keep it anywhere.</li>
         <li>A patch keeps both layers, settings, routes, LFO shapes and step patterns, and its sequence. M VOL isn't stored.</li>
@@ -521,11 +521,11 @@
     <section class="cs cs-wide">
       <h3>Mod assign (the matrix)</h3>
       <ol class="steps-line">
-        <li><kbd>Arp Assign</kbd> <code class="lcd">SrC</code> (the knob touched last is offered as the destination)</li>
-        <li>the source: a number key, a touch of an LFO or ADSR knob, or scroll with <kbd>VALUE</kbd></li>
-        <li>the destination: touch its knob (ADSR knobs = envelope stages) or an LFO routing button, or scroll and press <kbd>Arp Assign</kbd></li>
+        <li><kbd>Arp Assign</kbd> <code class="lcd">SrC</code> (a knob touched in the 5 s before is the destination already)</li>
+        <li>the source: a number key, a touch of an LFO or ADSR knob, or scroll with <kbd>VALUE</kbd> and press <kbd>Arp Assign</kbd></li>
+        <li>the destination: touch its knob (ADSR knobs = envelope stages) or an LFO routing button, or scroll (names only) and press <kbd>Arp Assign</kbd></li>
         <li><kbd>VALUE</kbd>: depth −99…99 (0 removes; <code class="lcd">FULL</code> = 16 in use)</li>
-        <li><kbd>Arp Assign</kbd> to finish; hold it to browse the routes (<kbd>VALUE</kbd> steps, press to edit, hold to leave)</li>
+        <li><kbd>Arp Assign</kbd> to finish (back to the patch number); hold it to browse the routes: <kbd>VALUE</kbd> steps through <code class="lcd">nod1</code> <code class="lcd">nod2</code> …, at rest the route's number, source, destination and depth cycle; press to edit, hold to leave. With no routes yet, a hold starts at <code class="lcd">SrC</code> too.</li>
       </ol>
       <div class="ct-pair">
         <table class="ct">

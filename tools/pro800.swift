@@ -74,6 +74,8 @@ Probe (our firmware 0.0.9+):
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
   pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, 0 removes); pro800 routes lists them
   pro800 timing                         engine, CV refresh and main-loop pass times
+  pro800 engine                         the engine's state: held keys, voice gates and envelope stages, keytrack,
+                                        switch overrides (read-only probe, 0.9.0+)
   pro800 cc <controller> <value>        send a control change (e.g. 1 = mod wheel)
   pro800 bend <0-16383>                 send pitch bend (8192 = centre); --channel N for both
   pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
@@ -1523,6 +1525,31 @@ func routes() {
 }
 
 // pro800 timing: how long the engine, the CV refresh and a main-loop pass take
+// pro800 engine: the engine-state probe (55), read-only
+func engine() {
+    guard let reply = Midi(port: portName).request([0x55], expect: [0x55], timeout: 2) else {
+        fail("no reply (needs this build of 0.9.0 or later)")
+    }
+    let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)]).map(Int.init)
+    guard b.count >= 53 else { fail("short reply (\(b.count) bytes)") }
+    let stages = ["idle", "attack", "decay", "release", "hold", "rest", "delay"]
+    for l in 0..<2 {
+        let count = b[5 * l], notes = b[(5 * l + 1)..<(5 * l + 1 + min(count, 4))].map(String.init)
+        print("layer \(l + 1) held keys: \(count)" + (notes.isEmpty ? "" : " (" + notes.joined(separator: " ") + ")"))
+    }
+    for v in 0..<8 {
+        let g = b[10 + 3 * v], a = b[11 + 3 * v], f = b[12 + 3 * v]
+        print("voice \(v + 1): gate \(g), amp \(stages[safe: a] ?? "\(a)"), filter \(stages[safe: f] ?? "\(f)")")
+    }
+    let kt = ["off", "half", "full"]
+    print("keytrack \(kt[safe: b[34]] ?? "?"), switch last seen \(b[35] == 0 ? "unknown" : kt[safe: b[35] - 1] ?? "?"), now \(kt[safe: b[36]] ?? "?")")
+    for s in 0..<16 {
+        let x = b[37 + s]
+        print("switch \(switchNames[safe: s] ?? "\(s)"): " + (x & 1 != 0 ? "patch holds it, \(x >> 1 & 1)" : "follows the panel")
+              + ", panel \(x >> 2 & 1)")
+    }
+}
+
 func timing() {
     let midi = Midi(port: portName)
     _ = midi.request([0x58], expect: [0x58], timeout: 2) // resets the longest pass
@@ -1704,6 +1731,7 @@ case "eeprom": eeprom()
 case "route": route()
 case "routes": routes()
 case "timing": timing()
+case "engine": engine()
 case "cc": cc()
 case "bend": bend()
 case "eeprom-write": eepromWrite()

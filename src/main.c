@@ -11,6 +11,8 @@
 //                          time up to p1 << 7 | p0 periods of TUNE_CPR (falling edges, or rising), timeout
 //                          t1 << 7 | t0 ms; replies 73 <ok> <periods, 2 × 7 bits> <cycles, 5 × 7 bits>
 //                          <system_hz / 1000, 3 × 7 bits>
+//   55                     the engine's state (synth_probe(): held keys, voice gates and envelope stages, keytrack,
+//                          switch overrides); replies 55 <bytes>; read-only
 //   6C <bus> <mode> <h1> <h0> <l1> <l0> <speed> <sync us> <settle> <sample>
 //                          probe the CV path (until reboot; dac.h): the DAC80501 bus (bit-bang / SPI3, mode, high
 //                          and low cycles or SPI divider, GPIO speed, SYNC wait) and the S&H waits in tenths of a us
@@ -183,7 +185,7 @@ static int tune_requested;
 // digits pick a patch (1-128) and VALUE steps through them; REC, then the slot, then REC saves;
 // PERF loads the init sound.
 static int current_patch, preset_mode, saving, typed_digits, typed_value, encoder_patch_steps;
-static patch_t compare_copy, undo_copy; // Shift + Rec: the edit while the stored patch sounds; Shift + Perf: before the last load
+static patch_t compare_copy; // Shift + Rec: the edit while the stored patch sounds
 static int comparing, undo_valid;
 // The sustain pedal, per layer (bits: in channel mode each channel's pedal holds its own layer), and the keys let go
 // while it was down: the layers each one's note-off releases
@@ -247,18 +249,72 @@ static void load_morph(int target)
     synth_set_morph(target, target && store_load_patch(target - 1, &t) ? &t : 0);
 }
 
+// Shift + Perf: everything a patch load or the init sound replaces (the sound with its morph target, the step
+// sequence, the name, the slot and preset mode), swapped back and forth
+typedef struct {
+    patch_t patch;
+    sequence_t sequence;
+    char name[PATCH_NAME + 1];
+    int slot, preset_mode;
+} undo_state_t;
+static undo_state_t undo_state, undo_swap; // static: too big for the stack
+
+static void undo_capture(undo_state_t *u)
+{
+    synth_capture_patch(&u->patch);
+    u->sequence = sequence;
+    for (int i = 0; i <= PATCH_NAME; i++)
+        u->name[i] = loaded_name[i];
+    u->slot = current_patch;
+    u->preset_mode = preset_mode;
+}
+
+static void undo_remember(void) // before a load or the init sound replaces the sound
+{
+    undo_capture(&undo_state);
+    undo_valid = 1;
+}
+
+static void undo_swap_back(void)
+{
+    record_end(0);
+    seq_stop();
+    undo_capture(&undo_swap);
+    synth_apply_patch(&undo_state.patch);
+    load_morph(undo_state.patch.morph);
+    sequence = undo_state.sequence;
+    seq_fix();
+    for (int i = 0; i <= PATCH_NAME; i++)
+        loaded_name[i] = undo_state.name[i];
+    current_patch = undo_state.slot;
+    preset_mode = undo_state.preset_mode;
+    display_led(LED_PRESET, preset_mode);
+    if (preset_mode)
+        store_set_last(current_patch, 1);
+    undo_state = undo_swap; // pressed again: redo
+}
+
+static void init_patch(void);
+
+// Loads slot n. An empty slot gives the init sound there (so it starts from scratch, and REC saves it in place); a
+// slot that isn't one of ours shows nonE and keeps the sound.
 static int load_patch(int n)
 {
     patch_t patch;
     if (!store_load_patch(n, &patch)) {
+        if (store_slot_kind(n) == SLOT_EMPTY) {
+            init_patch();
+            current_patch = n;
+            store_set_last(n, 1);
+            return 1;
+        }
         display_text("nonE");
         display_until = ms_ticks + 1000;
         return 0;
     }
     record_end(0);
     seq_stop();
-    synth_capture_patch(&undo_copy);
-    undo_valid = 1;
+    undo_remember();
     synth_apply_patch(&patch);
     if (!store_load_sequence(n))
         seq_clear();
@@ -296,8 +352,7 @@ static void init_patch(void)
     patch.keytrack = 2;
     patch.layer_mode = LAYER_OFF;
     patch.split = 60; // LFOs free-running triangles, LFO 2 with no routing
-    synth_capture_patch(&undo_copy);
-    undo_valid = 1;
+    undo_remember();
     record_end(0);
     seq_clear();
     synth_apply_patch(&patch);
@@ -541,18 +596,30 @@ static void step_lfo_shape(int step)
     shape_steps = 0;
 }
 
-// MOD ASSIGN (the Arp Assign button). Press: SrC, then a source (a number key, a touch of a knob that stands for
-// one: the LFO knobs for the selected LFO, the ADSR knobs for their envelope; or VALUE scrolls through them all),
-// then a destination (touch its knob or an LFO routing button, or scroll with VALUE and press Arp Assign to take
-// it), then VALUE sets the depth for the edit layer and Arp Assign leaves. The knobs are in pickup meanwhile, a
-// toggled button keeps its routing, and the knob last touched before pressing is offered as the destination.
+// MOD ASSIGN (the Arp Assign button), in three stages. Press: SrC. The source: a number key, a touch of a knob that
+// stands for one (the LFO knobs for the selected LFO, the ADSR knobs for their envelope), or VALUE scrolls them all
+// and Arp Assign (or touching a destination) takes the one shown. The destination: touch its knob or an LFO routing
+// button, or VALUE scrolls them (names only) and Arp Assign takes the one shown; the knob last touched before
+// pressing is offered, so that stage is skipped. The depth: VALUE, for the edit layer; Arp Assign leaves. The knobs
+// are in pickup meanwhile, and a toggled button keeps its routing.
 // Hold Arp Assign (0.6 s): browse the edit layer's routes, each shown as source, destination and depth in turn,
-// VALUE steps through them, a short press edits the one shown, holding again leaves.
+// VALUE steps through them by number (nod1, nod2 …) and, once it rests, the shown route's number, source,
+// destination and depth cycle; a short press edits the one shown, holding again leaves. With no routes to browse, a
+// hold starts MOD ASSIGN as a press does (it used to show nonE and leave, which read as the button not working).
 static int assigning, assign_source, assign_dest = DEST_NONE, assign_steps;
 static int assign_confirmed; // the destination is settled (touched, or taken with Arp Assign): VALUE sets the depth
+static int assign_source_taken; // the source is settled; until then VALUE scrolls the sources
+// The knob that picked the source (-1 none) and when it last moved: a knob that stands for a source and a
+// destination at once (ADSR, LFO) keeps sending while it's turned, and those mustn't take it as the destination too.
+// It counts as a destination only after resting a second.
+static int assign_source_pot = -1;
+static uint32_t assign_source_pot_at;
+static void idle_display(void); // what the display shows when nothing transient is on it
 static int browsing, browse_index, browse_frame = -1;
+static uint32_t browse_rest_at; // when VALUE last moved in browsing (+ 800 ms): from then the route's parts cycle
 static uint32_t assign_press_at; // ms_ticks when Arp Assign went down, 0 = up or the hold has fired
 static int last_pot = -1;        // the knob last touched outside MOD ASSIGN
+static uint32_t last_pot_at;     // and when: only a knob touched in the 5 s before Arp Assign is offered
 
 static const char source_names[SRC_COUNT][5] = {
     "", "LFO1", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE", "LFO2",
@@ -584,7 +651,15 @@ static int route_slots(int *slots)
     return n;
 }
 
-static void browse_show(void) // the browsed route: source, destination, depth, 0.6 s each
+// Which part of the browsed route shows now: its number while VALUE turns (and 0.8 s after), then number,
+// source, destination and depth, 0.6 s each
+static int browse_frame_now(void)
+{
+    int32_t rest = (int32_t)(ms_ticks - browse_rest_at);
+    return rest < 0 ? 0 : (int)((uint32_t)rest / 600 % 4);
+}
+
+static void browse_show(void)
 {
     int slots[ROUTES], n = route_slots(slots);
     if (!n) {
@@ -594,11 +669,14 @@ static void browse_show(void) // the browsed route: source, destination, depth, 
     if (browse_index >= n)
         browse_index = n - 1;
     const route_t *r = &synth_routes(synth_edit_layer())[slots[browse_index]];
-    int frame = (int)(ms_ticks / 600 % 3);
+    int frame = browse_frame_now(), k = browse_index + 1;
     browse_frame = frame;
-    if (frame == 0)
+    if (frame == 0) { // nod1 … nod9, no10 … no16 ("mod", as far as 7 segments go)
+        char text[5] = {'n', 'o', k < 10 ? 'd' : (char)('0' + k / 10), (char)('0' + k % 10), 0};
+        display_text(text);
+    } else if (frame == 1)
         display_text(source_names[r->source]);
-    else if (frame == 1)
+    else if (frame == 2)
         display_text(dest_names[r->dest]);
     else
         display_number(r->depth);
@@ -611,6 +689,7 @@ static void assign_end(void)
     synth_freeze_knobs(0);
     display_led(LED_ARP_ASSIGN, 0);
     display_until = 0;
+    idle_display(); // the patch number again, not the last route text
 }
 
 static void assign_begin(int source, int dest)
@@ -618,7 +697,9 @@ static void assign_begin(int source, int dest)
     browsing = 0;
     assigning = 1;
     assign_source = source;
-    assign_dest = dest;
+    assign_source_taken = source != SRC_NONE;
+    assign_source_pot = -1;
+    assign_dest = dest; // with no source yet: the destination offered (the knob touched last)
     assign_confirmed = dest != DEST_NONE && source != SRC_NONE;
     assign_steps = 0;
     synth_freeze_knobs(1);
@@ -633,20 +714,45 @@ static void assign_begin(int source, int dest)
     display_until = 0;
 }
 
+// MOD ASSIGN from the start: SrC, with the knob touched last offered as the destination
+static void assign_start(void)
+{
+    int recent = last_pot >= 0 && ms_ticks - last_pot_at < 5000;
+    assign_begin(SRC_NONE, recent ? synth_dest_for_pot(last_pot) : DEST_NONE);
+}
+
 static void browse_begin(void)
 {
     int slots[ROUTES];
     if (!route_slots(slots)) {
-        display_text("nonE");
-        display_until = ms_ticks + 1000;
+        assign_start();
         return;
     }
     browsing = 1;
     browse_index = 0;
     browse_frame = -1;
+    browse_rest_at = ms_ticks + 800;
     display_led(LED_ARP_ASSIGN, 1);
     display_until = 0;
     browse_show();
+}
+
+// The source is settled: on to the destination, or, with one offered or already chosen, straight to the depth
+static void assign_take_source(int source)
+{
+    // a destination taken, or offered before the source (the knob touched just before), goes on to the depth; one
+    // only scrolled to in the destination stage stays shown, still to be taken
+    int ready = assign_dest != DEST_NONE && (assign_confirmed || !assign_source_taken);
+    assign_source = source;
+    assign_source_taken = 1;
+    assign_steps = 0;
+    if (ready) {
+        assign_confirmed = 1;
+        display_text(dest_names[assign_dest]);
+        show_value_at = ms_ticks + 700; // then its depth
+    } else
+        display_text(source_names[source]);
+    display_until = 0;
 }
 
 // The Arp Assign button: a short press (on release) or a hold (from the main loop)
@@ -658,15 +764,15 @@ static void assign_short_press(void)
             return;
         const route_t *r = &synth_routes(synth_edit_layer())[slots[browse_index < n ? browse_index : n - 1]];
         assign_begin(r->source, r->dest);
-    } else if (assigning && assign_source && assign_dest != DEST_NONE && !assign_confirmed) {
+    } else if (assigning && assign_source && !assign_source_taken) {
+        assign_take_source(assign_source); // the scrolled source
+    } else if (assigning && assign_source_taken && assign_dest != DEST_NONE && !assign_confirmed) {
         assign_confirmed = 1; // take the scrolled destination: VALUE now sets the depth
         show_route();
     } else if (assigning) {
         assign_end();
-    } else {
-        int dest = last_pot >= 0 ? synth_dest_for_pot(last_pot) : DEST_NONE;
-        assign_begin(SRC_NONE, dest);
-    }
+    } else
+        assign_start();
 }
 
 static void assign_hold(void)
@@ -683,13 +789,15 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
     if (browsing) {
         if (kind == CONTROL_ENCODER) {
             assign_steps += (int)value;
-            if (assign_steps >= 2 || assign_steps <= -2) {
+            browse_rest_at = ms_ticks + 800; // the number while it turns
+            if (assign_steps >= 4 || assign_steps <= -4) { // a quadrature cycle per route, as patches and menus
                 int slots[ROUTES], n = route_slots(slots);
                 browse_index = n ? (browse_index + (assign_steps > 0 ? 1 : n - 1)) % n : 0;
                 assign_steps = 0;
                 browse_frame = -1;
                 browse_show();
-            }
+            } else if (browse_frame)
+                browse_show();
             return 1;
         }
         return kind == CONTROL_POT; // knobs are frozen; buttons work as usual
@@ -699,25 +807,24 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
         if (source == SRC_LFO) // key 1: the selected LFO; pressed again, the other one
             source = assign_source == SRC_LFO ? SRC_LFO2 : assign_source == SRC_LFO2 ? SRC_LFO
                    : synth_lfo_select() ? SRC_LFO2 : SRC_LFO;
-        assign_source = source;
-        if (assign_dest != DEST_NONE && assign_confirmed) { // the offered destination: straight to its depth
-            display_text(dest_names[assign_dest]);
-            show_value_at = ms_ticks + 700;
-        } else {
-            assign_dest = DEST_NONE;
-            display_text(source_names[assign_source]);
-        }
-        display_until = 0;
+        assign_take_source(source);
         return 1;
     }
-    if (kind == CONTROL_POT && !assign_source) { // a knob that stands for a source
-        int source = synth_source_for_pot(index);
-        if (source != SRC_NONE) {
-            assign_source = source;
-            display_text(source_names[source]);
-        } else
-            display_text("SrC");
-        display_until = 0;
+    if (kind == CONTROL_POT && index == assign_source_pot) {
+        int still = ms_ticks - assign_source_pot_at >= 1000;
+        assign_source_pot_at = ms_ticks;
+        if (!still)
+            return 1; // still the turn that picked the source
+        assign_source_pot = -1;
+    }
+    // In the source stage a knob that stands for a source picks it; any other knob is a destination, which takes
+    // the scrolled source along with it (below), or, with none shown, asks for one
+    if (kind == CONTROL_POT && !assign_source_taken && synth_source_for_pot(index) != SRC_NONE) {
+        if (!assign_confirmed && assign_dest == synth_dest_for_pot(index))
+            assign_dest = DEST_NONE; // the knob offered as the destination picked the source: choose one
+        assign_take_source(synth_source_for_pot(index));
+        assign_source_pot = index;
+        assign_source_pot_at = ms_ticks;
         return 1;
     }
     int dest = kind == CONTROL_POT ? synth_dest_for_pot(index)
@@ -735,6 +842,7 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
             display_text("no");
             return 1;
         }
+        assign_source_taken = 1; // a scrolled source, taken by touching its destination
         if (dest != assign_dest || !assign_confirmed) {
             assign_dest = dest;
             assign_confirmed = 1;
@@ -745,23 +853,28 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
         return 1;
     }
     if (kind == CONTROL_ENCODER) {
+        // scrolling sources and destinations: a quadrature cycle per item, as patches and menus; the depth a step
+        // per half cycle, since -99..99 takes a few turns
+        int depth_stage = assign_source_taken && assign_dest != DEST_NONE && assign_confirmed;
+        int per = depth_stage ? 2 : 4;
         assign_steps += (int)value;
-        if (assign_steps < 2 && assign_steps > -2)
+        if (assign_steps < per && assign_steps > -per)
             return 1;
         int step = assign_steps > 0 ? 1 : -1;
         assign_steps = 0;
-        if (!assign_source) { // scroll the sources
+        if (!assign_source_taken) { // scroll the sources, until one is taken
             assign_source = (assign_source + step + SRC_COUNT) % SRC_COUNT;
             if (!assign_source)
                 assign_source = step > 0 ? 1 : SRC_COUNT - 1;
             display_text(source_names[assign_source]);
             display_until = 0;
-        } else if (assign_dest == DEST_NONE || !assign_confirmed) { // scroll the destinations
+        } else if (!depth_stage) { // scroll the destinations (names only), until one is taken
             assign_dest = assign_dest == DEST_NONE ? (step > 0 ? 0 : DEST_COUNT - 1)
                                                     : (assign_dest + step + DEST_COUNT) % DEST_COUNT;
             assign_confirmed = 0;
             display_text(dest_names[assign_dest]);
-            show_value_at = ms_ticks + 700; // then its depth; Arp Assign takes it
+            display_until = 0;
+            show_value_at = 0;
         } else { // the depth: a step per half cycle, -99..99 takes a few turns
             int layer = synth_edit_layer();
             int depth = synth_route(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest) + step;
@@ -978,8 +1091,10 @@ static void idle_display(void)
 {
     if (browsing)
         browse_show();
-    else if (assigning && assign_source && assign_dest != DEST_NONE)
+    else if (assigning && assign_source_taken && assign_dest != DEST_NONE && assign_confirmed)
         show_route();
+    else if (assigning && assign_source_taken && assign_dest != DEST_NONE)
+        display_text(dest_names[assign_dest]); // scrolled, not taken yet
     else if (assigning)
         display_text(assign_source ? source_names[assign_source] : "SrC");
     else if (menu_open && menu_page >= 0)
@@ -1245,9 +1360,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             return;
         case BUTTON_PERF: // undo the last load or init
             if (undo_valid) {
-                synth_capture_patch(&p);
-                synth_apply_patch(&undo_copy);
-                undo_copy = p;
+                undo_swap_back();
                 display_text("Undo");
             } else
                 display_text("no");
@@ -1291,8 +1404,10 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         env_extra_turn(index, (int)value);
         return;
     }
-    if (kind == CONTROL_POT && !assigning && !browsing)
+    if (kind == CONTROL_POT && !assigning && !browsing) {
         last_pot = index;
+        last_pot_at = ms_ticks;
+    }
     if ((assigning || browsing) && kind == CONTROL_BUTTON && value
         && (index == BUTTON_PRESET || index == BUTTON_REC || index == BUTTON_SETTINGS || index == BUTTON_PERF))
         assign_end(); // and the button does its usual job
@@ -1513,7 +1628,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
                 current_patch = n;
                 show_patch(n);
             } else if (!load_patch(n)) {
-                current_patch = n; // an empty slot: show it, keep the sound
+                current_patch = n; // a damaged slot: show it, keep the sound
                 show_patch(n);
             }
         }
@@ -1763,6 +1878,10 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = (r.cycles >> shift) & 0x7F;
         for (int shift = 14; shift >= 0; shift -= 7)
             reply[n++] = (khz >> shift) & 0x7F;
+    }
+    if (data_length == 1 && data[0] == 0x55) {
+        reply[n++] = 0x55;
+        n += synth_probe(&reply[n]);
     }
     if (data_length == 11 && data[0] == 0x6C) {
         dac_config_t c = {.bus = data[1], .mode = data[2], .high = (uint16_t)(data[3] << 7 | data[4]),
@@ -2485,7 +2604,9 @@ int main(void)
         if (saving || recording)
             display_led(LED_REC, (now / (recording ? 125 : 250)) & 1); // faster while recording steps
         display_led(LED_SYNC_CLOCK, lfo_beat_phase() < 0.12f); // the beat, from whichever clock
-        if (sync_press_at && now - sync_press_at >= 600) {
+        // signed: the press is stamped from ms_ticks during the poll, which can be a tick past `now`, and unsigned
+        // that wrapped into a hold at once (a tap of Arp Assign opened Browse, a tap of Sync Clock restarted the bar)
+        if (sync_press_at && (int32_t)(now - sync_press_at) >= 600) {
             sync_press_at = 0;
             clock_restart();
             display_text("StAr");
@@ -2508,13 +2629,13 @@ int main(void)
             show_shift_value();
             display_until = now + 1500;
         }
-        if (assign_press_at && now - assign_press_at >= 600) {
+        if (assign_press_at && (int32_t)(now - assign_press_at) >= 600) {
             assign_press_at = 0;
             assign_hold();
         }
         if (assigning)
             display_led(LED_ARP_ASSIGN, (now / 250) & 1);
-        if (browsing && !display_until && (int)(now / 600 % 3) != browse_frame)
+        if (browsing && !display_until && browse_frame_now() != browse_frame)
             browse_show();
         tc = DWT_CYCCNT;
         if (!report_mode)

@@ -1252,6 +1252,54 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   and every block after it answers `01 00 07`, the image is rejected (`noFW` at power-up) and the synth waits in
   `boot`. A power-cycle doesn't help while the page polls; closing it does (then `03 31`, and `01 00 00` at the end).
   Neither the file nor the size was at fault: the previous build failed the same way.
+- **Arp Assign held on a layer without routes** (issue 5: "Arp Assign shows None instead of SrC"): a press is
+  short only if it's let go within 0.6 s; longer, it browses the routes, and with none `browse_begin` showed `nonE`
+  for a second and left, so a slightly long press looked like the button not working (same in the 0.9.0 release).
+  With no routes to browse, a hold now starts MOD ASSIGN as a press does (`assign_start()`: `SrC`, the knob touched
+  last offered as the destination).
+- **Panel fixes from testing that** (reported on the synth): leaving MOD ASSIGN or the browse left its last text
+  (`SrC`, a route's part) on the display, since `assign_end()` cleared the timer but never redrew; it calls
+  `idle_display()` now (the patch number). Shift + Perf after PERF's init sound brought the sound back but not the
+  step sequence (`init_patch()` clears it, and undo kept only a `patch_t`), nor the morph target, the name or, after
+  a load, the slot: undo now keeps all of that (`undo_state_t`, 2 × ~1 kB static) and swaps it, so pressing again
+  redoes. VALUE without detents gives 4 transitions per cycle; browsing and scrolling sources and destinations moved
+  a step per 2, twice as fast as patches and menus, now per 4 (the depth stays at 2). Browsing shows the route's
+  number while VALUE turns (`nod1` … `nod9`, `no10` … `no16`) and, 0.8 s after it rests, cycles number, source,
+  destination and depth, 0.6 s each.
+- **MOD ASSIGN in three explicit stages** (reported on the synth: a second VALUE click while picking the source
+  landed in the destinations, which then switched to the route's depth after 0.7 s, so it read as the depth stage).
+  VALUE scrolled sources only while none was set, so the first click set one and every later click scrolled
+  destinations; and a number key dropped the destination offered from the last knob. Now `assign_source_taken`
+  separates scrolling from taking: VALUE scrolls sources until one is taken (Arp Assign, a number key, a source knob,
+  or touching a destination), then destinations by name only until one is taken (Arp Assign, a knob or an LFO
+  button), then the depth. `assign_take_source()` goes straight to the depth when a destination is offered, which is
+  now only a knob touched in the 5 s before Arp Assign (`last_pot_at`), not one touched any time before.
+- **P66 sounding wrong after start-up until reloaded** (reported twice: the bass pluck on layer 1 loses its filter
+  snap; loading another patch and back fixes it). Not found yet: right after a flash and boot, and after `pro800
+  patch load P66`, settings, both layers' parameters, buttons, routes and the sequence read the same. A clock-synced
+  LFO with no clock heard runs at 120 BPM (`lfo_update()`), checked on the host, so that isn't it. The lead: layer 1
+  is legato, which retriggers the envelopes only when `held_count` is 0, and only a load (`synth_all_off()`) clears
+  it, so a key the engine still thinks is held would do exactly this. The new read-only probe (SysEx 55, `pro800
+  engine`: held keys, voice gates and envelope stages, keytrack, switch overrides) is for reading that state at the
+  next start-up, before anything reloads.
+- **MOD ASSIGN with a knob that is a source and a destination at once** (reported: on the init sound, turning an
+  ADSR or LFO knob two clicks picked it as the source and then as the destination, straight to the depth, and the
+  next Arp Assign left). The turn that picks the source keeps sending; those events now go on being the source
+  (`assign_source_pot`), and the knob counts as a destination only after resting a second. A knob offered as the
+  destination (touched in the 5 s before) that then picks the source drops the offer.
+- **MOD ASSIGN checked against its state diagram** (source → destination → depth, Browse on a hold; each stage
+  waits until something is taken, VALUE only scrolls). Two cases didn't match and are fixed: in the source stage a
+  knob that isn't a source (CUTOFF) showed `SrC` even with a scrolled source shown, where it should take that source
+  and itself as the destination (only knobs that stand for a source pick the source now; the rest go on as
+  destinations); and a number key took a destination only scrolled to in the destination stage
+  (`assign_take_source()` goes on to the depth only for one taken, or offered before the source).
+- **A tap of Arp Assign opened Browse once a layer had routes** (reported). The main loop takes `now` from
+  `ms_ticks` before polling the panel, and the press is stamped from `ms_ticks` during the poll (an I2C key read),
+  often a tick later; the unsigned `now - assign_press_at >= 600` then wrapped and fired the hold on the press
+  itself. With no routes a hold starts MOD ASSIGN like a tap, so it went unnoticed. Sync Clock's hold (restart the
+  bar) had the same check. Both compare signed now.
+- **An empty slot loads the init sound** (`load_patch()`: VALUE, number keys, program change, the host's 5C), in
+  that slot, so REC saves it there; it used to show the number and keep the sound. A damaged slot still shows `nonE`.
 - **On the synth** (flashed, P34): the pass is 946 µs on average with no notes (904 on 0.8.5), the longest in 2 s
   2,769 µs. A key-up amp envelope stayed silent while the key was held and sounded for ~0.6 s after it was let go
   (`record`, 0.1 s windows); DAHDSR with delay 60 (0.37 s) started the note ~0.4 s after note-on. A host build of

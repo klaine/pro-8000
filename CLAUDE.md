@@ -34,7 +34,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - Probe commands for our firmware: `direct on|off`, `cv`, `gate`, `measure` (the tuning comparator),
     `tune`, `tuning` (print the tables), `check` (cents error of every oscillator and, from 0.8.4, every filter through the tables),
     `dac-test` (sweeps the DAC80501 bus and the S&H waits, 0.7.4+; RAM-only probe, silent), `dac-heal` (sets the
-    DAC80501's gain wrong and checks the firmware's setup re-send puts it right, 0.8.5+; silent).
+    DAC80501's gain wrong and checks the firmware's setup re-send puts it right, 0.8.5+; silent). `engine` (held keys, voice gates and envelope
+    stages, keytrack and switch overrides; read-only).
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
 - `scripts/pages.sh` builds the GitHub Pages site (`docs/` → `build/pages/`, with the editor from `tools/web/` as
@@ -57,6 +58,12 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 ## Rules
 
 - Flashing the synth, or sending it anything other than read-only requests, only when the user asks.
+- **Test on the init sound in the last slot (P128)**, unless a test needs something else (a particular patch, a
+  layer mode, existing routes): a test that changes parameters, buttons, routes or per-patch settings must never
+  touch the user's sound. Note the loaded patch (`pro800 settings`), then `pro800 patch init` and
+  `pro800 patch save P128`, test there, and reload the user's patch afterwards. P128 is the test slot: overwrite it
+  freely if it holds the init sound or a test, but ask first if it holds a patch the user made. Put system-wide
+  settings you changed (MIDI channel, clock, CC A / B) back as they were.
 - **Never** connect a debugger to unlock the flash: that erases the chip, bootloader included. Recovery is
   always through the bootloader (hold buttons 0 and 7 at power-up) and a stock firmware `.syx`.
 - The firmware must fit in 128 kB (the packer's limit, enforced by `link.ld`): sector 4 and the first half of

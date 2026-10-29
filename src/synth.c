@@ -618,6 +618,31 @@ static int sw(switch_t s)
 
 int synth_switch(int s) { return s >= 0 && s < SWITCH_COUNT ? sw((switch_t)s) : 0; }
 
+// For the host's engine-state probe (55): every byte 0-127. Per layer the held keys' count and the first four
+// (mono, legato and unison retrigger only when it's 0), then per voice gate, amp and filter envelope stage, then the
+// keytrack setting, the keytrack switch as last seen (+ 1, 0 unknown) and now, and per panel switch (0-15) whether
+// the patch's value still overrides it, that value and the physical position.
+int synth_probe(uint8_t *out)
+{
+    int n = 0;
+    for (int l = 0; l < LAYERS; l++) {
+        out[n++] = (uint8_t)held_count[l];
+        for (int i = 0; i < 4; i++)
+            out[n++] = i < held_count[l] ? held[l][i] & 0x7F : 0;
+    }
+    for (int v = 0; v < VOICE_COUNT; v++) {
+        out[n++] = (uint8_t)voices[v].gate;
+        out[n++] = (uint8_t)voices[v].amp.stage;
+        out[n++] = (uint8_t)voices[v].filter.stage;
+    }
+    out[n++] = (uint8_t)keytrack_setting;
+    out[n++] = (uint8_t)(keytrack_switch_seen + 1);
+    out[n++] = (uint8_t)controls_keytrack();
+    for (int s = 0; s < 16; s++)
+        out[n++] = (uint8_t)(switch_override[s] | switch_value[s] << 1 | controls_on((switch_t)s) << 2);
+    return n;
+}
+
 void synth_set_switch(int s, int on)
 {
     // like a loaded patch: holds until the button is toggled

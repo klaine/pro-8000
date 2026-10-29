@@ -93,7 +93,7 @@ web page's MIDI router).
 
 - **Sustain pedal** (CC 64): keys let go while it's down keep sounding (and keep a sequence running) until it's
   released.
-- **Program change** 0-127 picks patch 1-128. Bank select is ignored.
+- **Program change** 0-127 picks patch 1-128 (an empty one: the init sound). Bank select is ignored.
 - **Controllers** set knobs on the layer the channel plays (layer 2 for channel 2 in channel mode), else the layer
   you're editing; the knob then picks up as after loading a patch:
 
@@ -132,7 +132,8 @@ keep them).
 
 - **Load:** in preset mode (Preset LED on), type the number: a third digit, or a pause of 3 seconds, or a number
   that no further digit could keep within 1-128 ends it (`7` then `2` loads P72 at once; `1`, `2` waits for a third
-  digit). Or turn VALUE to step through them. Boot loads the last patch.
+  digit). Or turn VALUE to step through them. An empty slot loads the init sound (`InIt`), ready to build and save
+  there with Rec, Rec (Shift + Perf brings back the sound before). Boot loads the last patch.
 - **Edit:** a loaded patch's knobs are in pickup and its buttons keep their stored state until you press them.
   Press Preset for manual mode, where the whole panel is live as it is.
 - **Save:** press Rec (it blinks), choose a slot by number or with VALUE, then press Rec again (`donE`). Preset
@@ -424,18 +425,23 @@ Each layer has 16 routes. A route adds source × depth (−99 to 99) to a destin
    ASSIGN, so touching one won't change the sound.
 2. **Pick the source:** a number key (table below), or touch a knob that stands for one: LFO FREQ or LFO AMOUNT
    for the selected LFO, a filter ADSR knob for the filter envelope, an amp ADSR knob for the amp envelope (with
-   Shift held: Env 3 and Env 4). Or turn **VALUE** to scroll through every source, the web-only ones included.
-3. **Pick the destination:** turn its knob a little, or press its LFO routing button; the knob you touched last
-   before pressing Arp Assign is already offered, so you can tweak a knob, press Arp Assign and go straight to the
-   source. Or scroll with VALUE and press Arp Assign to take the one shown. The envelope stages are reached by
-   touching the ADSR knobs (with Shift held: Env 3 on the filter knobs, Env 4 on the amp knobs); AMP SUS stays the
-   VCA unless Shift is held.
+   Shift held: Env 3 and Env 4). Or turn **VALUE** to scroll through every source, the web-only ones included
+   (one per click cycle, as patches scroll), and press **Arp Assign** to take the one shown (touching a destination
+   takes it too). VALUE keeps scrolling sources until one is taken. A knob that picks the source keeps picking it
+   while you turn it; it can be the destination too (an envelope into its own stage) once it has rested a second.
+3. **Pick the destination:** turn its knob a little, or press its LFO routing button. Or scroll with VALUE (the
+   display shows only the destination's name) and press Arp Assign to take the one shown. The envelope stages are
+   reached by touching the ADSR knobs (with Shift held: Env 3 on the filter knobs, Env 4 on the amp knobs); AMP SUS
+   stays the VCA unless Shift is held. A knob you touched in the 5 seconds before pressing Arp Assign is already
+   the destination: tweak a knob, press Arp Assign, pick the source and you're at the depth.
 4. Turn **VALUE** to set the depth for the edit layer. 0 removes the route; `FULL` means all 16 are in use.
-5. Press **Arp Assign** again to finish.
+5. Press **Arp Assign** again to finish. The display goes back to the patch number.
 
-**Browse:** hold Arp Assign for half a second (LED steady). The edit layer's routes are shown one at a time as
-source, destination and depth in turn; VALUE steps through them, a short press opens the one shown for editing,
-holding again leaves. `nonE` means the layer has no routes.
+**Browse:** hold Arp Assign for half a second (LED steady). Turn VALUE to step through the edit layer's routes by
+number, `nod1` to `nod9`, then `no10` to `no16` (n stands in for m on the display). When VALUE rests, the route
+shown cycles through its number, source, destination and depth. A short press opens the route shown for editing;
+holding Arp Assign again leaves, back to the patch number. If the layer has no routes yet, the hold starts MOD
+ASSIGN (`SrC`) as a press does.
 
 Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn still work while assigning.
 
@@ -555,7 +561,7 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 | Shift + button | Does |
 |---|---|
 | Rec | Compare: the stored patch sounds while Rec is held (`CoNP`), your edit comes back when you let go (`EdIt`) |
-| Perf | Undo the last patch load or init (`Undo`); again redoes |
+| Perf | Undo the last patch load or init (`Undo`): the sound comes back with its step sequence, morph target, name and slot. Again redoes |
 | Preset | Save to the current slot (`donE`), without Rec, slot, Rec |
 | Seq 1 / Seq 2 | Copy the edit layer onto that layer (`CoPY`) |
 | 1-9 | Open that Settings page directly |
