@@ -1399,6 +1399,45 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   sound, square only, A3 held): PW 0, 50, 92 and 99 all read 218.7-220.6 Hz on both oscillators; 92 and 99 were
   silent before.
 
+## Knob pickup off (0.9.3, 2026-10-30)
+
+- **Issue 4** ("Option to turn off 'Knob value catch'"): pickup makes the synth feel less immediate, a knob doing
+  nothing until it passes the stored value. A system setting now turns it off: a knob in pickup takes over as soon
+  as it moves, jumping the value to its position (the stock firmware's behaviour). Pickup stays the default.
+- **How** (`read_panel()`): a knob waiting for its value already noted which side of it it started on, at its first
+  free pass; it now notes where it was then too (`pickup_from`). With pickup off it takes over once it's more than
+  2 % from there (`JUMP_MOVE`: above the pots' jitter, which the 1.5 % pickup window already lives with), or a step
+  for a stepped knob (FREQ A / B, a synced LFO FREQ: they have hysteresis, so any step is a real turn). Reaching or
+  sweeping past the value still takes over as before. Changing the setting makes every waiting knob start again from
+  where it is (`synth_set_pickup()`), else one that had moved while waiting would jump the moment pickup went off.
+- **Per case.** Patch load, switching layer, LFO or envelope (the keytrack switch, Shift's Env 3 / Env 4 on the ADSR
+  knobs), the web page or a CC moving a value: with pickup off, a knob that moves takes over at once. The gestures that
+  freeze knobs keep their guard: under Shift (the non-ADSR knobs nudge secondaries), in MOD ASSIGN, on the envelope
+  page (ATT / DEC set delay / hold) and during Seq + FREQ, a frozen knob doesn't start waiting until the freeze ends,
+  so its reference is where it is then. Letting go of Shift, or leaving MOD ASSIGN, moves nothing; moving the knob
+  after does. The display's dot still means "not yet taking over" in both modes.
+- **Stored** in the global block's byte 11, inside the checksum (`store.c`, `no_pickup`, 1 = off), so older blocks
+  (0 there) keep pickup. Host setting 82 after the oscillator tuning modes (1 pickup, 0 jump); the read-only ones
+  move to 83-86, so `SET_COUNT` is 87 and the 54 reply 185 bytes: `SYSEX_MAX` 186. Panel: Shift + FIL ENV AMT
+  (`P.UP`, `on` / `OFF`), a quarter turn a step, since a full sweep for one on/off step was too far. The tool's
+  `set pickup on|off` (and `settings` shows it), the web page's System tab ("Knobs", hidden on firmware without the
+  setting through `FEATURES.pickup`) and the cheat sheet's Shift and display lines.
+- **Tested** on the host: `synth.c` and `lfo.c` built for the Mac with the panel stubbed, driving pots through
+  `synth_update()`: pickup on (stays when turned away, follows once swept past); off (a 1 % wobble stays, 4 %
+  jumps, a muxed shared knob jumps on both layers, one semitone step of FREQ A jumps); off with Shift (turned under
+  Shift: unchanged; released: unchanged; moved after: jumps), Shift + FIL ATT jumping Env 3 and leaving the filter
+  attack alone at release, MOD ASSIGN and Seq + FREQ freezes the same way, the edit-layer switch (layer 2 jumps,
+  layer 1 kept), a patch load, turning pickup off while a moved knob waits (nothing moves; it jumps when moved
+  after), and back on. The web page in the built-in browser with a fake synth answering 08, 54
+  and 7D: the select shows the setting, Off sends `7D 52 00 00` and reads back; with an 86-setting reply (0.9.2) the
+  section and the cheat-sheet lines hide, the status names it missing, and the read-only settings still land right.
+  The guide's Figure 13 has a "Pickup off (jump)" box, checked in the built-in browser. Builds at 73,760 bytes (with issue 7).
+- **On the synth** (2026-10-30, the unsaved init sound; P128 holds a patch): the setting reads back after the flash as
+  on, the rest of the settings unchanged. With pickup off, 30 s with no hand on the panel moved nothing, including knobs
+  put in pickup from the host (pot jitter at most 1/99, below `JUMP_MOVE`). CUTOFF waited at 99 with the knob at 76: a
+  1-point move stayed, further on it jumped to 71 and followed. Shift + FIL ENV AMT toggled it, read back by the tool.
+  `set pickup off` / `on` flips byte 11 and the checksum of the global block, and back on the block is identical.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

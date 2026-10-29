@@ -78,6 +78,12 @@ A digit display can't show a plus sign, so positive values have none. A dot afte
 - after switching layer, LFO or envelope;
 - after editing from the web page.
 
+**Pickup off** (Shift + FIL ENV AMT, `P.UP` → `OFF`; or the web page's System tab, or `pro800 set pickup off`): a
+knob waiting like this takes over as soon as you move it, and the value jumps to where the knob is, as on the stock
+firmware. The dot still shows until you move it. It's a system setting that survives power-off; pickup is the default.
+Either way, a knob that was busy with something else (under Shift, in MOD ASSIGN, on the envelope page, during Seq +
+FREQ) waits from where it is when that ends, so letting go moves nothing; move it after and it takes over.
+
 ## Playing
 
 Play over USB MIDI or the 5-pin MIDI IN socket, on any channel, or on one: Shift + NOISE (`CHnL`) sets the MIDI
@@ -140,7 +146,8 @@ keep them).
   that no further digit could keep within 1-128 ends it (`7` then `2` loads P72 at once; `1`, `2` waits for a third
   digit). Or turn VALUE to step through them. An empty slot loads the init sound (the display keeps the slot number), ready to
   build and save there with Rec, Rec (Shift + Perf brings back the sound before). Boot loads the last patch.
-- **Edit:** a loaded patch's knobs are in pickup and its buttons keep their stored state until you press them.
+- **Edit:** a loaded patch's knobs are in pickup (with pickup off: until you move them) and its buttons keep their
+  stored state until you press them.
   Press Preset for manual mode, where the whole panel is live as it is.
 - **Save:** press Rec (it blinks), choose a slot by number or with VALUE, then press Rec again (`donE`). Preset
   cancels. The patch's name follows the sound into an empty slot.
@@ -568,6 +575,7 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 | RESONANCE | Macro 2's offset (`nAC2`) |
 | A LEVEL / B LEVEL | The CC A / CC B source numbers (`CC.A` / `CC.b`, 1-127; a system setting) |
 | NOISE | The MIDI channel the synth listens on (`CHnL`: `ALL`, 1-16; a system setting, see Playing) |
+| FIL ENV AMT | Knob pickup (`P.UP`: a quarter turn up `on`, down `OFF`; a system setting, see The panel at a glance) |
 
 | Shift + button | Does |
 |---|---|
@@ -578,7 +586,8 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 | 1-9 | Open that Settings page directly |
 | 0 | Panic: every note off, the pedal cleared, the sequence stopped (`PAnC`) |
 
-When Shift is released the knobs go into pickup, as after loading a patch, so letting go doesn't move anything.
+When Shift is released the knobs go into pickup, as after loading a patch, so letting go doesn't move anything
+(with pickup off too: a knob takes over when you move it after).
 
 ## Clock
 
@@ -640,7 +649,7 @@ envelope cycles), the Device cheat sheet describes that build's panel, and the s
 | **Device cheat sheet** | How to reach everything this firmware adds from the synth's own panel: the remapped buttons, the display, patches, layers, LFOs, envelopes, mod assign with its source keys and destinations, the settings menu, MIDI and recovery, and what's web-only. |
 | **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 128 as a `.bin`. **In one go:** format the patch memory, copy the whole factory bank into the empty slots, or install the preset bank (66 sounds into P1-P66, from the page's own copy, or a bank file such as the release's `pro8000-presets-<version>.json`; a bank pasted or opened in the JSON box installs too), each after a confirmation. Empty slots are hidden unless "show empty slots" is ticked. **Sound as JSON:** the current sound as JSON in the preset files' format (`presets/README.md`: knobs 0-99, buttons, settings, routes, LFO step patterns, the sequence, the morph target, by the `pro800` tool's names): show it in the text box, copy it, or download it as a `.json` file. Paste JSON into the box (or open a `.json` file, such as one of `presets/`) to load it into the sound: it starts from the init sound and sets what the JSON names, after checking every name and range, and settings the connected firmware hasn't got are left out with a note. Then save it into a slot with its name. A file from here installs with `presets/install.sh` too. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. The browser remembers the router's input and its clock box, and routes again whenever that input is there (after a reload, or when it's plugged back in); choose (off) to forget it. |
-| **System** | Firmware version, timing, autotune and the tuning tables. |
+| **System** | Firmware version, timing, autotune and the tuning tables, and knob pickup on or off (0.9.3). |
 | **Panel mapping** | The developer tools used to map the panel. |
 
 ## The command-line tool

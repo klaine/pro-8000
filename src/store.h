@@ -66,6 +66,9 @@ void store_set_cc_number(int which, int number);
 // The MIDI channel the synth listens on (1-16, 0 = every channel), kept in the global block
 int store_midi_channel(void);
 void store_set_midi_channel(int channel);
+// Knob pickup (1, the default) or jump (0: a knob that moves takes over at once), kept in the global block
+int store_pickup(void);
+void store_set_pickup(int on);
 // The clock source (0 MIDI, 1 internal, 2 SYNC IN) and the internal tempo in tenths of a BPM, kept in the global block
 int store_clock_source(void);
 int store_bpm_tenths(void);

@@ -234,6 +234,12 @@ void synth_set_bend_range(int semitones);
 int synth_detune(void);
 void synth_set_detune(int cents);
 int synth_pot_pending(int pot);
+// Pickup (on, the default): a knob in pickup takes over once it reaches or sweeps past the stored value. Off (jump):
+// it takes over as soon as it moves from where it was when it started waiting, jumping the value to its position.
+// Either way a knob only starts waiting once it's free: one frozen by a gesture (Shift, MOD ASSIGN, the envelope
+// page, Seq + FREQ) starts from where it is when the gesture ends, so letting go moves nothing. System-wide.
+int synth_pickup(void);
+void synth_set_pickup(int on);
 
 // Patches: applying one puts every stored knob in pickup and holds each button's stored state until that button
 // is toggled. Manual mode makes the whole panel live again. M VOL is never stored.

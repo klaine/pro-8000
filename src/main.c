@@ -110,7 +110,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 184 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 186 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -899,9 +899,10 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
 // Shift (the Sync Source button): held, or latched with two quick presses (LED on). The filter and amp ADSR knobs
 // edit Env 3 and Env 4 meanwhile (synth.c); the other knobs nudge a secondary value by how far they're turned:
 // LFO FREQ / AMOUNT the selected LFO's delay / fade, GLIDE drift, M TUNE unison detune, FINE the bend range,
-// CUTOFF / RESONANCE the macro offsets, A / B LEVEL the CC A / B numbers. Shift + Rec compares (the stored patch
-// while held), + Perf undoes the last load, + Preset saves to the current slot, + Seq 1 / 2 copies the edit layer
-// there, + a number key opens that Settings page, + 0 is a panic.
+// CUTOFF / RESONANCE the macro offsets, A / B LEVEL the CC A / B numbers, NOISE the MIDI channel, FIL ENV AMT
+// knob pickup on or off. Shift + Rec compares (the stored patch while held), + Perf undoes the last load, + Preset
+// saves to the current slot, + Seq 1 / 2 copies the edit layer there, + a number key opens that Settings page, + 0
+// is a panic.
 static int shift_held, shift_latched;
 static uint32_t sync_press_at; // the Sync Clock button: when it went down (0 = up, or the hold has fired)
 static int adsr_pot_index(int pot) { return (pot >= POT_AMP_REL && pot <= POT_AMP_ATT) || (pot >= POT_FIL_REL && pot <= POT_FIL_ATT); }
@@ -934,10 +935,19 @@ static void set_midi_channel(int channel)
     synth_all_off(); // a key held on a channel no longer heard would never be let go
 }
 
+// Knob pickup, or jump (Shift + FIL ENV AMT, or the host's setting); system-wide
+static void set_pickup(int on)
+{
+    synth_set_pickup(on);
+    store_set_pickup(on);
+}
+
 static void show_shift_value(void)
 {
     if (shift_pot == POT_NOISE && !shift_value)
         display_text("ALL");
+    else if (shift_pot == POT_FIL_ENV_AMT)
+        display_text(shift_value ? "on" : "OFF");
     else
         display_number(shift_value);
 }
@@ -949,7 +959,7 @@ static void shift_turn(int pot, int delta)
         {POT_LFO_FREQ, "dLY", 0, 99},    {POT_LFO_AMOUNT, "FAdE", 0, 99}, {POT_GLIDE, "drFt", 0, 99},
         {POT_MASTER_TUNE, "dEtU", 0, 50}, {POT_FINE, "bEnd", 1, 12},      {POT_CUTOFF, "nAC1", -99, 99},
         {POT_RESONANCE, "nAC2", -99, 99}, {POT_A_LEVEL, "CC.A", 1, 127},   {POT_B_LEVEL, "CC.b", 1, 127},
-        {POT_NOISE, "CHnL", 0, 16},
+        {POT_NOISE, "CHnL", 0, 16},      {POT_FIL_ENV_AMT, "P.UP", 0, 1},
     };
     unsigned t = 0;
     for (; t < sizeof table / sizeof table[0] && table[t].pot != pot; t++)
@@ -967,9 +977,11 @@ static void shift_turn(int pot, int delta)
     case POT_RESONANCE: value = synth_macro_offset(layer, 1); break;
     case POT_A_LEVEL: value = synth_cc_number(0); break;
     case POT_NOISE: value = midi_channel; break;
+    case POT_FIL_ENV_AMT: value = synth_pickup(); break;
     default: value = synth_cc_number(1); break;
     }
-    shift_acc[pot] += (float)delta * (float)(table[t].high - table[t].low) / 4095.0f;
+    int span = pot == POT_FIL_ENV_AMT ? 4 : table[t].high - table[t].low; // on / off: a quarter turn
+    shift_acc[pot] += (float)delta * (float)span / 4095.0f;
     int step = (int)shift_acc[pot];
     shift_acc[pot] -= (float)step;
     value += step;
@@ -984,6 +996,7 @@ static void shift_turn(int pot, int delta)
     case POT_RESONANCE: synth_set_macro_offset(layer, 1, value); break;
     case POT_A_LEVEL: synth_set_cc_number(0, value); store_set_cc_number(0, value); break;
     case POT_NOISE: set_midi_channel(value); break;
+    case POT_FIL_ENV_AMT: set_pickup(value); break;
     default: synth_set_cc_number(1, value); store_set_cc_number(1, value); break;
     }
     shift_value = value;
@@ -1729,6 +1742,7 @@ typedef enum {
     SET_ENV_TEMPO_L1, SET_ENV_TEMPO_L2, // a bit per envelope: stage times in note values
     SET_MIDI_CHANNEL,                                    // 1-16, 0 every channel (system-wide)
     SET_OSC_TUNE_L1_A, SET_OSC_TUNE_L1_B, SET_OSC_TUNE_L2_A, SET_OSC_TUNE_L2_B, // FREQ A / B's mode: oscillator_tune_mode_t
+    SET_PICKUP,                                          // 1 knob pickup, 0 jump (system-wide; 0.9.3)
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1775,6 +1789,7 @@ static int host_setting_get(int id)
     case SET_MIDI_CHANNEL: return midi_channel;
     case SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B:
         return synth_osc_tune_mode((id - SET_OSC_TUNE_L1_A) / 2, (id - SET_OSC_TUNE_L1_A) % 2);
+    case SET_PICKUP: return synth_pickup();
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -1796,7 +1811,7 @@ static int host_setting_set(int id, int value)
         [SET_ENV_DELAY ... SET_ENV_HOLD + 7] = 100, [SET_LAYER_VOICES] = VOICE_COUNT,
         [SET_ENV_COUNT ... SET_ENV_COUNT_END] = 100, [SET_ENV_TEMPO_L1] = 16, [SET_ENV_TEMPO_L2] = 16,
         [SET_MIDI_CHANNEL] = 17,
-        [SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B] = OSC_TUNE_MODE_COUNT,
+        [SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B] = OSC_TUNE_MODE_COUNT, [SET_PICKUP] = 2,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1855,6 +1870,7 @@ static int host_setting_set(int id, int value)
     case SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B:
         synth_set_osc_tune_mode((id - SET_OSC_TUNE_L1_A) / 2, (id - SET_OSC_TUNE_L1_A) % 2, value);
         break;
+    case SET_PICKUP: set_pickup(value); break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -2615,6 +2631,7 @@ int main(void)
         if (store_cc_number(k))
             synth_set_cc_number(k, store_cc_number(k));
     midi_channel = store_midi_channel();
+    synth_set_pickup(store_pickup());
     clock_source = store_clock_source();
     clock_bpm = (float)store_bpm_tenths() / 10.0f;
     clock_period = (uint32_t)((float)system_hz * 60.0f / (clock_bpm * 24.0f));

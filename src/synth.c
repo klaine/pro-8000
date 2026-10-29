@@ -81,6 +81,7 @@
 #define POT_SMOOTHING_S       0.01f  // CUTOFF and NOISE, read every pass
 #define MUX_SCAN_S            0.032f // the other pots, read every 32 ms (controls.c): each reading is glided to
 #define PICKUP_WINDOW         0.015f // a knob this close to the stored value picks it up
+#define JUMP_MOVE             0.02f  // pickup off: a knob moved this far from where it started takes over
 // what a route of depth 99 does at full source (pitch on a squared curve: depth 10 is 0.24 semitones, 50 is 6.1)
 #define MOD_PITCH_SEMITONES   24.0f
 #define MOD_CUTOFF_SEMITONES  96.0f
@@ -187,6 +188,8 @@ static int pots_primed;
 static int edit_layer;
 static uint8_t latched[PARAM_COUNT]; // its knob controls the value (per-layer parameters: the edit layer's)
 static int8_t pickup_side[PARAM_COUNT]; // which side of the stored value the knob started on: -1, +1 (0 = unknown)
+static float pickup_from[PARAM_COUNT];  // and where it was then (pickup off: moving away from there takes over)
+static int pickup = 1; // 0: a knob that moves jumps the value to where it is, as on the stock synth
 static int frozen; // MOD ASSIGN: no knob picks up, however close it is to its value
 static uint32_t frozen_pots; // these knobs don't either (synth_freeze_pots())
 static int env_select; // the ADSR knobs' envelopes: 0 filter and amp; 3 (Shift) Env 3 on the filter knobs, Env 4 on the amp's
@@ -458,6 +461,17 @@ void synth_set_param(int layer, int param, float value)
 float synth_pot_value(int pot) { return layer_param[edit_layer][param_of_pot(pot)]; }
 
 int synth_pot_pending(int pot) { return !latched[param_of_pot(pot)]; }
+
+int synth_pickup(void) { return pickup; }
+void synth_set_pickup(int on)
+{
+    if (!on == !pickup)
+        return;
+    pickup = on != 0;
+    for (int i = 0; i < PARAM_COUNT; i++)
+        if (!latched[i])
+            pickup_side[i] = 0; // a knob already waiting starts from where it is now, so the change moves nothing
+}
 
 int synth_keytrack(void) { return keytrack_setting; }
 
@@ -1604,10 +1618,16 @@ static void read_panel(float dt)
             int8_t side = diff < 0 ? -1 : 1;
             if (diff < PICKUP_WINDOW && diff > -PICKUP_WINDOW)
                 latched[p] = 1;
-            else if (pickup_side[p] == 0)
+            else if (pickup_side[p] == 0) {
                 pickup_side[p] = side;
-            else if (side != pickup_side[p])
+                pickup_from[p] = panel[i];
+            } else if (side != pickup_side[p])
                 latched[p] = 1; // swept past it
+            else if (!pickup) { // jump: moved since it started waiting (a stepped knob by a step)
+                float moved = panel[i] - pickup_from[p];
+                if (knob_steps(i) ? moved != 0 : moved > JUMP_MOVE || moved < -JUMP_MOVE)
+                    latched[p] = 1;
+            }
         }
         if (latched[p]) {
             if (per_layer[p])

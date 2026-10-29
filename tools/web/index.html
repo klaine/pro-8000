@@ -449,7 +449,7 @@
         <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways</td></tr>
         <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
         <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
-        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
+        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span><span data-needs="pickup">; FIL ENV AMT → knob pickup <code class="lcd">P.UP</code> <code class="lcd">on</code> / <code class="lcd">OFF</code> (a quarter turn)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
         <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live)</td></tr>
         <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
         <tr><td><kbd>Perf</kbd></td><td>Load the init sound (one saw, filter open)</td></tr>
@@ -463,7 +463,7 @@
       <ul>
         <li>A knob shows its value while turned, in real units: FREQ A/B follow their mode (semitones, octaves or Hz for Fixed), cents (FINE), −99..99 (M TUNE, Macro 1), Hz with a point from 1 kHz (CUTOFF), ms / s (envelopes, GLIDE), divisions when synced (LFO FREQ). PW A / B: 5-95 % of the cycle, 50 a square.</li>
         <li>No plus sign: positive values have none.</li>
-        <li><b>A dot after the value</b> = the knob hasn't picked up yet. Turn it past (or onto) the stored value and it takes over. Happens after loading a patch, switching layer / LFO / envelope, or editing from the web page.</li>
+        <li><b>A dot after the value</b> = the knob hasn't picked up yet. Turn it past (or onto) the stored value and it takes over. Happens after loading a patch, switching layer / LFO / envelope, or editing from the web page.<span data-needs="pickup"> With pickup off (Shift + FIL ENV AMT <code class="lcd">P.UP</code> <code class="lcd">OFF</code>) the knob takes over as soon as you move it: the value jumps to it.</span></li>
       </ul>
     </section>
 
@@ -733,6 +733,16 @@
     <div class="row"><button id="autotune">Run autotune</button><button id="tables">Show the tables</button>
       <span class="msg" id="tune-msg"></span></div>
     <pre class="out" id="tables-out" hidden></pre>
+  </section>
+  <section data-needs="pickup">
+    <h2>Knobs</h2>
+    <p class="hint">After a patch loads, or a knob's job changes (layer, LFO, envelope, a move on this page), the
+      knob is in pickup: the sound keeps the stored value until the knob reaches it or sweeps past it, and the
+      display shows a dot meanwhile. With pickup off, a knob takes over as soon as you move it, and the value jumps
+      to where the knob is, as on the stock synth. Letting go of Shift, MOD ASSIGN, the envelope page or Seq + FREQ
+      moves nothing either way. System-wide, kept through power-off; on the synth: Shift + FIL ENV AMT
+      (<code class="lcd">P.UP</code>).</p>
+    <div class="row" id="pickup-row"></div>
   </section>
 </div>
 
@@ -1164,7 +1174,7 @@ function showTab(name) {
   try { localStorage.setItem("pro800-tab", name); } catch (e) {}
   if (!output) return;
   if (name === "patches" && !slots.length) scanSlots();
-  if (name === "system") showStats();
+  if (name === "system") { showStats(); refreshSettings(); }
 }
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
@@ -1180,6 +1190,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "envTempo1", "envTempo2", // a bit per envelope: stage times in note values
   "midiChannel", // 1-16, 0 every channel (system-wide)
   "oscTune1A", "oscTune1B", "oscTune2A", "oscTune2B", // FREQ A / B per layer: semitones, octave, free, fixed
+  "pickup", // 1 knob pickup, 0 jump (system-wide)
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -1192,6 +1203,7 @@ const FEATURES = {
   envTempo: ["envTempo1", "envelope times in note values"],
   midiChannel: ["midiChannel", "the MIDI channel setting"],
   oscTune: ["oscTune1A", "the oscillators' tuning modes"],
+  pickup: ["pickup", "the knob pickup setting"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1654,6 +1666,13 @@ function midiChannelSelect() {
     "the channel the synth plays from (system-wide; on the synth: Shift + NOISE). In the layer modes that play by channel it's the first of theirs: by channel N and N+1, a voice per channel N to N+7, MPE N (master) to N+8");
   el.dataset.needs = "midiChannel";
   return el;
+}
+
+// Knob pickup (system-wide), with firmware that has it: on (the default) or off (a moved knob jumps)
+function pickupSelect() {
+  return settingSelect("Knob pickup", ["On: a knob takes over at the stored value", "Off: a knob takes over when moved (jump)"],
+    () => settings && settings.pickup !== undefined ? 1 - settings.pickup : undefined, v => setSetting(SET_ID.pickup, 1 - v),
+    "what a knob does after a patch load or a change of job (system-wide; on the synth: Shift + FIL ENV AMT)");
 }
 
 function settingSelect(text, options, get, set, title) {
@@ -3353,6 +3372,7 @@ async function afterConnect() {
 
 buildPiano(); relabel(); buildPots(); buildSwitches(); buildKeys(); buildDisplay(); paintDisplay(); save();
 buildPanel();
+document.getElementById("pickup-row").append(pickupSelect());
 try { tab = localStorage.getItem("pro800-tab") || "sound"; } catch (e) {}
 if (!document.getElementById("tab-" + tab)) tab = "sound";
 showTab(tab);

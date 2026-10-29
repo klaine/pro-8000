@@ -42,7 +42,7 @@ The user manual is [MANUAL.md](MANUAL.md).
   - Each one starts on key down or key up, and can cycle (attack, hold, fall, rest) endlessly or for 1-99 cycles.
   - Stage times in seconds, or in note values (1/32 to 8 bars) at the clock's tempo.
 - **Shift:** a second layer on the knobs (LFO delay and fade, drift, detune, bend range, macro offsets, CC
-  numbers, the MIDI channel) and buttons (compare, undo, quick save, layer copy, settings pages, panic).
+  numbers, the MIDI channel, knob pickup on or off) and buttons (compare, undo, quick save, layer copy, settings pages, panic).
 - **Mod matrix:** 16 routes per layer, assigned from the panel in three steps (source, destination, depth: MOD
   ASSIGN on Arp Assign) and browsed by number, with two macros that are destinations and sources at once.
   - 27 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, pitch
@@ -226,9 +226,10 @@ before the master volume, so tuning is silent.
 after a change of address. The scan steps to the next address every 4 ms between passes and reads all three
 multiplexers at once, so every knob is read every 32 ms, with a small dead band against jitter. Because two layers,
 two LFOs and four envelopes share the same knobs, a knob whose job changes goes into pickup: the sound keeps the stored
-value until the knob reaches it (a dot after the number on the display until then). Shift is the Sync Source button,
-held or double-pressed to latch; under it the ADSR knobs edit Env 3 and Env 4, every other knob nudges a secondary
-value by how far it moves, and the buttons get second jobs. The display shows real units: 737 Hz of cutoff, 1.25 s of
+value until the knob reaches it (a dot after the number on the display until then), or, with pickup turned off
+(Shift + FIL ENV AMT), until it moves, when the value jumps to it. Shift is the Sync Source button, held or
+double-pressed to latch; under it the ADSR knobs edit Env 3 and Env 4, every other knob nudges a secondary value by
+how far it moves, and the buttons get second jobs. The display shows real units: 737 Hz of cutoff, 1.25 s of
 attack, -12 semitones, or a clock division.
 
 ### Where things are stored

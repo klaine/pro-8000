@@ -478,21 +478,22 @@
   <h2>The panel: knobs, pickup and four digits</h2>
   <div class="prose">
     <p>24 of the 26 knobs sit behind three 8-way multiplexers. Each knob has a 100 nF capacitor at the multiplexer, so after switching address the reading needs about 4 ms to settle. The scan doesn't wait for it: it steps to the next address every 4 ms, between passes, and reads all three multiplexers at once, so every knob is read every 32 ms. A small dead band ignores the last bit of jitter, and values are smoothed over 10 ms so a turn never zips.</p>
-    <p>Two sets of settings (layers), two LFOs and four envelopes all share the same physical knobs. So when a knob's job changes (you load a patch, switch layer, or hold Shift), it goes into <strong>pickup</strong>: the sound keeps the stored value until you turn the knob onto it or past it. Try it:</p>
+    <p>Two sets of settings (layers), two LFOs and four envelopes all share the same physical knobs. So when a knob's job changes (you load a patch, switch layer, or hold Shift), it goes into <strong>pickup</strong>: the sound keeps the stored value until you turn the knob onto it or past it. If you'd rather have the stock synth's <strong>jump</strong>, turn pickup off (Shift + FIL ENV AMT, <span class="led">P.UP</span>, or the web page's System tab): then the knob takes over the moment you move it, and the value jumps to where the knob is. Either way, letting go of Shift or leaving MOD ASSIGN moves nothing: a knob that was busy waits from where it is then. Try both:</p>
   </div>
   <figure>
     <div class="fig">
       <div class="controls">
         <label>Physical knob <input type="range" id="pk-knob" min="0" max="99" value="25"></label>
         <button class="btn" type="button" id="pk-load">Load another patch</button>
+        <label><input type="checkbox" id="pk-jump"> Pickup off (jump)</label>
       </div>
       <p style="margin:6px 0 4px; font-size:15px">Display: <span class="led" id="pk-led">  70.</span> &nbsp; <span id="pk-state" class="readout"></span></p>
       <div class="svg-wrap"><svg id="pk-svg" viewBox="0 0 880 70" role="img" aria-label="A scale from 0 to 99 showing the knob position and the stored value"></svg></div>
     </div>
-    <figcaption><b>Figure 13.</b> The dot after the number means the knob hasn't picked up the stored value yet. Within 1.5 % of it, or once you sweep past it, the knob takes over.</figcaption>
+    <figcaption><b>Figure 13.</b> The dot after the number means the knob hasn't picked up the stored value yet. Within 1.5 % of it, or once you sweep past it, the knob takes over; with pickup off, as soon as it moves.</figcaption>
   </figure>
   <div class="prose">
-    <p><strong>Shift</strong> is the Sync Source button, held or latched with two quick presses. Under Shift the filter ADSR knobs edit Env 3 and the amp ADSR knobs Env 4, with pickup, and every other knob <em>nudges</em> a secondary value (LFO delay and fade, drift, unison detune, bend range, the macro offsets, the CC A / B numbers, the MIDI channel) by how far it moves, so nothing jumps and nothing needs picking up. The buttons get second jobs too: compare the edit with the stored patch, undo a load or the init sound (the sequence, name and slot come back too), save to the current slot, copy a layer, open a settings page, panic.</p>
+    <p><strong>Shift</strong> is the Sync Source button, held or latched with two quick presses. Under Shift the filter ADSR knobs edit Env 3 and the amp ADSR knobs Env 4, with pickup, and every other knob <em>nudges</em> a secondary value (LFO delay and fade, drift, unison detune, bend range, the macro offsets, the CC A / B numbers, the MIDI channel, pickup on or off) by how far it moves, so nothing jumps and nothing needs picking up. The buttons get second jobs too: compare the edit with the stored patch, undo a load or the init sound (the sequence, name and slot come back too), save to the current slot, copy a layer, open a settings page, panic.</p>
     <p>The four-digit, seven-segment display shows real units while you turn a knob: <span class="led"> 737</span> Hz of cutoff, <span class="led"> 1.25</span> seconds of attack, <span class="led">-12</span> semitones, or a clock division like <span class="led">1-16</span>. Several buttons have new jobs, since the stock arpeggiator and sequencer are gone:</p>
   </div>
   <div class="tbl"><table>
@@ -1029,6 +1030,7 @@ function envLevel(t, o) {
 (function () {
   var knob = document.getElementById("pk-knob"), led = document.getElementById("pk-led"), state = document.getElementById("pk-state");
   var svg = document.getElementById("pk-svg"), stored = 70, latched = false, side = Math.sign(+knob.value - stored);
+  var jump = document.getElementById("pk-jump"), from = +knob.value; // pickup off: moving away from here takes over
   var X = function (v) { return 30 + v / 99 * 820; };
   S("line", { x1: 30, x2: 850, y1: 34, y2: 34, class: "axis" }, svg);
   for (var t = 0; t <= 99; t += 11) S("text", { x: X(t), y: 62, class: "t-xs", "text-anchor": "middle", text: t }, svg);
@@ -1036,19 +1038,21 @@ function envLevel(t, o) {
   var lStored = S("text", { y: 16, class: "t-xs t-acc t-b", "text-anchor": "middle", text: "stored" }, svg);
   function show() {
     var k = +knob.value;
-    if (!latched && (Math.abs(k - stored) <= 1.5 || Math.sign(k - stored) !== side)) latched = true;
+    if (!latched && (Math.abs(k - stored) <= 1.5 || Math.sign(k - stored) !== side || (jump.checked && Math.abs(k - from) >= 2))) latched = true;
     if (latched) stored = k;
     led.textContent = String(stored).padStart(4, " ") + (latched ? "" : ".");
-    state.textContent = latched ? "Picked up: the knob controls the sound." : "Waiting: turn the knob onto " + stored + " or past it.";
+    state.textContent = latched ? "Picked up: the knob controls the sound."
+      : jump.checked ? "Waiting: move the knob and the value jumps to it." : "Waiting: turn the knob onto " + stored + " or past it.";
     mStored.setAttribute("d", "M" + (X(stored) - 7) + " 20 h14 l-7 10 z");
     lStored.setAttribute("x", X(stored));
     mKnob.setAttribute("cx", X(k));
   }
   knob.addEventListener("input", show);
+  jump.addEventListener("change", function () { from = +knob.value; show(); }); // from here, as on the synth
   document.getElementById("pk-load").addEventListener("click", function () {
     var k = +knob.value;
     do stored = 10 + Math.floor(Math.random() * 80); while (Math.abs(stored - k) < 12);
-    latched = false; side = Math.sign(k - stored); show();
+    latched = false; side = Math.sign(k - stored); from = k; show();
   });
   show();
 })();
