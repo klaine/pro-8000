@@ -1382,6 +1382,23 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   poly-mod from B at 25 and 50 into FREQ A, at 50 into the filter, and at 50 with both off, osc A stayed at
   219.7-220.1 Hz. Heard by the user on the synth: osc B silent with all its waveforms off.
 
+## The pulse width knob scaled to 5-95 % (0.9.3, 2026-10-30)
+
+- **Reported on the synth:** the square goes silent above PW 92. That's the duty measured through the Move in 0.9.0
+  (the web page's waveform picture): high for 0.048 + 1.034 × knob of the cycle, so 100 % at 0.92, a square at
+  about 44 and 57 % at 50. In CV (`0.05 + 0.9 × knob` before) that's 1.149 × CV − 0.0094.
+- **Every oscillator's top edge** (direct mode, each oscillator alone at 0x8000, square only, the comparator against
+  its pitch at PW 0x8000, three readings within 1 %): A1-A5, A7, A8 and B1-B5, B7, B8 clean to 0xE000 (0.875) and
+  lost by 0xE400 (0.891); A6 and B6 clean to 0xDC00 (0.859), lost by 0xE000. (`pw_edge.sh` in the session's
+  scratchpad; not kept.)
+- **Now** (`PW_CV_BOTTOM`, `PW_CV_RANGE` in `synth.c`): CV = 0.0517 + 0.7833 × knob, so 0 = 5 %, 50 = a square,
+  99 = 95 % (CV 0.835, under voice 6's edge). The bottom is where it was; patches move a little: 50 from 57 % to a
+  square, 32 from 38 to about 30 %, 92-99 from silence to a thin pulse. LFO → PW (±0.45 in CV) and routes (MOD_PW,
+  in knob units) are unchanged, so modulation still reaches silence at either end. The web page draws the new duty
+  for firmware 0.9.3 and later (nothing in the settings marks it), the old one before. On the synth (P128, the init
+  sound, square only, A3 held): PW 0, 50, 92 and 99 all read 218.7-220.6 Hz on both oscillators; 92 and 99 were
+  silent before.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

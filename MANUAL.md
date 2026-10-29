@@ -63,6 +63,7 @@ The display shows a knob's value while you turn it, in real units where it has o
 | LFO FREQ | Hz (` 1.60`), or the clock division when synced | 0.05-51 Hz, exponential |
 | GLIDE | time constant (` 150` ms, ` 1.25` s), `OFF` at the bottom | 2 ms-2 s |
 | Envelope times | ms / s (see Envelopes) | |
+| PW A / B | 0-99 | the pulse is high for 5-95 % of the cycle, 50 a square; LFO → PW and routes can push it to silence at either end |
 | everything else | 0-99 | |
 
 Each layer stores a separate mode for FREQ A and FREQ B. The modes are **Semitones** (the original ±36-semitone

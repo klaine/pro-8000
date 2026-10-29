@@ -72,6 +72,10 @@
 #define LFO_PITCH_SEMITONES   12.0f
 #define LFO_FILTER_SEMITONES  48.0f
 #define LFO_PW_DEPTH          0.45f
+// PW knob → CV: the pulse is high for 1.149 × CV − 0.0094 of the cycle (measured through the Move, 0.9.0) and gone
+// from about CV 0.88 (0.86 on voice 6), so the knob's 0..1 maps to 5..95 % of the cycle, 50 a square
+#define PW_CV_BOTTOM          0.0517f
+#define PW_CV_RANGE           0.7833f
 #define DETUNE_DEFAULT        14    // unison: cents between the outermost voices, when the patch doesn't set it
 #define MPE_BEND_SEMITONES    48.0f // an MPE member channel's bend range (the MPE default; RPNs aren't parsed)
 #define POT_SMOOTHING_S       0.01f  // CUTOFF and NOISE, read every pass
@@ -1944,8 +1948,8 @@ void synth_update(float dt)
     // issue 7). Osc B's pulse held high is a DC offset in the poly-mod source, though (+103 cents on FREQ A at a
     // quarter amount, +746 on the filter at half), so while poly-mod from osc B reaches either, B goes to the
     // minimum, as p600fw does
-    float pw_a = 0.05f + 0.9f * clamp01(shared[POT_A_PW] + shared_mod[DEST_A_PW] * MOD_PW) + lfo_pw;
-    float pw_b = 0.05f + 0.9f * clamp01(shared[POT_B_PW] + shared_mod[DEST_B_PW] * MOD_PW) + lfo_pw;
+    float pw_a = PW_CV_BOTTOM + PW_CV_RANGE * clamp01(shared[POT_A_PW] + shared_mod[DEST_A_PW] * MOD_PW) + lfo_pw;
+    float pw_b = PW_CV_BOTTOM + PW_CV_RANGE * clamp01(shared[POT_B_PW] + shared_mod[DEST_B_PW] * MOD_PW) + lfo_pw;
     sh_set(CV_PW_A, sw(SWITCH_A_SQUARE) ? cv_from(pw_a) : 0xFFFF);
     int pmod_from_b = pmod_osc_b && (pmod_freq_a || sw(SWITCH_PMOD_FILTER));
     sh_set(CV_PW_B, sw(SWITCH_B_SQUARE) ? cv_from(pw_b) : pmod_from_b ? 0 : 0xFFFF);
