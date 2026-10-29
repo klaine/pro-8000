@@ -18,9 +18,9 @@
 //   96  pots[2][26] (u16)         layer 1, then layer 2
 //   200 extra[2][10] (u16)        Env 3 and Env 4 ADSR, LFO 2 rate and amount, per layer
 //   240 routes[2][16]             source, destination, depth (int8) per layer
-//   336 cycle counts[2][4] (0 = endless), 344 1 if the key-up triggers apply to cycling envelopes too (both 0.9.0;
-//       0: a record from an earlier 0.9.0 build, where cycling won, so its cycling envelopes' key-up bits are cleared at load)
-//   345 stage times in note values[2] (a bit per envelope; 0.9.0)
+//   336 cycle counts[2][4] (0 = endless), 344 1 if the key-up triggers apply to cycling envelopes too (both 0.9.1;
+//       0: a record from 0.9.0 or earlier, where cycling won, so its cycling envelopes' key-up bits are cleared at load)
+//   345 stage times in note values[2] (a bit per envelope; 0.9.1)
 //   347 reserved to 508
 //   508 checksum (u32) over 0-507
 //   512 "P8S2", 516 length, lanes, division, bpm, flags, swing, smooth, arp, then from 524 each step's note,
@@ -118,7 +118,7 @@ static int write_global(void)
     b[7] = FORMAT;
     b[8] = global.cc[0];
     b[9] = global.cc[1];
-    b[10] = global.midi_channel; // 0.9.0; 0 in older blocks: every channel, as before
+    b[10] = global.midi_channel; // 0.9.1; 0 in older blocks: every channel, as before
     put32(b + 12, checksum(b, 12));
     put16(b + 16, global.bpm); // the clock, outside the checksum (older blocks have anything here: range-checked)
     b[18] = global.clock_source;

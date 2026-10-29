@@ -1175,7 +1175,30 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   edit layer doesn't change). `seq_record_note()` writes the next step relative to the first note; Seq 2 a rest;
   Rec or Seq 1 ends it; loading a patch ends it. Notes sound through the engine without `seq_key_on()`.
 - Build 69,372 bytes: now past sector 4 into sector 5, which 0.8.4 showed runs.
-- **Trigger as its own switch, and cycle counts** (still 0.9.0): the key-up trigger is a bit per envelope that
+- **On the synth** (flashed, P34): the pass is 946 µs on average with no notes (904 on 0.8.5), the longest in 2 s
+  2,769 µs. A key-up amp envelope stayed silent while the key was held and sounded for ~0.6 s after it was let go
+  (`record`, 0.1 s windows); DAHDSR with delay 60 (0.37 s) started the note ~0.4 s after note-on. A host build of
+  `synth.c` with stubbed drivers (in the session's scratchpad, not kept) stepped linear DAHDSR, swell, key-up, the
+  noise LFO and step recording as intended. Not tried on the panel itself: page 6, the ATT / DEC delay and hold, and
+  Rec + Seq 1.
+- **The oscillator waveforms, measured** (osc A alone at C3, filter open, recorded through the Move, one cycle
+  averaged over 0.6 s): the output is a falling saw, so the chain inverts (the synth or the Move's input; the web
+  page draws it as recorded). Against a rising saw, the triangle is lowest at the saw's reset and the pulse is high
+  from the reset for 0.048 + 1.034 × PW of the cycle (0.15 at PW 10, 0.57 at 50, 0.98 at 90; silent at 95). Levels:
+  triangle 1.37 × the saw's peak-to-peak; the pulse's steps 0.83 × the saw's reset. The waves simply add: saw + tri
+  and tri + square fit weighted sums of the solo recordings at equal weights to 0.3 % of the energy.
+- Saw + square looked odd at first (a fit gave the pulse at −0.23 of its level with the width flipped), so a PW sweep
+  (5-95, solo square and saw + square at each): the mix has two upward steps per cycle (output frame), 0.815 and
+  0.185 of the saw's reset, d apart. A saw plus a full pulse of width d is exactly that, shifted in time: its reset
+  is the small step (the pulse falls there) and the pulse edge the big one. A time shift can't be seen or heard in
+  a periodic wave, so the "weak flipped pulse" and the plain sum are the same waveform; the plain sum is the
+  physical reading. The mix levels across the sweep (−0.2 to −2.8 dB against the saw alone) match it within 0.5 dB.
+  The web page's picture (before: equal-level waves averaged, a rising saw, the pulse width scaled 0.05-0.95; its
+  phases were right) now adds the waves at the measured levels and widths, upside down as recorded.
+
+## Envelope trigger and timing, the mod matrix in stages, MIDI channel, sounds as JSON (0.9.1, 2026-10-29)
+
+- **Trigger as its own switch, and cycle counts:** the key-up trigger is a bit per envelope that
   applies in every mode, cycling included (`key_up_envs()` no longer masks out cycling envelopes; `gate_off()` also
   resets a key-up envelope's phase and cycle count). A cycling envelope runs `env_count` cycles (record bytes
   336-343, 0 = endless, 1-99): `env_t.cycles` counts each fall's end (free) or each phase wrap (synced); when it
@@ -1190,7 +1213,7 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   cycling (the voice stays busy); synced count 4 → 4 both ways, key up then idle.
   On the synth (installed; amp cycling synced at 1/8, key up, count 3, the clock at 135 BPM; `record`, 0.1 s
   windows): silent through the 1 s hold, then about 0.7 s of sound with two dips (3 × 0.222 s), then silence.
-- **Stage times in note values** (still 0.9.0): `env_tempo`, a bit per envelope and layer (record bytes 345-346,
+- **Stage times in note values:** `env_tempo`, a bit per envelope and layer (record bytes 345-346,
   host settings 75-76, the read-only ones now 77-80; the 54 reply is 171 bytes). `env_rates()` takes each time
   (attack, decay, release, hold and rest while cycling, DAHDSR's delay and hold) as a step: knob × 15 rounded, 0 =
   no time, else the LFO division table backwards (1 = 1/32 … 15 = 8 bars) × `lfo_quarter_seconds()`, worked out
@@ -1300,26 +1323,6 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   bar) had the same check. Both compare signed now.
 - **An empty slot loads the init sound** (`load_patch()`: VALUE, number keys, program change, the host's 5C), in
   that slot, so REC saves it there; it used to show the number and keep the sound. A damaged slot still shows `nonE`.
-- **On the synth** (flashed, P34): the pass is 946 µs on average with no notes (904 on 0.8.5), the longest in 2 s
-  2,769 µs. A key-up amp envelope stayed silent while the key was held and sounded for ~0.6 s after it was let go
-  (`record`, 0.1 s windows); DAHDSR with delay 60 (0.37 s) started the note ~0.4 s after note-on. A host build of
-  `synth.c` with stubbed drivers (in the session's scratchpad, not kept) stepped linear DAHDSR, swell, key-up, the
-  noise LFO and step recording as intended. Not tried on the panel itself: page 6, the ATT / DEC delay and hold, and
-  Rec + Seq 1.
-- **The oscillator waveforms, measured** (osc A alone at C3, filter open, recorded through the Move, one cycle
-  averaged over 0.6 s): the output is a falling saw, so the chain inverts (the synth or the Move's input; the web
-  page draws it as recorded). Against a rising saw, the triangle is lowest at the saw's reset and the pulse is high
-  from the reset for 0.048 + 1.034 × PW of the cycle (0.15 at PW 10, 0.57 at 50, 0.98 at 90; silent at 95). Levels:
-  triangle 1.37 × the saw's peak-to-peak; the pulse's steps 0.83 × the saw's reset. The waves simply add: saw + tri
-  and tri + square fit weighted sums of the solo recordings at equal weights to 0.3 % of the energy.
-- Saw + square looked odd at first (a fit gave the pulse at −0.23 of its level with the width flipped), so a PW sweep
-  (5-95, solo square and saw + square at each): the mix has two upward steps per cycle (output frame), 0.815 and
-  0.185 of the saw's reset, d apart. A saw plus a full pulse of width d is exactly that, shifted in time: its reset
-  is the small step (the pulse falls there) and the pulse edge the big one. A time shift can't be seen or heard in
-  a periodic wave, so the "weak flipped pulse" and the plain sum are the same waveform; the plain sum is the
-  physical reading. The mix levels across the sweep (−0.2 to −2.8 dB against the saw alone) match it within 0.5 dB.
-  The web page's picture (before: equal-level waves averaged, a rising saw, the pulse width scaled 0.05-0.95; its
-  phases were right) now adds the waves at the measured levels and widths, upside down as recorded.
 
 ## Backlog
 

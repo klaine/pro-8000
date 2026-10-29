@@ -67,7 +67,7 @@ Probe (our firmware 0.0.9+):
                                         steps <layer> <lfo> x.x.xx.. (the step shape's pattern, 1-16),
                                         cycle-sync <layer> <env> free|1/16|… (a cycle's length from the clock),
                                         button a-saw|…|sync on|off (the panel's latching buttons),
-                                        midi-channel all|1-16 (the channel it listens on; 0.9.0)
+                                        midi-channel all|1-16 (the channel it listens on; 0.9.1)
   pro800 settings                       print every setting
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
@@ -75,7 +75,7 @@ Probe (our firmware 0.0.9+):
   pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, 0 removes); pro800 routes lists them
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 engine                         the engine's state: held keys, voice gates and envelope stages, keytrack,
-                                        switch overrides (read-only probe, 0.9.0+)
+                                        switch overrides (read-only probe, 0.9.1+)
   pro800 cc <controller> <value>        send a control change (e.g. 1 = mod wheel)
   pro800 bend <0-16383>                 send pitch bend (8192 = centre); --channel N for both
   pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
@@ -1528,7 +1528,7 @@ func routes() {
 // pro800 engine: the engine-state probe (55), read-only
 func engine() {
     guard let reply = Midi(port: portName).request([0x55], expect: [0x55], timeout: 2) else {
-        fail("no reply (needs this build of 0.9.0 or later)")
+        fail("no reply (needs firmware 0.9.1 or later)")
     }
     let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)]).map(Int.init)
     guard b.count >= 53 else { fail("short reply (\(b.count) bytes)") }

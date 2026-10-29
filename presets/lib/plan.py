@@ -111,7 +111,7 @@ def setting_line(key, value):
     elif name == "macro":
         check(len(w) == 3 and w[1] in LAYERS and w[2] in ("1", "2"), "macro: " + key)
         in_range(value, -99, 99, "macro offset")
-    elif name in ("env-up", "dahdsr", "env-tempo"):  # 0.9.0: a list of envelopes
+    elif name in ("env-up", "dahdsr", "env-tempo"):  # 0.9.0 (env-tempo 0.9.1): a list of envelopes
         check(len(w) == 2 and w[1] in LAYERS, name + ": " + key)
         check(v == "none" or all(e in ENVS for e in v.split(",")), name + ": " + v)
     elif name == "env-curve":

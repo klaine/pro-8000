@@ -59,7 +59,7 @@
 </header>
 
 <div class="hero">
-  <div class="kicker">PRO-8000 0.9.0 · sound design</div>
+  <div class="kicker">PRO-8000 0.9.1 · sound design</div>
   <h1>New territory for sound design</h1>
   <p class="lede">Same sixteen analog oscillators, same filters, same warm voice board. What changes is how much they can <em>move</em>, and how independently each note can live. This page walks through what the custom firmware adds, with things to try and recipes to start from.</p>
   <p class="note-sm risk"><b>Wildly experimental:</b> use it at your own risk, with no liability if it harms your hardware. <a href="index.html#experimental">The disclaimer</a></p>
@@ -149,6 +149,7 @@
   </figure>
   <div class="prose">
     <p>Some things stay shared, because the hardware has one wire for them: the waveform buttons, the mixer, resonance, pulse widths, poly-mod oscillator B and master volume. The art of layering here is to make the two layers different through what <em>is</em> per layer: tuning (an octave or a fifth apart), filter and envelopes, glide, LFOs and routes.</p>
+    <p>The synth plays every MIDI channel until you set one with Shift + NOISE (<span class="led">CHnL</span>: <span class="led">ALL</span> or 1–16). Then it hears only that channel, and the per-channel modes count from it: set to 3, channel mode plays layer 1 on channel 3 and layer 2 on channel 4. Handy when the synth shares a MIDI line or a Move with other instruments. To set one layer's level against the other's, route FIXED → VCA on the louder layer: depth 50 takes it down about 6.5 dB.</p>
   </div>
 </section>
 
@@ -547,7 +548,7 @@
 </div>
 
 <footer class="site">
-  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
+  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.1 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
   <a href="index.html">Home</a><a href="how-it-works.html">← How it works</a>
   <br>Wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your hardware. Not affiliated with Behringer or Music Tribe.
 </footer>

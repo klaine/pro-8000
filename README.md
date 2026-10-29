@@ -24,7 +24,7 @@ chip's memory layout, and the packer that turns a firmware image into an update 
 - [New territory for sound design](https://klaine.github.io/pro-8000/sound-design.html): what the engine lets you do that
   the stock PRO-800 can't, with interactive figures and recipes.
 - [The WebMIDI editor](https://klaine.github.io/pro-8000/editor/): every control, the mod matrix, patches and the
-  sequencer from the browser (Chrome or Edge, with the synth on USB).
+  sequencer from the browser (Chrome or Edge, with the synth on USB), and sounds in and out as JSON.
 
 The user manual is [MANUAL.md](MANUAL.md).
 
@@ -36,13 +36,15 @@ The user manual is [MANUAL.md](MANUAL.md).
   pattern for trance gates, edited on the web page).
   - Sync to MIDI clock in 15 divisions; a delay and fade-in per LFO, per voice.
   - Retrigger free, on the first key, on every key, or per voice (poly LFOs).
-- **Envelopes:** four per voice, with analog-style curves and times shown in ms / s on the display. Env 3 and
-  Env 4 are edited with the filter and amp ADSR knobs while Shift (Sync Source) is held. Any of them can cycle
-  while a key is held (attack, hold, fall, rest).
+- **Envelopes:** four per voice, ADSR or DAHDSR (a delay and a hold), with analog, linear or swell curves and
+  times shown in ms / s on the display. Env 3 and Env 4 are edited with the filter and amp ADSR knobs while Shift
+  (Sync Source) is held.
+  - Each one starts on key down or key up, and can cycle (attack, hold, fall, rest) endlessly or for 1-99 cycles.
+  - Stage times in seconds, or in note values (1/32 to 8 bars) at the clock's tempo.
 - **Shift:** a second layer on the knobs (LFO delay and fade, drift, detune, bend range, macro offsets, CC
-  numbers) and buttons (compare, undo, quick save, layer copy, settings pages, panic).
-- **Mod matrix:** 16 routes per layer, assigned and browsed from the panel (MOD ASSIGN on Arp Assign), with two
-  macros that are destinations and sources at once.
+  numbers, the MIDI channel) and buttons (compare, undo, quick save, layer copy, settings pages, panic).
+- **Mod matrix:** 16 routes per layer, assigned from the panel in three steps (source, destination, depth: MOD
+  ASSIGN on Arp Assign) and browsed by number, with two macros that are destinations and sources at once.
   - 27 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, pitch
     bend, pedal, two assignable CCs, CC 74 (timbre), gate, random, note, voice number, a fixed 1, the sequencer's
     four lanes and the macros.
@@ -54,10 +56,11 @@ The user manual is [MANUAL.md](MANUAL.md).
 - **Expression and play:** per-voice poly aftertouch, mono / legato / poly per layer with note priority, a sustain
   pedal, a MIDI CC for every knob, program change, analog-style drift, scale quantize, and patch morph (any mod
   source fades every knob towards another patch). The sequencer has probability, ratchets and an arpeggiator.
-- **Patches:** 128 with names, each with its own sequence, and the stock factory bank kept and importable. A
-  64-sound bank for slots 1-64 is in `presets/` (`presets/install.sh`), built to show the engine off.
+- **Patches:** 128 with names, each with its own sequence, and the stock factory bank kept and importable. An empty
+  slot starts from the init sound. A 64-sound bank for slots 1-64 is in `presets/` (`presets/install.sh`), built to
+  show the engine off; the editor loads and saves the same JSON.
 - **MIDI:** USB MIDI (also firmware updates without touching the panel) and the 5-pin MIDI IN socket for notes,
-  controllers and clock. Or an internal clock with tap tempo, or the SYNC IN jack; the Sync Clock LED shows the beat.
+  controllers and clock, on every channel or one. Or an internal clock with tap tempo, or the SYNC IN jack; the Sync Clock LED shows the beat.
 - **A browser editor (WebMIDI):** sound, mod matrix, patches, factory bank, backup, tuning, plus a keyboard and a
   MIDI router.
 
@@ -231,7 +234,7 @@ attack, -12 semitones, or a clock division.
 | Memory | Holds |
 |---|---|
 | Flash, sectors 0-3 | The bootloader, write-protected and never touched |
-| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 70 kB in 0.9.0; the bootloader erases sectors 4 and 5 on every update |
+| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 72 kB in 0.9.1; the bootloader erases sectors 4 and 5 on every update |
 | EEPROM `0x00000`-`0x17FFF` | 128 patches, 768 bytes each: both layers' knobs and settings, 32 mod routes, a name and the step sequence with its own checksum |
 | EEPROM, after the patches | The stock factory bank, exactly where the stock firmware left it (importable); the global block (CC numbers, clock source and tempo); the tuning tables |
 
@@ -311,7 +314,7 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 ## Install
 
 ```bash
-build/pro800 install build/pro800-0.9.0.syx --yes
+build/pro800 install build/pro800-0.9.1.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`

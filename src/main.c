@@ -45,8 +45,9 @@
 //                          curves per layer (2 bits per envelope: 0 analog, 1 linear, 2 swell), 50-57 envelope delays,
 //                          58-65 holds (0-99; layer 1 amp, filter, Env 3, Env 4, then layer 2; all 0.9.0), 66 layer
 //                          1's voices in the two-layer modes (1-7, 0 automatic; 0.9.0), 67-74 cycle counts (0
-//                          endless, 1-99; in the same order; 0.9.0), 75-76 stage times in note values per layer (a
-//                          bit per envelope; 0.9.0); read-only after: env select, preset mode, patch, morph
+//                          endless, 1-99; in the same order; 0.9.1), 75-76 stage times in note values per layer (a
+//                          bit per envelope; 0.9.1), 77 the MIDI channel (0 every channel, 1-16; 0.9.1); read-only
+//                          after: env select, preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
