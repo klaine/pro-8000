@@ -125,14 +125,17 @@ int synth_lfo2_dests(int layer);
 void synth_set_lfo2_dests(int layer, int bits);
 int synth_lfo2_toggle(int s);
 
-// Cycling envelopes per layer (ENV_CYCLE_* bits): attack, hold, fall, rest, again while the key is held.
+// Cycling envelopes per layer (ENV_CYCLE_* bits): attack, hold, fall, rest, again while the key is held (from key
+// up: after the key is let go), endlessly or for a count of cycles per envelope (0 = endless, 1-99).
 int synth_env_cycle(int layer);
 void synth_set_env_cycle(int layer, int bits);
+int synth_env_count(int layer, int env);
+void synth_set_env_count(int layer, int env, int count);
 // Envelope modes per layer, a bit per envelope (ENV_CYCLE_* order). Key-up trigger: the envelope starts when the key
-// is let go (its delay, attack, hold, then the decay for its time, then the release from the sustain level), stays
-// at rest while the key is down, and fades with its release at the next key. DAHDSR: a delay before the attack and a
-// hold at the top (0-99 each, on the attack's time curve: synth_env_extra_time()). Cycling takes an envelope over:
-// neither applies while it cycles.
+// is let go (its delay, attack, hold, then the decay for its time, then the release from the sustain level; cycling,
+// its cycles), stays at rest while the key is down, and fades with its release at the next key. DAHDSR: a delay
+// before the attack and a hold at the top (0-99 each, on the attack's time curve: synth_env_extra_time()); it
+// doesn't apply while an envelope cycles. The trigger applies in every mode.
 int synth_env_trigger(int layer);
 void synth_set_env_trigger(int layer, int bits);
 int synth_env_dahdsr(int layer);
@@ -142,6 +145,17 @@ void synth_set_env_delay(int layer, int env, int value);
 int synth_env_hold(int layer, int env);  // 0-99
 void synth_set_env_hold(int layer, int env, int value);
 float synth_env_extra_time(int value);   // a delay or hold (0-99) in seconds
+// Stage times in note values per layer, a bit per envelope: its time knobs (attack, decay, release; hold and rest
+// while it cycles) and its delay and hold step through 0 and the clock divisions, 1/32 .. 8 bars, at the clock's
+// tempo, instead of seconds. Synced cycling keeps its shares of the cycle instead.
+int synth_env_tempo(int layer);
+void synth_set_env_tempo(int layer, int bits);
+int synth_env_note_step(float knob);       // a knob (or delay / hold / 99) as a step: 0, or 1 = 1/32 .. 15 = 8 bars
+float synth_env_note_seconds(int step);    // that step's time at the tempo now
+const char *synth_env_note_name(int step); // "0", "1-32" .. "8bAr"
+// For the display: the step an envelope knob (stage 0-3) at `knob` sets on the edit layer; -1 if that stage isn't a
+// note value (seconds, or the sustain level)
+int synth_env_tempo_step(int env, int stage, float knob);
 // Envelope curves per layer, 2 bits per envelope (envelope e at bits 2e): analog (an RC attack, exponential decay
 // and release, the default), linear (straight lines, each stage full scale in its time) or swell (an attack that
 // starts slowly and rises faster, the analog decay and release).

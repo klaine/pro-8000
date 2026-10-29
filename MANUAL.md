@@ -20,7 +20,8 @@ PRO-8000 replaces the stock PRO-800 firmware. Same front panel, different engine
 - two layers (split, stack or by MIDI channel);
 - two LFOs per layer with nine shapes (a programmable step pattern and noise among them), clock sync and per-voice
   retrigger;
-- four envelopes per voice (ADSR or DAHDSR, from key down or key up, three curves, cycling);
+- four envelopes per voice (ADSR, DAHDSR or cycling for a count of cycles, from key down or key up, timed in seconds
+  or note values, three curves);
 - a 16-route mod matrix per layer;
 - a step sequence per patch, played from a key and transposed by it, with up to four automation lanes;
 - autotune that keeps every oscillator within about a cent;
@@ -284,42 +285,53 @@ before every one of those four steps, so a note starts within about 0.3-0.6 ms o
 LFOs into pitch, cutoff and the VCA move at that rate too; each voice's pitch goes out once a pass with its value at
 that moment, and the knobs and other routes update once a pass.
 
-### Envelope modes, curves, delay and hold
+### Envelope modes, triggers, curves, delay and hold
 
 Settings → key 6 sets one envelope: `En.A` (amp), `En.F` (filter), `En.3` or `En.4`. It opens on the envelope the
-filter ADSR knobs edit, or amp; press 6 again for the next one. VALUE chooses its mode:
+filter ADSR knobs edit, or amp; press 6 again for the next one. Arp Up-Dn steps through the envelope's five values,
+and from the last back to the first:
 
-| Value | Mode |
+| Page | VALUE |
 |---|---|
-| `AdSr` | ADSR from the key going down (the default) |
-| `dAHd` | DAHDSR: a delay before the attack and a hold at the top before the decay |
-| `UP.AS` | ADSR from key up: the envelope runs when you let go of the key |
-| `UP.dA` | DAHDSR from key up |
-| `CYCL` | Cycling on its own times (below) |
-| `8bAr` … `1-32` | Synced cycling (below) |
+| `En.A` … mode | `AdSr` (ADSR, the default), `dAHd` (DAHDSR: a delay before the attack and a hold at the top before the decay), `CYCL` (cycling on its own times, below), `8bAr` … `1-32` (synced cycling, below) |
+| `tr.A` … trigger | `dn` (from the key going down, the default) or `UP` (from key up), in any mode |
+| `tI.A` … timing | `SEC` (the time knobs in seconds, the default) or `SYnC` (in note values at the tempo, below) |
+| `CU.A` … curve | `AnLG`, `LIn`, `SUEL` |
+| `Cn.A` … cycles | `LOOP` (endless, the default) or `1` … `99`: how many cycles a cycling envelope runs |
 
 - **Delay and hold:** while page 6 is open, the ATT knob sets the envelope's delay (`dLY`) and the DEC knob its hold
   (`HoLd`), each 0-10 s on the attack's curve, by how far you turn them; the display shows the time. Meanwhile those
   knobs leave the attack and decay alone (they pick up again after). They count in the `dAHd` modes only. During
   the delay the level goes on falling as in a release, so a retriggered note doesn't click.
-- **Key up:** while the key is down the envelope rests at zero. When you let go it runs its delay, attack and hold,
-  then the decay for its time towards the sustain level, then the release. A new note on that voice fades it with
-  the release time. Use it for a sound that starts when you lift your finger: a key-up amp envelope plays only after
+- **Key up** (`UP`): while the key is down the envelope rests at zero. When you let go it runs its delay, attack and
+  hold, then the decay for its time towards the sustain level, then the release. A new note on that voice fades it
+  with the release time. Use it for a sound that starts when you lift your finger: a key-up amp envelope plays only after
   the key (a release "thump"), a key-up Env 3 → CUTOFF opens the filter as a note ends. With sustain at 0 it's an
   attack-decay blip; with sustain up, DEC is how long it holds there before the release.
-- **Curve:** on page 6 Arp Up-Dn switches to the envelope's curve (`CU.A` …), and back. VALUE: `AnLG` (analog: the
+- **Timing** (`tI.A` …): with `SYnC` the envelope's time knobs step through note values instead of seconds: `0`,
+  then `1-32`, `16t`, `1-16`, `16d`, `1-8t`, `1-8`, `1-8d`, `1-4t`, `1-4`, `1-4d`, `1-2`, `1bAr` … `8bAr` (the
+  synced LFO's divisions), at the clock's tempo (the MIDI clock, the internal tempo or SYNC IN; 120 BPM until a MIDI
+  clock arrives). Turning one shows its note value. That's the attack, decay and release (sustain stays a level), the
+  delay and hold, and while it cycles, the attack, hold, fall and rest. Times follow tempo changes. Synced cycling
+  (a division in the mode) keeps its own scheme, where the knobs share out one division; the timing setting doesn't
+  apply to it. A decay or release in note values is the time to fade away (-60 dB), like the seconds.
+- **Curve** (`CU.A` …): `AnLG` (analog: the
   concave attack and exponential decay and release described above, the default), `LIn` (linear: straight lines;
   each stage covers full scale in its time, so a release from half way takes half of it) or `SUEL` (swell: an attack
   that starts slowly and rises faster, the analog decay and release).
 
-All of these are per layer and stored in the patch. On the web page, each envelope has a Mode menu, a Curve menu and,
-in the DAHDSR modes, Delay and Hold knobs.
+All of these are per layer and stored in the patch. On the web page, each envelope has a Mode menu, a Trigger menu
+(Key down / Key up), a Timing menu (Seconds / Note values), a Curve menu, Delay and Hold knobs in DAHDSR mode and a
+Cycles knob while it cycles.
+
+In the first 0.9.0 builds key up was a mode of its own (`UP.AS`, `UP.dA`) and cycling ignored it. Patches saved by
+those load as they sounded: a cycling envelope's key-up trigger is cleared when such a patch loads.
 
 ### Cycling envelopes
 
 Any envelope can cycle while the key is held, like a one-shot LFO per note that restarts itself: on page 6 choose
-`CYCL` (cycling on its own times) or a clock division (`8bAr` … `1-32`, synced cycling, below). Cycling takes the
-envelope over: DAHDSR and key up don't apply while it cycles; the curve does.
+`CYCL` (cycling on its own times) or a clock division (`8bAr` … `1-32`, synced cycling, below). DAHDSR's delay and
+hold don't apply while it cycles; the curve and the trigger do.
 
 While it cycles, the knobs mean:
 
@@ -330,11 +342,26 @@ While it cycles, the knobs mean:
 | DEC | Fall: the drop to zero (3 ms-20 s) |
 | REL | Rest: time at zero before the next attack (0-10 s) |
 
-On key up the envelope falls to zero with the DEC time. One cycle lasts attack + hold + fall + rest. Some ideas:
+On key up the envelope falls to zero with the DEC time. One cycle lasts attack + hold + fall + rest.
+
+**Count** (`Cn.A` …): `LOOP` cycles for as long as the key is held. A number runs that many cycles and then
+rests at zero until you let go, however long you hold: `1` is a one-shot attack-hold-fall, `3` a triple hit.
+
+**From key up** (`tr.A` … `UP`): the cycles start when you let go of the key, and the envelope rests at zero while it
+is down. With a count, it runs that many cycles and ends, so a key-up cycling amp envelope plays a burst of repeats
+after each note (an echo-like tail; the rest sets the gap between them). With `LOOP` it goes on cycling until the
+next note on that voice fades it, or the voice is taken for another note: give an amp envelope a count unless you
+want notes that never end.
+
+Some ideas:
 
 - A cycling amp envelope with short attack and fall makes rhythmic gating that restarts with every note.
 - A cycling Env 3 → CUTOFF gives each note its own filter "wah" pattern.
 - Cycling Env 4 → pitch A with a long rest gives a recurring blip.
+- An amp envelope synced to `1-16`, count 4, from key up: four sixteenth-note repeats after each note.
+- Env 3, count 1, from key up, → CUTOFF or pitch: one shaped blip as each note ends.
+- `CYCL` with timing `SYnC`: attack `1-16`, hold `0`, fall `1-8`, rest `1-4` is a cycle of a half note with each
+  stage on the grid; unlike synced cycling, each stage keeps its own note value as you change the others.
 
 ### Synced cycling
 
@@ -345,7 +372,7 @@ display shows its share of the cycle in percent; the web page shows all four.
 
 The cycle restarts with each key and follows tempo changes, so it stays on the beat however long you hold. A
 synced amp envelope at `1-16`, with a short attack, some hold and a longer fall, is a pulsing gate with shaped
-edges. On key up it falls with its share of the cycle.
+edges. On key up it falls with its share of the cycle. A count counts whole cycles of the division.
 
 ## Sequencer
 
@@ -554,7 +581,7 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 | 3 | `LAYr`: layer mode (Arp Up-Dn: `Lr.Uo`, the voices per layer) | `OFF`, `SPLt`, `StAC`, `CHAn`, `8CH`, `nPE`; `AUto`, `1-7` … `7-1` |
 | 4 | `SPLt`: split note | 0-127, or play a note |
 | 5 | `trAC`: keyboard tracking (also the switch) | `OFF`, `HALF`, `FULL` |
-| 6 | `En.A` / `En.F` / `En.3` / `En.4`: envelope mode (6 again: next one; Arp Up-Dn: its curve, `CU.A` …; ATT / DEC: delay / hold) | `AdSr`, `dAHd`, `UP.AS`, `UP.dA`, `CYCL`, `8bAr` … `1-32`; curve `AnLG`, `LIn`, `SUEL` |
+| 6 | `En.A` / `En.F` / `En.3` / `En.4`: envelope mode (6 again: next one; Arp Up-Dn: its trigger `tr.A`, timing `tI.A`, curve `CU.A`, cycles `Cn.A`; ATT / DEC: delay / hold) | `AdSr`, `dAHd`, `CYCL`, `8bAr` … `1-32`; trigger `dn`, `UP`; timing `SEC`, `SYnC`; curve `AnLG`, `LIn`, `SUEL`; cycles `LOOP`, `1` … `99` |
 | 7 | `bEnd`: pitch bend range | 1-12 semitones (default 2) |
 | 8 | `dEtU`: unison detune, cents between the outermost voices | 0-50 (default 14) |
 | 9 | `UOIC`: the edit layer's voice mode | `POLY`, `nono`, `LEG` |
@@ -580,7 +607,7 @@ browser tab: coming back reconnects and restores the routing.
 
 | Tab | What it does |
 |---|---|
-| **Sound** | On top, the synth's own faceplate: oscillators, poly-mod, LFO-MOD (with a rotary for LFO 1's nine shapes), noise, glide, filter (its Env select switch is the keyboard-tracking switch, as on the synth: down, middle and up make the four ADSR knobs edit the filter envelope, Env 3 or Env 4; it follows the synth's switch, and a click holds until you move that), amplifier, Macro 1 (M TUNE) and volume, with knurled knobs and bat-lever switches laid out as on the synth. Values show under the pointer, or always with the Values switch. A red arc around a knob is its modulation range: how far the edit layer's mod routes can move it from where it stands (both ways for sources that swing either side of the middle, one way for 0-to-1 sources); hover for the routes. Each oscillator section shows its waveform (as measured at the output: the enabled waves added at their own levels and pulse width, the saw falling), the filter section its response curve (above its knobs) and the envelope its ADSR knobs are editing, and the amplifier its envelope; under each envelope picture are its Mode menu (ADSR / DAHDSR, either from key up / cycle / synced cycle), Curve menu, Delay and Hold knobs (DAHDSR) and ⇆ to copy it from the other layer (in the filter section they follow the Env select switch). Below it, "Beyond the panel": Env 3 and Env 4 (picture, Mode, knobs, ⇆), LFO 1 and LFO 2 (shape, rate, amount, delay and fade, sync, retrigger, routing, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape; LFO 1's rate, amount, shape and routing are also on the faceplate), voice settings (layers, filter keytracking, voice mode and note priority, drift, scale and root, morph, Mutate, bend, detune), the mod matrix (with a knob for each macro's offset: its ring is what the routes into the macro can add, the text beside it what feeds and what it drives) and the sequencer. Drag a knob up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch; click the patch's name there to rename it (Enter or clicking away saves it to the slot, Escape leaves it). Layer 1 / Layer 2 are in the header; knobs, depth bars and the mod matrix edit that layer. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. Amber knobs are shared by both layers (mixer levels, noise, resonance, PW A / B, poly-mod osc B, volume). |
+| **Sound** | On top, the synth's own faceplate: oscillators, poly-mod, LFO-MOD (with a rotary for LFO 1's nine shapes), noise, glide, filter (its Env select switch is the keyboard-tracking switch, as on the synth: down, middle and up make the four ADSR knobs edit the filter envelope, Env 3 or Env 4; it follows the synth's switch, and a click holds until you move that), amplifier, Macro 1 (M TUNE) and volume, with knurled knobs and bat-lever switches laid out as on the synth. Values show under the pointer, or always with the Values switch. A red arc around a knob is its modulation range: how far the edit layer's mod routes can move it from where it stands (both ways for sources that swing either side of the middle, one way for 0-to-1 sources); hover for the routes. Each oscillator section shows its waveform (as measured at the output: the enabled waves added at their own levels and pulse width, the saw falling), the filter section its response curve (above its knobs) and the envelope its ADSR knobs are editing, and the amplifier its envelope; under each envelope picture are its Mode menu (ADSR / DAHDSR / cycle / synced cycle), Trigger menu (key down / key up), Timing menu (seconds / note values), Curve menu, Delay and Hold knobs (DAHDSR), Cycles knob (cycling) and ⇆ to copy it from the other layer (in the filter section they follow the Env select switch). Below it, "Beyond the panel": Env 3 and Env 4 (picture, Mode, knobs, ⇆), LFO 1 and LFO 2 (shape, rate, amount, delay and fade, sync, retrigger, routing, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape; LFO 1's rate, amount, shape and routing are also on the faceplate), voice settings (layers, filter keytracking, voice mode and note priority, drift, scale and root, morph, Mutate, bend, detune), the mod matrix (with a knob for each macro's offset: its ring is what the routes into the macro can add, the text beside it what feeds and what it drives) and the sequencer. Drag a knob up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch; click the patch's name there to rename it (Enter or clicking away saves it to the slot, Escape leaves it). Layer 1 / Layer 2 are in the header; knobs, depth bars and the mod matrix edit that layer. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. Amber knobs are shared by both layers (mixer levels, noise, resonance, PW A / B, poly-mod osc B, volume). |
 | **Device cheat sheet** | How to reach everything this firmware adds from the synth's own panel: the remapped buttons, the display, patches, layers, LFOs, envelopes, mod assign with its source keys and destinations, the settings menu, MIDI and recovery, and what's web-only. |
 | **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 400 as a `.bin`. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. The browser remembers the router's input and its clock box, and routes again whenever that input is there (after a reload, or when it's plugged back in); choose (off) to forget it. |

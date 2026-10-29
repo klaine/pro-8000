@@ -18,7 +18,10 @@
 //   96  pots[2][26] (u16)         layer 1, then layer 2
 //   200 extra[2][10] (u16)        Env 3 and Env 4 ADSR, LFO 2 rate and amount, per layer
 //   240 routes[2][16]             source, destination, depth (int8) per layer
-//   336 reserved to 508
+//   336 cycle counts[2][4] (0 = endless), 344 1 if the key-up triggers apply to cycling envelopes too (both 0.9.0;
+//       0: a record from an earlier 0.9.0 build, where cycling won, so its cycling envelopes' key-up bits are cleared at load)
+//   345 stage times in note values[2] (a bit per envelope; 0.9.0)
+//   347 reserved to 508
 //   508 checksum (u32) over 0-507
 //   512 "P8S2", 516 length, lanes, division, bpm, flags, swing, smooth, arp, then from 524 each step's note,
 //       velocity, gate, extra (length × 4 bytes) and each lane's values (length bytes each); 764 checksum over
@@ -74,6 +77,9 @@
 #define OFF_POTS 96
 #define OFF_EXTRA 200
 #define OFF_ROUTES 240
+#define OFF_ENV_COUNT 336
+#define OFF_UP_CYCLES 344
+#define OFF_ENV_TEMPO 345
 #define OFF_CHECKSUM 508
 #define SEQ_OFF 512
 #define SEQ_HEADER 4
@@ -243,7 +249,10 @@ int store_load_patch(int n, patch_t *patch)
         patch->lfo2_dests[l] = b[OFF_LFO2_DESTS + l];
         patch->env_cycle[l] = b[OFF_CYCLE + l];
         patch->env_trigger[l] = b[OFF_ENV_TRIGGER + l];
+        if (!b[OFF_UP_CYCLES])
+            patch->env_trigger[l] &= (uint8_t)~patch->env_cycle[l];
         patch->env_dahdsr[l] = b[OFF_ENV_DAHDSR + l];
+        patch->env_tempo[l] = b[OFF_ENV_TEMPO + l];
         patch->env_curve[l] = b[OFF_ENV_CURVE + l];
         for (int w = 0; w < 2; w++) {
             patch->step_count[l][w] = b[OFF_STEP_COUNTS + 2 * l + w];
@@ -255,6 +264,7 @@ int store_load_patch(int n, patch_t *patch)
             patch->env_sync[l][e] = b[OFF_ENV_SYNC + 4 * l + e];
             patch->env_delay[l][e] = b[OFF_ENV_DELAY + 4 * l + e];
             patch->env_hold[l][e] = b[OFF_ENV_HOLD + 4 * l + e];
+            patch->env_count[l][e] = b[OFF_ENV_COUNT + 4 * l + e];
         }
         for (int i = 0; i < POT_COUNT; i++)
             patch->pots[l][i] = i == POT_MASTER_VOL ? 0 : get16(b + OFF_POTS + 2 * (l * POT_COUNT + i));
@@ -294,12 +304,14 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_BEND] = patch->bend_range;
     b[OFF_DETUNE] = patch->detune;
     b[OFF_LAYER_VOICES] = patch->layer_voices;
+    b[OFF_UP_CYCLES] = 1;
     put16(b + OFF_SWITCHES, patch->switches);
     for (int l = 0; l < 2; l++) {
         b[OFF_LFO2_DESTS + l] = patch->lfo2_dests[l];
         b[OFF_CYCLE + l] = patch->env_cycle[l];
         b[OFF_ENV_TRIGGER + l] = patch->env_trigger[l];
         b[OFF_ENV_DAHDSR + l] = patch->env_dahdsr[l];
+        b[OFF_ENV_TEMPO + l] = patch->env_tempo[l];
         b[OFF_ENV_CURVE + l] = patch->env_curve[l];
         for (int w = 0; w < 2; w++) {
             b[OFF_STEP_COUNTS + 2 * l + w] = patch->step_count[l][w];
@@ -311,6 +323,7 @@ int store_save_patch(int n, const patch_t *patch)
             b[OFF_ENV_SYNC + 4 * l + e] = patch->env_sync[l][e];
             b[OFF_ENV_DELAY + 4 * l + e] = patch->env_delay[l][e];
             b[OFF_ENV_HOLD + 4 * l + e] = patch->env_hold[l][e];
+            b[OFF_ENV_COUNT + 4 * l + e] = patch->env_count[l][e];
         }
         for (int i = 0; i < POT_COUNT; i++)
             put16(b + OFF_POTS + 2 * (l * POT_COUNT + i), i == POT_MASTER_VOL ? 0 : patch->pots[l][i]);

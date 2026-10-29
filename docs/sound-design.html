@@ -116,7 +116,7 @@
     <tbody>
       <tr><td><b>Sounds at once</b></td><td>One</td><td>Two layers: split, stacked, or by MIDI channel</td></tr>
       <tr><td><b>LFOs</b></td><td>One</td><td>Two per layer, nine shapes, a delay and fade-in per note, locked to the clock in 15 divisions, optionally one per voice</td></tr>
-      <tr><td><b>Envelopes per voice</b></td><td>Two (filter, amp)</td><td>Four: ADSR or DAHDSR, from key down or key up, three curves, and any of them can loop, freely or in time</td></tr>
+      <tr><td><b>Envelopes per voice</b></td><td>Two (filter, amp)</td><td>Four: ADSR or DAHDSR, from key down or key up, in seconds or note values, three curves, and any of them can loop, freely or in time, endlessly or a count of cycles</td></tr>
       <tr><td><b>Modulation</b></td><td>The panel's fixed paths</td><td>The same paths, plus 16 routes per layer from 27 sources to 46 destinations, and two macros</td></tr>
       <tr><td><b>Per-note expression</b></td><td>Velocity, aftertouch</td><td>Poly aftertouch per voice; MPE with per-note bend, pressure and slide; eight mono channels, each with its own bend and pressure</td></tr>
       <tr><td><b>Sequencing</b></td><td>An arpeggiator and two sequences</td><td>A sequence inside every patch, played and transposed from the keys, with probability, ratchets, an arpeggiator and 4 automation lanes; steps can be recorded from the panel</td></tr>
@@ -232,12 +232,13 @@
   </figure>
   <h3>Envelopes that start when you let go</h3>
   <div class="prose">
-    <p><kbd>Settings</kbd> → <kbd>6</kbd> shows one envelope at a time (<span class="led">En.A</span>, <span class="led">En.F</span>, <span class="led">En.3</span>, <span class="led">En.4</span>; press 6 again for the next) and VALUE picks its mode. Besides the classic ADSR, each envelope can be a <strong>DAHDSR</strong>, with a delay before the attack and a hold at the top, or run from key <em>up</em>: it rests at zero while you hold the key and plays its whole shape when you release it. On the same page, <kbd>Arp Up-Dn</kbd> switches to the envelope's <strong>curve</strong>: the analog one, straight lines, or a swell that starts slowly and accelerates. All of it is per layer and saved in the patch.</p>
+    <p><kbd>Settings</kbd> → <kbd>6</kbd> shows one envelope at a time (<span class="led">En.A</span>, <span class="led">En.F</span>, <span class="led">En.3</span>, <span class="led">En.4</span>; press 6 again for the next) and VALUE picks its mode. Besides the classic ADSR, each envelope can be a <strong>DAHDSR</strong>, with a delay before the attack and a hold at the top. <kbd>Arp Up-Dn</kbd> steps on to the envelope's <strong>trigger</strong> (<span class="led">tr.A</span>…): <span class="led">dn</span>, from the key going down, or <span class="led">UP</span>, from key up: it rests at zero while you hold the key and plays its whole shape when you release it, in any mode, cycling included. Then its <strong>timing</strong> (<span class="led">tI.A</span>…): <span class="led">SEC</span>, or <span class="led">SYnC</span>, where the time knobs step through note values (0, 1/32 … 8 bars) at the tempo, so a decay can be exactly an eighth note and stay one when the tempo changes. Then its <strong>curve</strong> (<span class="led">CU.A</span>…): the analog one, straight lines, or a swell that starts slowly and accelerates. Last, the <strong>cycles</strong> (<span class="led">Cn.A</span>…) of a cycling envelope: <span class="led">LOOP</span>, or a count of 1 to 99, after which it rests. All of it is per layer and saved in the patch.</p>
   </div>
   <figure>
     <div class="fig">
       <div class="controls">
-        <div class="seg" id="em-mode" role="group" aria-label="Mode"><button type="button" data-v="adsr" aria-pressed="true">AdSr</button><button type="button" data-v="dahdsr" aria-pressed="false">dAHd</button><button type="button" data-v="up" aria-pressed="false">UP.AS</button><button type="button" data-v="up-dahdsr" aria-pressed="false">UP.dA</button></div>
+        <div class="seg" id="em-mode" role="group" aria-label="Mode"><button type="button" data-v="adsr" aria-pressed="true">AdSr</button><button type="button" data-v="dahdsr" aria-pressed="false">dAHd</button></div>
+        <div class="seg" id="em-trig" role="group" aria-label="Trigger"><button type="button" data-v="dn" aria-pressed="true">dn</button><button type="button" data-v="up" aria-pressed="false">UP</button></div>
         <div class="seg" id="em-curve" role="group" aria-label="Curve"><button type="button" data-v="analog" aria-pressed="true">AnLG</button><button type="button" data-v="linear" aria-pressed="false">LIn</button><button type="button" data-v="swell" aria-pressed="false">SUEL</button></div>
       </div>
       <div class="sliders" id="em-sliders">
@@ -247,13 +248,14 @@
       <div class="svg-wrap" style="--min:560px"><svg id="em-svg" viewBox="0 0 880 230" role="img" aria-label="One envelope in the chosen mode and curve, with the time the key is held shaded"></svg></div>
       <p class="desc" id="em-desc"></p>
     </div>
-    <figcaption><b>Figure 6.</b> The envelope modes and curves, drawn by the firmware's formulas. The shaded band is the time the key is held. In the DAHDSR modes the ATT and DEC knobs set the delay and hold while page 6 is open (0–10 s each); the sliders here stand in for them.</figcaption>
+    <figcaption><b>Figure 6.</b> The envelope modes, triggers and curves, drawn by the firmware's formulas. The shaded band is the time the key is held. In the DAHDSR modes the ATT and DEC knobs set the delay and hold while page 6 is open (0–10 s each); the sliders here stand in for them.</figcaption>
   </figure>
   <div class="prose">
     <p>What they're for:</p>
     <ul>
       <li>A <strong>key-up amp envelope</strong> is a note that sounds only after the key: a release "thump", or on a second layer, a note that answers the one you played.</li>
       <li>A <strong>key-up Env 3 → CUTOFF</strong> opens the filter as a note ends, so the tail blooms instead of fading.</li>
+      <li>A <strong>key-up cycling amp envelope with a count</strong> plays a burst of repeats after each note: synced at <span class="led">1-16</span> with 4 cycles, four sixteenths that follow the key's release, like a tempo echo that belongs to each voice.</li>
       <li>A <strong>DAHDSR with a long delay</strong> on Env 4 → pitch is a pitch blip that arrives late in a held note.</li>
       <li>The <strong>swell curve</strong> on a pad's amp attack rises like a bowed string; the <strong>linear</strong> curve gives even, synthetic fades.</li>
     </ul>
@@ -262,6 +264,7 @@
       <li>A synced amp envelope at <span class="led">1-16</span>: every held chord pulses in sixteenths, with shaped edges and on the beat.</li>
       <li>A cycling Env 3 routed to <b>CUTOFF</b>: each note gets its own filter "wah" that restarts with the note.</li>
       <li>A cycling Env 4 routed to <b>pitch A</b> with a long rest: a recurring blip, like a bird call inside a pad.</li>
+      <li>A count of 2 or 3 on a cycling filter envelope: each note gets a short ratchet of filter hits, then settles closed.</li>
       <li>Env 3 with a slow attack routed to <b>LFO AMOUNT</b>: vibrato that fades in on long notes only (or use the LFO's own delay and fade, Shift + the LFO knobs).</li>
     </ul>
   </div>
@@ -504,7 +507,7 @@
       <li><kbd>Arp Assign</kbd>, <kbd>7</kbd>, touch CUTOFF, VALUE 40.</li></ol>
       <p>Each note gets its own wah cycle, out of step with the others, so chords ripple.</p></div>
     <div class="card"><span class="tag">Sound · key-up envelope</span><h4>Release thump</h4>
-      <ol><li><kbd>Settings</kbd> <kbd>6</kbd> → <span class="led">En.A</span>, VALUE to <span class="led">UP.AS</span>.</li>
+      <ol><li><kbd>Settings</kbd> <kbd>6</kbd> → <span class="led">En.A</span>, <kbd>Arp Up-Dn</kbd> → <span class="led">tr.A</span>, VALUE to <span class="led">UP</span>.</li>
       <li>Amp envelope: attack short, decay 300 ms, sustain 0.</li>
       <li>Optional: in stack mode, give layer 2 this envelope and layer 1 a normal one.</li></ol>
       <p>Silent while you hold the key, a note when you let go: the second layer answers the first.</p></div>
@@ -847,7 +850,7 @@ function hashRand(run, n) { var x = Math.sin(run * 127.1 + n * 311.7) * 43758.54
 
 // Figure 6: envelope modes and curves
 function envLevel(t, o) {
-  var dah = o.mode.indexOf("dahdsr") >= 0, up = o.mode.indexOf("up") === 0;
+  var dah = o.mode === "dahdsr", up = o.trig === "up";
   var A = o.att, D = o.dec, R = o.rel, dl = dah ? o.delay : 0, hd = dah ? o.hold : 0;
   function attack(x) {
     return o.curve === "linear" ? x : o.curve === "swell" ? (Math.pow(2, 5 * x) - 1) / 31 : Math.min(1, 1.5 * (1 - Math.pow(3, -x)));
@@ -875,13 +878,12 @@ function envLevel(t, o) {
 }
 (function () {
   var svg = document.getElementById("em-svg"), desc = document.getElementById("em-desc");
-  var o = { curve: "analog", mode: "adsr", on: 0.05, off: 0.48, att: 0.08, dec: 0.14, sus: 0.5, rel: 0.12, delay: 0, hold: 0 };
+  var o = { curve: "analog", mode: "adsr", trig: "dn", on: 0.05, off: 0.48, att: 0.08, dec: 0.14, sus: 0.5, rel: 0.12, delay: 0, hold: 0 };
   var inputs = Array.prototype.slice.call(document.querySelectorAll("#em-sliders input"));
   var DESC = {
     adsr: "<b>AdSr:</b> the classic. The attack starts when the key goes down, the release when it comes up.",
     dahdsr: "<b>dAHd:</b> DAHDSR. A delay before the attack (the level keeps falling from wherever it was, so a retriggered note doesn't click) and a hold at the top before the decay. On the synth, the ATT and DEC knobs set the delay and hold while page 6 is open.",
-    up: "<b>UP.AS:</b> from key up. Nothing while you hold the key. When you let go, the envelope runs: attack, then the decay towards the sustain level for the DEC time, then the release. A sound that starts when you lift your finger.",
-    "up-dahdsr": "<b>UP.dA:</b> from key up, with the delay and hold: the note's answer comes a moment after the key is released and holds before it fades."
+    up: " <b>UP:</b> from key up. Nothing while you hold the key. When you let go, the envelope runs: its delay and hold if it has them, the attack, then the decay towards the sustain level for the DEC time, then the release. A sound that starts when you lift your finger."
   };
   function knobSeconds(k) { return 10 * (Math.pow(2, 12 * k) - 1) / 4095; }
   function draw() {
@@ -890,7 +892,7 @@ function envLevel(t, o) {
       o[i.dataset.k] = k * 0.16;
       i.nextElementSibling.textContent = sec < 1 ? Math.round(sec * 1000) + " ms" : sec.toFixed(2) + " s";
     });
-    var dah = o.mode.indexOf("dahdsr") >= 0;
+    var dah = o.mode === "dahdsr";
     inputs.forEach(function (i) { i.disabled = !dah; i.parentNode.style.opacity = dah ? 1 : 0.45; });
     clear(svg);
     var X = function (t) { return 40 + t * 820; }, Y = function (l) { return 190 - l * 150; };
@@ -905,10 +907,11 @@ function envLevel(t, o) {
       S("line", { x1: X(m[0]), x2: X(m[0]), y1: 24, y2: 194, class: "ln dash" }, svg);
       S("text", { x: X(m[0]) + 5, y: 214, class: "t-xs", text: m[1] }, svg);
     });
-    desc.innerHTML = DESC[o.mode];
+    desc.innerHTML = DESC[o.mode] + (o.trig === "up" ? DESC.up : "");
   }
   inputs.forEach(function (i) { i.addEventListener("input", draw); });
   segmented(document.getElementById("em-mode"), function (v) { o.mode = v; draw(); });
+  segmented(document.getElementById("em-trig"), function (v) { o.trig = v; draw(); });
   segmented(document.getElementById("em-curve"), function (v) { o.curve = v; draw(); });
   draw();
 })();

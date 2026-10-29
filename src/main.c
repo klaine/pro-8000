@@ -42,8 +42,9 @@
 //                          layer, 46-47 DAHDSR envelopes per layer (a bit per envelope, as cycling), 48-49 envelope
 //                          curves per layer (2 bits per envelope: 0 analog, 1 linear, 2 swell), 50-57 envelope delays,
 //                          58-65 holds (0-99; layer 1 amp, filter, Env 3, Env 4, then layer 2; all 0.9.0), 66 layer
-//                          1's voices in the two-layer modes (1-7, 0 automatic; 0.9.0); read-only after: env select,
-//                          preset mode, patch, morph
+//                          1's voices in the two-layer modes (1-7, 0 automatic; 0.9.0), 67-74 cycle counts (0
+//                          endless, 1-99; in the same order; 0.9.0), 75-76 stage times in note values per layer (a
+//                          bit per envelope; 0.9.0); read-only after: env select, preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
@@ -103,7 +104,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 160 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 176 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -339,19 +340,24 @@ static int save_patch(int n)
 // Settings menu: Settings opens and closes it, a number key picks a page, the VALUE knob changes the value. The
 // LFO pages set the LFO that Arp Up-Dn selects ("SYn2" / "trI2" for LFO 2).
 // Key 6 sets one envelope of the edit layer (pressing 6 again moves to the next envelope): its mode (ADSR, DAHDSR,
-// either from key up, cycling free or synced), or with Arp Up-Dn its curve. While the page is open, the ATT and DEC
-// knobs set the envelope's delay and hold (DAHDSR) instead of the attack and decay. Arp Up-Dn on key 3 switches between
-// the layer mode and how the two-layer modes share the voices (layer 1 + layer 2, or automatic).
+// cycling free or synced), and Arp Up-Dn steps on to its trigger (key down or key up), its timing (seconds, or note
+// values at the tempo), its curve and its count of cycles. While the page is open, the ATT and DEC knobs set the envelope's delay and hold (DAHDSR) instead of the
+// attack and decay. Arp Up-Dn on key 3 switches between the layer mode and how the two-layer modes share the voices
+// (layer 1 + layer 2, or automatic).
 enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_CYCLE, PAGE_BEND, PAGE_DETUNE,
        PAGE_VOICE, PAGE_DRIFT, PAGE_COUNT }; // keys 1-9, then 0
 
 static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC", "", "bEnd", "dEtU", "UOIC",
                                                 "drFt"};
-static const char cycle_names[2][4][6] = {{"En.A", "En.F", "En.3", "En.4"}, {"CU.A", "CU.F", "CU.3", "CU.4"}};
+// Page 6's values for an envelope, in Arp Up-Dn's order
+enum { ENV_PAGE_MODE, ENV_PAGE_TRIGGER, ENV_PAGE_TIME, ENV_PAGE_CURVE, ENV_PAGE_COUNT, ENV_PAGES };
+static const char cycle_names[ENV_PAGES][4][6] = {{"En.A", "En.F", "En.3", "En.4"}, {"tr.A", "tr.F", "tr.3", "tr.4"},
+                                                  {"tI.A", "tI.F", "tI.3", "tI.4"}, {"CU.A", "CU.F", "CU.3", "CU.4"},
+                                                  {"Cn.A", "Cn.F", "Cn.3", "Cn.4"}};
 static int cycle_env;  // the envelope page 6 shows (amp, filter, Env 3, Env 4)
-static int alt_page;   // pages 3 and 6: the second value (Arp Up-Dn): the voice share, the envelope's curve
-// Page 6's modes: ADSR and DAHDSR from key down, then from key up, then cycling (free, then each clock division)
-enum { ENV_MODE_KEY_UP = 2, ENV_MODE_CYCLE = 4, ENV_MODE_COUNT = ENV_MODE_CYCLE + 1 + LFO_DIVISIONS };
+static int alt_page;   // pages 3 and 6: the value Arp Up-Dn has chosen: the voice share; ENV_PAGE_*
+// Page 6's modes: ADSR, DAHDSR, then cycling (free, then each clock division)
+enum { ENV_MODE_CYCLE = 2, ENV_MODE_COUNT = ENV_MODE_CYCLE + 1 + LFO_DIVISIONS };
 
 static const char *page_name(int page)
 {
@@ -377,7 +383,12 @@ static int setting_count(int page)
                                            3, 100};           // the edit layer's voice mode, drift 0-99
     if (page == PAGE_LAYERS && alt_page)
         return VOICE_COUNT; // automatic, then layer 1's 1-7
-    return page == PAGE_CYCLE && alt_page ? ENV_CURVE_COUNT : counts[page];
+    if (page == PAGE_CYCLE && alt_page) {
+        static const int env_counts[ENV_PAGES] = {[ENV_PAGE_TRIGGER] = 2, [ENV_PAGE_TIME] = 2, [ENV_PAGE_CURVE] = ENV_CURVE_COUNT,
+                                                  [ENV_PAGE_COUNT] = 100};
+        return env_counts[alt_page];
+    }
+    return counts[page];
 }
 
 static int setting_get(int page)
@@ -393,11 +404,17 @@ static int setting_get(int page)
     case PAGE_DRIFT: return synth_drift();
     case PAGE_CYCLE: {
         int layer = synth_edit_layer();
-        if (alt_page)
+        if (alt_page == ENV_PAGE_TRIGGER)
+            return synth_env_trigger(layer) >> cycle_env & 1;
+        if (alt_page == ENV_PAGE_TIME)
+            return synth_env_tempo(layer) >> cycle_env & 1;
+        if (alt_page == ENV_PAGE_CURVE)
             return synth_env_curve(layer) >> 2 * cycle_env & 3;
+        if (alt_page == ENV_PAGE_COUNT)
+            return synth_env_count(layer, cycle_env);
         if (synth_env_cycle(layer) >> cycle_env & 1)
             return ENV_MODE_CYCLE + synth_env_sync(layer, cycle_env);
-        return (synth_env_trigger(layer) >> cycle_env & 1) * ENV_MODE_KEY_UP + (synth_env_dahdsr(layer) >> cycle_env & 1);
+        return synth_env_dahdsr(layer) >> cycle_env & 1;
     }
     default: return synth_split_note();
     }
@@ -425,15 +442,28 @@ static void setting_set(int page, int value)
     case PAGE_DRIFT: synth_set_drift(value); break;
     case PAGE_CYCLE: {
         int layer = synth_edit_layer(), bit = 1 << cycle_env;
-        if (alt_page) {
+        if (alt_page == ENV_PAGE_TRIGGER) {
+            int trigger = synth_env_trigger(layer);
+            synth_set_env_trigger(layer, value ? trigger | bit : trigger & ~bit);
+            break;
+        }
+        if (alt_page == ENV_PAGE_TIME) {
+            int tempo = synth_env_tempo(layer);
+            synth_set_env_tempo(layer, value ? tempo | bit : tempo & ~bit);
+            break;
+        }
+        if (alt_page == ENV_PAGE_CURVE) {
             int bits = synth_env_curve(layer) & ~(3 << 2 * cycle_env);
             synth_set_env_curve(layer, bits | value << 2 * cycle_env);
             break;
         }
-        if (value < ENV_MODE_CYCLE) { // DAHDSR and the key-up trigger; cycling off
-            int dahdsr = synth_env_dahdsr(layer), trigger = synth_env_trigger(layer);
-            synth_set_env_dahdsr(layer, value & 1 ? dahdsr | bit : dahdsr & ~bit);
-            synth_set_env_trigger(layer, value >= ENV_MODE_KEY_UP ? trigger | bit : trigger & ~bit);
+        if (alt_page == ENV_PAGE_COUNT) {
+            synth_set_env_count(layer, cycle_env, value);
+            break;
+        }
+        if (value < ENV_MODE_CYCLE) { // ADSR or DAHDSR; cycling off
+            int dahdsr = synth_env_dahdsr(layer);
+            synth_set_env_dahdsr(layer, value ? dahdsr | bit : dahdsr & ~bit);
         }
         int cycle = synth_env_cycle(layer);
         synth_set_env_cycle(layer, value >= ENV_MODE_CYCLE ? cycle | bit : cycle & ~bit);
@@ -452,10 +482,22 @@ static void show_setting(int page)
         {"OFF", "HALF", "FULL"},
     };
     if (page == PAGE_CYCLE) {
-        static const char modes[ENV_MODE_CYCLE + 1][6] = {"AdSr", "dAHd", "UP.AS", "UP.dA", "CYCL"};
+        static const char modes[ENV_MODE_CYCLE + 1][5] = {"AdSr", "dAHd", "CYCL"};
         static const char curves[ENV_CURVE_COUNT][5] = {"AnLG", "LIn", "SUEL"};
         int v = setting_get(page);
-        display_text(alt_page ? curves[v] : v > ENV_MODE_CYCLE ? lfo_division_name(v - ENV_MODE_CYCLE - 1) : modes[v]);
+        if (alt_page == ENV_PAGE_TRIGGER)
+            display_text(v ? "UP" : "dn");
+        else if (alt_page == ENV_PAGE_TIME)
+            display_text(v ? "SYnC" : "SEC");
+        else if (alt_page == ENV_PAGE_CURVE)
+            display_text(curves[v]);
+        else if (alt_page == ENV_PAGE_COUNT) {
+            if (v)
+                display_number(v);
+            else
+                display_text("LOOP");
+        } else
+            display_text(v > ENV_MODE_CYCLE ? lfo_division_name(v - ENV_MODE_CYCLE - 1) : modes[v]);
     } else if (page == PAGE_LAYERS && alt_page) {
         int n = synth_layer_voices();
         char text[5] = {(char)('0' + n), '-', (char)('0' + VOICE_COUNT - n), 0};
@@ -1049,9 +1091,12 @@ static uint32_t extra_value_at; // when to show the value (after its name)
 static void show_env_extra(void)
 {
     int layer = synth_edit_layer(), hold = extra_pot == POT_AMP_DEC || extra_pot == POT_FIL_DEC;
+    int value = hold ? synth_env_hold(layer, cycle_env) : synth_env_delay(layer, cycle_env);
     char text[8];
-    format_time(synth_env_extra_time(hold ? synth_env_hold(layer, cycle_env) : synth_env_delay(layer, cycle_env)), text);
-    display_text(text);
+    format_time(synth_env_extra_time(value), text);
+    // in note values when the envelope's stage times are (synced cycling has no delay or hold to show)
+    display_text(synth_env_tempo(layer) >> cycle_env & 1 ? synth_env_note_name(synth_env_note_step((float)value / 99.0f))
+                                                         : text);
     display_until = ms_ticks + 1500;
 }
 
@@ -1240,7 +1285,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index == BUTTON_ARP_UP && value && menu_open
         && (menu_page == PAGE_CYCLE || menu_page == PAGE_LAYERS)) {
-        alt_page = !alt_page; // the envelope page: its mode or its curve; the layer page: the mode or the voice share
+        // the envelope page: its mode, trigger, timing, curve, count; the layer page: the mode or the voice share
+        alt_page = menu_page == PAGE_CYCLE ? (alt_page + 1) % ENV_PAGES : !alt_page;
         display_text(page_name(menu_page));
         display_until = 0;
         show_value_at = ms_ticks + 700;
@@ -1296,6 +1342,14 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             text[2] = share >= 10 ? (char)('0' + share / 10 % 10) : ' ';
             text[3] = (char)('0' + share % 10);
             text[4] = 0;
+        } else if (env_knob(index, &env, &stage) && synth_env_tempo_step(env, stage, knob) >= 0) {
+            const char *name = synth_env_note_name(synth_env_tempo_step(env, stage, knob)); // a note value
+            int n = 0;
+            while (name[n] && n < 4) {
+                text[n] = name[n];
+                n++;
+            }
+            text[n] = 0;
         } else if (env_knob_time(index, knob) >= 0) {
             format_time(env_knob_time(index, knob), text);
         } else if (index == POT_FREQ_A || index == POT_FREQ_B) {
@@ -1472,6 +1526,9 @@ typedef enum {
     SET_ENV_DELAY, // 8 of them, then 8 holds: layer 1 amp, filter, Env 3, Env 4, then layer 2 (0-99)
     SET_ENV_HOLD = SET_ENV_DELAY + 8,
     SET_LAYER_VOICES = SET_ENV_HOLD + 8,                 // layer 1's voices in the two-layer modes, 1-7; 0 automatic
+    SET_ENV_COUNT, // 8 of them, as the delays: cycles, 0 endless
+    SET_ENV_COUNT_END = SET_ENV_COUNT + 7,
+    SET_ENV_TEMPO_L1, SET_ENV_TEMPO_L2, // a bit per envelope: stage times in note values
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1513,6 +1570,8 @@ static int host_setting_get(int id)
     case SET_ENV_DELAY ... SET_ENV_DELAY + 7: return synth_env_delay((id - SET_ENV_DELAY) / 4, (id - SET_ENV_DELAY) % 4);
     case SET_ENV_HOLD ... SET_ENV_HOLD + 7: return synth_env_hold((id - SET_ENV_HOLD) / 4, (id - SET_ENV_HOLD) % 4);
     case SET_LAYER_VOICES: return synth_layer_voices();
+    case SET_ENV_COUNT ... SET_ENV_COUNT_END: return synth_env_count((id - SET_ENV_COUNT) / 4, (id - SET_ENV_COUNT) % 4);
+    case SET_ENV_TEMPO_L1: case SET_ENV_TEMPO_L2: return synth_env_tempo(id - SET_ENV_TEMPO_L1);
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -1532,6 +1591,7 @@ static int host_setting_set(int id, int value)
         [SET_MACRO_L1_1 ... SET_MACRO_L2_2] = 199, [SET_CLOCK_SOURCE] = 3, [SET_BPM] = 301,
         [SET_ENV_TRIGGER_L1 ... SET_ENV_DAHDSR_L2] = 16, [SET_ENV_CURVE_L1] = 256, [SET_ENV_CURVE_L2] = 256,
         [SET_ENV_DELAY ... SET_ENV_HOLD + 7] = 100, [SET_LAYER_VOICES] = VOICE_COUNT,
+        [SET_ENV_COUNT ... SET_ENV_COUNT_END] = 100, [SET_ENV_TEMPO_L1] = 16, [SET_ENV_TEMPO_L2] = 16,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1582,6 +1642,10 @@ static int host_setting_set(int id, int value)
         synth_set_env_hold((id - SET_ENV_HOLD) / 4, (id - SET_ENV_HOLD) % 4, value);
         break;
     case SET_LAYER_VOICES: synth_set_layer_voices(value); break;
+    case SET_ENV_COUNT ... SET_ENV_COUNT_END:
+        synth_set_env_count((id - SET_ENV_COUNT) / 4, (id - SET_ENV_COUNT) % 4, value);
+        break;
+    case SET_ENV_TEMPO_L1: case SET_ENV_TEMPO_L2: synth_set_env_tempo(id - SET_ENV_TEMPO_L1, value); break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;

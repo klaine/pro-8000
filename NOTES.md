@@ -1175,6 +1175,35 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   edit layer doesn't change). `seq_record_note()` writes the next step relative to the first note; Seq 2 a rest;
   Rec or Seq 1 ends it; loading a patch ends it. Notes sound through the engine without `seq_key_on()`.
 - Build 69,372 bytes: now past sector 4 into sector 5, which 0.8.4 showed runs.
+- **Trigger as its own switch, and cycle counts** (still 0.9.0): the key-up trigger is a bit per envelope that
+  applies in every mode, cycling included (`key_up_envs()` no longer masks out cycling envelopes; `gate_off()` also
+  resets a key-up envelope's phase and cycle count). A cycling envelope runs `env_count` cycles (record bytes
+  336-343, 0 = endless, 1-99): `env_t.cycles` counts each fall's end (free) or each phase wrap (synced); when it
+  reaches the count, `cycles_done()` leaves a key-down envelope at rest (`ENV_REST`, level 0) until the key is let go
+  and ends a key-up one (`ENV_IDLE`). Record byte 344 = 1 marks records that store the trigger this way; at load an
+  older record's trigger bits are cleared for its cycling envelopes, since cycling used to win. Panel: page 6 lost
+  `UP.AS` / `UP.dA` (`AdSr dAHd CYCL <divisions>`); Arp Up-Dn steps through mode, trigger (`tr.x`: `dn UP`), curve
+  (`CU.x`) and count (`Cn.x`: `LOOP`, 1-99). Host settings 67-74 are the counts (the read-only ones moved to
+  75-78); the 54 reply is 167 bytes, so `SYSEX_MAX` went to 176. Host build (real `synth.c` / `lfo.c`, hardware
+  stubbed; amp cycling 0 / 10 / 54 / 10 ms, synced at 1/16 and 120 BPM): key down loop 25 peaks in 2 s; key down
+  count 3 → 3 then silent while held; key up count 3 → nothing while held, 3 after, then idle; key up loop → keeps
+  cycling (the voice stays busy); synced count 4 → 4 both ways, key up then idle.
+  On the synth (installed; amp cycling synced at 1/8, key up, count 3, the clock at 135 BPM; `record`, 0.1 s
+  windows): silent through the 1 s hold, then about 0.7 s of sound with two dips (3 × 0.222 s), then silence.
+- **Stage times in note values** (still 0.9.0): `env_tempo`, a bit per envelope and layer (record bytes 345-346,
+  host settings 75-76, the read-only ones now 77-80; the 54 reply is 171 bytes). `env_rates()` takes each time
+  (attack, decay, release, hold and rest while cycling, DAHDSR's delay and hold) as a step: knob × 15 rounded, 0 =
+  no time, else the LFO division table backwards (1 = 1/32 … 15 = 8 bars) × `lfo_quarter_seconds()`, worked out
+  every pass, so tempo changes follow. Not for synced cycling (its shares rule). `knob_steps()` makes the ADSR knobs
+  stepped (hysteresis, snapped to the step) while the envelope they edit on the edit layer takes note values,
+  sustain only while it cycles. Panel: page 6 got `tI.x` (`SEC`, `SYnC`) after the trigger; turning a knob shows the
+  note name (`0`, `1-32` … `8bAr`), and so do the delay and hold.
+  Host build (120 BPM, no clock): attack 1/8 peaked at 0.249 s, decay 1/4 reached -60 dB 0.501 s later; a knob 1 %
+  off its step snapped to it. On the synth (MIDI clock source with no clock running, so 120 BPM): amp cycling in note
+  values, hold 1/8, fall 0, rest 1/8, gave ~0.25 s pulses every 0.5 s.
+- The 54 reply's read-only values (env select, preset mode, patch, morph) are always its last four, but they move
+  whenever a setting is added: a web page from before an update showed "manual" and the wrong patch. The web page and
+  the tool now take those four from the end of the reply, and the settable ones from the start.
 - **On the synth** (flashed, P34): the pass is 946 µs on average with no notes (904 on 0.8.5), the longest in 2 s
   2,769 µs. A key-up amp envelope stayed silent while the key was held and sounded for ~0.6 s after it was let go
   (`record`, 0.1 s windows); DAHDSR with delay 60 (0.37 s) started the note ~0.4 s after note-on. A host build of

@@ -29,15 +29,19 @@
 // (310 ms in the middle), measured to -60 dB so the number is how long it lasts. The attack charges towards 1.5 and
 // stops at 1, the concave curve of an analog envelope; decay and release are exponential. Sustain is linear.
 // Cycling (per envelope and layer): attack, hold at the top (SUS knob), fall to zero (DEC), rest (REL), again,
-// for as long as the key is held; on key up it falls with the DEC time. Hold and rest use the attack's range.
+// for as long as the key is held, or for a count of cycles (then it stays at rest); on key up it falls with the DEC
+// time. Hold and rest use the attack's range.
 // Synced cycling: the cycle lasts a clock division (lfo.c's tempo) and the four knobs are weights that share it
 // out (attack, hold, fall, rest in proportion). A phase drives it, so it stays on tempo however long it runs; it
 // restarts at each key.
 // Per envelope and layer, besides (0.9.0): the key-up trigger (the envelope runs when the key is let go: attack,
-// decay for its time, release), DAHDSR (a delay before the attack, during which the level keeps falling as in a
+// decay for its time, release; cycling, it cycles from the key up, its count of cycles or until the
+// next note on that voice), DAHDSR (a delay before the attack, during which the level keeps falling as in a
 // release, and a hold at the top), and the curve (analog, as above; linear; swell, a convex attack). Cycling takes
-// precedence over the trigger and DAHDSR. Linear stages cover full scale in their time (a release from half way
-// takes half the time); the swell attack grows 2^5 from just under 0, so it reaches 1 in its time.
+// precedence over DAHDSR. Linear stages cover full scale in their time (a release from half way takes half the
+// time); the swell attack grows 2^5 from just under 0, so it reaches 1 in its time.
+// Stage times in note values (per envelope and layer): the time knobs (and the delay and hold) step through 0 and the
+// LFO's clock divisions, 1/32 .. 8 bars, at the clock's tempo, instead of seconds. Synced cycling keeps its shares.
 //
 // M TUNE is Macro 1's knob (0.9.0): bipolar, added to the macro's offset (Shift + CUTOFF) and its routes; master tune
 // itself is gone (autotune keeps the voices in tune).
@@ -107,6 +111,7 @@ typedef struct {
     float timer; // seconds in ENV_DELAY / ENV_HOLD / ENV_REST, and in ENV_DECAY when key-up triggered
     float phase; // synced cycling: 0..1 through the cycle
     float start; // synced cycling: the level the current attack started from
+    uint8_t cycles; // cycles finished since it was triggered (it stops at the count)
 } env_t;
 
 // One envelope's settings, worked out once per layer and pass; the envelopes advance by any dt from them (the amp
@@ -118,6 +123,7 @@ typedef struct {
     float hold, rest;             // seconds (cycling; hold also DAHDSR's)
     float delay, decay_s;         // seconds: DAHDSR's delay, and a key-up envelope's decay before it releases
     int cycle, curve, key_up;
+    int count;                    // cycling: how many cycles, 0 = endless
     int synced;                   // synced cycling: the cycle is `period` seconds, shared out as a / h / f / rest
     float period, a, h, f;
 } env_rates_t;
@@ -189,6 +195,8 @@ static uint8_t env_sync[LAYERS][4];  // amp, filter, Env 3, Env 4: 0 free, else 
 static uint8_t env_trigger[LAYERS], env_dahdsr[LAYERS]; // a bit per envelope
 static uint8_t env_curve[LAYERS];                       // 2 bits per envelope, ENV_CURVE_*
 static uint8_t env_delay[LAYERS][4], env_hold[LAYERS][4]; // 0-99
+static uint8_t env_count[LAYERS][4];                      // cycles, 0 = endless
+static uint8_t env_tempo[LAYERS];                         // a bit per envelope: stage times in note values
 
 // Each envelope's knobs: attack, decay, sustain, release
 static const uint8_t env_params[4][4] = {
@@ -347,15 +355,12 @@ void synth_set_lfo_shape(int layer, int which, int shape)
 
 int synth_env_cycle(int layer) { return env_cycle[layer]; }
 
-static void retrigger_envs(int layer, unsigned changed);
-static unsigned key_up_envs(int layer) { return env_trigger[layer] & ~env_cycle[layer] & 15u; } // cycling wins
-
-void synth_set_env_cycle(int layer, int bits)
-{
-    unsigned before = key_up_envs(layer);
-    env_cycle[layer] = (uint8_t)(bits & 15);
-    retrigger_envs(layer, before ^ key_up_envs(layer));
-}
+static unsigned key_up_envs(int layer) { return env_trigger[layer] & 15u; }
+void synth_set_env_cycle(int layer, int bits) { env_cycle[layer] = (uint8_t)(bits & 15); }
+int synth_env_tempo(int layer) { return env_tempo[layer]; }
+void synth_set_env_tempo(int layer, int bits) { env_tempo[layer] = (uint8_t)(bits & 15); }
+int synth_env_count(int layer, int env) { return env_count[layer][env & 3]; }
+void synth_set_env_count(int layer, int env, int count) { env_count[layer][env & 3] = (uint8_t)(count < 0 ? 0 : count > 99 ? 99 : count); }
 
 // A layer's envelopes whose key-up trigger changed: one that's running starts again as its new trigger has it (a
 // held key's normal envelope attacks), else it releases, so none is left sustaining without a key.
@@ -653,11 +658,13 @@ void synth_apply_patch(const patch_t *patch)
         env_cycle[l] = patch->env_cycle[l] & 15;
         env_trigger[l] = patch->env_trigger[l] & 15;
         env_dahdsr[l] = patch->env_dahdsr[l] & 15;
+        env_tempo[l] = patch->env_tempo[l] & 15;
         synth_set_env_curve(l, patch->env_curve[l]);
         for (int e = 0; e < 4; e++) {
             env_sync[l][e] = patch->env_sync[l][e] <= LFO_DIVISIONS ? patch->env_sync[l][e] : 0;
             synth_set_env_delay(l, e, patch->env_delay[l][e]);
             synth_set_env_hold(l, e, patch->env_hold[l][e]);
+            synth_set_env_count(l, e, patch->env_count[l][e]);
         }
         for (int w = 0; w < 2; w++) { // no steps stored (older patches): the default pattern
             int count = patch->step_count[l][w];
@@ -723,11 +730,13 @@ void synth_capture_patch(patch_t *patch)
         patch->env_cycle[l] = env_cycle[l];
         patch->env_trigger[l] = env_trigger[l];
         patch->env_dahdsr[l] = env_dahdsr[l];
+        patch->env_tempo[l] = env_tempo[l];
         patch->env_curve[l] = env_curve[l];
         for (int e = 0; e < 4; e++) {
             patch->env_sync[l][e] = env_sync[l][e];
             patch->env_delay[l][e] = env_delay[l][e];
             patch->env_hold[l][e] = env_hold[l][e];
+            patch->env_count[l][e] = env_count[l][e];
         }
         for (int w = 0; w < 2; w++) {
             patch->step_count[l][w] = lfo_step_count[LFO_ID(l, w)];
@@ -828,6 +837,7 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
             envs[i]->timer = 0;
             envs[i]->phase = 0; // synced cycling starts its cycle here
             envs[i]->start = envs[i]->level;
+            envs[i]->cycles = 0;
         }
     }
 }
@@ -842,6 +852,9 @@ static void gate_off(voice_t *x, int key_up)
         if (up >> i & 1) {
             envs[i]->stage = ENV_DELAY;
             envs[i]->timer = 0;
+            envs[i]->phase = 0;
+            envs[i]->start = envs[i]->level;
+            envs[i]->cycles = 0;
             if (i == 0)
                 x->fresh = 1; // its pitch goes out before the VCA opens
         } else if (envs[i]->stage != ENV_IDLE)
@@ -1027,11 +1040,13 @@ void synth_copy_layer(int from, int to)
     env_cycle[to] = env_cycle[from];
     synth_set_env_trigger(to, env_trigger[from]);
     env_dahdsr[to] = env_dahdsr[from];
+    env_tempo[to] = env_tempo[from];
     env_curve[to] = env_curve[from];
     for (int e = 0; e < 4; e++) {
         env_sync[to][e] = env_sync[from][e];
         env_delay[to][e] = env_delay[from][e];
         env_hold[to][e] = env_hold[from][e];
+        env_count[to][e] = env_count[from][e];
     }
     if (voice_mode[to] != voice_mode[from])
         synth_all_off(); // the voice split may change (voice_split())
@@ -1189,6 +1204,29 @@ static float step(float rate, float dt)
 
 float synth_env_extra_time(int value) { return knob_time((float)value / 99.0f, 0, ATTACK_MAX_S); }
 
+// Stage times in note values: envelope e of `layer` takes them (not while it cycles synced: its shares rule)
+static int tempo_env(int layer, int e) { return env_tempo[layer] >> e & 1 && !(env_cycle[layer] >> e & 1 && env_sync[layer][e]); }
+
+int synth_env_note_step(float knob)
+{
+    int i = (int)(knob * (float)LFO_DIVISIONS + 0.5f); // 0, then 1/32 .. 8 bars
+    return i < 0 ? 0 : i > LFO_DIVISIONS ? LFO_DIVISIONS : i;
+}
+
+const char *synth_env_note_name(int step) { return step <= 0 ? "0" : lfo_division_name(LFO_DIVISIONS - step); }
+
+float synth_env_note_seconds(int step)
+{
+    return step <= 0 ? 0 : lfo_division_quarters(LFO_DIVISIONS - step) * lfo_quarter_seconds();
+}
+
+int synth_env_tempo_step(int env, int stage, float knob)
+{
+    if (!tempo_env(edit_layer, env) || (stage == 2 && !(env_cycle[edit_layer] >> env & 1)))
+        return -1; // seconds, or the sustain level
+    return synth_env_note_step(knob);
+}
+
 // A synced cycle's shares of its period, from the knobs as weights (attack, hold = SUS, fall = DEC, rest = REL)
 static void cycle_shares(const float *p, const uint8_t *knobs, float share[4])
 {
@@ -1209,15 +1247,21 @@ static void env_rates(env_rates_t *r, const float *p, int layer, int e)
     r->cycle = cycle;
     r->curve = curve;
     r->key_up = (int)(key_up_envs(layer) >> e & 1);
-    r->attack = stage_rate(synth_env_time(0, p[att], cycle),
+    r->count = cycle ? env_count[layer][e] : 0;
+    int notes = tempo_env(layer, e);
+#define STAGE_TIME(stage, knob, cyc) (notes ? synth_env_note_seconds(synth_env_note_step(knob)) : synth_env_time(stage, knob, cyc))
+#define EXTRA_TIME(value) (notes ? synth_env_note_seconds(synth_env_note_step((float)(value) / 99.0f)) : synth_env_extra_time(value))
+    r->attack = stage_rate(STAGE_TIME(0, p[att], cycle),
                            linear ? 1.0f : curve == ENV_CURVE_SWELL ? SWELL_OCTAVES : 1.585f); // log2(3)
-    r->decay_s = synth_env_time(1, p[dec], cycle);
+    r->decay_s = STAGE_TIME(1, p[dec], cycle);
     r->decay = stage_rate(r->decay_s, fall);
-    r->release = cycle ? r->decay : stage_rate(synth_env_time(3, p[rel], 0), fall);
+    r->release = cycle ? r->decay : stage_rate(STAGE_TIME(3, p[rel], 0), fall);
     r->sustain = p[sus];
-    r->hold = cycle ? synth_env_time(2, p[sus], 1) : dahdsr ? synth_env_extra_time(env_hold[layer][e]) : 0;
-    r->rest = cycle ? synth_env_time(3, p[rel], 1) : 0;
-    r->delay = dahdsr ? synth_env_extra_time(env_delay[layer][e]) : 0;
+    r->hold = cycle ? STAGE_TIME(2, p[sus], 1) : dahdsr ? EXTRA_TIME(env_hold[layer][e]) : 0;
+    r->rest = cycle ? STAGE_TIME(3, p[rel], 1) : 0;
+    r->delay = dahdsr ? EXTRA_TIME(env_delay[layer][e]) : 0;
+#undef STAGE_TIME
+#undef EXTRA_TIME
     r->synced = cycle && sync > 0;
     if (r->synced) {
         float share[4];
@@ -1243,13 +1287,29 @@ static float fall_shape(int curve, float u)
     return curve == ENV_CURVE_LINEAR ? 1.0f - u : fast_exp2(-u * 9.966f);
 }
 
+// The count of cycles is done: a key-up envelope ends, a key-down one stays at rest until the key is let go
+static int cycles_done(env_t *e, const env_rates_t *r)
+{
+    if (!r->count || e->cycles < r->count)
+        return 0;
+    e->level = 0;
+    e->stage = r->key_up ? ENV_IDLE : ENV_REST;
+    return 1;
+}
+
 // Synced cycling: the level is a function of the phase through the cycle
 static void env_synced(env_t *e, float dt, const env_rates_t *r)
 {
+    if (cycles_done(e, r))
+        return;
     e->phase += dt / r->period;
     if (e->phase >= 1.0f) {
         e->phase -= (float)(int)e->phase;
         e->start = 0;
+        if (e->cycles < 255)
+            e->cycles++;
+        if (cycles_done(e, r))
+            return;
     }
     float x = e->phase;
     if (x < r->a) {
@@ -1354,13 +1414,16 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
             e->level = 0;
             e->stage = ENV_REST;
             e->timer = 0;
+            if (e->cycles < 255)
+                e->cycles++;
+            cycles_done(e, r); // the last cycle ends with its fall
         }
         break;
     case ENV_REST:
         e->timer += dt;
         if (!r->cycle)
             e->stage = ENV_DECAY; // cycling switched off: settle on the sustain level
-        else if (e->timer >= r->rest)
+        else if (!cycles_done(e, r) && e->timer >= r->rest)
             e->stage = ENV_ATTACK;
         break;
     case ENV_RELEASE:
@@ -1383,11 +1446,20 @@ static float semitone_steps(float knob)
     return (float)(int)((knob - 0.5f) * 2 * OSC_RANGE_SEMITONES + OSC_RANGE_SEMITONES + 0.5f) - OSC_RANGE_SEMITONES;
 }
 
-// Stepped knobs (FREQ A / B; LFO FREQ while its LFO is clock-synced): how many steps, 0 for the others
+// Stepped knobs (FREQ A / B; LFO FREQ while its LFO is clock-synced; an envelope's time knobs while its stage times
+// are note values): how many steps, 0 for the others
 static int knob_steps(int pot)
 {
     if (pot == POT_FREQ_A || pot == POT_FREQ_B)
         return (int)(2 * OSC_RANGE_SEMITONES);
+    if (adsr_pot(pot)) {
+        int p = param_of_pot(pot);
+        for (int e = 0; e < 4; e++)
+            for (int stage = 0; stage < 4; stage++)
+                if (env_params[e][stage] == p)
+                    return synth_env_tempo_step(e, stage, 0) >= 0 ? LFO_DIVISIONS : 0; // 0 and the divisions
+        return 0;
+    }
     return pot == POT_LFO_FREQ && lfo_sync[lfo_select] == LFO_SYNC_CLOCK ? LFO_DIVISIONS - 1 : 0;
 }
 

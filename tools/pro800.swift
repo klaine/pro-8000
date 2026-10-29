@@ -938,16 +938,16 @@ let shapeNames = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift"
 let lfo2DestNames = ["pitch", "filter", "pw"]
 let layerModes = ["off", "split", "stack", "channel", "8ch", "mpe"], triggerModes = ["free", "first", "every", "voice"]
 let cycleNames = ["amp", "filter", "env3", "env4"]
-let settingNames = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo2-sync", "lfo2-trigger", "edit-layer",
+func perEnvelope(_ name: String) -> [String] { (1...2).flatMap { l in cycleNames.map { "\(name) \(l) \($0)" } } }
+let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo2-sync", "lfo2-trigger", "edit-layer",
                     "lfo", "shape 1 1", "shape 1 2", "shape 2 1", "shape 2 2", "lfo2-dests 1", "lfo2-dests 2",
                     "cycle 1", "cycle 2", "cycle-sync 1 amp", "cycle-sync 1 filter", "cycle-sync 1 env3",
                     "cycle-sync 1 env4", "cycle-sync 2 amp", "cycle-sync 2 filter", "cycle-sync 2 env3",
                     "cycle-sync 2 env4", "bend", "detune", "voice 1", "voice 2", "drift", "scale", "root",
                     "lfo-delay", "lfo-fade", "lfo2-delay", "lfo2-fade", "cc-a", "cc-b", "macro 1 1", "macro 1 2", "macro 2 1",
                    "macro 2 2", "clock", "bpm", "env-up 1", "env-up 2", "dahdsr 1", "dahdsr 2", "env-curve 1", "env-curve 2"]
-    + (1...2).flatMap { l in cycleNames.map { "env-delay \(l) \($0)" } }
-    + (1...2).flatMap { l in cycleNames.map { "env-hold \(l) \($0)" } }
-    + ["layer-voices", "env-select", "preset-mode", "patch", "morph"]
+    + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
+    + ["env-tempo 1", "env-tempo 2", "env-select", "preset-mode", "patch", "morph"]
 let curveNames = ["analog", "linear", "swell"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                   "pentatonic-minor", "blues", "whole-tone", "chromatic"]
@@ -978,8 +978,9 @@ func setSetting() {
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
-        "env-up|dahdsr <layer 1|2> none|amp,filter,env3,env4 | env-curve <layer 1|2> amp|filter|env3|env4 " +
+        "env-up|dahdsr|env-tempo <layer 1|2> none|amp,filter,env3,env4 | env-curve <layer 1|2> amp|filter|env3|env4 " +
         "\(curveNames.joined(separator: "|")) | env-delay|env-hold <layer 1|2> amp|filter|env3|env4 <0-99> | " +
+        "env-count <layer 1|2> amp|filter|env3|env4 loop|<cycles 1-99> | " +
         "button \(buttonNames.values.sorted().joined(separator: "|")) on|off"
     var id: UInt8, v: Int
     if args.count == 2, args[0] == "morph" { // the morph target: a slot, or none (SysEx 44)
@@ -1048,13 +1049,13 @@ func setSetting() {
         probeAck(Midi(port: portName), [0x4B, UInt8(i), args[2] == "on" ? 1 : 0])
         print("\(args[1]) \(args[2])")
         return
-    } else if args.count == 3, ["cycle", "env-up", "dahdsr"].contains(args[0]), let layer = Int(args[1]), (1...2).contains(layer) {
+    } else if args.count == 3, ["cycle", "env-up", "dahdsr", "env-tempo"].contains(args[0]), let layer = Int(args[1]), (1...2).contains(layer) {
         var bits = 0
         for name in args[2].split(separator: ",") where name != "none" {
             guard let i = cycleNames.firstIndex(of: String(name)) else { fail(usage) }
             bits |= 1 << i
         }
-        let first = ["cycle": 15, "env-up": 44, "dahdsr": 46][args[0]]!
+        let first = ["cycle": 15, "env-up": 44, "dahdsr": 46, "env-tempo": 75][args[0]]!
         (id, v) = (UInt8(first + layer - 1), bits)
     } else if args.count == 4, args[0] == "env-curve", let layer = Int(args[1]), (1...2).contains(layer),
               let env = cycleNames.firstIndex(of: args[2]), let curve = curveNames.firstIndex(of: args[3]) {
@@ -1067,6 +1068,9 @@ func setSetting() {
     } else if args.count == 4, ["env-delay", "env-hold"].contains(args[0]), let layer = Int(args[1]), (1...2).contains(layer),
               let env = cycleNames.firstIndex(of: args[2]), let a = Int(args[3]), (0...99).contains(a) {
         (id, v) = (UInt8((args[0] == "env-delay" ? 50 : 58) + (layer - 1) * 4 + env), a)
+    } else if args.count == 4, args[0] == "env-count", let layer = Int(args[1]), (1...2).contains(layer),
+              let env = cycleNames.firstIndex(of: args[2]), let n = args[3] == "loop" ? 0 : Int(args[3]), (0...99).contains(n) {
+        (id, v) = (UInt8(67 + (layer - 1) * 4 + env), n)
     } else {
         fail(usage)
     }
@@ -1080,9 +1084,12 @@ func settings() {
         fail("no reply (firmware 0.6.0 or later?)")
     }
     let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)])
-    let count = Int(b[0])
-    for i in 0..<min(count, settingNames.count) {
-        let v = Int(b[1 + 2 * i]) << 7 | Int(b[2 + 2 * i])
+    let count = Int(b[0]), readOnly = 4 // env-select, preset-mode, patch, morph: always the reply's last four
+    for r in 0..<count {
+        // the settable ones from the start, as far as both know them; the read-only ones from the end
+        let i = r >= count - readOnly ? settingNames.count - (count - r) : r
+        guard r >= count - readOnly || i < settingNames.count - readOnly else { continue }
+        let v = Int(b[1 + 2 * r]) << 7 | Int(b[2 + 2 * r])
         var text = "\(v)"
         switch i {
         case 0, 5: text = ["free", "clock"][safe: v] ?? text
@@ -1092,12 +1099,13 @@ func settings() {
         case 7, 8: text = "\(v + 1)"
         case 9...12: text = shapeNames[safe: v] ?? text
         case 13, 14: text = lfo2DestText(v)
-        case 15, 16, 44...47:
+        case 15, 16, 44...47, 75, 76:
             let on = cycleNames.indices.filter { v >> $0 & 1 != 0 }.map { cycleNames[$0] }
             text = on.isEmpty ? "none" : on.joined(separator: ",")
         case 48, 49: text = cycleNames.indices.map { "\(cycleNames[$0]) \(curveNames[safe: v >> (2 * $0) & 3] ?? "?")" }.joined(separator: ", ")
         case 50...65: text = String(format: "%d (%.3f s)", v, 10 * (pow(2, Double(v) / 99 * 12) - 1) / 4095)
         case 17...24: text = v == 0 ? "free" : divisionNames[safe: v - 1] ?? text
+        case 67...74: text = v == 0 ? "loop (endless)" : "\(v) cycles"
         case 25: text = "±\(v) semitones"
         case 26: text = "\(v) cents"
         case 27, 28: text = "\(voiceModes[safe: v & 3] ?? "?"), \(priorities[safe: v >> 2 & 3] ?? "?") note priority"
@@ -1109,9 +1117,9 @@ func settings() {
         case 42: text = ["midi", "internal", "sync-in"][safe: v] ?? text
         case 43: text = "\(v) BPM"
         case 66: text = v == 0 ? "automatic" : "\(v) + \(8 - v)"
-        case 67: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 69: text = slotName(v)
-        case 70: text = v == 0 ? "none" : slotName(v - 1)
+        case 77: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 79: text = slotName(v)
+        case 80: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")

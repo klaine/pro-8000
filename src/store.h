@@ -44,6 +44,8 @@ typedef struct {
     uint8_t env_trigger[2], env_dahdsr[2]; // per layer, a bit per envelope (0.9.0)
     uint8_t env_curve[2];                  // per layer, 2 bits per envelope: ENV_CURVE_* (0.9.0)
     uint8_t env_delay[2][4], env_hold[2][4]; // [layer][amp, filter, Env 3, Env 4], 0-99 (0.9.0)
+    uint8_t env_count[2][4];                 // [layer][envelope] cycles, 0 = endless (0.9.0)
+    uint8_t env_tempo[2];                    // per layer, a bit per envelope: stage times in note values (0.9.0)
 } patch_t;
 
 typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t; // (SLOT_STOCK: no longer in slots)

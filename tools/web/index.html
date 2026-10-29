@@ -505,11 +505,14 @@
         <li>Shift (<kbd>Sync Source</kbd>) + the filter ADSR knobs edit Env 3, + the amp ADSR knobs Env 4 (with pickup). The keyboard-tracking switch is keyboard tracking.</li>
         <li>Env 3 / 4 do nothing until a mod route uses them (sources 7, 8).</li>
         <li>Keytracking itself: <kbd>Settings</kbd> <kbd>5</kbd> <code class="lcd">trAC</code> → <code class="lcd">OFF</code> <code class="lcd">HALF</code> <code class="lcd">FULL</code>.</li>
-        <li>Mode: <kbd>Settings</kbd> <kbd>6</kbd> <code class="lcd">En.A</code> <code class="lcd">En.F</code> <code class="lcd">En.3</code> <code class="lcd">En.4</code> (<kbd>6</kbd> again: next), <kbd>VALUE</kbd>: <code class="lcd">AdSr</code> <code class="lcd">dAHd</code>, from key up <code class="lcd">UP.AS</code> <code class="lcd">UP.dA</code>, cycling <code class="lcd">CYCL</code> or a division (synced).</li>
+        <li>Mode: <kbd>Settings</kbd> <kbd>6</kbd> <code class="lcd">En.A</code> <code class="lcd">En.F</code> <code class="lcd">En.3</code> <code class="lcd">En.4</code> (<kbd>6</kbd> again: next), <kbd>VALUE</kbd>: <code class="lcd">AdSr</code> <code class="lcd">dAHd</code>, cycling <code class="lcd">CYCL</code> or a division (synced).</li>
+        <li>Trigger: on that page <kbd>Arp Up-Dn</kbd> <code class="lcd">tr.A</code>…, <kbd>VALUE</kbd>: <code class="lcd">dn</code> (key down) <code class="lcd">UP</code> (key up), in any mode.</li>
         <li>On that page <kbd>ATT</kbd> sets the delay <code class="lcd">dLY</code> and <kbd>DEC</kbd> the hold <code class="lcd">HoLd</code> (DAHDSR); the knobs leave the attack and decay alone meanwhile.</li>
-        <li>Curve: on that page <kbd>Arp Up-Dn</kbd> <code class="lcd">CU.A</code>…, <kbd>VALUE</kbd>: <code class="lcd">AnLG</code> <code class="lcd">LIn</code> <code class="lcd">SUEL</code>.</li>
+        <li>Timing: <kbd>Arp Up-Dn</kbd> again <code class="lcd">tI.A</code>…, <kbd>VALUE</kbd>: <code class="lcd">SEC</code> or <code class="lcd">SYnC</code> (the time knobs, delay and hold step through 0, 1/32 … 8 bars at the tempo).</li>
+        <li>Curve: <kbd>Arp Up-Dn</kbd> again <code class="lcd">CU.A</code>…, <kbd>VALUE</kbd>: <code class="lcd">AnLG</code> <code class="lcd">LIn</code> <code class="lcd">SUEL</code>.</li>
+        <li>Cycles: <kbd>Arp Up-Dn</kbd> again <code class="lcd">Cn.A</code>…, <kbd>VALUE</kbd>: <code class="lcd">LOOP</code> or 1-99 (then it rests; from key up it ends).</li>
       </ol>
-      <p class="dim small">Key up: the envelope runs when the key is let go (attack, decay for its time, release) and fades at the next key. Cycling knobs: ATT rise, SUS hold, DEC fall, REL rest; synced, the four are shares of the division (shown in %).</p>
+      <p class="dim small">Key up: the envelope runs when the key is let go (attack, decay for its time, release; cycling: its cycles) and fades at the next key. Cycling knobs: ATT rise, SUS hold, DEC fall, REL rest; synced, the four are shares of the division (shown in %).</p>
     </section>
 
     <section class="cs cs-wide">
@@ -557,7 +560,7 @@
         <tr><td><kbd>3</kbd></td><td><code class="lcd">LAYr</code> layer mode (<kbd>Arp Up-Dn</kbd>: <code class="lcd">Lr.Uo</code> voices per layer)</td></tr>
         <tr><td><kbd>4</kbd></td><td><code class="lcd">SPLt</code> split note</td></tr>
         <tr><td><kbd>5</kbd></td><td><code class="lcd">trAC</code> keytracking</td></tr>
-        <tr><td><kbd>6</kbd></td><td><code class="lcd">En.x</code> envelope mode (<kbd>Arp Up-Dn</kbd>: <code class="lcd">CU.x</code> curve; ATT / DEC: delay / hold)</td></tr>
+        <tr><td><kbd>6</kbd></td><td><code class="lcd">En.x</code> envelope mode (<kbd>Arp Up-Dn</kbd>: <code class="lcd">tr.x</code> trigger, <code class="lcd">tI.x</code> timing, <code class="lcd">CU.x</code> curve, <code class="lcd">Cn.x</code> cycles; ATT / DEC: delay / hold)</td></tr>
         <tr><td><kbd>7</kbd></td><td><code class="lcd">bEnd</code> bend range, 1-12 st</td></tr>
         <tr><td><kbd>8</kbd></td><td><code class="lcd">dEtU</code> unison detune, 0-50 ct</td></tr>
         <tr><td><kbd>9</kbd></td><td><code class="lcd">UOIC</code> voice mode <code class="lcd">POLY</code> <code class="lcd">nono</code> <code class="lcd">LEG</code></td></tr>
@@ -1118,8 +1121,11 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "ccA", "ccB", "macro11", "macro12", "macro21", "macro22", "clockSource", "bpm",
   "envUp1", "envUp2", "dahdsr1", "dahdsr2", "curve1", "curve2", // 0.9.0: a bit per envelope; 2 bits per envelope
   ...[1, 2].flatMap(l => [0, 1, 2, 3].map(e => `envDelay${l}_${e}`)), ...[1, 2].flatMap(l => [0, 1, 2, 3].map(e => `envHold${l}_${e}`)),
-  "layerVoices", "envSelect", "presetMode", "patch", "morph"];
+  "layerVoices", ...[1, 2].flatMap(l => [0, 1, 2, 3].map(e => `envCount${l}_${e}`)), // cycles, 0 endless
+  "envTempo1", "envTempo2", // a bit per envelope: stage times in note values
+  "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
+const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
 let settings = null, params = null, paramsLayer = 0;
 
 // ---------------------------------------------------------------- the panel (Sound tab)
@@ -1172,16 +1178,28 @@ function envTime(stage, k, cyc) {
   if (stage === 2) return -1;                                          // sustain: a level
   return knobTime(k, 0.003, 20);                                       // decay, release (to -60 dB)
 }
-// 0.9.0: per envelope a key-up trigger, DAHDSR (delay and hold, 0-99 on the attack's curve) and a curve; cycling
-// takes an envelope over
-const ENV_MODES_FIXED = ["ADSR", "DAHDSR", "ADSR from key up", "DAHDSR from key up"];
+// 0.9.0: per envelope DAHDSR (delay and hold, 0-99 on the attack's curve) and a curve; cycling takes DAHDSR over.
+// The key-up trigger applies in every mode, and a cycling envelope runs a count of cycles (0 = endless).
+const ENV_MODES_FIXED = ["ADSR", "DAHDSR"], TRIGGERS = ["Key down", "Key up"];
 const CURVES = ["Analog", "Linear", "Swell"];
 const envFlag = (key, bit) => !!(settings && settings[key + (paramsLayer + 1)] & bit);
-const keyUp = bit => !cycling(bit) && envFlag("envUp", bit);
+const keyUp = bit => envFlag("envUp", bit);
+const envCountKey = bit => `envCount${paramsLayer + 1}_${envIndex(bit)}`;
+const envCount = bit => settings && cycling(bit) ? settings[envCountKey(bit)] || 0 : 0;
 const dahdsr = bit => !cycling(bit) && envFlag("dahdsr", bit);
 const envCurve = bit => settings ? settings["curve" + (paramsLayer + 1)] >> 2 * envIndex(bit) & 3 : 0;
 const envExtraKey = (which, bit) => `env${which}${paramsLayer + 1}_${envIndex(bit)}`; // which: "Delay" / "Hold"
 const extraTime = v => knobTime(v / 99, 0, 10);
+// Stage times in note values (not while cycling synced): the knobs step through 0 and the divisions, 1/32 .. 8 bars
+const QUARTERS = [32, 16, 8, 4, 2, 1.5, 1, 2 / 3, .75, .5, 1 / 3, .375, .25, 1 / 6, .125]; // DIVISIONS' lengths
+const envTempo = bit => envFlag("envTempo", bit) && !cycleSync(bit);
+const noteStep = k => Math.max(0, Math.min(15, Math.round(k * 15)));
+const noteName = s => s ? DIVISIONS[15 - s] : "0";
+const noteSeconds = s => s ? QUARTERS[15 - s] * 60 / (settings && settings.bpm || 120) : 0;
+// an envelope knob's time in seconds (-1: the sustain level), in note values when the envelope takes them
+const stageTime = (bit, stage, k, cyc) => envTempo(bit) ? (stage === 2 && !cyc ? -1 : noteSeconds(noteStep(k))) : envTime(stage, k, cyc);
+const stageExtraTime = (bit, v) => envTempo(bit) ? noteSeconds(noteStep(v / 99)) : extraTime(v);
+const TIMINGS = ["Seconds", "Note values"];
 // the curves' shapes over a stage, u 0..1 (synth.c attack_shape() / fall_shape())
 const attackShape = (curve, u) => curve === 1 ? u : curve === 2 ? (2 ** (5 * u) - 1) / 31 : Math.min(1, 1.5 * (1 - 3 ** -u));
 const fallShape = (curve, u) => curve === 1 ? 1 - u : 1000 ** -u;
@@ -1256,6 +1274,7 @@ function format(i, v) {
   if (i === P.CUTOFF) { const hz = 440 * 2 ** ((12 + v * 120 - 69) / 12);
     return hz < 1000 ? Math.round(hz) + " Hz" : (hz / 1000).toFixed(hz < 9995 ? 2 : 1) + " kHz"; }
   if (ENV_KNOB[i] && cycleSync(ENV_KNOB[i][0])) return Math.round(cycleShare(ENV_KNOB[i][0], ENV_KNOB[i][1]) * 100) + " %";
+  if (ENV_KNOB[i] && envTempo(ENV_KNOB[i][0]) && (ENV_KNOB[i][1] !== 2 || cycling(ENV_KNOB[i][0]))) return noteName(noteStep(v));
   if (ENV_KNOB[i]) {
     const t = envTime(ENV_KNOB[i][1], v, cycling(ENV_KNOB[i][0]));
     if (t >= 0) return t === 0 ? "0 ms" : seconds(t);
@@ -1644,7 +1663,8 @@ function drawFilter(g, w, ht) {
   g.fillText(fc < 1000 ? Math.round(fc) + " Hz" : (fc / 1000).toFixed(1) + " kHz", Math.min(w - 50, Math.max(2, cx + 4)), 12);
 }
 // An envelope: (D)AHDSR (sustain plateau in the middle; from key up, a stretch at rest first and no plateau), or
-// two cycles when cycling, each stage on the envelope's curve
+// its cycles when cycling (two of endless ones, else its count up to four; from key up after a stretch at rest), each
+// stage on the envelope's curve
 function drawEnv(bit) {
   return (g, w, ht) => {
     const [, , a, d, s, r] = envOf(bit), base = ht - 4, top = 6, Y = v => base - v * (base - top);
@@ -1654,8 +1674,8 @@ function drawEnv(bit) {
     let label;
     if (!cycling(bit)) {
       const up = keyUp(bit), dh = dahdsr(bit), sus = params[s];
-      const ta = envTime(0, params[a]), td = envTime(1, params[d]), tr = envTime(3, params[r]);
-      const tdl = dh ? extraTime(settings[envExtraKey("Delay", bit)]) : 0, th = dh ? extraTime(settings[envExtraKey("Hold", bit)]) : 0;
+      const ta = stageTime(bit, 0, params[a]), td = stageTime(bit, 1, params[d]), tr = stageTime(bit, 3, params[r]);
+      const tdl = dh ? stageExtraTime(bit, settings[envExtraKey("Delay", bit)]) : 0, th = dh ? stageExtraTime(bit, settings[envExtraKey("Hold", bit)]) : 0;
       const scale = t => Math.log10(1 + t * 40); // compress long times so short ones stay visible
       const wl = scale(tdl), wa = scale(ta), wh = scale(th), wd = scale(td), wr = scale(tr), held = up ? .35 : 0;
       const plateau = up ? 0 : .6, total = held + wl + wa + wh + wd + plateau + wr;
@@ -1673,19 +1693,26 @@ function drawEnv(bit) {
     } else {
       let sh;
       if (cycleSync(bit)) sh = cycleShares(bit);
-      else { const t = [envTime(0, params[a], 1), envTime(2, params[s], 1), envTime(1, params[d], 1), envTime(3, params[r], 1)];
+      else { const t = [stageTime(bit, 0, params[a], 1), stageTime(bit, 2, params[s], 1), stageTime(bit, 1, params[d], 1), stageTime(bit, 3, params[r], 1)];
         const sum = t.reduce((x, y) => x + y, 0) || 1; sh = t.map(x => x / sum); }
+      const up = keyUp(bit), count = envCount(bit), shown = count ? Math.min(count, 4) : 2;
+      const held = up ? .2 : 0, after = count && count <= 4 ? .15 : 0, n = shown / (1 - held - after);
       let x = 0;
       pts.push([0, 0]);
-      for (let c = 0; c < 2; c++) {
-        seg(24, u => [x + u * sh[0] / 2, attack(0, u)]); x += sh[0] / 2;
-        pts.push([x + sh[1] / 2, 1]); x += sh[1] / 2;
-        seg(30, u => [x + u * sh[2] / 2, fallShape(curve, u)]); x += sh[2] / 2;
-        pts.push([x, 0], [x + sh[3] / 2, 0]); x += sh[3] / 2;
+      if (up) { pts.push([held, 0]); x = held; }
+      for (let c = 0; c < shown; c++) {
+        seg(24, u => [x + u * sh[0] / n, attack(0, u)]); x += sh[0] / n;
+        pts.push([x + sh[1] / n, 1]); x += sh[1] / n;
+        seg(30, u => [x + u * sh[2] / n, fallShape(curve, u)]); x += sh[2] / n;
+        if (c < shown - 1 || !after) { pts.push([x, 0], [x + sh[3] / n, 0]); x += sh[3] / n; }
       }
+      if (after) pts.push([x, 0], [1, 0]);
+      if (up) { g.strokeStyle = css("--dim"); g.setLineDash([2, 3]); g.beginPath(); g.moveTo(held * w, top); g.lineTo(held * w, base); g.stroke(); g.setLineDash([]); }
       const sync = cycleSync(bit);
-      label = sync ? "cycle · " + DIVISIONS[sync - 1] : "cycle";
+      label = [sync ? "cycle · " + DIVISIONS[sync - 1] : "cycle", count ? count + "×" : "", up ? "from key up" : ""]
+        .filter(Boolean).join(" · ");
     }
+    if (envTempo(bit)) label = [label, "note values"].filter(Boolean).join(" · ");
     if (curve) label = [label, CURVES[curve].toLowerCase()].filter(Boolean).join(" · ");
     g.beginPath();
     pts.forEach(([x, v], k) => k ? g.lineTo(x * w, Y(v)) : g.moveTo(x * w, Y(v)));
@@ -1732,26 +1759,40 @@ function copyButton(title, onclick) {
   paints.push(() => { if (settings) b.textContent = `⇆ layer ${2 - settings.editLayer}`; });
   return b;
 }
-// An envelope's mode menu (ADSR / DAHDSR, either from key up / cycle / synced cycle), its curve, its delay and hold
-// knobs (shown for DAHDSR), and its copy-from-the-other-layer button, for the envelope env() names now (the
-// faceplate's filter section follows the Env select switch)
+// An envelope's mode menu (ADSR / DAHDSR / cycle / synced cycle), its trigger (key down or up), its curve, its delay
+// and hold knobs (shown for DAHDSR) or its count of cycles (shown when cycling), and its copy-from-the-other-layer
+// button, for the envelope env() names now (the faceplate's filter section follows the Env select switch)
 function envTools(env) {
   const E = typeof env === "function" ? env : () => env;
   const modes = [...ENV_MODES_FIXED, "Cycle (free)", ...DIVISIONS.map(x => "Cycle · " + x)];
   const mode = settingSelect("", modes, () => {
     if (!settings) return undefined;
     const bit = E()[1], sync = settings[`cycleSync${paramsLayer + 1}_${envIndex(bit)}`];
-    return cycling(bit) ? 4 + sync : envFlag("envUp", bit) * 2 + envFlag("dahdsr", bit);
+    return cycling(bit) ? 2 + sync : +envFlag("dahdsr", bit);
   }, async v => {
     if (!settings) return;
     const bit = E()[1], L = paramsLayer + 1;
     const put = (key, on) => setSetting(SET_ID[key + L], on ? settings[key + L] | bit : settings[key + L] & ~bit);
     touch(E()[0], modes[v]);
-    if (v < 4) { await put("dahdsr", v & 1); await put("envUp", v >= 2); }
-    await setSetting(SET_ID[`cycleSync${L}_${envIndex(bit)}`], v > 4 ? v - 4 : 0);
-    await put("cycle", v >= 4);
-  }, "ADSR or DAHDSR (a delay before the attack, a hold at the top), from the key going down or (key up) from its " +
-     "release; or cycling while a key is held: attack, hold, fall, rest; synced cycles share a clock division");
+    if (v < 2) await put("dahdsr", v);
+    await setSetting(SET_ID[`cycleSync${L}_${envIndex(bit)}`], v > 2 ? v - 2 : 0);
+    await put("cycle", v >= 2);
+  }, "ADSR or DAHDSR (a delay before the attack, a hold at the top), or cycling: attack, hold, fall, rest, again; " +
+     "synced cycles share a clock division");
+  const trigger = settingSelect("", TRIGGERS, () => settings ? +keyUp(E()[1]) : undefined, v => {
+    if (!settings) return;
+    const bit = E()[1], key = "envUp" + (paramsLayer + 1);
+    touch(`${E()[0]} trigger`, TRIGGERS[v]);
+    setSetting(SET_ID[key], v ? settings[key] | bit : settings[key] & ~bit);
+  }, "Key down: the envelope starts as the key goes down. Key up: it waits at rest while the key is down and runs " +
+     "when the key is let go (cycling, it cycles from there: its count, or until the next note on that voice)");
+  const timing = settingSelect("", TIMINGS, () => settings ? +envFlag("envTempo", E()[1]) : undefined, v => {
+    if (!settings) return;
+    const bit = E()[1], key = "envTempo" + (paramsLayer + 1);
+    touch(`${E()[0]} timing`, TIMINGS[v]);
+    setSetting(SET_ID[key], v ? settings[key] | bit : settings[key] & ~bit);
+  }, "Seconds, or note values at the tempo: the time knobs (and the delay and hold) step through 0 and 1/32 .. 8 bars " +
+     "(on the synth: Settings 6, Arp Up-Dn to tI). Synced cycling keeps its shares of the cycle instead");
   const curve = settingSelect("", CURVES, () => settings ? envCurve(E()[1]) : undefined, v => {
     if (!settings) return;
     const e = envIndex(E()[1]), key = "curve" + (paramsLayer + 1);
@@ -1759,15 +1800,22 @@ function envTools(env) {
     setSetting(SET_ID[key], settings[key] & ~(3 << 2 * e) | v << 2 * e);
   }, "the stages' shapes: Analog (an RC attack, exponential decay and release), Linear (straight lines), Swell (an " +
      "attack that starts slowly and rises faster)");
-  const extraText = u => { const t = extraTime(Math.round(u * 99)); return t === 0 ? "0 ms" : seconds(t); };
+  const extraText = u => { const v = Math.round(u * 99); if (settings && envTempo(E()[1])) return noteName(noteStep(v / 99));
+    const t = extraTime(v); return t === 0 ? "0 ms" : seconds(t); };
   const extras = h("div", { class: "env-extra" },
     settingKnob(() => envExtraKey("Delay", E()[1]), "Delay", "DAHDSR: the wait before the attack (on the synth: Settings 6, the ATT knob)", extraText),
     settingKnob(() => envExtraKey("Hold", E()[1]), "Hold", "DAHDSR: the time at the top before the decay (on the synth: Settings 6, the DEC knob)", extraText));
   paints.push(() => { extras.hidden = !settings || !dahdsr(E()[1]); });
+  const countText = u => { const n = Math.round(u * 99); return n ? n + "×" : "loop"; };
+  const counts = h("div", { class: "env-extra" },
+    settingKnob(() => envCountKey(E()[1]), "Cycles", "how many cycles it runs, then it rests (from key up: it ends); " +
+      "loop (0) cycles while the key is held, or from key up until the next note on that voice (on the synth: " +
+      "Settings 6, Arp Up-Dn to Cn)", countText));
+  paints.push(() => { counts.hidden = !settings || !cycling(E()[1]); });
   return h("div", { class: "env-tools-wrap" },
-    h("div", { class: "env-tools" }, mode, curve,
+    h("div", { class: "env-tools" }, mode, trigger, timing, curve,
       copyButton("copy this envelope from the other layer", () => copyEnvelope(E()[1], E()[0]))),
-    extras);
+    extras, counts);
 }
 function envSection(env) {
   const [title, bit, a, d, s, r] = env;
@@ -2367,7 +2415,11 @@ async function refreshSettings() {
   const d = await ask([0x54], [0x54], 1000);
   if (!d) return false;
   const s = {};
-  for (let i = 0; i < Math.min(d[1], SETTINGS.length); i++) s[SETTINGS[i]] = d[2 + 2 * i] << 7 | d[3 + 2 * i];
+  // the settable ones from the start, as far as both know them; the read-only ones are always the reply's last four
+  // (their place moves whenever a firmware adds a setting)
+  const n = d[1], ro = SETTINGS.length - READ_ONLY, value = i => d[2 + 2 * i] << 7 | d[3 + 2 * i];
+  for (let i = 0; i < Math.min(n - READ_ONLY, ro); i++) s[SETTINGS[i]] = value(i);
+  for (let j = 0; j < READ_ONLY; j++) s[SETTINGS[ro + j]] = value(n - READ_ONLY + j);
   settings = s;
   if (s.presetMode && s.patch !== patchNameFor) { // the patch's name for the screen
     patchNameFor = s.patch;
@@ -2451,7 +2503,7 @@ async function copyEnvelope(bit, title) {
   const knobs = Object.keys(ENV_KNOB).filter(i => ENV_KNOB[i][0] === bit).map(Number);
   let ok = await copyParams(knobs, from, to);
   ok = ok && await set7D(`cycleSync${to + 1}_${env}`, settings[`cycleSync${from + 1}_${env}`]);
-  for (const key of ["cycle", "envUp", "dahdsr"]) {
+  for (const key of ["cycle", "envUp", "dahdsr", "envTempo"].filter(k => settings[`${k}${from + 1}`] !== undefined)) {
     const mine = settings[`${key}${to + 1}`], on = settings[`${key}${from + 1}`] & bit;
     ok = ok && await set7D(`${key}${to + 1}`, on ? mine | bit : mine & ~bit);
   }
@@ -2459,6 +2511,8 @@ async function copyEnvelope(bit, title) {
   ok = ok && await set7D(`curve${to + 1}`, curves);
   for (const which of ["Delay", "Hold"])
     ok = ok && await set7D(`env${which}${to + 1}_${env}`, settings[`env${which}${from + 1}_${env}`]);
+  if (settings[`envCount${from + 1}_${env}`] !== undefined) // firmware that has counts
+    ok = ok && await set7D(`envCount${to + 1}_${env}`, settings[`envCount${from + 1}_${env}`]);
   const status = document.getElementById("status");
   status.textContent = ok ? `Copied layer ${from + 1}'s ${title.toLowerCase()} to layer ${to + 1}` : "Copying failed";
   status.className = ok ? "ok" : "bad";
