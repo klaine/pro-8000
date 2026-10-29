@@ -634,10 +634,22 @@
     <div class="row">
       <button id="scan">Rescan</button>
       <button id="init-sound">Load the init sound</button>
-      <label><input type="checkbox" id="show-empty" checked> show empty slots</label>
+      <label><input type="checkbox" id="show-empty"> show empty slots</label>
       <button id="backup-all" title="all 128 patches with their sequences: the first 96 kB of the EEPROM">Back up everything (.bin)</button>
       <input type="file" id="import-file" accept=".p8p,application/octet-stream" hidden>
       <span class="msg" id="patch-msg"></span>
+    </div>
+    <p class="hint">Fill the patch memory in one go (each asks first). After installing from the stock firmware the
+      slots still hold stock-format data: format them first. The factory bank goes into the empty slots in order; the
+      preset bank (64 sounds) into its own slots, P1-P64. "Install a bank file…" takes a bank such as the release's
+      <code>pro8000-presets-…json</code>.</p>
+    <div class="row" id="bank-row">
+      <button id="bank-format" title="every slot empty, with its sequence; back up first">Format the patch memory</button>
+      <button id="bank-factory" title="the 100 sounds the PRO-800 shipped with, into the empty slots in order">Copy the whole factory bank</button>
+      <button id="bank-presets" title="the 64 PRO-8000 presets, into P1-P64">Install the 64-preset bank</button>
+      <button id="bank-open" title="a preset bank file, such as the release's pro8000-presets-….json">Install a bank file…</button>
+      <input type="file" id="bank-file" accept=".json,application/json" hidden>
+      <span class="msg" id="bank-msg"></span>
     </div>
     <div class="table-wrap"><table>
       <thead><tr><th>Slot</th><th>Name</th><th>Kind</th><th></th></tr></thead>
@@ -3059,6 +3071,11 @@ async function loadSound(text, from) {
   let j, plan;
   try {
     try { j = JSON.parse(text); } catch (e) { bad(`not JSON: ${e.message}`); }
+    if (Array.isArray(j) || (j && Array.isArray(j.presets))) { // a whole bank: install it into its slots
+      jsonMsg(`${from} is a preset bank: installing it (Patches, above)`);
+      bankRun(() => installBank(j, from));
+      return;
+    }
     await refreshSettings();
     plan = planSound(j, set => settings && settings[set] !== undefined);
   } catch (e) { jsonMsg(e instanceof JsonProblem ? e.message : String(e.message || e), "bad"); return; }
@@ -3146,6 +3163,105 @@ document.getElementById("factory-load").onclick = async () => {
   fillFactorySlots();
   msg("factory-msg", "");
 };
+// --- filling the patch memory in one go: format it (5B), copy the factory bank into the empty slots (51), or install
+// a preset bank: presets.json, which scripts/web.sh and pages.sh put next to this page (presets/lib/bundle.py), or a
+// bank file such as the release's pro8000-presets-<version>.json. Each asks first, and one runs at a time.
+let bankBusy = false;
+const bankMsg = (text, cls) => msg("bank-msg", text, cls);
+async function bankRun(job) {
+  if (offline()) { bankMsg("Connect first", "bad"); return; }
+  if (bankBusy) return;
+  bankBusy = true;
+  const buttons = document.querySelectorAll("#bank-row button");
+  buttons.forEach(b => { b.disabled = true; });
+  try { await job(); } finally { bankBusy = false; buttons.forEach(b => { b.disabled = false; }); }
+}
+const emptySlots = () => slots.map((x, n) => x && x.kind === 0 ? n : -1).filter(n => n >= 0);
+document.getElementById("bank-format").onclick = () => bankRun(async () => {
+  if (!confirm("Format the patch memory? All 128 slots become empty, sequences included, and it can't be undone. "
+    + "Back up first (Back up everything) if you want to keep anything.")) return;
+  bankMsg("formatting…");
+  const d = await ask([0x5B], [0x5B], 60000);
+  if (!d || d[3]) { bankMsg(d ? "format failed (an EEPROM write error)" : "no answer", "bad"); return; }
+  await scanSlots();
+  bankMsg("formatted: all 128 slots are empty", "ok");
+});
+document.getElementById("bank-factory").onclick = () => bankRun(async () => {
+  await scanSlots();
+  const empty = emptySlots();
+  if (!empty.length) { bankMsg("No empty slot: format the patch memory, or clear some slots", "bad"); return; }
+  if (!confirm(`Copy the factory bank's sounds into the ${empty.length} empty slots, in order from ${slotLabel(empty[0])}? `
+    + "Your patches stay where they are.")) return;
+  let copied = 0, e = 0, problem = "";
+  for (let f = 0; f < 100 && e < empty.length; f++) {
+    const n = empty[e], r = await ask([0x51, f, n >> 7, n & 0x7F], [0x51], 3000);
+    if (!r) { problem = "no answer"; break; }
+    if (r[1] === 0) { copied++; e++; }
+    else if (r[1] === 1) { e++; f--; } // that slot isn't empty after all: the next one, same sound
+    else if (r[1] === 3) { problem = `write error at ${slotLabel(n)}`; break; } // 2: not a stock patch, skipped
+    if (f % 10 === 9) bankMsg(`copying… ${f + 1} / 100`);
+  }
+  await scanSlots();
+  bankMsg(`copied ${copied} factory sounds` + (problem ? `; stopped: ${problem}` : e >= empty.length && copied < 100
+    ? " (no empty slot left for the rest)" : ""), problem ? "bad" : "ok");
+});
+// A bank: {"presets": [...]} (bundle.py's format) or a plain list, each preset with its slot. Every preset is checked
+// before anything is sent, then each is built from the init sound (as "Load this JSON"), saved into its slot and
+// named; the sound on the synth ends up as the last one.
+async function installBank(bank, from) {
+  const list = Array.isArray(bank) ? bank : bank && Array.isArray(bank.presets) ? bank.presets : null;
+  if (!list || !list.length || list.some(p => !p || typeof p !== "object" || !Number.isInteger(p.slot) || p.slot < 1 || p.slot > 128)) {
+    bankMsg(`${from} isn't a preset bank (a list of presets, each with a slot 1-128)`, "bad"); return;
+  }
+  await refreshSettings();
+  const has = set => settings && settings[set] !== undefined, plans = [];
+  for (const p of list) {
+    try { plans.push(planSound(p, has)); }
+    catch (e) { bankMsg(`${from}, P${p.slot}${p.name ? ` "${p.name}"` : ""}: ${e.message}`, "bad"); return; }
+  }
+  await scanSlots();
+  const replaced = list.filter(p => slots[p.slot - 1] && slots[p.slot - 1].kind !== 0).length;
+  const lo = Math.min(...list.map(p => p.slot)), hi = Math.max(...list.map(p => p.slot));
+  if (!confirm(`Install ${list.length} presets into their slots (P${lo}-P${hi})? `
+    + (replaced ? `This replaces the ${replaced} patches there. ` : "Those slots are empty. ")
+    + "The sound on the synth becomes the last preset.")) return;
+  const left = new Set();
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i], n = p.slot - 1;
+    for (const m of plans[i].messages)
+      if (!await ack(m, 3000)) { bankMsg(`P${p.slot}: the synth didn't take a message (${m[0].toString(16)}); stopped`, "bad"); await scanSlots(); return; }
+    if (!await ack([0x5D, n >> 7, n & 0x7F], 3000)) { bankMsg(`saving P${p.slot} failed; stopped`, "bad"); await scanSlots(); return; }
+    const name = Array.from(String(p.name || "").slice(0, 16)).map(c => c.charCodeAt(0)).filter(c => c >= 0x20 && c < 0x7F);
+    if (name.length) await ack([0x59, n >> 7, n & 0x7F, ...name], 3000);
+    plans[i].warnings.forEach(w => left.add(w.replace(/^"([^"]*)".*/, "$1")));
+    bankMsg(`installing… ${i + 1} / ${list.length} (P${p.slot} ${p.name || ""})`);
+  }
+  await scanSlots(); await refreshSettings(); await refreshParams(); seqFor = null; await refreshSettings();
+  bankMsg(`installed ${list.length} presets` + (left.size ? `; this firmware hasn't got: ${[...left].join(", ")}` : ""), left.size ? "" : "ok");
+}
+document.getElementById("bank-presets").onclick = () => bankRun(async () => {
+  let bank;
+  try {
+    const r = await fetch("presets.json", { cache: "no-cache" });
+    if (!r.ok) throw new Error(r.status);
+    bank = await r.json();
+  } catch (e) {
+    bankMsg("No preset bank next to this page: open the release's pro8000-presets file with \"Install a bank file…\" "
+      + "(or start the page with scripts/web.sh)", "bad");
+    return;
+  }
+  await installBank(bank, "the preset bank");
+});
+document.getElementById("bank-open").onclick = () => document.getElementById("bank-file").click();
+document.getElementById("bank-file").onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  let bank;
+  try { bank = JSON.parse(await file.text()); } catch (err) { bankMsg(`${file.name} isn't JSON: ${err.message}`, "bad"); return; }
+  bankRun(() => installBank(bank, file.name));
+};
+
 function fillFactorySlots() {
   const empty = slots.map((x, n) => x && x.kind === 0 ? n : -1).filter(n => n >= 0);
   const opts = empty.map(n => `<option value="${n}">${slotLabel(n)}</option>`).join("");

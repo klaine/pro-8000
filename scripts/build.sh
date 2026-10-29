@@ -6,10 +6,11 @@
 #   build/pro800.elf   linked firmware (app at 0x08010000)
 #   build/pro800.bin   raw image, max 128 kB
 #   build/pro800-<version>.syx   update file for the bootloader (skipped with --no-pack)
+#   build/pro8000-presets-<version>.json   the 64-preset bank for the web editor (with the .syx, for a release)
 #
 # The version comes from VERSION (x.y.z, single digits, as the bootloader takes it as XYZ).
 # Packing uses Music Tribe's PRO800_update_gen from reference/PRO800-Firmware-Packer/.
-# Environment: ZIG (default zig).
+# Environment: ZIG (default zig), PYTHON (default python3, for the preset bank).
 set -eu
 
 case "${1:-}" in
@@ -60,3 +61,4 @@ chmod +x "$build/PRO800_update_gen"
 syx="pro800-$version.syx"
 "$build/PRO800_update_gen" pro800.bin "$syx" "$(echo "$version" | tr -d .)"
 echo "$syx: $(wc -c < "$syx" | tr -d ' ') bytes"
+"${PYTHON:-python3}" -I "$root/presets/lib/bundle.py" "pro8000-presets-$version.json"

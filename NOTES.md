@@ -1323,6 +1323,19 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   bar) had the same check. Both compare signed now.
 - **An empty slot loads the init sound** (`load_patch()`: VALUE, number keys, program change, the host's 5C), in
   that slot, so REC saves it there; it used to show the number and keep the sound. A damaged slot still shows `nonE`.
+  The display keeps the slot's number (`P 67`), as for any patch: `init_patch()`'s `InIt` is cancelled there, and
+  stays for PERF (asked for after scrolling through empty slots showed `InIt` on each).
+- **Filling the patch memory from the web page** (asked for after a forum user had no patches after installing):
+  coming from stock, the slots hold stock-format data and read as damaged, and only macOS had a bulk route
+  (`pro800 format`, `presets/install.sh`). The Patches tab now formats the memory (5B), copies the whole factory
+  bank into the empty slots in order (51; a slot that turns out full moves on with the same sound, a non-stock
+  sound is skipped without using a slot), and installs a preset bank: every preset checked by `planSound()` first,
+  then each built from the init sound, saved (5D) and named (59). The bank is `presets.json` next to the page
+  (`presets/lib/bundle.py`, from web.sh, pages.sh and build.sh, which also writes the release asset) or a file
+  opened or pasted. Empty slots are hidden by default. Tested in the built-in browser with a fake synth answering
+  the SysEx: 94 factory sounds into the 94 empty slots of a fresh-install memory, format, 95 into 128 (sounds 95-99
+  set up as non-stock and skipped), all 64 presets over factory copies (64 saves and names, 64 distinct sounds,
+  6,094 messages), a two-preset bank pasted in the JSON box, and a bank with a typo refused with nothing written.
 
 ## Backlog
 

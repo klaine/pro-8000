@@ -12,6 +12,11 @@ until a MIDI clock arrives.
 
 ## Install
 
+From the web editor (any computer with Chrome or Edge): Patches tab, **Install the 64-preset bank**, or **Install a
+bank file…** with the release's `pro8000-presets-<version>.json`. The bank is these files in one, made by
+`lib/bundle.py` (`scripts/web.sh` and `scripts/pages.sh` put it next to the editor as `presets.json`, and
+`scripts/build.sh` writes the release copy into `build/`). With the command-line tool on macOS:
+
 ```sh
 scripts/tools.sh                     # build/pro800, once
 presets/install.sh --dry-run         # prints every command, no synth needed

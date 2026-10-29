@@ -1,5 +1,6 @@
 #!/bin/sh
-# Serves the WebMIDI tools (tools/web/) on localhost, where Chrome allows WebMIDI with SysEx.
+# Serves the WebMIDI tools (tools/web/) on localhost, where Chrome allows WebMIDI with SysEx. Bundles the preset
+# bank there first (tools/web/presets.json, git-ignored), for the Patches tab's "Install the preset bank".
 #
 # Usage: scripts/web.sh [-h|--help] [port]
 #
@@ -15,5 +16,6 @@ esac
 PYTHON=${PYTHON:-python3}
 port=${1:-8800}
 root=$(cd "$(dirname "$0")/.." && pwd)
+"$PYTHON" -I "$root/presets/lib/bundle.py" "$root/tools/web/presets.json"
 echo "http://localhost:$port/"
 exec "$PYTHON" -m http.server "$port" --bind 127.0.0.1 --directory "$root/tools/web"

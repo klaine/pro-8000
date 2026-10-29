@@ -297,8 +297,9 @@ static void undo_swap_back(void)
 
 static void init_patch(void);
 
-// Loads slot n. An empty slot gives the init sound there (so it starts from scratch, and REC saves it in place); a
-// slot that isn't one of ours shows nonE and keeps the sound.
+// Loads slot n. An empty slot gives the init sound there (so it starts from scratch, and REC saves it in place), with
+// the slot's number on the display like any other (PERF's InIt is for PERF); a slot that isn't one of ours shows nonE
+// and keeps the sound.
 static int load_patch(int n)
 {
     patch_t patch;
@@ -307,6 +308,8 @@ static int load_patch(int n)
             init_patch();
             current_patch = n;
             store_set_last(n, 1);
+            display_until = 0;
+            show_patch(n);
             return 1;
         }
         display_text("nonE");

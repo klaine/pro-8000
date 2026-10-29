@@ -29,6 +29,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT/editor"
 "$PYTHON" -I docs/build.py docs "$OUT"
 cp tools/web/index.html tools/web/panel-map.json "$OUT/editor/"
+"$PYTHON" -I presets/lib/bundle.py "$OUT/editor/presets.json"
 if grep -rl -E '/Users/|/home/' "$OUT"; then
   echo "pages: build paths in the site, not publishing" >&2
   exit 1

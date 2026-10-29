@@ -1,5 +1,6 @@
 # build outputs
 build/
+tools/web/presets.json
 
 # third-party material: GliGli's p600fw, Music Tribe's packer and schematic
 reference/
