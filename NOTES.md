@@ -1677,19 +1677,28 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 - **`install` runs its MIDI steps as child processes**, each finding the ports afresh. The USB check doesn't use MIDI
   (`CM_Get_Device_ID_ListW`, present devices). A long-running process may keep a stale device list across a
   re-enumeration, as CoreMIDI does; this way it doesn't matter whether WinMM does.
-- **Stock firmware 1.4.6, seen from Windows with SynthTribe 2.6.7 open:** `77 7E 03` answers `78 7E 03 …` and then a bare
-  `F0 F7` 2-3 ms later. That one can arrive during the next request and look like an empty slot, so `backup` gives a
-  real reply 100 ms to follow it (a real patch has not been seen through this path yet: this synth's stock firmware
-  answers `F0 F7` for all 400 slots). `08 00` brought `78 7E 03 …` and `F0 F7` with it, which SynthTribe may have
-  asked for on seeing the reply (not tried with SynthTribe closed).
-- **Tested:** on the real synth under stock 1.4.6 `ports`, `version`, `backup` (all 400 slots, 50 s), `listen`, the USB check
-  and the no-reply path (`settings` and `eeprom`, whose 54 and 79 the web pages already send to stock). The WinMM send path
-  and the pacing with `flash` to the Microsoft GS Wavetable Synth: 3000 B/s asked gave 2982, 9000 gave 8860, gaps never
-  below what was asked. `flash --dry-run` on the published 0.9.3 file: 376 messages, 95,547 bytes, version 0.9.3 in the
-  header. Everything else against the simulated synth of `tools/test_pro800.py`, built from `src/main.c`'s replies.
+- **A shared port shows other programs' replies.** With SynthTribe 2.6.7 open, a version request on stock 1.4.6 also
+  brought `78 7E 03 …` and a bare `F0 F7`, and `77 7E 03` was followed by `F0 F7`. With SynthTribe closed each request got
+  only its own reply, so those were SynthTribe's. A stray `F0 F7` during a slot request would read as an empty slot, so
+  `backup` gives a real reply 100 ms to follow one, and nothing else accepts `F0 F7`. Another version reply nobody on our
+  side asked for still came with SynthTribe closed, so something else was on the port that day too.
+- **A flash can't tell who else is talking**, and any traffic breaks one (above), so the tool can't check this: quit
+  SynthTribe and close WebMIDI pages first. `find_port` takes exact names on Windows, where "2- PRO 800" would be another
+  synth that `install` mustn't flash if the first drops off the bus.
+- **Tested on the real synth under stock 1.4.6:** `ports`, `version`, `backup` (all 400 slots, 50 s; this synth's stock firmware
+  answers `F0 F7` for every one, so a real patch hasn't come through this path), `listen`, and the no-reply path (`settings`
+  and `eeprom`, whose 54 and 79 the web pages already send to stock). Seen while the synth went into its bootloader and
+  back, by something other than this tool: the USB check finds both 125F and 1260 (`USB\VID_1397&PID_1260\0.1.0`, its MIDI
+  interface `…&MI_00`), the bootloader's port is "PRO 800" here too and opens, and the port comes up a little after
+  the USB device.
+- **Tested without the synth:** `flash` over real WinMM to the Microsoft GS Wavetable Synth: 3000 B/s asked gave 2982, 9000 gave
+  8860, gaps never below what was asked. The input thread with WinMM's messages posted to it on the Move's input: short
+  messages, SysEx, a broken SysEx dropped with its buffer returned, an empty buffer not returned, and the Move's real active
+  sensing. `flash --dry-run` on the published 0.9.3 file: 376 messages, 95,547 bytes, version 0.9.3 in the header. Everything
+  else against the simulated synth of `tools/test_pro800.py`, built from `src/main.c`'s replies.
 - **Not tested on the real synth:** the commands that need our firmware (`settings`, `state`, `engine`, `seq`, `patches`,
-  `routes`, `timing`, `tuning`, `check`, `panel`, `eeprom`), anything that changes the synth, `update-mode`, `flash`,
-  `install`, and short MIDI messages coming in (`listen` while a knob moves or a key plays).
+  `routes`, `timing`, `tuning`, `check`, `panel`, `eeprom`), anything that changes the synth, `update-mode`, `flash` and
+  `install`. Nothing on macOS or Linux.
 
 ## Backlog
 

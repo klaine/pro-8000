@@ -252,8 +252,15 @@ class ReadOnly(unittest.TestCase):
         self.assertEqual(run(self.synth, "version"), ("firmware 0.9.3\n", 0))
         self.assertEqual(self.synth.sent, [request_bytes(0x08, 0x00)])
 
-    def test_find_port_takes_a_decorated_name(self):
-        self.assertEqual(run(self.synth, "version", port_list=(["Move", "2- PRO 800"], ["2- PRO 800"]))[1], 0)
+    def test_port_names(self):
+        decorated = (["Move", "PRO 800:PRO 800 MIDI 1 28:0"], ["PRO 800:PRO 800 MIDI 1 28:0"])
+        second_synth = (["2- PRO 800"], ["2- PRO 800"])
+        with mock.patch.object(pro800.sys, "platform", "win32"):
+            self.assertEqual(pro800.find_port(["Move", "PRO 800"], "PRO 800"), 1)
+            self.assertEqual(run(self.synth, "version", port_list=second_synth)[1], 1)  # never another synth
+        with mock.patch.object(pro800.sys, "platform", "linux"):
+            self.assertEqual(run(self.synth, "version", port_list=decorated)[1], 0)
+            self.assertEqual(run(self.synth, "version", port_list=(["PRO 800 a", "PRO 800 b"], ["PRO 800 a"]))[1], 1)
 
     def test_missing_port(self):
         out, code = run(self.synth, "version", port_list=(["Move"], ["Move"]))
@@ -415,6 +422,7 @@ class ReadOnly(unittest.TestCase):
         self.assertIn('listening on "PRO 800" for 0 s', out)
         self.assertIn("B0 01 40\n90 3C 64\n", out)
         self.assertIn("2 messages\n", out)
+        self.assertEqual(run(FakeSynth(), "listen", "0")[0].splitlines()[-1], "0 messages")  # 0 means 0, not the default
 
     def test_sysex_split_over_buffers(self):
         self.synth.start_messages = [b"\xF0\x01\x02", b"\x03\xF7", b"\xF0\x04\xF7\xF0\x05\xF7"]
@@ -444,7 +452,7 @@ class ReadOnly(unittest.TestCase):
 
 
 class Stock(unittest.TestCase):
-    """The stock firmware: 77 lo hi, a bare F0 F7 for an empty slot, and one more after the system settings."""
+    """The stock firmware: 77 lo hi, a bare F0 F7 for an empty slot, here with another program's F0 F7 arriving late."""
 
     class Firmware(FakeSynth):
         def __init__(self):
@@ -637,7 +645,10 @@ class Writes(unittest.TestCase):
                      ("param", "1", "nope", "1"), ("param", "3", "cutoff", "1"), ("route", "1", "", "cutoff", "1"),
                      ("route", "1", "lfo", "cutoff", "100"), ("patch", "load", "P129"), ("patch", "save", "128"),
                      ("seq", "step", "65", "0", "50"), ("cc", "128", "0", "--channel", "1"), ("bend", "16384", "--channel", "1"),
-                     ("format",), ("eeprom-write", "x"), ("direct", "maybe"), ("cv", "nope", "1"), ("gate", "sawa")):
+                     ("format",), ("eeprom-write", "x"), ("direct", "maybe"), ("cv", "nope", "1"), ("gate", "sawa"),
+                     ("cv", "osca1", "0xF_F"), ("param", "1", "cutoff", "1_0"), ("param", "1", "cutoff", "nan"),
+                     ("play", "60", "--hold", "-1", "--channel", "1"), ("check", "200"),
+                     ("cc", "1", "2", "--channel", "0"), ("cc", "1", "2", "--channel", "17"), ("bend", "0", "--channel", "-1")):
             with self.subTest(argv=argv):
                 synth = FakeSynth()
                 out, code = run(synth, *argv)
@@ -655,6 +666,27 @@ class Writes(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(bytes(synth.eeprom), image)
         self.assertIn("verified: the EEPROM matches", out)
+
+    def test_seq_set_wants_a_value(self):
+        synth = FakeSynth()
+        self.assertEqual(run(synth, "seq", "set", "smooth=")[1], 1)
+        self.assertEqual(synth.sent, [request_bytes(0x48)])  # only the header's read
+
+    def test_eeprom_write_fails_on_a_mismatch(self):
+        class Forgetful(FakeSynth):
+            def handle(self, d):
+                if d[0] == 0x5A:
+                    self.ack(0x5A)
+                else:
+                    super().handle(d)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "image.bin")
+            with open(path, "wb") as f:
+                f.write(bytes(0x20000))
+            out, code = run(Forgetful(), "eeprom-write", path, "--yes")
+        self.assertEqual(code, 1)
+        self.assertIn("MISMATCH", out)
 
     def test_eeprom_write_wants_a_whole_image(self):
         synth = FakeSynth()
@@ -746,6 +778,9 @@ class Flash(unittest.TestCase):
             path = update_file(folder)[0]
             self.assertEqual(run(Bootloader(), "flash", path, "--yes", "--rate", "9001")[1], 1)
             self.assertEqual(run(Bootloader(), "flash", path, "--yes", "--rate", "0")[1], 1)
+            synth = Bootloader()
+            self.assertEqual(run(synth, "flash", path, "--yes", "--erase-wait", "-1")[1], 1)
+            self.assertEqual(synth.sent, [])
 
     def test_pacing(self):
         rate, erase_wait = 9000, 0.2
@@ -851,6 +886,14 @@ class Install(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("nothing was flashed", out)
         self.assertEqual([c[0] for c in machine.commands], ["update-mode"] * 3)
+
+    def test_says_why_a_step_failed(self):
+        self.addCleanup(setattr, pro800, "child_error", "")
+        pro800.child_error = "can't open the MIDI port: another program has it"
+        err = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+            pro800.fail_with_child_error("nothing was flashed")
+        self.assertIn("Last error: can't open the MIDI port", err.getvalue())
 
     def test_refused_flash(self):
         machine = self.Machine(flash_ok=False)

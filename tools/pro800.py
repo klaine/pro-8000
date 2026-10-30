@@ -140,9 +140,10 @@ def to_int(text):
 
 def to_float(text):
     try:
-        return float(text)
+        value = float(text)
     except (TypeError, ValueError):
         return None
+    return value if math.isfinite(value) and "_" not in text else None
 
 
 def int_in(text, low, high):
@@ -156,10 +157,7 @@ def index_of(items, item):
 
 def parse_value(text):
     if text.lower().startswith("0x"):
-        try:
-            return int(text[2:], 16)
-        except ValueError:
-            return None
+        return int(text[2:], 16) if re.fullmatch(r"[0-9a-fA-F]+", text[2:]) else None
     return to_int(text)
 
 
@@ -220,7 +218,7 @@ if sys.platform == "win32":
 
     HANDLE = ctypes.c_void_p
     CALLBACK_THREAD = 0x20000
-    MM_MIM_DATA, MM_MIM_LONGDATA = 0x3C3, 0x3C4
+    MM_MIM_DATA, MM_MIM_LONGDATA, MM_MIM_LONGERROR = 0x3C3, 0x3C4, 0x3C6
     WM_QUIT = 0x12
     MMSYSERR_ALLOCATED = 4
     MIDIERR_STILLPLAYING = 65
@@ -325,11 +323,13 @@ if sys.platform == "win32":
             while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
                 if msg.message == MM_MIM_DATA:
                     self.receive((msg.lParam & 0xFFFFFF).to_bytes(3, "little")[:short_message_size(msg.lParam & 0xFF)])
-                elif msg.message == MM_MIM_LONGDATA:
+                elif msg.message in (MM_MIM_LONGDATA, MM_MIM_LONGERROR):
+                    # a broken message's buffer has to go back too; an empty one means the port is closing or gone
                     header = ctypes.cast(msg.lParam, ctypes.POINTER(MidiHdr))
-                    if header.contents.dwBytesRecorded:
-                        self.receive(ctypes.string_at(header.contents.lpData, header.contents.dwBytesRecorded))
-                    if not self.closing:
+                    size = header.contents.dwBytesRecorded
+                    if size and msg.message == MM_MIM_LONGDATA:
+                        self.receive(ctypes.string_at(header.contents.lpData, size))
+                    if size and not self.closing:
                         winmm.midiInAddBuffer(self.input, header, ctypes.sizeof(MidiHdr))
 
         def send(self, data):
@@ -342,7 +342,10 @@ if sys.platform == "win32":
             header.dwBufferLength = header.dwBytesRecorded = len(data)
             checked("midiOutPrepareHeader", winmm.midiOutPrepareHeader(self.output, header, ctypes.sizeof(header)))
             checked("midiOutLongMsg", winmm.midiOutLongMsg(self.output, header, ctypes.sizeof(header)))
+            give_up = time.monotonic() + 5
             while winmm.midiOutUnprepareHeader(self.output, header, ctypes.sizeof(header)) == MIDIERR_STILLPLAYING:
+                if time.monotonic() > give_up:
+                    fail("the MIDI port stopped taking data (was the synth unplugged?)")
                 time.sleep(0.001)
 
         def close(self):
@@ -392,13 +395,12 @@ else:
 
 
 def find_port(names, port):
-    # the exact name, else a part of it: Windows numbers a second device ("2- PRO 800"), ALSA adds to the name
+    # The exact name. rtmidi can add to it (ALSA does), so elsewhere one port containing it will do. Not on Windows,
+    # where "2- PRO 800" would be a second synth, and `install` mustn't flash that one when the first drops off the bus.
     if port in names:
         return names.index(port)
-    for i, name in enumerate(names):
-        if port and port.lower() in name.lower():
-            return i
-    return None
+    matches = [i for i, name in enumerate(names) if port and port.lower() in name.lower()]
+    return matches[0] if len(matches) == 1 and sys.platform != "win32" else None
 
 
 class Midi:
@@ -453,8 +455,8 @@ class Midi:
 
     # Sends header + data + F7 and waits for a PRO-800 reply whose data starts with `expect`. An empty patch slot
     # answers with a bare F0 F7, returned as is with allow_empty (only `backup` asks for the stock firmware's slots).
-    # The stock firmware also sends one after the system settings, which can arrive after the next request went out,
-    # so a real reply gets EMPTY_GRACE seconds to follow it.
+    # Under Windows MIDI Services every program on the port sees every reply, so another program's (SynthTribe asks for
+    # slots too) can arrive during this request: a real reply gets EMPTY_GRACE seconds to follow it.
     def request(self, data, expect, timeout=1.5, allow_empty=False):
         expect = bytes(expect)
         self.take_sysex()
@@ -550,7 +552,8 @@ def version():
 
 
 def listen():
-    seconds = to_float(args[0] if args else "20") or 20
+    seconds = to_float(args[0] if args else "20")
+    seconds = 20 if seconds is None else seconds
     m = midi()
     count = [0]
 
@@ -648,6 +651,8 @@ def play():
     channel_arg = option("--channel")
     hold = to_float(option("--hold"))
     hold = 2.0 if hold is None else hold
+    if hold < 0:
+        fail("--hold can't be negative")
     velocity = int_in(option("--velocity"), 0, 127)
     velocity = 100 if velocity is None else velocity
     note = int_in(args[0], 0, 127) if args else None
@@ -787,6 +792,8 @@ def tuning():
 def check():
     only_osc, only_filters = flag("--osc"), flag("--filters")
     given = [to_int(a) for a in args if to_int(a) is not None]
+    if not all(0 <= note <= 127 for note in given):
+        fail("notes 0-127")
     osc_notes = given or [36, 48, 60, 72, 84, 96]
     filter_notes = given or [48, 60, 72, 84, 96, 108, 120]
     ack = probe_ack
@@ -1064,7 +1071,8 @@ def pot_label(i):
 
 
 def panel():
-    seconds = to_float(args[0] if args else "120") or 120
+    seconds = to_float(args[0] if args else "120")
+    seconds = 120 if seconds is None else seconds
     m = midi()
     probe_ack([0x7A, 1])
     show(f"panel report on for {int(seconds)} s: move knobs, press buttons (Ctrl-C to stop)")
@@ -1484,9 +1492,9 @@ def seq_set():
         return v
 
     for kv in args[1:]:
-        if "=" not in kv:
+        key, _, value = kv.partition("=")
+        if not value:
             fail(usage)
-        key, value = kv.split("=", 1)
         if key in ("on", "clock", "once"):
             mask = {"on": 1, "clock": 2, "once": 4}[key]
             flags = flags | mask if number(value, 0, 1) == 1 else flags & ~mask
@@ -1789,7 +1797,9 @@ def eeprom_write():
     eeprom()
     with open(check_path, "rb") as f:
         back = f.read()
-    show(f"verified: the EEPROM matches {path}; power-cycle the synth" if back == image else "MISMATCH after writing")
+    if back != image:
+        fail("MISMATCH after writing")
+    show(f"verified: the EEPROM matches {path}; power-cycle the synth")
 
 
 # Empties every slot: pro800 format --yes
@@ -1933,13 +1943,7 @@ def routes():
 # requests are.
 def sysex_pipe():
     def hex_bytes(text):
-        out = []
-        for word in text.split():
-            try:
-                out.append(int(word, 16))
-            except ValueError:
-                pass
-        return [b for b in out if 0 <= b <= 255]
+        return [int(word, 16) for word in text.split() if re.fullmatch(r"[0-9a-fA-F]{1,2}", word)]
 
     m = midi()
     for line in sys.stdin:
@@ -2005,7 +2009,12 @@ def timing():
 
 
 def channel_option(default):
-    return ((to_int(option("--channel") or "") or synth_channel() or default) - 1) & 0x0F
+    channel = to_int(option("--channel") or "")
+    if channel is None:
+        channel = synth_channel() or default
+    if not 1 <= channel <= 16:
+        fail("--channel must be 1-16")
+    return channel - 1
 
 
 # pro800 cc <controller> <value> [--channel N]
@@ -2081,6 +2090,8 @@ def flash():
     path = args[0]
     if not 0 < rate <= 9000:
         fail("--rate must be 1-9000 bytes/s")
+    if erase_wait < 0:
+        fail("--erase-wait can't be negative")
 
     messages = update_messages(path)
     total = sum(len(m) for m in messages)
@@ -2143,11 +2154,23 @@ def usb_device_present(product):
 # Runs this tool as a child process: each finds the ports afresh, where a long-running one may keep a stale list while
 # the synth re-enumerates (CoreMIDI does; WinMM's is not documented), and none holds the port between steps.
 def run_self(*command, capture=True, timeout=None):
+    global child_error
     try:
-        return subprocess.run([sys.executable, os.path.abspath(__file__), "--port", port_name, *command],
-                              capture_output=capture, encoding="utf-8", errors="replace", timeout=timeout)
+        result = subprocess.run([sys.executable, os.path.abspath(__file__), "--port", port_name, *command],
+                                capture_output=capture, encoding="utf-8", errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired:
+        child_error = f"`{command[0]}` didn't finish"
         return None
+    if capture and result.returncode != 0 and result.stderr:
+        child_error = result.stderr.strip()
+    return result
+
+
+child_error = ""
+
+
+def fail_with_child_error(message):  # what the last child process said can be the real reason (a port in use)
+    fail(f"{message}\nLast error: {child_error}" if child_error else message)
 
 
 def wait_for(seconds, condition):
@@ -2161,9 +2184,10 @@ def wait_for(seconds, condition):
 
 def running_version():
     result = run_self("version", timeout=10)
-    if result is None or result.returncode != 0 or not result.stdout.startswith("firmware "):
+    if result is None or result.returncode != 0:
         return None
-    return result.stdout.split()[1]
+    words = result.stdout.split()
+    return words[1] if len(words) == 2 and words[0] == "firmware" else None
 
 
 # update-mode, flash, then wait until the new firmware answers the version request
@@ -2187,7 +2211,7 @@ def install():
             if wait_for(6, lambda: usb_device_present(USB_BOOTLOADER)):
                 break
         else:
-            fail("the synth didn't enter the bootloader, so nothing was flashed. Switch it off, hold buttons 0 and 7, switch it on, and run this again.")
+            fail_with_child_error("the synth didn't enter the bootloader, so nothing was flashed. Switch it off, hold buttons 0 and 7, switch it on, and run this again.")
     # the port can go and come back right after the device appears: wait until it stays
     steady = [None]
 
@@ -2201,7 +2225,7 @@ def install():
         return time.monotonic() - steady[0] >= 3
 
     if not wait_for(30, port_steady):
-        fail("the bootloader's MIDI port didn't appear")
+        fail_with_child_error("the bootloader's MIDI port didn't appear")
     if run_self("flash", path, "--yes", "--require-ok", capture=False).returncode != 0:
         fail("the bootloader didn't confirm the update. Quit anything else using MIDI (SynthTribe, a web page in Chrome), switch the synth off and on, and run this again with 0 and 7 held if it comes up on the old firmware.")
     # a first boot after an update also autotunes (about 30 s) before it answers
@@ -2220,8 +2244,8 @@ def install():
             fail(f"\nthe synth runs firmware {running}, not the {expected} in {path}")
         show(f"\nrunning firmware {running}")
         return
-    fail("\nthe synth is still in the bootloader. Switch it off and on, and run this again if it stays on the display's boot screen."
-         if usb_device_present(USB_BOOTLOADER) else "\nthe firmware didn't answer within 75 s")
+    fail_with_child_error("\nthe synth is still in the bootloader. Switch it off and on, and run this again if it stays on the display's boot screen."
+                          if usb_device_present(USB_BOOTLOADER) else "\nthe firmware didn't answer within 75 s")
 
 
 # Exit 0 when the port is there, for `install`: pro800 port-present
