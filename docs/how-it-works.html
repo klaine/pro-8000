@@ -36,7 +36,7 @@
   <p class="lede">The PRO-800 makes its sound with eight fully analog voices. This firmware is the brain that plays them: it reads your hands and your MIDI, does the maths, and sets the voltages that the analog circuits follow. Here's how, from the circuit board up.</p>
   <p class="note-sm">Built on what Music Tribe, Behringer's parent company, published in <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer">PRO800-Firmware-Packer</a>: the main-board <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer/blob/main/Schematics/PRO800_Main_Schematics.pdf">schematic</a> and the packer that turns a firmware into an update the synth's bootloader accepts.</p>
   <p class="note-sm risk"><b>Wildly experimental:</b> use it at your own risk, with no liability if it harms your hardware. <a href="index.html#experimental">The disclaimer</a></p>
-  <div class="meta"><span class="chip">STM32F446 · 168 MHz</span><span class="chip">Written from scratch in C</span><span class="chip">No operating system</span><span class="chip">About 69 kB</span></div>
+  <div class="meta"><span class="chip">STM32F446 · 168 MHz</span><span class="chip">Written from scratch in C</span><span class="chip">No operating system</span><span class="chip">About 75 kB</span></div>
 </div>
 
 <div class="layout">
@@ -412,6 +412,12 @@
     <p>The layer modes only change how notes are given out: <strong>off</strong> (layer 1 on all eight voices), <strong>split</strong> (layer 1 below a split note, layer 2 from it up), <strong>stack</strong> (every note on both layers) and <strong>channel</strong> (MIDI channel 2 plays layer 2, every other channel layer 1). Two more give one sound a voice per MIDI channel: <strong>8CH</strong> (channels 1–8 each own one voice, mono, with their own bend, pressure and CC 74) and <strong>MPE</strong> (channel 1 is the master, channels 2–9 each play one voice with 48 semitones of bend). The synth plays every MIDI channel unless one is set (Shift + NOISE, <code>CHnL</code>); then other channels are ignored, and the per-channel modes count from the set channel instead of 1.</p>
   </div>
 
+  <h3>Linking layers</h3>
+  <div class="prose">
+    <p>A stack usually wants two different oscillators under one filter movement. A patch can <strong>link</strong> groups of layer 2's settings to layer 1: the filter (cutoff and envelope amount), each of the four envelopes, and each LFO. Nothing is copied. When the engine works out a linked group for layer 2 it simply reads layer 1's values, so layer 2's own stay stored and return the moment you unlink. Turning a linked knob while editing layer 2 edits layer 1, and both layer LEDs light for a second to say so.</p>
+    <p>A linked LFO is layer 1's LFO itself, not a second one set to match, so the two layers can't drift apart: layer 2's voices read its phase, or in per-voice retrigger keep their own phases at its rate. Mod routes stay per layer, so layer 2 can still add its own velocity or LFO on top of the shared cutoff. Links work in the split, stack and channel modes; the web page's Filter, envelope and LFO sections each have a Link button.</p>
+  </div>
+
   <h3>Envelopes with an analog shape</h3>
   <div class="prose">
     <p>Every voice has four ADSR envelopes: filter, amp, Env 3 and Env 4. By default they're shaped like the envelope chips in classic polysynths: the attack charges towards 1.5 and stops when it reaches 1, so it shoots up and eases into the top. Decay and release fall exponentially, and their times are measured to −60 dB, so a release that says 2 s really is gone at 2 s. Each envelope can also take a linear curve or a swell, add a delay and a hold (DAHDSR), start from key <em>up</em> instead of key down, or cycle; those are the same formulas with different stage orders.</p>
@@ -521,10 +527,10 @@
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
       <svg viewBox="0 0 880 300" role="img" aria-labelledby="f14t">
-        <title id="f14t">Flash map: a write-protected bootloader, then up to 128 kB for this firmware across sector 4 and half of sector 5, about 73 kB used. EEPROM map: 128 patch records with their sequences, the stock factory bank, global settings and tuning tables.</title>
+        <title id="f14t">Flash map: a write-protected bootloader, then up to 128 kB for this firmware across sector 4 and half of sector 5, about 75 kB used. EEPROM map: 128 patch records with their sequences, the stock factory bank, global settings and tuning tables.</title>
         <text x="20" y="28" class="t-b">Microcontroller flash · 256 kB</text>
         <rect class="box" x="20" y="40" width="210" height="58" rx="8"/><text x="34" y="64" class="t-b">Bootloader</text><text x="34" y="84" class="t-xs">64 kB · write-protected</text>
-        <rect class="box-dig" x="230" y="40" width="420" height="58" rx="8"/><rect class="f-dig" x="230" y="40" width="226" height="58" rx="8" opacity=".22"/><text x="244" y="64" class="t-b">This firmware</text><text x="244" y="84" class="t-xs">up to 128 kB: sector 4 and half of 5 · ≈ 69 kB used (shaded)</text>
+        <rect class="box-dig" x="230" y="40" width="420" height="58" rx="8"/><rect class="f-dig" x="230" y="40" width="246" height="58" rx="8" opacity=".22"/><text x="244" y="64" class="t-b">This firmware</text><text x="244" y="84" class="t-xs">up to 128 kB: sector 4 and half of 5 · ≈ 75 kB used (shaded)</text>
         <rect class="box-plain" x="650" y="40" width="210" height="58" rx="8"/><text x="664" y="64" class="t-b">Rest of sector 5</text><text x="664" y="84" class="t-xs">erased with every update</text>
         <text x="20" y="150" class="t-b">EEPROM · 128 kB</text>
         <rect class="box-acc" x="20" y="162" width="630" height="58" rx="8"/><text x="34" y="186" class="t-b">128 patch records</text><text x="34" y="206" class="t-xs">768 bytes each: the patch ("P8P2", 512 bytes) and its step sequence ("P8S2", 256 bytes), each with its own checksum</text>
@@ -539,7 +545,75 @@
     <figcaption><b>Figure 14.</b> Both maps to scale. The bootloader erases flash sectors 4 and 5 on every update, which is why the tuning tables moved to the EEPROM; the firmware may use the first half of sector 5, which 0.8.4 tested, so it has room to grow.</figcaption>
   </figure>
   <div class="prose">
-    <p>A patch record holds both layers' knobs, Env 3 and 4, LFO 2, the latching buttons, all the settings (layer mode, LFO sync, retrigger, shapes, step patterns, delays and fades, envelope modes, key-up triggers, curves, delays and holds, cycle counts, stage times in seconds or note values, voice modes, drift, scale, morph target, macro offsets), both layers' 16 mod routes and a 16-character name, and in its second half the step sequence, with its own checksum so it can be written on its own. New fields take reserved bytes, and an older record reads them as zero, which always means "what older firmware did". The one break was 0.8.0, which went from 200 patches of 256 bytes to 128 records of 768: the first start of 0.8.0 wiped the old records (the EEPROM backups keep them).</p>
+    <p>The rest of this section is about the EEPROM: what a patch is, how it's laid out byte by byte, and what happens when you load and save one.</p>
+  </div>
+
+  <h3>The sound you hear isn't the one in memory</h3>
+  <div class="prose">
+    <p>The engine never plays from the EEPROM. It plays from a working copy in RAM: the knob values, switches, routes and settings the voices read many times a second. <strong>Loading</strong> a patch reads its record from the EEPROM (about 25 ms, which is why notes are released first), checks it and fills the working copy. <strong>Saving</strong> does the opposite: it gathers the working copy back into a record and writes that to a slot. Everything between the two, a knob turned or a route added or a click on the web page, only changes RAM. That's why an edit is lost if you load another patch without saving, and why Mutate and Compare are safe to try.</p>
+    <p>Some settings belong to the synth, not the sound: the MIDI channel, the clock source and tempo, and the CC A / B numbers live in a small <strong>global block</strong>, along with the last patch loaded and whether you're in preset or manual mode. The master volume is in neither: M VOL is always where its knob is.</p>
+  </div>
+
+  <h3>One record, byte by byte</h3>
+  <div class="prose">
+    <p>Each of the 128 slots is 768 bytes at a fixed address, slot number × 768, so finding one needs no directory or file table. A record is two halves. The first holds the sound and the second its step sequence, and each half ends in its own checksum, so the sequence can be rewritten without touching the sound.</p>
+  </div>
+  <figure>
+    <div class="fig"><div class="svg-wrap" style="--min:700px">
+      <svg viewBox="0 0 880 268" role="img" aria-labelledby="f15t">
+        <title id="f15t">A 768-byte patch record drawn to scale. The first 512 bytes: magic and name, settings, knobs, extra knobs, mod routes, later settings, 160 reserved bytes and a checksum. The second 256 bytes: sequence header, step data and a checksum.</title>
+        <text x="20" y="24" class="t-b">The patch: 512 bytes</text><text x="580" y="24" class="t-b">The sequence: 256 bytes</text>
+        <rect class="box" x="20" y="74" width="21.9" height="58" rx="2"/>
+        <rect class="box-sh" x="41.9" y="74" width="83.1" height="58" rx="2"/>
+        <rect class="box-dig" x="125" y="74" width="113.75" height="58" rx="2"/>
+        <rect class="box-dig" x="238.75" y="74" width="43.75" height="58" rx="2"/>
+        <rect class="box-mod" x="282.5" y="74" width="105" height="58" rx="2"/>
+        <rect class="box-sh" x="387.5" y="74" width="13.1" height="58" rx="2"/>
+        <rect class="box-plain" x="400.6" y="74" width="175" height="58" rx="2"/>
+        <rect class="box" x="575.6" y="74" width="4.4" height="58"/>
+        <rect class="box" x="580" y="74" width="13.1" height="58" rx="2"/>
+        <rect class="box-acc" x="593.1" y="74" width="262.5" height="58" rx="2"/>
+        <rect class="box" x="855.6" y="74" width="4.4" height="58"/>
+        <text x="83" y="108" class="t-xs" text-anchor="middle">settings</text>
+        <text x="182" y="108" class="t-xs" text-anchor="middle">knobs</text>
+        <text x="260.6" y="108" class="t-xs" text-anchor="middle">extra</text>
+        <text x="335" y="108" class="t-xs" text-anchor="middle">mod routes</text>
+        <text x="488" y="108" class="t-xs" text-anchor="middle">reserved: 160 bytes</text>
+        <text x="724" y="108" class="t-xs" text-anchor="middle">steps and lanes</text>
+        <path class="ln" d="M31 74 V54"/><text x="20" y="48" class="t-xs">"P8P2", name</text>
+        <path class="ln" d="M394 74 V54"/><text x="394" y="48" class="t-xs" text-anchor="middle">later settings</text>
+        <path class="ln" d="M578 132 V152"/><text x="578" y="166" class="t-xs" text-anchor="middle">checksum</text>
+        <path class="ln" d="M586.5 74 V54"/><text x="592" y="48" class="t-xs">"P8S2", header</text>
+        <path class="ln" d="M858 132 V152"/><text x="860" y="166" class="t-xs" text-anchor="end">checksum</text>
+        <text x="20" y="150" class="t-xs">0</text><text x="125" y="150" class="t-xs" text-anchor="middle">96</text><text x="238.75" y="150" class="t-xs" text-anchor="middle">200</text><text x="282.5" y="150" class="t-xs" text-anchor="middle">240</text><text x="387.5" y="150" class="t-xs" text-anchor="middle">336</text><text x="400.6" y="164" class="t-xs" text-anchor="middle">348</text><text x="593.1" y="150" class="t-xs" text-anchor="middle">524</text>
+        <text x="20" y="200" class="t-sm">Layer 1 and layer 2 sit side by side in every per-layer part: the knobs are 26 values for layer 1, then 26 for layer 2.</text>
+        <text x="20" y="222" class="t-sm">Reserved bytes are all zero, and zero in a new field always means "what older firmware did".</text>
+        <text x="20" y="244" class="t-sm">The patch half is filled to two thirds, so features can keep arriving without changing the format.</text>
+      </svg>
+    </div></div>
+    <figcaption><b>Figure 15.</b> A record to scale, offsets in bytes. The whole patch memory is 128 of these.</figcaption>
+  </figure>
+  <div class="tbl"><table>
+      <thead><tr><th>Bytes</th><th>What's there</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>0–19</td><td>"P8P2" and the name</td><td>16 characters. The four-letter magic tells a patch of ours from an empty or foreign slot.</td></tr>
+        <tr><td>20–95</td><td>Settings</td><td>Layer mode, split note, voices per layer, voice modes, LFO shapes, step patterns, envelope modes, curves, delays and holds, tuning modes, morph target, the 13 latching buttons as bits.</td></tr>
+        <tr><td>96–199</td><td>Knobs</td><td>26 per layer, each 16 bits, more than the panel's 12-bit readings or the web page's 14-bit values need.</td></tr>
+        <tr><td>200–239</td><td>Extra knobs</td><td>10 per layer that have no knob of their own: Env 3 and Env 4's ADSR, LFO 2's rate and amount.</td></tr>
+        <tr><td>240–335</td><td>Mod routes</td><td>16 per layer, 3 bytes each: source, destination, signed depth.</td></tr>
+        <tr><td>336–347</td><td>Later settings</td><td>Cycle counts, stage times in note values, layer links: the fields added since 0.9.1.</td></tr>
+        <tr><td>348–507</td><td>Reserved</td><td>160 bytes of zeros for what comes next.</td></tr>
+        <tr><td>508–511</td><td>Checksum</td><td>Over everything before it. A record that fails is shown as damaged rather than played.</td></tr>
+        <tr><td>512–523</td><td>"P8S2" and the sequence header</td><td>Length, number of lanes, clock division, tempo, flags, swing, smoothing, arpeggio mode.</td></tr>
+        <tr><td>524–763</td><td>Steps and lanes</td><td>240 bytes shared: each step takes 4 (note, velocity, gate, probability and ratchets) plus 1 per automation lane. That's 60 steps with no lanes, 30 with all four.</td></tr>
+        <tr><td>764–767</td><td>Checksum</td><td>Over the sequence half only.</td></tr>
+      </tbody>
+    </table></div>
+  <div class="prose">
+    <p>Shared controls such as the mixer and resonance have one wire, but they're stored in both layers' knob lists; only layer 1's copy is read back. The morph target is just a slot number, so morphing to a patch reads that second record into RAM as well.</p>
+  </div>
+  <div class="callout tech"><span class="label">How it grows</span>Adding a feature means taking a reserved byte and deciding what zero means, and it has to mean "as before". Layer links are the newest example: one byte at offset 347, a bit for each group that layer 2 takes from layer 1. Zero means nothing is linked, so every older patch plays as it always did, and older firmware loading a newer patch ignores the byte and plays layer 2's own values. Nothing needs converting. The one real break was 0.8.0, which went from 200 patches of 256 bytes to 128 records of 768: its first start wiped the old records (the EEPROM backups keep them).</div>
+  <div class="prose">
     <p>The stock factory bank is left exactly where the stock firmware put it, and any factory sound can be converted into a slot. Before this firmware first wrote to the EEPROM, a full image of it was saved: writing that image back is the way home to stock.</p>
   </div>
 </section>

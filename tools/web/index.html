@@ -103,6 +103,9 @@
   .seg-b svg { width: 26px; height: 13px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
   .chip { padding: 4px 9px; font-size: 11px; }
   .chip.small { padding: 3px 8px; }
+  .chip.link[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .ps-flt > .chip.link { justify-self: start; align-self: flex-start; width: auto; }
+  .knob.linked .lbl::after { content: " ⇆"; }
 
   /* ---------------------------------------------------------------- the faceplate (after the PRO-800's own) */
   /* Black plate, white-framed sections with their names in the frame, knurled knobs in printed 0-10 scales and
@@ -149,7 +152,8 @@
   .env-extra { display: flex; gap: 6px; justify-content: flex-start; }
   .env-extra[hidden] { display: none; }
   .env-extra .knob { transform: scale(.8); transform-origin: top left; margin: 0 -10px -12px 0; }
-  .face .env-tools select { padding: 2px 5px; font-size: 11px; background: #0b0b0c; }
+  .face .env-tools { flex-wrap: wrap; }
+  .face .env-tools select { padding: 2px 5px; font-size: 11px; background: #0b0b0c; min-width: 58px; }
   .face .env-tools .chip { padding: 2px 7px; font-size: 10.5px; white-space: nowrap; }
   .ps-amp > .pflex { flex: 1; }
   .face .ps-flt > canvas.viz.flt { flex: none; width: calc(100% - 8px); min-width: 0; height: 58px; align-self: center; margin: 2px 0 0; }
@@ -486,6 +490,7 @@
         <li><kbd>Seq 1</kbd> / <kbd>Seq 2</kbd> choose the layer you edit.</li>
       </ol>
       <p class="dim small">Shared by both layers: mixer, noise, resonance, PW A/B, PMOD OSC B, M VOL, every button.</p>
+      <p class="dim small" data-needs="layerLink">Links (the Link buttons on the Sound tab): layer 2 plays layer 1's filter, an envelope or an LFO; its own values stay stored. A linked knob on layer 2 edits layer 1 (both layer LEDs light).</p>
     </section>
 
     <section class="cs">
@@ -1180,6 +1185,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "envTempo1", "envTempo2", // a bit per envelope: stage times in note values
   "midiChannel", // 1-16, 0 every channel (system-wide)
   "oscTune1A", "oscTune1B", "oscTune2A", "oscTune2B", // FREQ A / B per layer: semitones, octave, free, fixed
+  "layerLink", // what layer 2 takes from layer 1: a bit per envelope (ENV_CYCLE_* order), 16 LFO 1, 32 LFO 2, 64 filter
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -1192,6 +1198,7 @@ const FEATURES = {
   envTempo: ["envTempo1", "envelope times in note values"],
   midiChannel: ["midiChannel", "the MIDI channel setting"],
   oscTune: ["oscTune1A", "the oscillators' tuning modes"],
+  layerLink: ["layerLink", "layer links"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1200,6 +1207,43 @@ function paintFeatures() {
   document.querySelectorAll("[data-unless]").forEach(e => { e.hidden = feature(e.dataset.unless); });
 }
 let settings = null, params = null, paramsLayer = 0;
+// settings is what the page shows: layer 2's linked groups read as layer 1's. rawSettings is what the synth holds
+// (layer 2's own values stay there), for saving a sound as JSON and for working out what a change writes.
+let rawSettings = null;
+const LINK_FILTER = 64, LINK_LFO = which => 16 << which;
+const twoLayers = s => s.layers >= 1 && s.layers <= 3; // split, stack, by channel
+const linkOn = link => !!(settings && twoLayers(settings) && settings.layerLink & link);
+function linkedView(raw) {
+  const s = { ...raw }, link = raw.layerLink;
+  if (!link || !twoLayers(raw)) return s;
+  for (let e = 0; e < 4; e++) {
+    if (!(link >> e & 1)) continue;
+    for (const k of ["cycle", "envUp", "dahdsr", "envTempo"]) if (s[k + 2] !== undefined) s[k + 2] = s[k + 2] & ~(1 << e) | s[k + 1] & 1 << e;
+    s.curve2 = s.curve2 & ~(3 << 2 * e) | s.curve1 & 3 << 2 * e;
+    for (const k of ["cycleSync", "envDelay", "envHold", "envCount"]) if (s[`${k}2_${e}`] !== undefined) s[`${k}2_${e}`] = s[`${k}1_${e}`];
+  }
+  for (const w of [0, 1]) if (link & LINK_LFO(w)) s[`shape2${w + 1}`] = s[`shape1${w + 1}`];
+  if (link & LINK_LFO(1)) s.lfo2Dests2 = s.lfo2Dests1;
+  return s;
+}
+// The writes for a change to a setting: what's on layer 2 and linked goes to layer 1, what isn't stays on layer 2
+function linkedWrites(name, value) {
+  const raw = rawSettings, link = raw && twoLayers(raw) ? raw.layerLink : 0;
+  let m;
+  if (link && (m = name.match(/^(cycle|envUp|dahdsr|envTempo)2$/)) && link & 15) {
+    const mask = link & 15;
+    return [[name, raw[name] & mask | value & ~mask], [m[1] + 1, raw[m[1] + 1] & ~mask | value & mask]];
+  }
+  if (link && name === "curve2" && link & 15) {
+    let mask = 0;
+    for (let e = 0; e < 4; e++) if (link >> e & 1) mask |= 3 << 2 * e;
+    return [[name, raw.curve2 & mask | value & ~mask], ["curve1", raw.curve1 & ~mask | value & mask]];
+  }
+  if (link && (m = name.match(/^(cycleSync|envDelay|envHold|envCount)2_(\d)$/)) && link >> +m[2] & 1) return [[`${m[1]}1_${m[2]}`, value]];
+  if (link && (m = name.match(/^shape2([12])$/)) && link & LINK_LFO(+m[1] - 1)) return [[`shape1${m[1]}`, value]];
+  if (link && name === "lfo2Dests2" && link & LINK_LFO(1)) return [["lfo2Dests1", value]];
+  return [[name, value]];
+}
 paintFeatures(); // not connected: everything
 
 // ---------------------------------------------------------------- the panel (Sound tab)
@@ -1233,6 +1277,9 @@ const ENVS = [["Filter env", 2, P.FIL_ATT, P.FIL_DEC, P.FIL_SUS, P.FIL_REL], ["A
 const ENV_KNOB = {};
 for (const [, bit, ...knobs] of ENVS) knobs.forEach((i, stage) => { ENV_KNOB[i] = [bit, stage]; });
 const CYCLE_LABELS = ["Attack", "Fall", "Hold", "Rest"], ADSR_LABELS = ["Attack", "Decay", "Sustain", "Release"];
+const paramLink = i => ENV_KNOB[i] ? ENV_KNOB[i][0] : i === P.CUTOFF || i === P.ENV_AMT ? LINK_FILTER
+  : i === P.LFO_RATE || i === P.LFO_AMT ? LINK_LFO(0) : i === P.LFO2_RATE || i === P.LFO2_AMT ? LINK_LFO(1) : 0;
+const paramLayer = i => paramsLayer === 1 && linkOn(paramLink(i)) ? 0 : paramsLayer; // the layer a knob's edit goes to
 function cycling(bit) { return !!(settings && (settings["cycle" + (paramsLayer + 1)] & bit)); }
 const envIndex = bit => Math.log2(bit); // ENV_CYCLE_* bit → 0 amp, 1 filter, 2 Env 3, 3 Env 4
 // synced cycling: 0 free, else the clock division + 1
@@ -1462,7 +1509,7 @@ function setParam(i, v) {
   editedAt[i] = Date.now();
   touch(NAMES[i] || label(i), format(i, v));
   clearTimeout(sendTimers[i]);
-  sendTimers[i] = setTimeout(() => { const q = Math.round(params[i] * 16383); send([0x52, paramsLayer, i, q >> 7, q & 0x7F]); }, 25);
+  sendTimers[i] = setTimeout(() => { const q = Math.round(params[i] * 16383); send([0x52, paramLayer(i), i, q >> 7, q & 0x7F]); }, 25);
 }
 function label(i) {
   if (ENV_KNOB[i]) {
@@ -1569,6 +1616,7 @@ function knob(i, text) {
     val.textContent = format(n, u);
     dl.setAttribute("aria-valuetext", val.textContent);
     if (typeof i === "function") e.title = label(n);
+    e.classList.toggle("linked", paramsLayer === 1 && linkOn(paramLink(n)));
     if (ENV_KNOB[n]) { const [bit, stage] = ENV_KNOB[n]; lbl.firstChild.textContent = (cycling(bit) ? CYCLE_LABELS : ADSR_LABELS)[stage]; }
   });
   return e;
@@ -1859,6 +1907,18 @@ function drawLfo(which) {
 // --- sections ---
 const sec = (id, title, ...body) => h("section", { class: `sec sec-${id}` }, h("h2", {}, title), ...body);
 const row = (...kids) => h("div", { class: "row" }, ...kids);
+// A group's link: layer 2 plays layer 1's values, and editing it on layer 2 edits layer 1. Only in the two-layer modes.
+function linkChip(link, what) {
+  const b = h("button", { type: "button", class: "chip link", title: `link to layer 1: layer 2 plays layer 1's ${what}, and editing it on layer 2 edits layer 1; layer 2's own values stay stored and come back when unlinked`,
+    onclick: async () => { if (offline() || !rawSettings) return; await setSetting(SET_ID.layerLink, rawSettings.layerLink ^ link()); await refreshParams(); } }, "Link");
+  paints.push(() => {
+    b.hidden = !settings || !twoLayers(settings) || !feature("layerLink");
+    const on = linkOn(link());
+    b.setAttribute("aria-pressed", on);
+    b.textContent = on ? "Linked" : "Link";
+  });
+  return b;
+}
 function copyButton(title, onclick) {
   const b = h("button", { type: "button", class: "chip copy", onclick, title }, "Copy from layer 2");
   paints.push(() => { if (settings) b.textContent = `⇆ layer ${2 - settings.editLayer}`; });
@@ -1922,9 +1982,10 @@ function envTools(env) {
     // the release: cycling wins over the trigger, so the menu goes while it cycles
     trigger.hidden = !feature("envCount") && cycling(E()[1]);
   });
+  const copy = copyButton("copy this envelope from the other layer", () => copyEnvelope(E()[1], E()[0]));
+  paints.push(() => { copy.hidden = linkOn(E()[1]); });
   return h("div", { class: "env-tools-wrap" },
-    h("div", { class: "env-tools" }, mode, trigger, timing, curve,
-      copyButton("copy this envelope from the other layer", () => copyEnvelope(E()[1], E()[0]))),
+    h("div", { class: "env-tools" }, mode, trigger, timing, curve, copy, linkChip(() => E()[1], "envelope")),
     extras, counts);
 }
 function envSection(env) {
@@ -1986,8 +2047,10 @@ function lfoSection(which) {
     buttons[sw] = on ? 1 : 0; touch(`LFO → ${t}`, on ? "on" : "off");
     await ack([0x4B, sw, on ? 1 : 0]); await refreshButtons();
   }, "the LFO-MOD destination switch on the panel (shared by both layers)"));
+  const copy = copyButton(`copy LFO ${n} from the other layer`, () => copyLfo(which));
+  paints.push(() => { copy.hidden = linkOn(LINK_LFO(which)); });
   return sec(`lfo${n}`, `LFO ${n}`,
-    h("div", { class: "sec-tools" }, shapes, copyButton(`copy LFO ${n} from the other layer`, () => copyLfo(which))),
+    h("div", { class: "sec-tools" }, shapes, copy, linkChip(() => LINK_LFO(which), `LFO ${n}`)),
     h("div", { class: "viz-box" }, viz("lfo", drawLfo(which))),
     stepEdit,
     row(knob(which ? P.LFO2_RATE : P.LFO_RATE, "Rate"), knob(which ? P.LFO2_AMT : P.LFO_AMT, "Amount"), ...fade, timing),
@@ -2371,7 +2434,7 @@ function mutateControls() {
       const v = Math.min(1, Math.max(0, params[i] + (Math.random() * 2 - 1) * a));
       const q = Math.round(v * 16383);
       params[i] = v;
-      await ack([0x52, paramsLayer, i, q >> 7, q & 0x7F]);
+      await ack([0x52, paramLayer(i), i, q >> 7, q & 0x7F]);
     }
     touch("Mutate", `±${amount.value} %`);
     paintAll();
@@ -2440,6 +2503,7 @@ function buildPanel() {
         panelLever(10, "LFO → Filter", { top: "FILTER" }))),
     ps("glide", "", knob(P.GLIDE, "Glide")),
     ps("flt", "Filter",
+      linkChip(() => LINK_FILTER, "cutoff and envelope amount"),
       viz("flt", drawFilter),
       prow(knob(P.CUTOFF, "Cutoff"), knob(P.RES, "Resonance"), knob(P.ENV_AMT, "Envelope amount"),
         lever3("Keyboard tracking", ["FULL", "HALF", "OFF"], () => settings ? 2 - settings.keytrack : undefined, k => {
@@ -2527,7 +2591,8 @@ async function refreshLayerRoutes() {
 
 async function setSetting(id, value) {
   if (offline()) return;
-  if (!await ack([0x7D, id, value >> 7, value & 127])) { document.getElementById("status").textContent = "The synth didn't accept that setting"; return; }
+  for (const [name, v] of linkedWrites(SETTINGS[id], value))
+    if (!await ack([0x7D, SET_ID[name], v >> 7, v & 127])) { document.getElementById("status").textContent = "The synth didn't accept that setting"; return; }
   await refreshSettings();
 }
 
@@ -2541,7 +2606,8 @@ async function refreshSettings() {
   for (let i = 0; i < Math.min(n - READ_ONLY, ro); i++) s[SETTINGS[i]] = value(i);
   for (let j = 0; j < READ_ONLY; j++) s[SETTINGS[ro + j]] = value(n - READ_ONLY + j);
   const before = settings ? missingFeatures().join() : null;
-  settings = s;
+  rawSettings = s;
+  settings = linkedView(s);
   if (missingFeatures().join() !== before) { paintFeatures(); showFirmware(); }
   if (s.presetMode && s.patch !== patchNameFor) { // the patch's name for the screen
     patchNameFor = s.patch;
@@ -2555,15 +2621,16 @@ async function refreshSettings() {
   return true;
 }
 
+const stepsLayer = which => paramsLayer === 1 && linkOn(LINK_LFO(which)) ? 0 : paramsLayer;
 async function sendSteps(which, count, bits) {
   steps[which] = { count, bits };
   paintAll();
-  if (!await ack([0x4E, paramsLayer, which, count, bits >> 14 & 0x7F, bits >> 7 & 0x7F, bits & 0x7F]))
+  if (!await ack([0x4E, stepsLayer(which), which, count, bits >> 14 & 0x7F, bits >> 7 & 0x7F, bits & 0x7F]))
     document.getElementById("status").textContent = "The synth didn't take the step pattern (firmware 0.6.3 or later?)";
 }
 async function refreshSteps() {
   for (const which of [0, 1]) {
-    const d = await ask([0x4D, paramsLayer, which], [0x4D, paramsLayer, which], 1000);
+    const d = await ask([0x4D, stepsLayer(which), which], [0x4D, stepsLayer(which), which], 1000);
     if (d) steps[which] = { count: d[3], bits: d[4] << 14 | d[5] << 7 | d[6] };
   }
   paintAll();
@@ -2649,6 +2716,10 @@ async function refreshParams() {
   if (!d) return;
   const fresh = [];
   for (let i = 0; i < d[2]; i++) fresh.push((d[3 + 2 * i] << 7 | d[4 + 2 * i]) / 16383);
+  if (layer === 1 && linkOn(127)) { // linked knobs show layer 1's values
+    const m = await ask([0x53, 0], [0x53, 0], 1000);
+    if (m) for (let i = 0; i < m[2]; i++) if (linkOn(paramLink(i))) fresh[i] = (m[3 + 2 * i] << 7 | m[4 + 2 * i]) / 16383;
+  }
   // a control moved here in the last moment keeps its value (the synth may not have it yet)
   if (params && layer === paramsLayer) for (const i in editedAt) if (Date.now() - editedAt[i] < 1500) fresh[i] = params[i];
   paramsLayer = layer;
@@ -2916,6 +2987,7 @@ const JSON_SETTINGS = [
   ["layers", "layers", jOne(["off", "split", "stack", "channel", "8ch", "mpe"])], ["split", "split", jInt(0, 127)],
   ["layer-voices", "layerVoices", { dec: v => v || "auto", enc: (x, k) => x === "auto" ? 0 : jInt(1, 7).enc(x, k) }],
   ...[1, 2].flatMap(l => ["a", "b"].map(o => [`osc-tune ${l} ${o}`, `oscTune${l}${o.toUpperCase()}`, jOne(["semitones", "octave", "free", "fixed"])])),
+  ["link", "layerLink", jBits(["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"])],
   ["keytrack", "keytrack", jOne(["off", "half", "full"])],
   ["lfo-sync", "lfo1Sync", jOne(["free", "clock"])], ["lfo-trigger", "lfo1Trigger", jOne(["free", "first", "every", "voice"])],
   ["lfo2-sync", "lfo2Sync", jOne(["free", "clock"])], ["lfo2-trigger", "lfo2Trigger", jOne(["free", "first", "every", "voice"])],
@@ -2967,7 +3039,7 @@ async function readSound() {
   }
   out.settings = {};
   for (const [key, set, c] of JSON_SETTINGS)
-    if (settings[set] !== undefined) out.settings[key] = c.dec(c.shift !== undefined ? settings[set] >> c.shift & c.mask : settings[set]);
+    if (rawSettings[set] !== undefined) out.settings[key] = c.dec(c.shift !== undefined ? rawSettings[set] >> c.shift & c.mask : rawSettings[set]);
   for (const layer of [0, 1]) for (const lfo of [0, 1]) {
     const d = await ask([0x4D, layer, lfo], [0x4D, layer, lfo], 1000);
     if (d) out.settings[`steps ${layer + 1} ${lfo + 1}`] = STEP_PATTERN(d[3], d[4] << 14 | d[5] << 7 | d[6]);

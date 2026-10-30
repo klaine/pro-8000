@@ -149,6 +149,7 @@
   </figure>
   <div class="prose">
     <p>Some things stay shared, because the hardware has one wire for them: the waveform buttons, the mixer, resonance, pulse widths, poly-mod oscillator B and master volume. The art of layering here is to make the two layers different through what <em>is</em> per layer: tuning (an octave or a fifth apart), filter and envelopes, glide, LFOs and routes. FREQ A and B each have independent Semitones, Octave, Free and Fixed (C1-C8) modes per layer; Fixed ignores played notes but still responds to pitch bend and modulation.</p>
+    <p>When you'd rather have both layers move as one, <strong>link</strong> them on the web page: the filter, any envelope and either LFO can follow layer 1, so a stack of two different oscillator sounds shares one filter sweep and one vibrato. Layer 2's own values wait underneath for when you unlink, and its mod routes still apply, so velocity can open one layer's filter further than the other's.</p>
     <p>The synth plays every MIDI channel until you set one with Shift + NOISE (<span class="led">CHnL</span>: <span class="led">ALL</span> or 1–16). Then it hears only that channel, and the per-channel modes count from it: set to 3, channel mode plays layer 1 on channel 3 and layer 2 on channel 4. Handy when the synth shares a MIDI line or a Move with other instruments. To set one layer's level against the other's, route FIXED → VCA on the louder layer: depth 50 takes it down about 6.5 dB.</p>
   </div>
 </section>

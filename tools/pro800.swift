@@ -953,7 +953,8 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
                    "macro 2 2", "clock", "bpm", "env-up 1", "env-up 2", "dahdsr 1", "dahdsr 2", "env-curve 1", "env-curve 2"]
     + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
     + ["env-tempo 1", "env-tempo 2", "midi-channel",
-       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "env-select", "preset-mode", "patch", "morph"]
+       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "link", "env-select", "preset-mode", "patch", "morph"]
+let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                   "pentatonic-minor", "blues", "whole-tone", "chromatic"]
@@ -988,6 +989,7 @@ func setSetting() {
         "\(curveNames.joined(separator: "|")) | env-delay|env-hold <layer 1|2> amp|filter|env3|env4 <0-99> | " +
         "env-count <layer 1|2> amp|filter|env3|env4 loop|<cycles 1-99> | " +
         "osc-tune <layer 1|2> <a|b> semitones|octave|free|fixed | " +
+        "link none|\(linkNames.joined(separator: ",")) | " +
         "button \(buttonNames.values.sorted().joined(separator: "|")) on|off"
     var id: UInt8, v: Int
     if args.count == 2, args[0] == "morph" { // the morph target: a slot, or none (SysEx 44)
@@ -1062,6 +1064,13 @@ func setSetting() {
         probeAck(Midi(port: portName), [0x4B, UInt8(i), args[2] == "on" ? 1 : 0])
         print("\(args[1]) \(args[2])")
         return
+    } else if args.count == 2, args[0] == "link" {
+        var bits = 0
+        for name in args[1].split(separator: ",") where name != "none" {
+            guard let i = linkNames.firstIndex(of: String(name)) else { fail(usage) }
+            bits |= 1 << i
+        }
+        (id, v) = (82, bits)
     } else if args.count == 3, ["cycle", "env-up", "dahdsr", "env-tempo"].contains(args[0]), let layer = Int(args[1]), (1...2).contains(layer) {
         var bits = 0
         for name in args[2].split(separator: ",") where name != "none" {
@@ -1142,9 +1151,12 @@ func settings() {
         case 66: text = v == 0 ? "automatic" : "\(v) + \(8 - v)"
         case 77: text = v == 0 ? "all" : "\(v)"
         case 78...81: text = ["semitones", "octave", "free", "fixed"][safe: v] ?? text
-        case 82: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 84: text = slotName(v)
-        case 85: text = v == 0 ? "none" : slotName(v - 1)
+        case 82:
+            let on = linkNames.indices.filter { v >> $0 & 1 != 0 }.map { linkNames[$0] }
+            text = on.isEmpty ? "none" : on.joined(separator: ",")
+        case 83: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 85: text = slotName(v)
+        case 86: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")

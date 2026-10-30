@@ -1399,6 +1399,38 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   sound, square only, A3 held): PW 0, 50, 92 and 99 all read 218.7-220.6 Hz on both oscillators; 92 and 99 were
   silent before.
 
+## Layer links (0.9.3, 2026-10-30)
+
+- **What:** `layer_link` (patch record byte 347, host setting 82, `pro800 set link`, JSON `link`), 7 bits: `LINK_ENV(e)`
+  (amp, filter, Env 3, Env 4), `LINK_LFO(w)`, `LINK_FILTER` (cutoff, envelope amount). Zero in every older record.
+  One byte of the 161 reserved, so 160 are left. Effective only in split, stack and channel (`links()` is 0 when
+  `one_layer()`).
+- **Resolved at read, not copied:** `eff[]` in `synth_update()` reads knobs through `param_layer()`
+  (`link_of_param[]`), morph included; `env_rates()` gets `env_layer()`, `key_up_envs()` merges the bits, LFOs go
+  through `lfo_read()` / `lfo_layer()` and `lfos_note_on()`. Layer 2's values stay in `layer_param`, the arrays and the
+  record, so saving keeps both and unlinking brings them back. A linked LFO is layer 1's `LFO_ID`, phase included;
+  layer 2's own keeps running unheard. "First key" counts both layers when linked, or a key on one layer would restart
+  the other's LFO. Per-voice phases are per voice index, and the layers' voices don't overlap.
+- **Host stays raw, panel redirects:** 52 / 7D / 53 / 54 read and write each layer's own values, so a JSON read-back and
+  `plan.py` round-trip whatever the order. The panel's knobs, the Settings envelope pages, LFO Shape and LFO 2's routing
+  go to layer 1 (`synth_env_edit_layer()`, `synth_lfo_edit_layer()`), and `synth_pot_linked()` lights both layer LEDs for
+  a second. The web page keeps `rawSettings` and shows `settings = linkedView(raw)`; `linkedWrites()` splits a write
+  (bits of linked envelopes to layer 1, the rest to layer 2), `paramLayer()` and `stepsLayer()` send to layer 1, and
+  `refreshParams()` overlays layer 1's knobs. JSON uses `rawSettings`.
+- **Not linked:** routes (per layer on purpose), PMOD FIL ENV, glide, tuning, macros. Sync, retrigger, delay and fade
+  are per LFO for both layers already. No panel page sets links yet; the web page and the tool do.
+- **Tested on the synth** (P128, split at 60, note 72 on layer 2): self-oscillating filter with cutoff 60 on layer 1 and
+  45 on layer 2: unlinked 753 Hz, linked 2173 Hz, layer 1 to 50 gave 1075, unlinked again 757. Layer 1's amp key-up:
+  unlinked 523 Hz while held, linked no signal. LFO 1 and LFO 2 (with its destinations) on layer 1 only, square: 524 / 523
+  Hz unlinked, about 676 Hz (+440 cents) linked. Saved `amp-env,lfo1,filter` to P128, reloaded: the link and layer 2's
+  own cutoff 45 both came back, P1 reads `none`. In the built-in browser with a fake synth: chips only in two-layer
+  modes, linked knobs show and write layer 1, a `cycle2` change splits into `cycle2` and `cycle1`, delays, shapes and step
+  patterns go to layer 1, a JSON read keeps layer 2's own values. **Not tested:** the panel side (a linked knob on layer 2
+  editing layer 1, the LEDs), which needs hands on the synth; the two layers' LFO phases side by side (same `LFO_ID` by
+  construction).
+- **Merging with the pickup branch** (`claude/pickup-off-c44676`): that branch also takes host setting 82. Whichever
+  merges second moves its setting up one, in `main.c`, `pro800.swift` (ids and printer cases), and the page's `SETTINGS`.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

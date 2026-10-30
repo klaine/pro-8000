@@ -22,7 +22,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - Engine: `set lfo-sync|lfo2-sync free|clock`, `set lfo-trigger|lfo2-trigger free|first|every|voice`, `set layers
     off|split|stack|channel`, `set split <note>`, `set layer-voices auto|1-7`, `set keytrack`, `set lfo 1|2`, `set shape <layer> <lfo> <shape>`,
     `set lfo2-dests <layer> …`, `set env-up|dahdsr <layer> …`, `set env-curve <layer> <env> analog|linear|swell`,
-    `set osc-tune <layer> <a|b> semitones|octave|free|fixed`,
+    `set osc-tune <layer> <a|b> semitones|octave|free|fixed`, `set link none|amp-env,filter-env,env3,env4,lfo1,lfo2,filter` (what layer 2 takes from layer 1; `param` and the other `set`s write each layer's own stored values),
     `set env-delay|env-hold <layer> <env> <0-99>` (0.9.0), `set env-count <layer> <env> loop|1-99` (cycles), `set env-tempo <layer> none|amp,…` (stage times in note values), `settings`, `params`, `param <layer> <name> <0-99>`
     (M TUNE is `macro1` from 0.9.0), `layer 1|2`, `route`, `routes`,
     `clock <bpm> [seconds]`, `timing`.

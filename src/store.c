@@ -22,7 +22,7 @@
 //   336 cycle counts[2][4] (0 = endless), 344 1 if the key-up triggers apply to cycling envelopes too (both 0.9.1;
 //       0: a record from 0.9.0 or earlier, where cycling won, so its cycling envelopes' key-up bits are cleared at load)
 //   345 stage times in note values[2] (a bit per envelope; 0.9.1)
-//   347 reserved to 508
+//   347 layer links (LINK_* bits: what layer 2 takes from layer 1; 0.9.3), 348 reserved to 508
 //   508 checksum (u32) over 0-507
 //   512 "P8S2", 516 length, lanes, division, bpm, flags, swing, smooth, arp, then from 524 each step's note,
 //       velocity, gate, extra (length × 4 bytes) and each lane's values (length bytes each); 764 checksum over
@@ -82,6 +82,7 @@
 #define OFF_ENV_COUNT 336
 #define OFF_UP_CYCLES 344
 #define OFF_ENV_TEMPO 345
+#define OFF_LINK 347
 #define OFF_CHECKSUM 508
 #define SEQ_OFF 512
 #define SEQ_HEADER 4
@@ -259,6 +260,7 @@ int store_load_patch(int n, patch_t *patch)
     patch->bend_range = b[OFF_BEND];
     patch->detune = b[OFF_DETUNE];
     patch->layer_voices = b[OFF_LAYER_VOICES];
+    patch->layer_link = b[OFF_LINK];
     for (int l = 0; l < 2; l++)
         patch->osc_tune[l] = b[OFF_OSC_TUNE + l] & 0x0F;
     patch->switches = get16(b + OFF_SWITCHES);
@@ -321,6 +323,7 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_BEND] = patch->bend_range;
     b[OFF_DETUNE] = patch->detune;
     b[OFF_LAYER_VOICES] = patch->layer_voices;
+    b[OFF_LINK] = patch->layer_link;
     b[OFF_UP_CYCLES] = 1;
     for (int l = 0; l < 2; l++)
         b[OFF_OSC_TUNE + l] = patch->osc_tune[l] & 0x0F;

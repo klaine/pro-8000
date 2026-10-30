@@ -187,6 +187,19 @@ pressure, so a slide or a press shapes each note on its own.
 
 Seq 1 / Seq 2 choose the layer the knobs edit (`L  1` / `L  2`).
 
+**Links** (0.9.3): in split, stack and channel mode, layer 2 can follow layer 1, so a stack of two oscillator sounds
+shares one filter sweep or one vibrato. The groups are the filter (CUTOFF and FIL ENV AMT), each of the four
+envelopes (knobs, mode, trigger, curve, delay, hold, cycles, sync, timing) and each LFO (rate, amount, shape, step
+pattern, LFO 2's routing). Set them with the Link buttons in those sections of the web page, or `pro800 set link`.
+They're stored in the patch. While a group is linked:
+
+- Layer 2 plays layer 1's values. Its own stay stored and come back when you unlink.
+- Turning one of its knobs on layer 2 edits layer 1, and both layer LEDs light for a second to say so. So do the
+  envelope pages in Settings and the LFO Shape button.
+- A linked LFO is layer 1's LFO itself, so the layers stay in phase; in per-voice retrigger each voice keeps its own
+  phase at that rate.
+- Mod routes stay per layer, so layer 2's routes still add to the shared values.
+
 **Per layer:**
 - FREQ A/B and FINE;
 - CUTOFF and FIL ENV AMT;

@@ -47,6 +47,7 @@ typedef struct {
     uint8_t env_delay[2][4], env_hold[2][4]; // [layer][amp, filter, Env 3, Env 4], 0-99 (0.9.0)
     uint8_t env_count[2][4];                 // [layer][envelope] cycles, 0 = endless (0.9.1)
     uint8_t env_tempo[2];                    // per layer, a bit per envelope: stage times in note values (0.9.1)
+    uint8_t layer_link;                      // LINK_* bits: what layer 2 takes from layer 1 (0.9.3)
 } patch_t;
 
 typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t; // (SLOT_STOCK: no longer in slots)

@@ -110,7 +110,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 184 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 186 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -465,7 +465,7 @@ static int setting_get(int page)
     case PAGE_VOICE: return synth_voice_mode(synth_edit_layer()) & 3;
     case PAGE_DRIFT: return synth_drift();
     case PAGE_CYCLE: {
-        int layer = synth_edit_layer();
+        int layer = synth_env_edit_layer(cycle_env);
         if (alt_page == ENV_PAGE_TRIGGER)
             return synth_env_trigger(layer) >> cycle_env & 1;
         if (alt_page == ENV_PAGE_TIME)
@@ -503,7 +503,7 @@ static void setting_set(int page, int value)
     }
     case PAGE_DRIFT: synth_set_drift(value); break;
     case PAGE_CYCLE: {
-        int layer = synth_edit_layer(), bit = 1 << cycle_env;
+        int layer = synth_env_edit_layer(cycle_env), bit = 1 << cycle_env;
         if (alt_page == ENV_PAGE_TRIGGER) {
             int trigger = synth_env_trigger(layer);
             synth_set_env_trigger(layer, value ? trigger | bit : trigger & ~bit);
@@ -580,6 +580,8 @@ static void show_setting(int page)
         display_text(values[page][setting_get(page)]);
 }
 
+static uint32_t link_led_until; // both layer LEDs: the knob just turned on layer 2 is linked, so it edits layer 1
+
 static void show_edit_layer(void)
 {
     display_led(LED_SEQ1, synth_edit_layer() == 0);
@@ -594,7 +596,7 @@ static int shape_steps;
 
 static void step_lfo_shape(int step)
 {
-    int layer = synth_edit_layer(), which = synth_lfo_select();
+    int which = synth_lfo_select(), layer = synth_lfo_edit_layer(which);
     int shape = (synth_lfo_shape(layer, which) + step + LFO_SHAPE_COUNT) % LFO_SHAPE_COUNT;
     synth_set_lfo_shape(layer, which, shape);
     display_text(lfo_shape_name((lfo_shape_t)shape));
@@ -1137,7 +1139,7 @@ static float env_knob_time(int pot, float knob)
     int env, stage;
     if (!env_knob(pot, &env, &stage))
         return -1;
-    return synth_env_time(stage, knob, (synth_env_cycle(synth_edit_layer()) >> env) & 1);
+    return synth_env_time(stage, knob, (synth_env_cycle(synth_env_edit_layer(env)) >> env) & 1);
 }
 
 // 4 digits for a quantity: " 0.05", " 1.60", " 51.2", " 737"; from 1000 on in thousands with a point (" 1.24",
@@ -1240,7 +1242,7 @@ static uint32_t extra_value_at; // when to show the value (after its name)
 
 static void show_env_extra(void)
 {
-    int layer = synth_edit_layer(), hold = extra_pot == POT_AMP_DEC || extra_pot == POT_FIL_DEC;
+    int layer = synth_env_edit_layer(cycle_env), hold = extra_pot == POT_AMP_DEC || extra_pot == POT_FIL_DEC;
     int value = hold ? synth_env_hold(layer, cycle_env) : synth_env_delay(layer, cycle_env);
     char text[8];
     format_time(synth_env_extra_time(value), text);
@@ -1256,7 +1258,7 @@ static void env_extra_turn(int pot, int raw)
     extra_last[pot] = raw;
     if (last < 0)
         return; // the first reading on this page: where the knob is
-    int layer = synth_edit_layer(), hold = pot == POT_AMP_DEC || pot == POT_FIL_DEC;
+    int layer = synth_env_edit_layer(cycle_env), hold = pot == POT_AMP_DEC || pot == POT_FIL_DEC;
     if (pot != extra_pot)
         extra_acc = 0;
     extra_acc += (float)(raw - last) * 99.0f / 4095.0f;
@@ -1513,6 +1515,10 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_POT) {
         // a per-layer knob still in pickup shows the edit layer's value, with a dot
+        if (synth_pot_linked(index)) {
+            display_led(LED_SEQ1, 1);
+            link_led_until = ms_ticks + 1000;
+        }
         int pending = synth_pot_pending(index);
         float knob = pending ? synth_pot_value(index) : synth_knob_snap(index, (float)value / 4095.0f);
         char text[8];
@@ -1729,6 +1735,7 @@ typedef enum {
     SET_ENV_TEMPO_L1, SET_ENV_TEMPO_L2, // a bit per envelope: stage times in note values
     SET_MIDI_CHANNEL,                                    // 1-16, 0 every channel (system-wide)
     SET_OSC_TUNE_L1_A, SET_OSC_TUNE_L1_B, SET_OSC_TUNE_L2_A, SET_OSC_TUNE_L2_B, // FREQ A / B's mode: oscillator_tune_mode_t
+    SET_LAYER_LINK,                                      // LINK_* bits: what layer 2 takes from layer 1
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1773,6 +1780,7 @@ static int host_setting_get(int id)
     case SET_ENV_COUNT ... SET_ENV_COUNT_END: return synth_env_count((id - SET_ENV_COUNT) / 4, (id - SET_ENV_COUNT) % 4);
     case SET_ENV_TEMPO_L1: case SET_ENV_TEMPO_L2: return synth_env_tempo(id - SET_ENV_TEMPO_L1);
     case SET_MIDI_CHANNEL: return midi_channel;
+    case SET_LAYER_LINK: return synth_layer_link();
     case SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B:
         return synth_osc_tune_mode((id - SET_OSC_TUNE_L1_A) / 2, (id - SET_OSC_TUNE_L1_A) % 2);
     case SET_MORPH: return synth_morph_target();
@@ -1796,7 +1804,7 @@ static int host_setting_set(int id, int value)
         [SET_ENV_DELAY ... SET_ENV_HOLD + 7] = 100, [SET_LAYER_VOICES] = VOICE_COUNT,
         [SET_ENV_COUNT ... SET_ENV_COUNT_END] = 100, [SET_ENV_TEMPO_L1] = 16, [SET_ENV_TEMPO_L2] = 16,
         [SET_MIDI_CHANNEL] = 17,
-        [SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B] = OSC_TUNE_MODE_COUNT,
+        [SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B] = OSC_TUNE_MODE_COUNT, [SET_LAYER_LINK] = LINK_ALL + 1,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1852,6 +1860,7 @@ static int host_setting_set(int id, int value)
         break;
     case SET_ENV_TEMPO_L1: case SET_ENV_TEMPO_L2: synth_set_env_tempo(id - SET_ENV_TEMPO_L1, value); break;
     case SET_MIDI_CHANNEL: set_midi_channel(value); break;
+    case SET_LAYER_LINK: synth_set_layer_link(value); break;
     case SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B:
         synth_set_osc_tune_mode((id - SET_OSC_TUNE_L1_A) / 2, (id - SET_OSC_TUNE_L1_A) % 2, value);
         break;
@@ -2663,6 +2672,10 @@ int main(void)
         if (display_until && (int32_t)(now - display_until) > 0) {
             display_until = 0;
             idle_display();
+        }
+        if (link_led_until && (int32_t)(now - link_led_until) > 0) {
+            link_led_until = 0;
+            show_edit_layer();
         }
         if (show_value_at && (int32_t)(now - show_value_at) > 0) {
             show_value_at = 0;

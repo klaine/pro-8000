@@ -203,6 +203,7 @@ static uint8_t env_curve[LAYERS];                       // 2 bits per envelope, 
 static uint8_t env_delay[LAYERS][4], env_hold[LAYERS][4]; // 0-99
 static uint8_t env_count[LAYERS][4];                      // cycles, 0 = endless
 static uint8_t env_tempo[LAYERS];                         // a bit per envelope: stage times in note values
+static uint8_t layer_link;                                // LINK_* bits
 
 // Each envelope's knobs: attack, decay, sustain, release
 static const uint8_t env_params[4][4] = {
@@ -219,6 +220,17 @@ static const uint8_t per_layer[PARAM_COUNT] = {
     [PARAM_ENV3_ATT] = 1, [PARAM_ENV3_DEC] = 1, [PARAM_ENV3_SUS] = 1, [PARAM_ENV3_REL] = 1,
     [PARAM_ENV4_ATT] = 1, [PARAM_ENV4_DEC] = 1, [PARAM_ENV4_SUS] = 1, [PARAM_ENV4_REL] = 1,
     [PARAM_LFO2_RATE] = 1, [PARAM_LFO2_AMOUNT] = 1,
+};
+
+// which link each knob follows (0: none)
+static const uint8_t link_of_param[PARAM_COUNT] = {
+    [POT_CUTOFF] = LINK_FILTER, [POT_FIL_ENV_AMT] = LINK_FILTER,
+    [POT_AMP_ATT] = LINK_ENV(0), [POT_AMP_DEC] = LINK_ENV(0), [POT_AMP_SUS] = LINK_ENV(0), [POT_AMP_REL] = LINK_ENV(0),
+    [POT_FIL_ATT] = LINK_ENV(1), [POT_FIL_DEC] = LINK_ENV(1), [POT_FIL_SUS] = LINK_ENV(1), [POT_FIL_REL] = LINK_ENV(1),
+    [PARAM_ENV3_ATT] = LINK_ENV(2), [PARAM_ENV3_DEC] = LINK_ENV(2), [PARAM_ENV3_SUS] = LINK_ENV(2), [PARAM_ENV3_REL] = LINK_ENV(2),
+    [PARAM_ENV4_ATT] = LINK_ENV(3), [PARAM_ENV4_DEC] = LINK_ENV(3), [PARAM_ENV4_SUS] = LINK_ENV(3), [PARAM_ENV4_REL] = LINK_ENV(3),
+    [POT_LFO_FREQ] = LINK_LFO(0), [POT_LFO_AMOUNT] = LINK_LFO(0),
+    [PARAM_LFO2_RATE] = LINK_LFO(1), [PARAM_LFO2_AMOUNT] = LINK_LFO(1),
 };
 
 // buttons: a loaded patch's state holds until the button is toggled
@@ -276,6 +288,19 @@ static void layer_voices(int layer, int *first, int *end)
         *first = layer ? split : 0;
         *end = layer ? VOICE_COUNT : split;
     }
+}
+
+// The links in force: layer 2 plays only in the two-layer modes
+static unsigned links(void) { return one_layer() ? 0 : layer_link; }
+static int linked(int layer, unsigned link) { return layer == 1 && (links() & link); }
+static int env_layer(int layer, int e) { return linked(layer, LINK_ENV(e)) ? 0 : layer; }
+static int lfo_layer(int layer, int w) { return linked(layer, LINK_LFO(w)) ? 0 : layer; }
+static int param_layer(int layer, int param) { return linked(layer, link_of_param[param]) ? 0 : layer; }
+// LFO w as `layer` hears it
+static float lfo_read(int layer, int w, int voice)
+{
+    int l = lfo_layer(layer, w);
+    return lfo_value(LFO_ID(l, w), voice, (lfo_shape_t)lfo_shape[l][w]);
 }
 
 layer_mode_t synth_layer_mode(void) { return layer_mode; }
@@ -379,7 +404,11 @@ void synth_set_lfo_shape(int layer, int which, int shape)
 
 int synth_env_cycle(int layer) { return env_cycle[layer]; }
 
-static unsigned key_up_envs(int layer) { return env_trigger[layer] & 15u; }
+static unsigned key_up_envs(int layer)
+{
+    unsigned link = layer ? links() & 15u : 0;
+    return (env_trigger[layer] & ~link) | (env_trigger[0] & link);
+}
 void synth_set_env_cycle(int layer, int bits) { env_cycle[layer] = (uint8_t)(bits & 15); }
 int synth_env_tempo(int layer) { return env_tempo[layer]; }
 void synth_set_env_tempo(int layer, int bits) { env_tempo[layer] = (uint8_t)(bits & 15); }
@@ -404,10 +433,30 @@ int synth_env_trigger(int layer) { return env_trigger[layer]; }
 
 void synth_set_env_trigger(int layer, int bits)
 {
-    unsigned before = key_up_envs(layer);
+    unsigned before = key_up_envs(layer), before2 = key_up_envs(1);
     env_trigger[layer] = (uint8_t)(bits & 15);
     retrigger_envs(layer, before ^ key_up_envs(layer));
+    if (!layer && links())
+        retrigger_envs(1, before2 ^ key_up_envs(1)); // layer 2's linked envelopes follow
 }
+
+int synth_layer_link(void) { return layer_link; }
+
+void synth_set_layer_link(int bits)
+{
+    unsigned before = key_up_envs(1);
+    layer_link = (uint8_t)(bits & LINK_ALL);
+    if (!one_layer())
+        retrigger_envs(1, before ^ key_up_envs(1));
+    if (edit_layer == 1)
+        for (int i = 0; i < PARAM_COUNT; i++)
+            if (link_of_param[i])
+                unlatch(i); // their knobs now edit the other value
+}
+
+int synth_env_edit_layer(int env) { return env_layer(edit_layer, env); }
+int synth_lfo_edit_layer(int which) { return lfo_layer(edit_layer, which); }
+int synth_pot_linked(int pot) { return linked(edit_layer, link_of_param[param_of_pot(pot)]); }
 
 int synth_env_dahdsr(int layer) { return env_dahdsr[layer]; }
 void synth_set_env_dahdsr(int layer, int bits) { env_dahdsr[layer] = (uint8_t)(bits & 15); }
@@ -436,8 +485,9 @@ int synth_lfo2_toggle(int s)
     if (!bit)
         return -1;
     synth_hold_switch(s); // LFO 1 keeps its routing
-    lfo2_dests[edit_layer] ^= (uint8_t)bit;
-    return (lfo2_dests[edit_layer] & bit) != 0;
+    int layer = lfo_layer(edit_layer, 1);
+    lfo2_dests[layer] ^= (uint8_t)bit;
+    return (lfo2_dests[layer] & bit) != 0;
 }
 
 float synth_param(int layer, int param) { return layer_param[per_layer[param] ? layer : 0][param]; }
@@ -451,11 +501,11 @@ void synth_set_param(int layer, int param, float value)
         layer_param[layer][param] = value;
     else
         layer_param[0][param] = layer_param[1][param] = value;
-    if (!per_layer[param] || layer == edit_layer)
+    if (!per_layer[param] || layer == param_layer(edit_layer, param))
         unlatch(param); // its knob picks it up from here
 }
 
-float synth_pot_value(int pot) { return layer_param[edit_layer][param_of_pot(pot)]; }
+float synth_pot_value(int pot) { int p = param_of_pot(pot); return layer_param[param_layer(edit_layer, p)][p]; }
 
 int synth_pot_pending(int pot) { return !latched[param_of_pot(pot)]; }
 
@@ -739,6 +789,7 @@ void synth_apply_patch(const patch_t *patch)
             macro_offset[l][k] = patch->macro_offset[l][k] < -99 ? -99 : patch->macro_offset[l][k];
     layer_mode = patch->layer_mode < LAYER_MODE_COUNT ? (layer_mode_t)patch->layer_mode : LAYER_OFF;
     layer1_voices = patch->layer_voices < VOICE_COUNT ? patch->layer_voices : 0;
+    layer_link = patch->layer_link & LINK_ALL;
     synth_set_split_note(patch->split);
     for (int w = 0; w < 2; w++) {
         lfo_sync[w] = patch->lfo_sync[w] < LFO_SYNC_COUNT ? (lfo_sync_t)patch->lfo_sync[w] : LFO_SYNC_FREE;
@@ -805,6 +856,7 @@ void synth_capture_patch(patch_t *patch)
             patch->macro_offset[l][k] = macro_offset[l][k];
     patch->layer_mode = (uint8_t)layer_mode;
     patch->layer_voices = (uint8_t)layer1_voices;
+    patch->layer_link = layer_link;
     patch->split = (uint8_t)split_note;
     patch->voice_mode = (uint8_t)(voice_mode[0] | priority[0] << 2 | voice_mode[1] << 4 | priority[1] << 6);
     patch->drift = (uint8_t)drift_amount;
@@ -955,6 +1007,14 @@ static void mono_voices(int layer, int *first, int *end)
         *end = *first + 1; // mono / legato: the layer's first voice
 }
 
+// A note started on voice v of `layer`. A linked LFO is one LFO for both layers, so "the first key" counts both.
+static void lfos_note_on(int layer, int v, int first)
+{
+    for (int w = 0; w < 2; w++)
+        lfo_note_on(LFO_ID(lfo_layer(layer, w), w), v,
+                    first && !(linked(1, LINK_LFO(w)) && layer_gated(1 - layer)));
+}
+
 static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
 {
     int first, end;
@@ -973,8 +1033,7 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
         int retrigger = !was_held || (voice_mode[layer] == VOICE_MONO);
         for (int v = first; v < end; v++) {
             gate_on(&voices[v], target, velocity, retrigger);
-            lfo_note_on(LFO_ID(layer, 0), v, !was_held);
-            lfo_note_on(LFO_ID(layer, 1), v, !was_held);
+            lfos_note_on(layer, v, !was_held);
         }
         last_voice[layer] = first;
         return;
@@ -982,8 +1041,7 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
     int was_gated = layer_gated(layer);
     int v = allocate(layer, note);
     gate_on(&voices[v], note, velocity, 1);
-    lfo_note_on(LFO_ID(layer, 0), v, !was_gated);
-    lfo_note_on(LFO_ID(layer, 1), v, !was_gated);
+    lfos_note_on(layer, v, !was_gated);
     last_voice[layer] = v;
 }
 
@@ -1274,7 +1332,8 @@ float synth_env_note_seconds(int step)
 
 int synth_env_tempo_step(int env, int stage, float knob)
 {
-    if (!tempo_env(edit_layer, env) || (stage == 2 && !(env_cycle[edit_layer] >> env & 1)))
+    int layer = env_layer(edit_layer, env);
+    if (!tempo_env(layer, env) || (stage == 2 && !(env_cycle[layer] >> env & 1)))
         return -1; // seconds, or the sustain level
     return synth_env_note_step(knob);
 }
@@ -1389,11 +1448,12 @@ void synth_set_env_sync(int layer, int env, int sync)
 
 float synth_env_share(int env, int stage, float knob)
 {
-    if (!(env_cycle[edit_layer] >> env & 1) || !env_sync[edit_layer][env])
+    int layer = env_layer(edit_layer, env);
+    if (!(env_cycle[layer] >> env & 1) || !env_sync[layer][env])
         return -1;
     float p[PARAM_COUNT];
     for (int i = 0; i < PARAM_COUNT; i++)
-        p[i] = layer_param[edit_layer][i];
+        p[i] = layer_param[layer][i];
     p[env_params[env][stage]] = knob;
     float share[4];
     cycle_shares(p, env_params[env], share);
@@ -1598,7 +1658,7 @@ static void read_panel(float dt)
             latched[p] = 1;
             continue;
         }
-        int layer = per_layer[p] ? edit_layer : 0; // shared knobs keep one value, in both layers
+        int layer = per_layer[p] ? param_layer(edit_layer, p) : 0; // shared knobs keep one value, in both layers
         if (!latched[p] && !frozen && !(frozen_pots >> i & 1) && !(shift && !adsr_pot(i))) {
             float diff = panel[i] - layer_param[layer][p];
             int8_t side = diff < 0 ? -1 : 1;
@@ -1611,7 +1671,7 @@ static void read_panel(float dt)
         }
         if (latched[p]) {
             if (per_layer[p])
-                layer_param[edit_layer][p] = panel[i];
+                layer_param[layer][p] = panel[i];
             else
                 layer_param[0][p] = layer_param[1][p] = panel[i];
         }
@@ -1628,12 +1688,12 @@ static void read_panel(float dt)
 static float source_value(const voice_t *x, int voice, int layer, int source)
 {
     switch (source) {
-    case SRC_LFO: return lfo_value(LFO_ID(layer, 0), voice, (lfo_shape_t)lfo_shape[layer][0]) * x->lfo_gain[0];
-    case SRC_LFO2: return lfo_value(LFO_ID(layer, 1), voice, (lfo_shape_t)lfo_shape[layer][1]) * x->lfo_gain[1];
+    case SRC_LFO: return lfo_read(layer, 0, voice) * x->lfo_gain[0];
+    case SRC_LFO2: return lfo_read(layer, 1, voice) * x->lfo_gain[1];
     case SRC_LFO_UNI:
-        return 0.5f * (1.0f + lfo_value(LFO_ID(layer, 0), voice, (lfo_shape_t)lfo_shape[layer][0]) * x->lfo_gain[0]);
+        return 0.5f * (1.0f + lfo_read(layer, 0, voice) * x->lfo_gain[0]);
     case SRC_LFO2_UNI:
-        return 0.5f * (1.0f + lfo_value(LFO_ID(layer, 1), voice, (lfo_shape_t)lfo_shape[layer][1]) * x->lfo_gain[1]);
+        return 0.5f * (1.0f + lfo_read(layer, 1, voice) * x->lfo_gain[1]);
     case SRC_GATE: return x->gate ? 1.0f : 0;
     case SRC_TIMBRE: return x->timbre;
     case SRC_BEND: {
@@ -1745,7 +1805,7 @@ static void sample_lfos(void)
     for (int l = 0; l < LAYERS; l++)
         for (int w = 0; w < 2; w++)
             if (lfo_trigger[w] != LFO_TRIGGER_PER_VOICE)
-                lfo_now[l][w] = lfo_value(LFO_ID(l, w), -1, (lfo_shape_t)lfo_shape[l][w]);
+                lfo_now[l][w] = lfo_read(l, w, -1);
 }
 
 // Voice v's CVs from the last synth_update()'s terms plus its envelopes, LFOs and fast routes now: the VCA, the
@@ -1764,10 +1824,8 @@ static void voice_cvs(int v, int cutoff, int pitch)
         evaluate_routes(l, v, mod, 1);
     float lfo = 0, lfo2 = 0;
     if (cutoff || pitch) {
-        lfo = lfo_trigger[0] == LFO_TRIGGER_PER_VOICE ? lfo_value(LFO_ID(l, 0), v, (lfo_shape_t)lfo_shape[l][0])
-                                                      : lfo_now[l][0];
-        lfo2 = lfo_trigger[1] == LFO_TRIGGER_PER_VOICE ? lfo_value(LFO_ID(l, 1), v, (lfo_shape_t)lfo_shape[l][1])
-                                                       : lfo_now[l][1];
+        lfo = lfo_trigger[0] == LFO_TRIGGER_PER_VOICE ? lfo_read(l, 0, v) : lfo_now[l][0];
+        lfo2 = lfo_trigger[1] == LFO_TRIGGER_PER_VOICE ? lfo_read(l, 1, v) : lfo_now[l][1];
         lfo *= x->lfo_gain[0];
         lfo2 *= x->lfo_gain[1];
     }
@@ -1813,7 +1871,7 @@ void synth_tick(float dt, int cutoff, unsigned pitch_voices)
         int l = layer_of(v);
         for (int w = 0; w < 2; w++)
             if (lfo_trigger[w] == LFO_TRIGGER_PER_VOICE)
-                lfo_update_voice(LFO_ID(l, w), v, dt, x->lfo_octaves[w]);
+                lfo_update_voice(LFO_ID(lfo_layer(l, w), w), v, dt, x->lfo_octaves[w]);
         if (x->lfo_age < 100.0f)
             x->lfo_age += dt;
         x->lfo_gain[0] = lfo_fade_gain(0, x->lfo_age);
@@ -1888,15 +1946,17 @@ void synth_update(float dt)
     static float eff[LAYERS][PARAM_COUNT];
     for (int l = 0; l < LAYERS; l++) {
         float m = morph_loaded ? clamp01(last_mod[l][DEST_MORPH]) : 0;
-        for (int i = 0; i < PARAM_COUNT; i++)
-            eff[l][i] = m > 0 && i != POT_MASTER_VOL ? layer_param[l][i] + (morph_param[l][i] - layer_param[l][i]) * m
-                                                     : layer_param[l][i];
+        for (int i = 0; i < PARAM_COUNT; i++) {
+            int from = param_layer(l, i); // layer 1's value when linked
+            eff[l][i] = m > 0 && i != POT_MASTER_VOL ? layer_param[from][i] + (morph_param[from][i] - layer_param[from][i]) * m
+                                                     : layer_param[from][i];
+        }
     }
 
     for (int l = 0; l < LAYERS; l++) {
         const float *p = eff[l];
         for (int e = 0; e < 4; e++)
-            env_rates(&rates[l][e], p, l, e);
+            env_rates(&rates[l][e], p, env_layer(l, e), e);
         // LFOs (lfo.c, advanced in the ticks): rate or clock division from the rate knobs
         lfo_knob[l][0] = p[POT_LFO_FREQ];
         lfo_knob[l][1] = p[PARAM_LFO2_RATE];
@@ -2017,9 +2077,9 @@ static void voice_slow(int v, float dt)
         float depth2 = clamp01(q->depth2 + mod[DEST_LFO2_AMOUNT]);
         x->to_pitch[0] = clamp01(depth * lfo_to_pitch + mod[DEST_LFO_TO_PITCH]) * LFO_PITCH_SEMITONES;
         x->to_filter[0] = clamp01(depth * lfo_to_filter + mod[DEST_LFO_TO_FILTER]) * LFO_FILTER_SEMITONES;
-        x->to_pitch[1] = clamp01(depth2 * (float)((lfo2_dests[l] & LFO2_TO_PITCH) != 0) + mod[DEST_LFO2_TO_PITCH])
+        x->to_pitch[1] = clamp01(depth2 * (float)((lfo2_dests[lfo_layer(l, 1)] & LFO2_TO_PITCH) != 0) + mod[DEST_LFO2_TO_PITCH])
                        * LFO_PITCH_SEMITONES;
-        x->to_filter[1] = clamp01(depth2 * (float)((lfo2_dests[l] & LFO2_TO_FILTER) != 0)
+        x->to_filter[1] = clamp01(depth2 * (float)((lfo2_dests[lfo_layer(l, 1)] & LFO2_TO_FILTER) != 0)
                                   + mod[DEST_LFO2_TO_FILTER]) * LFO_FILTER_SEMITONES;
         x->pmod_env = (q->pmod_env + mod[DEST_PMOD_ENV]) * PMOD_ENV_SEMITONES;
         x->pitch_slow = mod[DEST_PITCH] * MOD_PITCH_SEMITONES;

@@ -90,6 +90,18 @@ void synth_set_layer_mode(layer_mode_t mode);
 int synth_split_note(void);
 // Layer 1's voices in the two-layer modes (split, stack, channel), 1-7, the rest layer 2's; 0 = automatic: 4 + 4, or
 // 7 + 1 (1 + 7) with exactly one layer mono or legato (0.9.0). Changing it releases every voice.
+// Layer links (per patch, 0.9.3): in the two-layer modes, what layer 2 plays from layer 1's settings. Layer 2's own
+// values stay stored and come back when unlinked; the host reads and writes them as they are, and the panel's
+// knobs and pages edit layer 1 instead while the group is linked. A linked LFO is layer 1's LFO, phase included.
+#define LINK_ENV(e)   (1u << (e))        // amp, filter, Env 3, Env 4 (ENV_CYCLE_* order): knobs and every mode
+#define LINK_LFO(w)   (1u << (4 + (w)))  // LFO 1, LFO 2: rate, amount, shape, step pattern; LFO 2's destinations
+#define LINK_FILTER   (1u << 6)          // cutoff, envelope amount
+#define LINK_ALL      127u
+int synth_layer_link(void);
+void synth_set_layer_link(int bits);
+int synth_env_edit_layer(int env); // the layer the panel edits this envelope, LFO or pot on
+int synth_lfo_edit_layer(int which);
+int synth_pot_linked(int pot);     // this knob, on layer 2, is editing layer 1
 int synth_layer_voices(void);
 void synth_set_layer_voices(int n);
 void synth_set_split_note(int note);
