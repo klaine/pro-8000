@@ -728,7 +728,8 @@ envelope cycles), the Device cheat sheet describes that build's panel, and the s
 
 ## The command-line tool
 
-`scripts/tools.sh` builds `build/pro800`. `build/pro800 help` lists every command. The ones you'll use most:
+`scripts/tools.sh` builds `build/pro800` on a Mac. On Windows there's nothing to build: use `python tools/pro800.py` where
+this manual says `build/pro800` (it needs Python 3.8 or later). `build/pro800 help` lists every command. The ones you'll use most:
 
 ```
 build/pro800 settings

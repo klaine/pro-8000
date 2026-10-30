@@ -39,6 +39,14 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     `dac-test` (sweeps the DAC80501 bus and the S&H waits, 0.7.4+; RAM-only probe, silent), `dac-heal` (sets the
     DAC80501's gain wrong and checks the firmware's setup re-send puts it right, 0.8.5+; silent). `engine` (held keys, voice gates and envelope
     stages, keytrack and switch overrides, from 0.9.3 the LFOs' phases; read-only).
+- `tools/pro800.py` is the same tool for Windows, with the same commands: nothing to build, `python tools/pro800.py help`
+  (Python 3.8+, WinMM through ctypes). Read `python tools/pro800.py` for `build/pro800` in these notes. Left out: `record`
+  and `play --record`. On macOS and Linux it needs `pip install python-rtmidi`; on macOS the Swift tool stays the tested one.
+  A new command goes in both tools. `python tools/test_pro800.py` runs it against a simulated synth (no MIDI port): requests
+  byte for byte, replies as `src/main.c` builds them, name tables and command list against `tools/pro800.swift`. It flashes
+  like the Swift tool (same checks, pacing and erase wait), so quit SynthTribe and close WebMIDI pages first: under Windows
+  MIDI Services they stay connected and every program sees every reply (NOTES). The stock firmware answers only `version`,
+  `backup` and `listen`.
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
 - The installer page `tools/web/install.html` (http://localhost:8800/install.html, on the site `editor/install.html`):
@@ -59,6 +67,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 ## Layout
 
 - `tools/pro800.swift`: the USB MIDI tool (one file, CoreMIDI + AVFoundation).
+- `tools/pro800.py`: the same tool in Python for Windows (one file, WinMM through ctypes); `tools/test_pro800.py` tests it.
 - `src/`: `startup.c` (vector table, reset handler that cleans up after the bootloader), `link.ld`
   (app at `0x08010000`, max 128 kB: flash sector 4 and half of sector 5), `regs.h` (the registers we use; no vendor headers), drivers, `main.c`.
 - `docs/`: the source of the two published guides (`index.html`, `how-it-works.html`, `sound-design.html`;

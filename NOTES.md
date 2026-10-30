@@ -1663,6 +1663,34 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   Against a simulated synth: the 0 + 7 prompt, a refused header, a refused block, retrying. Not tested: Windows, Linux,
   Edge, a stock file other than the 1.4.6 one, and the real save dialog.
 
+## The tool on Windows (`tools/pro800.py`, 2026-10-30)
+
+- **Why Python and WinMM through ctypes:** the machine has Python 3.13 and Node 22 and no compiler. `python-rtmidi` has no
+  wheel for 3.13 on Windows and Node's MIDI addons need building too, so ctypes means nothing to install. On macOS and
+  Linux the same file uses `python-rtmidi` (not tried on either: the Swift tool stays macOS's tool).
+- **Input** arrives as thread messages (`CALLBACK_THREAD`) on a thread of ours, not in a callback, because WinMM's
+  callbacks mustn't call WinMM and the buffers have to go back with `midiInAddBuffer`.
+- **Windows MIDI Services** (`midisrv`) sits under WinMM here. The synth shows as "PRO 800" both ways; the port opens while
+  SynthTribe has it open too, and every program sees every reply. `midiOutLongMsg` is done in 0.2 ms, before the bytes
+  are on the wire, and a version request's reply comes back in 1-5 ms. So the pacing has to be ours, as on macOS, and
+  closing waits 50 ms. Without the service a port would open only once, hence the one connection per process.
+- **`install` runs its MIDI steps as child processes**, each finding the ports afresh. The USB check doesn't use MIDI
+  (`CM_Get_Device_ID_ListW`, present devices). A long-running process may keep a stale device list across a
+  re-enumeration, as CoreMIDI does; this way it doesn't matter whether WinMM does.
+- **Stock firmware 1.4.6, seen from Windows with SynthTribe 2.6.7 open:** `77 7E 03` answers `78 7E 03 …` and then a bare
+  `F0 F7` 2-3 ms later. That one can arrive during the next request and look like an empty slot, so `backup` gives a
+  real reply 100 ms to follow it (a real patch has not been seen through this path yet: this synth's stock firmware
+  answers `F0 F7` for all 400 slots). `08 00` brought `78 7E 03 …` and `F0 F7` with it, which SynthTribe may have
+  asked for on seeing the reply (not tried with SynthTribe closed).
+- **Tested:** on the real synth under stock 1.4.6 `ports`, `version`, `backup` (all 400 slots, 50 s), `listen`, the USB check
+  and the no-reply path (`settings` and `eeprom`, whose 54 and 79 the web pages already send to stock). The WinMM send path
+  and the pacing with `flash` to the Microsoft GS Wavetable Synth: 3000 B/s asked gave 2982, 9000 gave 8860, gaps never
+  below what was asked. `flash --dry-run` on the published 0.9.3 file: 376 messages, 95,547 bytes, version 0.9.3 in the
+  header. Everything else against the simulated synth of `tools/test_pro800.py`, built from `src/main.c`'s replies.
+- **Not tested on the real synth:** the commands that need our firmware (`settings`, `state`, `engine`, `seq`, `patches`,
+  `routes`, `timing`, `tuning`, `check`, `panel`, `eeprom`), anything that changes the synth, `update-mode`, `flash`,
+  `install`, and short MIDI messages coming in (`listen` while a knob moves or a key plays).
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.
