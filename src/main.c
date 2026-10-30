@@ -994,8 +994,10 @@ static void shift_turn(int pot, int delta)
     case POT_FIL_ENV_AMT: value = synth_pickup(); break;
     default: value = synth_cc_number(1); break;
     }
-    int span = pot == POT_FIL_ENV_AMT ? 4 : table[t].high - table[t].low; // on / off: a quarter turn
-    shift_acc[pot] += (float)delta * (float)span / 4095.0f;
+    // on / off: a quarter turn. The rest a little over the range per sweep: a pot's ends fall short of 0 and 4095, and
+    // this knob only moves the value by turning, so one sweep has to reach both ends (issue 11: no channel 16)
+    float span = pot == POT_FIL_ENV_AMT ? 4.0f : (float)(table[t].high - table[t].low) * 1.15f;
+    shift_acc[pot] += (float)delta * span / 4095.0f;
     int step = (int)shift_acc[pot];
     shift_acc[pot] -= (float)step;
     value += step;

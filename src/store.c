@@ -191,8 +191,7 @@ void store_set_midi_channel(int channel)
     if (channel < 0 || channel > 16 || global.midi_channel == channel)
         return;
     global.midi_channel = (uint8_t)channel;
-    if (global.valid)
-        write_global();
+    write_global(); // on memory never formatted too: it becomes ours, as with a saved patch
 }
 
 int store_pickup(void) { return !global.no_pickup; }
@@ -202,8 +201,7 @@ void store_set_pickup(int on)
     if ((on == 0) == global.no_pickup)
         return;
     global.no_pickup = !on;
-    if (global.valid)
-        write_global();
+    write_global(); // on memory never formatted too: it becomes ours, as with a saved patch
 }
 
 int store_clock_source(void) { return global.clock_source; }
@@ -217,8 +215,7 @@ void store_set_clock(int source, int bpm_tenths)
         return;
     global.clock_source = (uint8_t)source;
     global.bpm = (uint16_t)bpm_tenths;
-    if (global.valid)
-        write_global();
+    write_global(); // on memory never formatted too: it becomes ours, as with a saved patch
 }
 
 void store_set_cc_number(int which, int number)
@@ -226,8 +223,7 @@ void store_set_cc_number(int which, int number)
     if (number < 0 || number > 127 || global.cc[which & 1] == number)
         return;
     global.cc[which & 1] = (uint8_t)number;
-    if (global.valid)
-        write_global();
+    write_global(); // on memory never formatted too: it becomes ours, as with a saved patch
 }
 
 static uint32_t record_address(int n) { return (uint32_t)n * RECORD_SIZE; }

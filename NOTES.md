@@ -1621,6 +1621,23 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 - **Web:** the other layer's flagged routes are listed after the layer's own, marked, with their source and destination locked; depth,
   Both and Remove act on the owner. The knobs' rings and the LFO depth bars count them. The macro and lane readouts show own routes only.
 
+## Three reports before the release: sync's bleed, settings on unformatted memory, channel 16 (0.9.3, 2026-10-30)
+
+- **Issue 9, osc A heard with Sync on and every waveform off.** The same family as issue 7, but sync's reset of a pulse held high. The
+  comparator can't show it: with osc A's waves off in direct mode it read only noise (about 6.5 kHz) with sync off and on, against osc B's
+  217 Hz through its saw. So this is by reasoning, not measured: `GATE_SYNC` now stays off while osc A has no waveform, where sync has
+  nothing to do (poly-mod's source is osc B). On the synth (P128, B at 311 Hz, A3): saw, square and triangle each lock to 311 Hz with sync on, 220
+  without. Heard by the user on the synth: osc A silent with Sync on and every waveform off.
+- **Issue 10, the MIDI channel lost at power-up.** The cause is memory never formatted (fresh from stock), where no setter wrote the global block
+  (`if (global.valid)`), for the channel, pickup, clock and CC numbers alike. They now write it, which marks the memory as ours as a saved patch does
+  (the earlier section on typing a slot number); `store_set_last()` still doesn't, so only loading patches leaves it stock. Host test (`store.c` on a RAM EEPROM, blank with a stock
+  record in slot 0): all four survive `store_init()`, the stock record stays byte for byte, and 7 checks fail on the old code. On the synth, formatted: channel 16 survives
+  the reboot of an install. Not tried on real unformatted memory, since that needs the user's patches wiped.
+- **Issue 11, no channel 16.** Shift's knobs move a value by turning, 4095 of travel across the range, so a pot whose ends fall short never reaches the far end: 0 to 16 stopped at 15.
+  `shift_turn()` now takes 1.15 × the range per sweep, for all of them. By reading the code; the pot's real travel wasn't measured. Tried by the user on the panel: Shift + NOISE reaches 16. With the tool:
+  channel 16 is heard and 15 ignored.
+- Before the release's install, the sound on the synth (P68) was compared with `params`, `routes`, `seq` and `settings`: the same after the reboot and after a reload.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

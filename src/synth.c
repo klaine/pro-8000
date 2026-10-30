@@ -2108,7 +2108,8 @@ void synth_update(float dt)
     sh_gate(GATE_TRI_A, sw(SWITCH_A_TRI));
     sh_gate(GATE_SAW_B, sw(SWITCH_B_SAW));
     sh_gate(GATE_TRI_B, sw(SWITCH_B_TRI));
-    sh_gate(GATE_SYNC, sw(SWITCH_SYNC));
+    // sync restarts osc A, and even with no waveform on that leaves a click at osc B's pitch (issue 9)
+    sh_gate(GATE_SYNC, sw(SWITCH_SYNC) && (sw(SWITCH_A_SAW) || sw(SWITCH_A_TRI) || sw(SWITCH_A_SQUARE)));
     sh_gate(GATE_PMOD_FREQ_A, pmod_freq_a);
     sh_gate(GATE_PMOD_FILTER, sw(SWITCH_PMOD_FILTER));
 
