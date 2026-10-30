@@ -439,16 +439,24 @@ only plays it.
   with no lanes, 48 with 1, 40 with 2, 34 with 3, 30 with 4.
 - **Piano roll (0.9.3):** above the steps on the web page, the current page's notes over their step columns, three
   octaves at a time with a keyboard beside them and ▼ ▲ to scroll by an octave. Offsets are from the key you hold, so
-  offset 0 is drawn as C and the Cs are labelled in semitones. Click to add a note (a rest becomes that note; with Chords on,
-  a played step gets another note; with one note a step, the note moves there). Drag a note up or down to move it. Drag its
-  right edge to stretch it: the gate, or past its step a tie into the next, which takes the same notes. Double-click or
-  right-click a note to remove it (a chord note then takes over as the step's own). A step's notes share its gate, so stretching one
-  stretches them all. A longer sequence also gets a thin strip showing all of it.
+  offset 0 is drawn as C and the Cs are labelled in semitones.
+  - **Add:** click. A rest becomes that note, and on a played step the note goes beside what's there. When a step needs
+    another note the Chords menu goes up by itself, as long as the sequence still fits; otherwise, with one note a step, the
+    note moves there, or a full step says so.
+  - **Move:** drag a note up or down. A note held over several steps moves as one.
+  - **Stretch:** drag a note's right edge. Inside its step this sets the step's gate, shared by the notes that aren't held.
+    Past its step the note holds and joins the next steps beside their notes, so a long bass can run under short notes; dragging
+    back restores what was there. A step with no room stops the stretch. In the last step, a note alone ends where you let
+    go; beside other notes it lasts to the step's end.
+  - **Remove:** double-click or right-click a note. If it was the step's own note, a chord note takes over.
+
+  A longer sequence also gets a thin strip showing all of it.
 - **Chords (0.9.3):** a step can play up to three notes. Choose Two or Three notes under Chords on the web page, and
   each step gets a Note 2 / Note 3 cell, in semitones from the step's own note (`·` = no extra note, so a step can
   have fewer). Each extra note takes a lane's room, so three notes alone leave 40 steps and at most two automation
-  lanes (30 steps). The notes share the step's gate, velocity, probability and ratchets, and a tie holds the notes
-  the next step shares and moves the others. They use real voices: a chord on a 4-voice layer leaves little room for
+  lanes (30 steps). The notes share the step's velocity, probability and ratchets, and its gate unless a note holds. A
+  held note ignores the gate and carries on into the next step, without restarting if that step plays it too (the piano roll sets
+  this when you stretch a note). A gate of 100 % (`tie`) holds all of the step's notes. Ratchets switch holds off. They use real voices: a chord on a 4-voice layer leaves little room for
   overlap, and a mono or legato layer plays only the last of them. In an arpeggio, the extra notes follow the arp's
   note. Step recording writes single notes.
 - **Recording on the panel (0.9.0):** hold Rec and press Seq 1 (`rSEq`; the edit layer stays, and REC blinks fast).

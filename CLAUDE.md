@@ -30,7 +30,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     `clock <bpm> [seconds]`, `timing`.
   - Patches also: `patch rename <slot> <name>`, `factory` (list), `factory import <f> <slot> [--force]`.
   - From 0.8.0: 128 patches (P1-P128, program change 0-127), 768-byte records with the step sequence inside
-    (`src/store.c`; `src/seq.c`, edited on the web page; `seq` prints it; from 0.9.3 `seq set chord=0-2` and `seq step … n2+4 n3+7` for chords). 0.7.x records are wiped at the first start.
+    (`src/store.c`; `src/seq.c`, edited on the web page; `seq` prints it; from 0.9.3 `seq set chord=0-2` and `seq step … n2+4 n3+7 h1` for chords and held notes). 0.7.x records are wiped at the first start.
   - The WebMIDI page `scripts/web.sh` → http://localhost:8800 (Chrome/Edge; the desktop app's built-in browser
     has no MIDI): tabs Sound (the faceplate on top, then the extras and the mod matrix), Device cheat sheet (keep it in
     step with `MANUAL.md`), Patches, Play, System, Panel mapping (map in `tools/web/panel-map.json`).

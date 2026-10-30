@@ -25,9 +25,11 @@
 
 #define SEQ_GATE_TIE 100  // a gate of 100 % holds the note into the next step (legato)
 #define SEQ_LANE_ZERO 64  // lane values 0..127, 64 = 0; a chord lane: semitones from the step's note, 64 = no note
-// extra[]: bits 0-2 probability (0 = always, n = 8 - n in 8), bits 3-4 ratchets - 1
+// extra[]: bits 0-2 probability (0 = always, n = 8 - n in 8), bits 3-4 ratchets - 1, bits 5-7 holds (0.9.3): the step's
+// own note, Note 2, Note 3 ignores the gate and carries on into the next step, legato if that step plays it too
 #define SEQ_PROBABILITY(x) (8 - ((x) & 7))
 #define SEQ_RATCHETS(x)    (((x) >> 3 & 3) + 1)
+#define SEQ_HOLDS(x)       ((x) >> 5 & 7)
 
 enum { ARP_OFF, ARP_UP, ARP_DOWN, ARP_UP_DOWN, ARP_RANDOM, ARP_PLAYED, ARP_COUNT };
 

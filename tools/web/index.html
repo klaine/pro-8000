@@ -2091,7 +2091,7 @@ function recordNote(n, vel) {
   if (seqRec.base === null) seqRec.base = n;
   const st = seq.steps[seqRec.pos];
   st.note = Math.max(28, Math.min(100, 64 + n - seqRec.base));
-  st.on = 1; st.vel = 0;
+  st.on = 1; st.vel = 0; st.hold = 0;
   for (let l = seqMods(seq); l < seq.lanes; l++) st.lane[l] = 64;
   sendStep(seqRec.pos);
   touch(`record step ${seqRec.pos + 1}`, offsetText(st.note));
@@ -2117,7 +2117,7 @@ function layoutLanes(mods, chord) {
   seq.lanes = mods + chord;
   seq.flags = seq.flags & ~0x60 | chord << 5;
 }
-const newStep = () => ({ note: 64, vel: 0, gate: 50, on: 1, extra: 0, lane: [64, 64, 64, 64] });
+const newStep = () => ({ note: 64, vel: 0, gate: 50, on: 1, hold: 0, extra: 0, lane: [64, 64, 64, 64] });
 // extra: bits 0-2 probability (0 = always, n = 8 - n in 8), bits 3-4 ratchets - 1
 const probOf = s => 8 - (s.extra & 7), ratchetsOf = s => (s.extra >> 3 & 3) + 1;
 const ARPS = ["Off: the key transposes", "Up", "Down", "Up-down", "Random", "As played"];
@@ -2132,7 +2132,7 @@ async function refreshSequence() {
     if (!r) break;
     for (let k = 0; k < 8; k++) {
       const x = r.slice(3 + 9 * k, 12 + 9 * k);
-      s.steps[first + k] = { note: x[0], vel: x[1], gate: x[2], on: x[3], extra: x[4], lane: x.slice(5, 9) };
+      s.steps[first + k] = { note: x[0], vel: x[1], gate: x[2], on: x[3] & 1, hold: x[3] >> 1 & 7, extra: x[4], lane: x.slice(5, 9) };
     }
   }
   seq = s;
@@ -2157,7 +2157,7 @@ function sendStep(i) {
   stepTimer = setTimeout(() => {
     for (const k of [...dirtySteps]) {
       const st = seq.steps[k];
-      send([0x45, k, 1, st.note, st.vel, st.gate, st.on ? 1 : 0, st.extra & 0x1F, ...st.lane]);
+      send([0x45, k, 1, st.note, st.vel, st.gate, (st.on ? 1 : 0) | st.hold << 1, st.extra & 0x1F, ...st.lane]);
     }
     dirtySteps.clear();
   }, 40);
@@ -2197,12 +2197,17 @@ function stepSlots(c) {
     return { x: b.left - left, w: b.width };
   });
 }
-// A step's notes as offsets from the key: its own (lane -1) and its chord notes (their lanes)
+// A step's notes as offsets from the key: its own (lane -1) and its chord notes (their lanes). bit: its hold; held: past the gate
 const stepNotes = s => {
-  const out = [{ lane: -1, pitch: s.note - 64 }];
-  for (let l = seqMods(seq); l < seq.lanes; l++) if (s.lane[l] !== 64) out.push({ lane: l, pitch: s.note - 64 + s.lane[l] - 64 });
+  const held = bit => s.gate >= 100 || !!(s.hold & bit);
+  const out = [{ lane: -1, pitch: s.note - 64, bit: 1, held: held(1) }];
+  for (let l = seqMods(seq); l < seq.lanes; l++) {
+    const bit = 2 << l - seqMods(seq);
+    if (s.lane[l] !== 64) out.push({ lane: l, pitch: s.note - 64 + s.lane[l] - 64, bit, held: held(bit) });
+  }
   return out;
 };
+const noteAt = (i, pitch) => i < seq.length && seq.steps[i].on ? stepNotes(seq.steps[i]).find(n => n.pitch === pitch) : undefined;
 // The roll's window: three octaves from rollLow (an offset from the key), scrolled in octaves
 const ROLL_SPAN = 36, ROLL_LOW_MIN = -60, ROLL_LOW_MAX = 24;
 let rollLow = -12;
@@ -2235,8 +2240,9 @@ function drawRollKeys(g, w, ht) {
     }
   }
 }
-// How far a step's notes reach: its gate, and on into the next column when tied
-const rollLen = (s, slots, k) => s.gate >= 100 && slots[k + 1] ? slots[k + 1].x - slots[k].x : Math.max(3, s.gate / 100 * slots[k].w);
+// How far a note reaches in its column: its step's gate, or held the whole step and on into the next if that plays it too
+const rollLen = (n, s, slots, k) => !n.held ? Math.max(3, s.gate / 100 * slots[k].w)
+  : slots[k + 1] && noteAt(seqPage * 16 + k + 1, n.pitch) ? slots[k + 1].x - slots[k].x : slots[k].w;
 const LANE_COLORS = ["#f4f1ea", "#9ad0ff", "#b7f0a0", "#ffd479"];
 // The current page's steps, one column over each step of the grid below
 function drawSeq(g, w, ht, c) {
@@ -2255,9 +2261,9 @@ function drawSeq(g, w, ht, c) {
     if (i >= seq.length) { g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(x, 0, cw, ht); return; }
     const s = seq.steps[i];
     if (!s.on) return;
-    const len = rollLen(s, slots, k);
     g.fillStyle = css("--accent");
     for (const n of stepNotes(s)) {
+      const len = rollLen(n, s, slots, k);
       g.globalAlpha = n.lane < 0 ? 1 : .65;
       const outside = n.pitch < rollLow ? ht - 3 : n.pitch > rollLow + ROLL_SPAN ? 0 : -1; // outside the window: a mark at its edge
       if (outside >= 0) g.fillRect(x, outside, Math.min(len, 10), 3);
@@ -2283,9 +2289,11 @@ function drawSeq(g, w, ht, c) {
   g.fillText(`${seq.length} steps · ${DIVISIONS[seq.division]} · ${seq.flags & SEQ_CLOCK ? "MIDI clock" : seq.bpm + " BPM"}` +
     (seq.swing ? ` · swing ${seq.swing} %` : ""), (slots[0] ? slots[0].x : 0) + 4, 12);
 }
-// Editing on the roll: click to add a note and drag to set its pitch, drag a note to move it, drag its right edge to
-// stretch it (past its step: ties into the next, which takes the same notes), double-click or right-click to remove it.
-// One note a step, unless the Chords menu gives the step more; the notes of a step share its gate.
+// Editing on the roll: click to add a note and drag to set its pitch, drag a note to move it, drag its right edge to stretch
+// it, double-click or right-click to remove it. A note stretched past its step holds (its own hold, not the step's gate) and
+// joins the next steps beside what they play, so a long bass can run under short notes; another note is never overwritten.
+// A note held over several steps moves and goes as one. Adding or stretching raises the Chords menu when a step needs another
+// note and the sequence still fits.
 function editRoll(c) {
   const ROLL_MIN = 28, ROLL_MAX = 100, EDGE = 6; // lane and note values, as the Note cells; pixels of a note's end
   let drag = null;
@@ -2300,73 +2308,147 @@ function editRoll(c) {
     const s = seq.steps[p.i];
     if (p.i >= seq.length || !s.on) return null;
     const n = stepNotes(s).find(x => x.pitch === p.scale.pitchAt(p.py));
-    return n && { ...n, edge: p.px >= p.slots[p.k].x + rollLen(s, p.slots, p.k) - EDGE };
+    return n && { ...n, edge: p.px >= p.slots[p.k].x + rollLen(n, s, p.slots, p.k) - EDGE };
   };
   const say = (i, text) => touch(`step ${i + 1}`, text);
-  // a note to a new offset from the key; 0 if another note of the step is there. Moving the step's own note keeps the chord
-  // notes where they are, since they're stored relative to it.
+  // the steps of the note held through step i
+  const chain = (i, pitch) => {
+    let a = i, b = i;
+    while (a > 0 && noteAt(a - 1, pitch)?.held) a--;
+    while (noteAt(b, pitch)?.held && noteAt(b + 1, pitch)) b++;
+    return Array.from({ length: b - a + 1 }, (_, k) => a + k);
+  };
+  // a note to a new offset from the key; 0 if it can't go there. Moving the step's own note keeps the chord notes where
+  // they are, since they're stored relative to it.
   const setPitch = (i, lane, pitch) => {
     const s = seq.steps[i], main = s.note - 64;
     if (lane >= 0) {
       const v = 64 + pitch - main;
       if (v === 64 || v < ROLL_MIN || v > ROLL_MAX || stepNotes(s).some(n => n.lane !== lane && n.pitch === pitch)) return 0;
       s.lane[lane] = v;
-    } else {
-      const chord = stepNotes(s).filter(n => n.lane >= 0), lanes = chord.map(n => 64 + n.pitch - pitch);
-      if (64 + pitch < ROLL_MIN || 64 + pitch > ROLL_MAX || lanes.some(v => v === 64 || v < ROLL_MIN || v > ROLL_MAX)) return 0;
-      s.note = 64 + pitch;
-      chord.forEach((n, k) => { s.lane[n.lane] = lanes[k]; });
+      return 1;
     }
-    say(i, offsetText(64 + pitch));
-    sendStep(i);
+    const chord = stepNotes(s).filter(n => n.lane >= 0), lanes = chord.map(n => 64 + n.pitch - pitch);
+    if (64 + pitch < ROLL_MIN || 64 + pitch > ROLL_MAX || lanes.some(v => v === 64 || v < ROLL_MIN || v > ROLL_MAX)) return 0;
+    s.note = 64 + pitch;
+    chord.forEach((n, k) => { s.lane[n.lane] = lanes[k]; });
     return 1;
   };
+  const freeLane = (s, pitch) => { // a chord lane that can take this note in step s
+    for (let l = seqMods(seq); l < seq.lanes; l++) {
+      const v = 64 + pitch - (s.note - 64);
+      if (s.lane[l] === 64) return v >= ROLL_MIN && v <= ROLL_MAX ? l : -1;
+    }
+    return -1;
+  };
+  // one more note per step, if the sequence still fits
+  const raiseChord = () => {
+    const mods = seqMods(seq), chord = seqChord(seq);
+    if (chord >= 2 || mods + chord >= 4 || seq.length > seqMax(seq.lanes + 1)) return false;
+    layoutLanes(mods, chord + 1);
+    sendSeqHeader();
+    return true;
+  };
   const addNote = (p, pitch) => {
-    const s = seq.steps[p.i], mods = seqMods(seq);
+    const s = seq.steps[p.i];
     if (!s.on) { // a rest becomes this note
       if (64 + pitch < ROLL_MIN || 64 + pitch > ROLL_MAX) return null;
-      s.on = 1; s.note = 64 + pitch;
-      for (let l = mods; l < seq.lanes; l++) s.lane[l] = 64;
+      s.on = 1; s.note = 64 + pitch; s.hold = 0;
+      for (let l = seqMods(seq); l < seq.lanes; l++) s.lane[l] = 64;
       say(p.i, offsetText(s.note));
       sendStep(p.i);
       return { lane: -1, pitch };
     }
-    if (!seqChord(seq)) return setPitch(p.i, -1, pitch) ? { lane: -1, pitch } : null; // one note a step: it moves there
-    for (let l = mods; l < seq.lanes; l++)
-      if (s.lane[l] === 64) return setPitch(p.i, l, pitch) ? { lane: l, pitch } : null;
-    document.getElementById("status").textContent = `Step ${p.i + 1} has all its notes: drag one, or double-click it to remove it`;
-    return null;
+    if (freeLane(s, pitch) < 0) raiseChord();
+    if (!seqChord(seq)) { // one note a step, and no room for more: it moves there
+      if (!setPitch(p.i, -1, pitch)) return null;
+      say(p.i, offsetText(64 + pitch));
+      sendStep(p.i);
+      return { lane: -1, pitch };
+    }
+    const l = freeLane(s, pitch);
+    if (l < 0) { document.getElementById("status").textContent = `Step ${p.i + 1} has all its notes: drag one, or double-click it to remove it`; return null; }
+    s.lane[l] = 64 + pitch - (s.note - 64);
+    s.hold &= ~(2 << l - seqMods(seq));
+    say(p.i, offsetText(64 + pitch));
+    sendStep(p.i);
+    return { lane: l, pitch };
   };
-  // the step's notes, stretched to where the pointer is, from the steps as they were when the drag began
+  // takes a note out of a step; a chord note takes over if it was the step's own, and with no other the step rests
+  const dropNote = (i, pitch) => {
+    const s = seq.steps[i], n = stepNotes(s).find(x => x.pitch === pitch), rest = stepNotes(s).filter(x => x.pitch !== pitch);
+    if (!n) return;
+    if (n.lane >= 0) { s.lane[n.lane] = 64; s.hold &= ~n.bit; }
+    else if (rest.length) {
+      const main = rest[0].pitch, mods = seqMods(seq);
+      s.note = 64 + main;
+      s.hold = rest[0].held && s.gate < 100 ? 1 : 0;
+      for (let l = mods; l < seq.lanes; l++) s.lane[l] = 64;
+      rest.slice(1).forEach((x, k) => { s.lane[mods + k] = 64 + x.pitch - main; if (x.held && s.gate < 100) s.hold |= 2 << k; });
+    } else { s.on = 0; s.hold = 0; }
+  };
+  // a step tied as a whole (gate 100 %) as holds per note, so one note in it can be changed alone
+  const unTie = s => {
+    if (s.gate < 100) return;
+    s.hold = stepNotes(s).reduce((b, n) => b | n.bit, 0);
+    s.gate = 99;
+  };
+  const canJoin = (j, pitch) => { const s = seq.steps[j]; return !s.on || noteAt(j, pitch) || freeLane(s, pitch) >= 0; };
+  // the note stretched to where the pointer is, from the steps as they were when the drag began
   const stretch = p => {
     const d = drag, last = Math.min(seqPage * 16 + p.slots.length, seq.length) - 1;
-    const m = Math.max(d.i, Math.min(last, p.i)), slot = p.slots[m - seqPage * 16];
-    const part = Math.round((p.px - slot.x) / slot.w * 100), gate = Math.max(1, Math.min(99, part));
     const before = seq.steps.slice(d.i, last + 1).map(s => JSON.stringify(s));
-    d.steps.forEach((s, n) => { seq.steps[d.i + n] = JSON.parse(s); });
-    const from = seq.steps[d.i];
-    for (let j = d.i; j <= m; j++) {
-      const s = seq.steps[j];
-      if (j > d.i) Object.assign(s, { note: from.note, vel: from.vel, on: 1, lane: [...from.lane] });
-      if (m > d.i) s.extra = from.extra & 7; // a ratchet would break the tie
-      s.gate = j < m ? 100 : gate;
+    const restore = () => d.steps.forEach((s, n) => { seq.steps[d.i + n] = JSON.parse(s); });
+    restore();
+    let m = Math.max(d.i, Math.min(last, p.i));
+    for (let j = d.i + 1; j <= m; j++) {
+      if (canJoin(j, d.pitch)) continue;
+      if (raiseChord()) {
+        d.steps = seq.steps.slice(d.i, last + 1).map(s => JSON.stringify(s));
+        if (canJoin(j, d.pitch)) continue;
+      }
+      document.getElementById("status").textContent = `Step ${j + 1} has no room for another note, so the note stops before it`;
+      m = j - 1;
     }
+    const slot = p.slots[m - seqPage * 16], part = Math.round((p.px - slot.x) / slot.w * 100), gate = Math.max(1, Math.min(99, m === Math.max(d.i, Math.min(last, p.i)) ? part : 99));
+    const links = chain(d.i, d.pitch).filter(j => j > d.i); // it starts again from this step
+    links.forEach(j => dropNote(j, d.pitch));
+    const from = seq.steps[d.i];
+    unTie(from);
+    const own = stepNotes(from).find(n => n.pitch === d.pitch);
+    from.hold &= ~own.bit;
+    if (m === d.i) from.gate = gate;
+    else from.hold |= own.bit;
+    for (let j = d.i + 1; j <= m; j++) {
+      const s = seq.steps[j];
+      if (s.on) unTie(s);
+      if (!s.on) Object.assign(s, { on: 1, note: 64 + d.pitch, hold: 0, gate: j === m ? gate : 50, vel: from.vel, extra: from.extra & 7, lane: s.lane.map((v, l) => l < seqMods(seq) ? v : 64) });
+      else if (!noteAt(j, d.pitch)) { const l = freeLane(s, d.pitch); s.lane[l] = 64 + d.pitch - (s.note - 64); }
+      const n = stepNotes(s).find(x => x.pitch === d.pitch);
+      // the last step: alone, it ends where the pointer is; beside others, whose gate it shares, at the step's end
+      if (j < m || stepNotes(s).length > 1) s.hold |= n.bit; else s.hold &= ~n.bit;
+    }
+    if (m > d.i) for (let j = d.i; j <= m; j++) seq.steps[j].extra &= 7; // a ratchet would break the hold
     seq.steps.slice(d.i, last + 1).forEach((s, n) => { if (JSON.stringify(s) !== before[n]) sendStep(d.i + n); });
-    say(d.i, m > d.i ? `tied over ${m - d.i + 1} steps` : gate + " %");
+    say(d.i, m > d.i ? `over ${m - d.i + 1} steps` : gate + " %");
   };
   const remove = p => {
     const n = hit(p);
     if (!n) return;
-    const s = seq.steps[p.i], rest = stepNotes(s).filter(x => x.lane !== n.lane);
-    if (n.lane >= 0) s.lane[n.lane] = 64;
-    else if (rest.length) { // a chord note takes over as the step's own note
-      const main = rest[0].pitch;
-      s.note = 64 + main;
-      for (let l = seqMods(seq); l < seq.lanes; l++) s.lane[l] = 64;
-      rest.slice(1).forEach((x, k) => { s.lane[seqMods(seq) + k] = 64 + x.pitch - main; });
-    } else s.on = 0;
+    for (const j of chain(p.i, n.pitch)) { dropNote(j, n.pitch); sendStep(j); }
     say(p.i, "note removed");
-    sendStep(p.i);
+  };
+  // the whole held note to a new pitch, or nothing if a step of it can't go there
+  const movePitch = (steps, from, pitch) => {
+    const keep = steps.map(j => JSON.stringify(seq.steps[j]));
+    for (const j of steps) {
+      if (setPitch(j, stepNotes(seq.steps[j]).find(n => n.pitch === from).lane, pitch)) continue;
+      steps.forEach((x, k) => { seq.steps[x] = JSON.parse(keep[k]); });
+      return 0;
+    }
+    steps.forEach(j => sendStep(j));
+    say(steps[0], offsetText(64 + pitch));
+    return 1;
   };
   c.addEventListener("pointerdown", ev => {
     if (!seq || offline() || ev.button !== 0) return;
@@ -2377,11 +2459,11 @@ function editRoll(c) {
     let n = hit(p);
     if (n && n.edge) {
       const last = Math.min(seqPage * 16 + p.slots.length, seq.length) - 1;
-      drag = { stretch: true, i: p.i, steps: seq.steps.slice(p.i, last + 1).map(s => JSON.stringify(s)) };
+      drag = { stretch: true, i: p.i, pitch: n.pitch, steps: seq.steps.slice(p.i, last + 1).map(s => JSON.stringify(s)) };
       return;
     }
     if (!n) n = addNote(p, p.scale.pitchAt(p.py));
-    if (n) drag = { i: p.i, lane: n.lane, now: n.pitch };
+    if (n) drag = { now: n.pitch, steps: chain(p.i, n.pitch) };
   });
   c.addEventListener("pointermove", ev => {
     if (!seq) return;
@@ -2389,7 +2471,7 @@ function editRoll(c) {
     if (!drag) { const n = hit(p); c.style.cursor = !n ? "" : n.edge ? "ew-resize" : "ns-resize"; return; }
     if (drag.stretch) { stretch(p); return; }
     const pitch = p.scale.pitchAt(p.py); // within the window: the octave buttons reach the rest
-    if (pitch !== drag.now) { drag.now = pitch; setPitch(drag.i, drag.lane, pitch); }
+    if (pitch !== drag.now && movePitch(drag.steps, drag.now, pitch)) drag.now = pitch;
   });
   const end = () => { drag = null; paintAll(); };
   c.addEventListener("pointerup", end);
@@ -2546,7 +2628,7 @@ function seqSection() {
   const resetSteps = () => {
     if (!seq || !confirm("Reset every step (notes and chord notes, gates, velocity, probability, ratchets)? Lanes stay.")) return;
     for (let i = 0; i < seq.length; i++) {
-      Object.assign(seq.steps[i], { note: 64, vel: 0, gate: 50, on: 1, extra: 0 });
+      Object.assign(seq.steps[i], { note: 64, vel: 0, gate: 50, on: 1, hold: 0, extra: 0 });
       for (let l = seqMods(seq); l < seq.lanes; l++) seq.steps[i].lane[l] = 64;
       sendStep(i);
     }
@@ -3344,7 +3426,8 @@ async function readSound() {
       if (!r) bad("the synth didn't send its sequence");
       for (let k = 0; k < 8 && first + k < seq.length; k++) {
         const [note, vel, gate, on, extra, ...lane] = r.slice(3 + 9 * k, 12 + 9 * k), st = {};
-        if (!on) st.rest = true; else if (note !== 64) st.note = note - 64;
+        if (on >> 1) st.hold = on >> 1;
+        if (!(on & 1)) st.rest = true; else if (note !== 64) st.note = note - 64;
         if (gate !== 50) st.gate = gate;
         if (vel) st.vel = vel;
         if ((extra & 7) !== 0) st.prob = 8 - (extra & 7);
@@ -3434,7 +3517,7 @@ function planSound(j, has) {
         if (c < chord) lane[lanes + c] = 64 + v;
       }
       messages.push([0x45, k, 1, note, jInt(0, 127).enc(x.vel ?? 0, `${n} vel`), jInt(1, 100).enc(x.gate ?? 50, `${n} gate`),
-        rest ? 0 : 1, (8 - prob) | (ratchets - 1) << 3, ...lane]);
+        rest ? 0 : 1 | jInt(0, 7).enc(x.hold ?? 0, `${n} hold`) << 1, (8 - prob) | (ratchets - 1) << 3, ...lane]);
     });
   }
   if (j.morph) { const t = jInt(1, 128).enc(j.morph, "morph"); messages.push([0x44, t >> 7, t & 0x7F]); }

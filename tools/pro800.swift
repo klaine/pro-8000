@@ -88,7 +88,7 @@ Probe (our firmware 0.0.9+):
   pro800 seq                            print the loaded patch's step sequence (firmware 0.7.0+)
   pro800 seq set key=value…             its header: on, length, step (division), clock, bpm, swing, once, keys, arp,
                                         lanes, chord (0-2 extra notes per step), smooth (e.g. seq set on=1 length=16 step=1/16 clock=1 lanes=1 smooth=A)
-  pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob>] [x<ratchets>] [a<v>]… [n2<v>] [n3<v>]  one step (a-d: lanes, -99..99; n2, n3: chord notes, semitones from the step's note)
+  pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob>] [x<ratchets>] [a<v>]… [n2<v>] [n3<v>] [h<v>]  one step (a-d: lanes, -99..99; n2, n3: chord notes, semitones from the step's note; h: notes held past the gate, 1 own + 2 Note 2 + 4 Note 3)
   pro800 set morph <slot|none>          the morph target patch
   pro800 patch init                     load the basic sound (osc A saw), as PERF does
   pro800 patch rename <slot> <name>     rename a patch (up to 16 characters)
@@ -1275,13 +1275,14 @@ func seqSet() {
 }
 
 // pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob 1-8>] [x<ratchets 1-4>] [a<-99..99>] … [d<..>]
-// [n2<+-semitones>] [n3<..>] (SysEx 45; n2 and n3 are the chord notes, from the step's note, 0 = none)
+// [n2<+-semitones>] [n3<..>] [h<1-7>] (SysEx 45; n2 and n3 are the chord notes, from the step's note, 0 = none; h: the
+// notes that hold past the gate into the next step, 1 own note + 2 Note 2 + 4 Note 3)
 func seqStep() {
-    let usage = "usage: pro800 seq step <1-64> <+offset|-offset|.> <gate 1-99|tie> [v0-127] [p1-8] [x1-4] [a-99..99] [b..] [c..] [d..] [n2-63..63] [n3..]"
+    let usage = "usage: pro800 seq step <1-64> <+offset|-offset|.> <gate 1-99|tie> [v0-127] [p1-8] [x1-4] [a-99..99] [b..] [c..] [d..] [n2-63..63] [n3..] [h1-7]"
     let a = Array(args.dropFirst())
     guard a.count >= 2, let n = Int(a[0]), (1...64).contains(n) else { fail(usage) }
     var on: UInt8 = 1, note = 64, gate = 50, velocity = 0, probability = 8, ratchets = 1, lanes = [64, 64, 64, 64]
-    var options = 2
+    var options = 2, holds = 0
     if a[1] == "." {
         on = 0
         if a.count >= 3, a[2] == "tie" || Int(a[2]) != nil { options = 3 } // a rest may still carry its gate
@@ -1305,6 +1306,7 @@ func seqStep() {
         case "v": guard (0...127).contains(v) else { fail(usage) }; velocity = v
         case "p": guard (1...8).contains(v) else { fail(usage) }; probability = v
         case "x": guard (1...4).contains(v) else { fail(usage) }; ratchets = v
+        case "h": guard (0...7).contains(v) else { fail(usage) }; holds = v
         case "a", "b", "c", "d":
             guard (-99...99).contains(v) else { fail(usage) }
             lanes[Int(first.asciiValue! - Character("a").asciiValue!)] = 64 + Int((Double(v) * 63 / 99).rounded())
@@ -1312,7 +1314,7 @@ func seqStep() {
         }
     }
     let extra = UInt8((8 - probability) | (ratchets - 1) << 3)
-    probeAck(Midi(port: portName), [0x45, UInt8(n - 1), 1, UInt8(note), UInt8(velocity), UInt8(gate), on, extra] + lanes.map { UInt8($0) })
+    probeAck(Midi(port: portName), [0x45, UInt8(n - 1), 1, UInt8(note), UInt8(velocity), UInt8(gate), on | UInt8(holds << 1), extra] + lanes.map { UInt8($0) })
 }
 
 func arpText(_ d: [UInt8]) -> String {
@@ -1331,7 +1333,7 @@ func showSequence() {
           ", \(lanes) lane\(lanes == 1 ? "" : "s")" + (chord > 0 ? ", \(chord + 1)-note chords" : "") +
           " (max \(d[8]) steps)" + arpText(d))
     var notes = [String](), gates = [String](), extras = [String](), laneRows = [[String]](repeating: [], count: lanes)
-    var chordRows = [[String]](repeating: [], count: chord)
+    var chordRows = [[String]](repeating: [], count: chord), holdRow = [String]()
     for first in stride(from: 0, to: length, by: 8) {
         guard let r = midi.request([0x46, UInt8(first), 8], expect: [0x46, UInt8(first), 8], timeout: 2) else { fail("no reply") }
         let x = Array(r[(sysexHeader.count + 3)...])
@@ -1340,6 +1342,7 @@ func showSequence() {
             let offset = Int(s[0]) - 64
             notes.append(s[3] == 0 ? "  ." : String(format: "%+3d", offset).replacingOccurrences(of: "+0", with: " 0"))
             gates.append(s[3] == 0 ? "  ." : s[2] >= 100 ? "tie" : String(format: "%3d", s[2]))
+            holdRow.append(s[3] >> 1 == 0 ? "  ." : String(format: "%3d", s[3] >> 1))
             let probability = 8 - Int(s[4] & 7), ratchets = Int(s[4] >> 3 & 3) + 1
             extras.append(probability == 8 && ratchets == 1 ? "  ." : ratchets > 1 && probability == 8 ? " x\(ratchets)" :
                           ratchets > 1 ? "\(probability)x\(ratchets)" : " \(probability)8")
@@ -1350,6 +1353,7 @@ func showSequence() {
     print("note  " + notes.joined(separator: " "))
     for c in 0..<chord { print("n\(c + 2)    " + chordRows[c].joined(separator: " ")) }
     print("gate  " + gates.joined(separator: " "))
+    if holdRow.contains(where: { $0 != "  ." }) { print("hold  " + holdRow.joined(separator: " ") + "   (1 own note, 2 Note 2, 4 Note 3)") }
     if extras.contains(where: { $0 != "  ." }) { print("prob  " + extras.joined(separator: " ") + "   (n8 = n in 8, xN = ratchets)") }
     for l in 0..<lanes { print("seq \(["A", "B", "C", "D"][l]) " + laneRows[l].joined(separator: " ")) }
 }

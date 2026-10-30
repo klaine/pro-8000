@@ -54,7 +54,7 @@ One JSON file per patch, `<slot>-<name>.json`:
 | `params.1`, `params.2` | Each layer's knobs, Env 3 / 4 and LFO 2, 0-99, by the tool's `param` names; layer 2 only when the patch uses it |
 | `settings` | `set` commands as `"<setting> [args]": value`, e.g. `"shape 1 2": "sh"`, `"cycle-sync 1 env3": "1/4"`, `"voice 1": "legato last"`; every setting is listed, defaults included. From 0.9.0 also `"env-up 1"`, `"dahdsr 1"`, `"env-tempo 1"` (a list of envelopes, as `cycle`), `"env-curve 1 amp"` (`analog` / `linear` / `swell`), `"env-delay 1 amp"`, `"env-hold 1 amp"` (0-99), `"env-count 1 amp"` (`loop` or 1-99), `"layer-voices"` (`auto` or 1-7), and the `noise` shape; from 0.9.2 `"osc-tune 1 a"` (FREQ A / B per layer: `semitones`, `octave`, `free` or `fixed`); from 0.9.3 `"link"` (what layer 2 takes from layer 1: `none`, or a list of `amp-env`, `filter-env`, `env3`, `env4`, `lfo1`, `lfo2`, `filter`; layer 2's own values are still listed) |
 | `routes.1`, `routes.2` | Mod routes as `[source, destination, depth]`, the tool's `route` names, up to 16 per layer |
-| `sequence` | The step sequence (arp group and P48): `on`, `step` (a clock division), `clock`, `bpm`, `swing`, `once`, `keys` (both / 1 / 2), `arp`, `lanes`, `chord` (0-2 extra notes per step, 0.9.3; `lanes` + `chord` at most 4), `smooth` (lanes that glide, e.g. `"A"`) and `steps`, each `{note, gate, vel, prob, ratchets, a-d, n2, n3}` (`n2`, `n3`: chord notes, ±36 semitones from the step's note) with defaults left out (`note` 0, `gate` 50, the key's velocity, always, one hit); `{"rest": true}` is a rest, `gate` 100 a tie |
+| `sequence` | The step sequence (arp group and P48): `on`, `step` (a clock division), `clock`, `bpm`, `swing`, `once`, `keys` (both / 1 / 2), `arp`, `lanes`, `chord` (0-2 extra notes per step, 0.9.3; `lanes` + `chord` at most 4), `smooth` (lanes that glide, e.g. `"A"`) and `steps`, each `{note, gate, vel, prob, ratchets, a-d, n2, n3}` (`n2`, `n3`: chord notes, ±36 semitones from the step's note; `hold`: the notes that hold past the gate, 1 own + 2 `n2` + 4 `n3`) with defaults left out (`note` 0, `gate` 50, the key's velocity, always, one hit); `{"rest": true}` is a rest, `gate` 100 a tie |
 | `morph` | The morph target's slot (P59 only) |
 
 `lib/plan.py` turns the files into command lines and checks every name and range against the tool's tables
@@ -195,7 +195,8 @@ SysEx, so the additions are small (`tools/pro800.swift`, next to `showSequence()
    one step, SysEx `45 <n-1> 1 <note + 64> <velocity, 0 = the key's> <gate 1-99, 100 = tie> <on> <extra>
    <lane A> <lane B> <lane C> <lane D>`. `.` is a rest (on = 0). `extra` is `(8 - prob) | (ratchets - 1) << 3`
    (`p6` = 6 in 8, `x3` = three hits). Lane values −99..99 go as `64 + round(v / 99 × 63)`. `n2+4` and `n3+7` are the
-   chord notes, written to the last lanes as `64 + semitones` (64 = none).
+   chord notes, written to the last lanes as `64 + semitones` (64 = none). `h1`-`h7` are the notes that hold past the
+   gate (1 own + 2 Note 2 + 4 Note 3), sent in bits 1-3 of `<on>`.
 3. **`pro800 set morph <slot|none>`** — the morph target, SysEx `44 <t hi> <t lo>` with t = slot + 1 (`P25` → 25;
    0 = none), acknowledged. It saves with the patch (`patch.morph`).
 

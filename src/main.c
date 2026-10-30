@@ -2103,7 +2103,7 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = q->note[i] & 0x7F;
             reply[n++] = q->velocity[i] & 0x7F;
             reply[n++] = q->gate[i] & 0x7F;
-            reply[n++] = q->gate[i] >> 7;
+            reply[n++] = (uint8_t)(q->gate[i] >> 7 | (q->gate[i] >> 7 ? SEQ_HOLDS(q->extra[i]) << 1 : 0)); // on, holds
             reply[n++] = q->extra[i] & 0x1F;
             for (int l = 0; l < SEQ_LANES; l++)
                 reply[n++] = q->lane[l][i] & 0x7F;
@@ -2117,8 +2117,8 @@ static void handle_sysex(const uint8_t *message, int length)
             int i = data[1] + k, gate = x[2] < 1 ? 1 : x[2] > SEQ_GATE_TIE ? SEQ_GATE_TIE : x[2];
             q->note[i] = x[0];
             q->velocity[i] = x[1];
-            q->gate[i] = (uint8_t)(gate | (x[3] ? 0x80 : 0));
-            q->extra[i] = x[4] & 0x1F;
+            q->gate[i] = (uint8_t)(gate | (x[3] & 1 ? 0x80 : 0));
+            q->extra[i] = (uint8_t)((x[4] & 0x1F) | (x[3] >> 1 & 7) << 5); // the holds travel with "on"
             for (int l = 0; l < SEQ_LANES; l++)
                 q->lane[l][i] = x[5 + l];
         }

@@ -15,8 +15,9 @@ static struct {
     uint8_t note, velocity, layers; // layers: where the key would have played (synth_key_layers())
 } held[HELD_MAX]; // keys the sequence took, the latest last
 static int held_count;
-static int playing, step, layers, tied, ratchet, skipped, arp_index;
+static int playing, step, layers, ratchet, skipped, arp_index;
 static uint8_t sounding[1 + SEQ_CHORD_MAX]; // the notes playing, the step's own first
+static uint8_t sounding_held[1 + SEQ_CHORD_MAX]; // ignores the gate, and carries on if the next step plays it
 static int sounding_count;
 static float in_step; // seconds into the current step
 static uint8_t base_note, base_velocity;
@@ -75,7 +76,6 @@ static void release(void)
     for (int i = 0; i < sounding_count; i++)
         synth_note_off_layers(sounding[i], layers);
     sounding_count = 0;
-    tied = 0;
 }
 
 void seq_stop(void)
@@ -132,28 +132,56 @@ static int has_note(const uint8_t *notes, int count, int note)
 
 static uint8_t clamp_note(int note) { return (uint8_t)(note < 0 ? 0 : note > 127 ? 127 : note); }
 
+// The gate's end: the notes that don't hold stop
+static void release_unheld(void)
+{
+    int kept = 0;
+    for (int i = 0; i < sounding_count; i++) {
+        if (sounding_held[i]) {
+            sounding[kept] = sounding[i];
+            sounding_held[kept++] = 1;
+        } else
+            synth_note_off_layers(sounding[i], layers);
+    }
+    sounding_count = kept;
+}
+
+static int was_held(int note)
+{
+    for (int i = 0; i < sounding_count; i++)
+        if (sounding[i] == note && sounding_held[i])
+            return 1;
+    return 0;
+}
+
 // Plays the step's note and its chord notes, offsets from it
 static void play_note(int retrigger)
 {
-    uint8_t notes[1 + SEQ_CHORD_MAX];
+    uint8_t notes[1 + SEQ_CHORD_MAX], held[1 + SEQ_CHORD_MAX];
+    int extra = sequence.extra[step], tie = (sequence.gate[step] & 0x7F) >= SEQ_GATE_TIE, single = SEQ_RATCHETS(extra) == 1;
     int count = 0, chord = SEQ_CHORD(sequence.flags);
     int note = (int)(sequence.arp ? arp_note() : base_note) + (int)sequence.note[step] - 64;
+    held[count] = single && (tie || SEQ_HOLDS(extra) & 1);
     notes[count++] = clamp_note(note);
     for (int c = 0; c < chord; c++) {
         int value = sequence.lane[sequence.lanes - chord + c][step];
         uint8_t n = clamp_note(notes[0] + value - SEQ_LANE_ZERO);
-        if (value != SEQ_LANE_ZERO && !has_note(notes, count, n))
+        if (value != SEQ_LANE_ZERO && !has_note(notes, count, n)) {
+            held[count] = single && (tie || SEQ_HOLDS(extra) >> (c + 1) & 1);
             notes[count++] = n;
+        }
     }
     uint8_t velocity = sequence.velocity[step] ? sequence.velocity[step] : base_velocity;
-    for (int i = 0; i < count; i++) // a tie into the same note just carries on
-        if (retrigger || !(tied && has_note(sounding, sounding_count, notes[i])))
+    for (int i = 0; i < count; i++) // a held note into the same note just carries on
+        if (retrigger || !was_held(notes[i]))
             synth_note_on_layers(notes[i], velocity, layers);
     for (int i = 0; i < sounding_count; i++)
         if (!has_note(notes, count, sounding[i]))
-            synth_note_off_layers(sounding[i], layers); // after the new notes: legato when tied
-    for (int i = 0; i < count; i++)
+            synth_note_off_layers(sounding[i], layers); // after the new notes: legato when held
+    for (int i = 0; i < count; i++) {
         sounding[i] = notes[i];
+        sounding_held[i] = held[i];
+    }
     sounding_count = count;
 }
 
@@ -165,13 +193,11 @@ static void play_step(void)
     skipped = !(gate & 0x80) || (int)(random32() % 8) >= SEQ_PROBABILITY(sequence.extra[step]);
     if (skipped) {
         release();
-        tied = 0;
         return;
     }
     play_note(0);
     if (sequence.arp)
         arp_index++;
-    tied = (gate & 0x7F) >= SEQ_GATE_TIE && SEQ_RATCHETS(sequence.extra[step]) == 1;
 }
 
 int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
@@ -236,8 +262,8 @@ void seq_update(float dt)
             play_note(1);
         }
     }
-    if (sounding_count && !tied && in_step - (float)ratchet * part >= part * (float)gate / 100.0f)
-        release();
+    if (sounding_count && in_step - (float)ratchet * part >= part * (float)gate / 100.0f)
+        release_unheld();
     while (in_step >= length) {
         in_step -= length;
         if (++step >= sequence.length) {

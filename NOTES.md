@@ -1514,6 +1514,19 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   note, velocity and chord, and the chain's ratchets go since one would break the tie (probability stays). Double-click or right-click
   removes; removing a step's own note makes its first chord note the own note. Moving a note sideways to another step isn't
   there. Checked with pointer events in the built-in browser with a fake synth: every case above. **Not tested:** with a real mouse and synth.
+- **Per-note holds** (reported: stretching a bass removed the short notes above it). A step had one gate, and a tie held all its
+  notes, so the two couldn't live together, and the first stretch copied the note over what it covered. `SEQ_HOLDS(extra)`, bits 5-7
+  of the stored `extra` (own note, Note 2, Note 3; firmware before 0.9.3 reads only bits 0-4): the note ignores the gate and carries
+  on, staying legato if the next step plays that pitch. `play_note()` keeps a note only if it was held (`sounding_held`), by pitch, so a
+  bass can be the step's own note in one step and Note 2 in the next; `release_unheld()` at the gate's end stops the rest. Gate 100 % still
+  holds all, ratchets none. Host: `45` / `46` carry them in bits 1-3 of `<on>` (bit 0 on), since `<extra>` is masked to 5 bits there; a rest
+  reads 0. Tool `h1-7`, JSON `hold`. Roll: a stretch now joins each step beside its notes (`canJoin()`, `freeLane()`), raises Chords when a step
+  has no room and the sequence fits, and otherwise stops before that step; a click adds beside rather than moves, the same way. `chain()`: a note
+  held over steps moves and goes as one. In a step beside others the note lasts to the step's end, since they share the gate.
+  On the synth (P128, 30 BPM, 2 s a step, A2 held; own note held, Note 2 at +12, +15, +12, gate 50): voice 5 stayed gated through three steps
+  without restarting, voices 6, 7 and 8 sounded for the first second of their steps, all off after the third step's gate; saved and reloaded the same.
+  In the built-in browser with a fake synth: a bass at step 1 stretched over +12, +15, +19, a rest and to mid step 6 keeps them all and raises
+  Chords, dragging back restores, an upper note's own gate changes under the held bass, moving and removing take the whole bass, JSON keeps it. Tried by the user on the roll with the synth: long bass notes under short upper notes work.
 
 ## Backlog
 

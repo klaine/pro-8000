@@ -183,6 +183,8 @@ def sequence_lines(seq):
             if s.get(name):
                 check(c < chord, "step %d uses %s but the sequence has chord %d" % (i + 1, name, chord))
                 parts.append("%s%+d" % (name, in_range(s[name], -36, 36, "step %d %s" % (i + 1, name))))
+        if s.get("hold"):  # 0.9.3: notes held past the gate, 1 own + 2 Note 2 + 4 Note 3
+            parts.append("h%d" % in_range(s["hold"], 1, 7, "step %d hold" % (i + 1)))
         lines.append(" ".join(parts))
     return lines
 
