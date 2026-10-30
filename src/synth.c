@@ -728,6 +728,7 @@ int synth_probe(uint8_t *out)
     out[n++] = (uint8_t)controls_keytrack();
     for (int s = 0; s < 16; s++)
         out[n++] = (uint8_t)(switch_override[s] | switch_value[s] << 1 | controls_on((switch_t)s) << 2);
+    n += lfo_probe(&out[n]);
     return n;
 }
 
@@ -809,6 +810,7 @@ void synth_apply_patch(const patch_t *patch)
         lfo_sync[w] = patch->lfo_sync[w] < LFO_SYNC_COUNT ? (lfo_sync_t)patch->lfo_sync[w] : LFO_SYNC_FREE;
         lfo_trigger[w] = patch->lfo_trigger[w] < LFO_TRIGGER_COUNT ? (lfo_trigger_t)patch->lfo_trigger[w]
                                                                      : LFO_TRIGGER_FREE;
+        lfo_cycles[w] = !patch->lfo_cycles[w] ? 1 : patch->lfo_cycles[w] > 99 ? 99 : patch->lfo_cycles[w];
         lfo_delay[w] = patch->lfo_delay[w] > 99 ? 99 : patch->lfo_delay[w];
         lfo_fade[w] = patch->lfo_fade[w] > 99 ? 99 : patch->lfo_fade[w];
     }
@@ -881,6 +883,7 @@ void synth_capture_patch(patch_t *patch)
     for (int w = 0; w < 2; w++) {
         patch->lfo_sync[w] = (uint8_t)lfo_sync[w];
         patch->lfo_trigger[w] = (uint8_t)lfo_trigger[w];
+        patch->lfo_cycles[w] = lfo_cycles[w];
         patch->lfo_delay[w] = lfo_delay[w];
         patch->lfo_fade[w] = lfo_fade[w];
     }
@@ -1824,7 +1827,7 @@ static void sample_lfos(void)
 {
     for (int l = 0; l < LAYERS; l++)
         for (int w = 0; w < 2; w++)
-            if (lfo_trigger[w] != LFO_TRIGGER_PER_VOICE)
+            if (!lfo_voice_phases(w))
                 lfo_now[l][w] = lfo_read(l, w, -1);
 }
 
@@ -1844,8 +1847,8 @@ static void voice_cvs(int v, int cutoff, int pitch)
         evaluate_routes(l, v, mod, 1);
     float lfo = 0, lfo2 = 0;
     if (cutoff || pitch) {
-        lfo = lfo_trigger[0] == LFO_TRIGGER_PER_VOICE ? lfo_read(l, 0, v) : lfo_now[l][0];
-        lfo2 = lfo_trigger[1] == LFO_TRIGGER_PER_VOICE ? lfo_read(l, 1, v) : lfo_now[l][1];
+        lfo = lfo_voice_phases(0) ? lfo_read(l, 0, v) : lfo_now[l][0];
+        lfo2 = lfo_voice_phases(1) ? lfo_read(l, 1, v) : lfo_now[l][1];
         lfo *= x->lfo_gain[0];
         lfo2 *= x->lfo_gain[1];
     }
@@ -1890,7 +1893,7 @@ void synth_tick(float dt, int cutoff, unsigned pitch_voices)
         voice_t *x = &voices[v];
         int l = layer_of(v);
         for (int w = 0; w < 2; w++)
-            if (lfo_trigger[w] == LFO_TRIGGER_PER_VOICE)
+            if (lfo_voice_phases(w))
                 lfo_update_voice(LFO_ID(lfo_layer(l, w), w), v, dt, x->lfo_octaves[w]);
         if (x->lfo_age < 100.0f)
             x->lfo_age += dt;

@@ -1531,6 +1531,33 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   In the built-in browser with a fake synth: a bass at step 1 stretched over +12, +15, +19, a rest and to mid step 6 keeps them all and raises
   Chords, dragging back restores, an upper note's own gate changes under the held bass, moving and removing take the whole bass, JSON keeps it. Tried by the user on the roll with the synth: long bass notes under short upper notes work.
 
+## One shot LFOs (0.9.3, 2026-10-30)
+
+- **What:** two retrigger types after the four old ones, `LFO_TRIGGER_ONE_SHOT` (4, `1Sht`) and `LFO_TRIGGER_ONE_SHOT_VOICE`
+  (5, `1S.Po`), and `lfo_cycles[2]` (1-99), per LFO like the rest of the trigger settings: host settings 84, 85 (read-only
+  ones now 86-89, `SET_COUNT` 90, `SYSEX_MAX` 192), patch record bytes 348-349 (0 = 1, so 158 reserved bytes are left),
+  JSON `lfo-cycles`, `lfo2-cycles`. Tool: `set lfo-trigger one-shot|one-shot-voice`, `set lfo-cycles <1-99>`.
+- **Two types, not a per-voice switch:** retrigger already means "which phase and what restarts it", and `PoLY` is one of its
+  values. A switch would mean nothing for the other types. Every key restarts a one shot; a first-key flavour was left out
+  (the settings' value table has room for six names).
+- **Stopped = phase exactly 1.0** (`advance_shot()`), which `advance()` never leaves, so no flag is needed. Every shape's
+  formula is continuous up to 1.0, so the stopped LFO holds its last output instead of jumping to a shape's rest: triangle,
+  sine, square, ramp down -1; ramp up +1; steps the last step; S&H the held value; drift the `next` it reached; noise
+  frozen where it was (`noise_advance()` is skipped). Restart uses `new_cycle()`, so drift goes on from where it stopped.
+  Leaving one shot mode needs no cleanup: `advance()` wraps 1.0 like any other phase.
+- **The delay holds the start back** (`phase_t.wait`), set from `lfo_seconds(lfo_delay)` at note-on. Otherwise the phase runs
+  during the delay (fine for an endless LFO) and a delay longer than the cycles would fade in only the held end. The fade is
+  still the age-based gain.
+- **Per voice:** `lfo_voice_phases()` replaces the `== PER_VOICE` tests. In `1S.Po` the shared phase is a one shot too,
+  restarted by every key, because LFO → PW reads voice -1: free-running it would never stop.
+- **Clock:** as every retrigger, rate from the tempo, phase from the key; the grid branch is for `FREE` only. MIDI Start
+  zeroes the shared phases, which would have restarted a stopped one shot with no key, so `clock_update()` skips one shots.
+- **Links:** nothing special. `lfos_note_on()` and the voice update already go through `lfo_layer()`, so a linked one shot is
+  layer 1's: a key on either layer restarts it, and in `1S.Po` a layer 2 voice's phase is layer 1's LFO's `voice[v]`.
+- **Older firmware:** `synth_apply_patch()`'s range check turns 4 and 5 into free-running; it doesn't write 348-349 when it saves.
+- **Panel:** Settings 2. Arp Up-Dn is taken there (it picks the LFO), so key 2 again toggles `trIG` and `Cn.1` / `Cn.2`.
+- **Probe:** `pro800 engine` now prints each LFO's phase (`lfo_probe()`, 40 more bytes in the 55 reply, 93).
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

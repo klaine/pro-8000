@@ -56,7 +56,8 @@ Probe (our firmware 0.0.9+):
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
   pro800 state                          print every pot (0-99) and switch as the firmware reads them
   pro800 set <setting> <value>          lfo-sync / lfo2-sync free|clock, lfo-trigger / lfo2-trigger
-                                        free|first|every|voice, layers off|split|stack|channel|8ch|mpe, split <note>,
+                                        free|first|every|voice|one-shot|one-shot-voice, lfo-cycles / lfo2-cycles <1-99>
+                                        (how many cycles a one shot runs), layers off|split|stack|channel|8ch|mpe, split <note>,
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
                                         bend <1-12> (semitones), detune <0-50> (unison, cents), drift <0-99>,
                                         scale off|major|minor|dorian|…|chromatic, root C..B,
@@ -942,7 +943,7 @@ func state() {
 
 let shapeNames = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]
 let lfo2DestNames = ["pitch", "filter", "pw"]
-let layerModes = ["off", "split", "stack", "channel", "8ch", "mpe"], triggerModes = ["free", "first", "every", "voice"]
+let layerModes = ["off", "split", "stack", "channel", "8ch", "mpe"], triggerModes = ["free", "first", "every", "voice", "one-shot", "one-shot-voice"]
 let cycleNames = ["amp", "filter", "env3", "env4"]
 func perEnvelope(_ name: String) -> [String] { (1...2).flatMap { l in cycleNames.map { "\(name) \(l) \($0)" } } }
 let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo2-sync", "lfo2-trigger", "edit-layer",
@@ -954,7 +955,7 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
                    "macro 2 2", "clock", "bpm", "env-up 1", "env-up 2", "dahdsr 1", "dahdsr 2", "env-curve 1", "env-curve 2"]
     + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
     + ["env-tempo 1", "env-tempo 2", "midi-channel",
-       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link",
+       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles",
        "env-select", "preset-mode", "patch", "morph"]
 let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
@@ -980,7 +981,7 @@ func setSetting() {
                                                "layers": (2, layerModes), "keytrack": (4, ["off", "half", "full"]),
                                                "lfo2-sync": (5, ["free", "clock"]), "lfo2-trigger": (6, triggerModes),
                                                "lfo": (8, ["1", "2"])]
-    let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
+    let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger \(triggerModes.joined(separator: "|")) | lfo-cycles|lfo2-cycles <1-99> | " +
         "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | " +
         "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
         "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | " +
@@ -1001,7 +1002,9 @@ func setSetting() {
         print("morph target: " + (t == 0 ? "none" : patchLabel(t - 1)))
         return
     }
-    if args.count == 2, args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
+    if args.count == 2, ["lfo-cycles", "lfo2-cycles"].contains(args[0]), let n = Int(args[1]), (1...99).contains(n) {
+        (id, v) = (args[0] == "lfo-cycles" ? 84 : 85, n)
+    } else if args.count == 2, args[0] == "split", let note = Int(args[1]), (0...127).contains(note) {
         (id, v) = (3, note)
     } else if args.count == 2, args[0] == "bend", let st = Int(args[1]), (1...12).contains(st) {
         (id, v) = (25, st)
@@ -1159,9 +1162,10 @@ func settings() {
         case 83:
             let on = linkNames.indices.filter { v >> $0 & 1 != 0 }.map { linkNames[$0] }
             text = on.isEmpty ? "none" : on.joined(separator: ",")
-        case 84: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 86: text = slotName(v)
-        case 87: text = v == 0 ? "none" : slotName(v - 1)
+        case 84, 85: text = v == 1 ? "1 cycle (one shot)" : "\(v) cycles (one shot)"
+        case 86: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 88: text = slotName(v)
+        case 89: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
@@ -1613,6 +1617,12 @@ func engine() {
         let x = b[37 + s]
         print("switch \(switchNames[safe: s] ?? "\(s)"): " + (x & 1 != 0 ? "patch holds it, \(x >> 1 & 1)" : "follows the panel")
               + ", panel \(x >> 2 & 1)")
+    }
+    guard b.count >= 93 else { return } // the LFOs' phases: 0.9.3
+    for l in 0..<4 {
+        let at = 53 + 10 * l, phase = { (p: Int) in p >= 100 ? "stopped" : "\(p)%" }
+        print("LFO \(l / 2 + 1) layer \(l % 2 + 1): shared \(phase(b[at])), cycles done \(b[at + 1]); voices "
+              + b[(at + 2)..<(at + 10)].map { phase($0) }.joined(separator: " "))
     }
 }
 

@@ -505,7 +505,8 @@
         <li><kbd>LFO Shape</kbd>: <code class="lcd">trI</code> <code class="lcd">PULS</code> <code class="lcd">SA.UP</code> <code class="lcd">SA.dn</code> <code class="lcd">SInE</code> <code class="lcd">S-H</code> <code class="lcd">drFt</code> <code class="lcd">StEP</code> <code class="lcd">nOIS</code></li>
         <li>LFO 2 routing: select it, press LFO → Freq / Filter / PW <code class="lcd">Fr.on</code> <code class="lcd">FL.oF</code>. The button positions keep showing LFO 1.</li>
         <li>Sync: <kbd>Settings</kbd> <kbd>1</kbd> <code class="lcd">SYnC</code>/<code class="lcd">SYn2</code> → <code class="lcd">FrEE</code> <code class="lcd">CLoC</code>. With the clock, LFO FREQ picks <code class="lcd">8bAr</code> … <code class="lcd">1-32</code>.</li>
-        <li>Retrigger: <kbd>Settings</kbd> <kbd>2</kbd> <code class="lcd">trIG</code>/<code class="lcd">trI2</code> → <code class="lcd">FrEE</code> <code class="lcd">1St</code> <code class="lcd">EACH</code> <code class="lcd">PoLY</code> (per voice).</li>
+        <li>Retrigger: <kbd>Settings</kbd> <kbd>2</kbd> <code class="lcd">trIG</code>/<code class="lcd">trI2</code> → <code class="lcd">FrEE</code> <code class="lcd">1St</code> <code class="lcd">EACH</code> <code class="lcd">PoLY</code> (per voice) <span data-needs="lfoOneShot"><code class="lcd">1Sht</code> (one shot) <code class="lcd">1S.Po</code> (one shot per voice)</span>.</li>
+        <li data-needs="lfoOneShot">One shot: every key restarts it, it runs its cycles (<kbd>2</kbd> again: <code class="lcd">Cn.1</code>/<code class="lcd">Cn.2</code>, 1-99) and holds the last value. A delay (Shift + LFO FREQ) holds the start back.</li>
       </ol>
       <p class="dim small">The mod wheel adds LFO 1 depth. The StEP pattern is edited on the web page.</p>
     </section>
@@ -569,7 +570,7 @@
       <h3>Settings menu</h3>
       <table class="ct">
         <tr><td><kbd>1</kbd></td><td><code class="lcd">SYnC</code> LFO sync</td></tr>
-        <tr><td><kbd>2</kbd></td><td><code class="lcd">trIG</code> LFO retrigger</td></tr>
+        <tr><td><kbd>2</kbd></td><td><code class="lcd">trIG</code> LFO retrigger<span data-needs="lfoOneShot"> (<kbd>2</kbd> again: <code class="lcd">Cn.1</code> a one shot's cycles)</span></td></tr>
         <tr><td><kbd>3</kbd></td><td><code class="lcd">LAYr</code> layer mode (<kbd>Arp Up-Dn</kbd>: <code class="lcd">Lr.Uo</code> voices per layer)</td></tr>
         <tr><td><kbd>4</kbd></td><td><code class="lcd">SPLt</code> split note</td></tr>
         <tr><td><kbd>5</kbd></td><td><code class="lcd">trAC</code> keytracking</td></tr>
@@ -1202,6 +1203,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "oscTune1A", "oscTune1B", "oscTune2A", "oscTune2B", // FREQ A / B per layer: semitones, octave, free, fixed
   "pickup", // 1 knob pickup, 0 jump (system-wide)
   "layerLink", // what layer 2 takes from layer 1: a bit per envelope (ENV_CYCLE_* order), 16 LFO 1, 32 LFO 2, 64 filter
+  "lfoCycles1", "lfoCycles2", // a one shot's cycles, 1-99 (0 is taken as 1)
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -1216,6 +1218,7 @@ const FEATURES = {
   oscTune: ["oscTune1A", "the oscillators' tuning modes"],
   pickup: ["pickup", "the knob pickup setting"],
   layerLink: ["layerLink", "layer links"],
+  lfoOneShot: ["lfoCycles1", "one shot LFOs"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1398,7 +1401,8 @@ function depthText(dests, d) {
 }
 let steps = [null, null]; // [LFO 1, LFO 2] of the edit layer: {count, bits}
 let buttons = null;       // the latching buttons as the engine uses them (switch_t order)
-const SYNC = ["Free", "MIDI clock"], TRIGGER = ["Free-running", "First key", "Every key", "Per voice (poly)"];
+const SYNC = ["Free", "MIDI clock"], TRIGGER = ["Free-running", "First key", "Every key", "Per voice (poly)", "One shot", "One shot per voice"];
+const ONE_SHOT_TRIGGER = 4; // and up
 const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
 
 function seconds(s) { return s < 0.9995 ? Math.round(s * 1000) + " ms" : s.toFixed(s < 9.995 ? 2 : 1) + " s"; }
@@ -1917,13 +1921,18 @@ function lfoValue(shape, x, st) {
     default: return p < .5 ? 4 * p - 1 : 3 - 4 * p;
   }
 }
+// A one shot's picture: its cycles (at most eight, or they'd be a blur), then the end of the last one held
+const LFO_SHOT_DRAWN = 8, LFO_SHOT_HOLD = 0.2; // of the width
 function drawLfo(which) {
   return (g, w, ht) => {
     const n = which + 1, shape = settings[`shape${paramsLayer + 1}${n}`], amt = params[which ? P.LFO2_AMT : P.LFO_AMT];
     const scale = .2 + .8 * amt * amt;
-    trace(g, w, ht, x => lfoValue(shape, x * 2, steps[which]) * scale, shape === 7 || shape === 8 ? 400 : 240, { fill: false });
+    const shot = settings[`lfo${n}Trigger`] >= ONE_SHOT_TRIGGER, count = Math.max(1, settings[`lfoCycles${n}`] || 1);
+    const drawn = Math.min(count, LFO_SHOT_DRAWN);
+    const phase = x => !shot ? x * 2 : Math.min(x / (1 - LFO_SHOT_HOLD), 1 - 1e-6) * drawn;
+    trace(g, w, ht, x => lfoValue(shape, phase(x), steps[which]) * scale, shape === 7 || shape === 8 ? 400 : 240, { fill: false });
     g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
-    g.fillText(format(which ? P.LFO2_RATE : P.LFO_RATE, params[which ? P.LFO2_RATE : P.LFO_RATE]) + (amt < .01 ? " · amount 0" : ""), 4, 12);
+    g.fillText(format(which ? P.LFO2_RATE : P.LFO_RATE, params[which ? P.LFO2_RATE : P.LFO_RATE]) + (shot ? ` · ${count}× then holds` : "") + (amt < .01 ? " · amount 0" : ""), 4, 12);
   };
 }
 
@@ -2059,9 +2068,18 @@ function lfoSection(which) {
       setSetting(SET_ID[key], on ? v | bit : v & ~bit); }, t === "PW" ? "pulse width is one wire: layer 1's LFO 2" : "")) : [];
   const selNote = h("span", { class: "dim small" });
   paints.push(() => { selNote.textContent = !settings ? "" : settings.lfoSelect === which ? "on the synth: the LFO knobs edit this LFO" : "on the synth: Arp Up-Dn selects it"; });
+  const retrigger = settingSelect("Retrigger", TRIGGER, () => settings && settings[`lfo${n}Trigger`], v => setSetting(SET_ID[`lfo${n}Trigger`], v));
   const timing = h("div", { class: "lfo-sel" },
     settingSelect("Sync", SYNC, () => settings && settings[`lfo${n}Sync`], v => setSetting(SET_ID[`lfo${n}Sync`], v)),
-    settingSelect("Retrigger", TRIGGER, () => settings && settings[`lfo${n}Trigger`], v => setSetting(SET_ID[`lfo${n}Trigger`], v)));
+    retrigger);
+  const shotOptions = [...retrigger.querySelectorAll("option")].slice(ONE_SHOT_TRIGGER);
+  const cycles = h("div", { class: "env-extra" },
+    settingKnob(`lfoCycles${n}`, "Cycles", `how many cycles the one shot runs from the key, then it holds where the last one ended (both layers; on the synth: Settings 2, 2 again)`,
+      u => Math.max(1, Math.round(u * 99)) + "×"));
+  paints.push(() => {
+    shotOptions.forEach(o => { o.hidden = !feature("lfoOneShot"); });
+    cycles.hidden = !settings || settings[`lfo${n}Trigger`] < ONE_SHOT_TRIGGER || !feature("lfoOneShot");
+  });
   const fade = [settingKnob(`lfoDelay${n}`, "Delay", `LFO ${n} waits this long after a note starts (per voice; both layers)`, fadeText),
                 settingKnob(`lfoFade${n}`, "Fade in", `then fades in over this long (per voice; both layers)`, fadeText)];
   // LFO 1's routing is the LFO-MOD destination switches on the panel (shared by both layers)
@@ -2076,7 +2094,7 @@ function lfoSection(which) {
     h("div", { class: "sec-tools" }, shapes, copy, linkChip(() => LINK_LFO(which), `LFO ${n}`)),
     h("div", { class: "viz-box" }, viz("lfo", drawLfo(which))),
     stepEdit,
-    row(knob(which ? P.LFO2_RATE : P.LFO_RATE, "Rate"), knob(which ? P.LFO2_AMT : P.LFO_AMT, "Amount"), ...fade, timing),
+    row(knob(which ? P.LFO2_RATE : P.LFO_RATE, "Rate"), knob(which ? P.LFO2_AMT : P.LFO_AMT, "Amount"), ...fade, timing, cycles),
     h("div", { class: "routing" }, h("span", { class: "lbl" }, "Routing"), ...(which ? routing : panelRouting), selNote),
     h("div", { class: "depths" }, h("span", { class: "lbl" }, "Depth (mod routes)"), LFO_TARGETS.map((_, t) => depthBar(which, t))));
 }
@@ -3348,6 +3366,7 @@ document.getElementById("init-sound").onclick = async () => {
 // from here installs with presets/install.sh and a preset file loads here. Loading starts from the init sound (5F),
 // as install.sh does, and sets what the JSON names; settings this firmware hasn't got are left out with a warning.
 const JN = {
+  triggers: ["free", "first", "every", "voice", "one-shot", "one-shot-voice"],
   params: ["amp-rel", "amp-sus", "amp-dec", "amp-att", "fil-rel", "fil-sus", "fil-dec", "fil-att", "resonance",
     "fil-env-amt", "freq-a", "freq-b", "fine", "a-pw", "b-pw", "a-level", "glide", "lfo-freq", "lfo-amount", "macro1",
     "master-vol", "b-level", "pmod-osc-b", "pmod-fil-env", "cutoff", "noise", "env3-att", "env3-dec", "env3-sus",
@@ -3382,8 +3401,9 @@ const JSON_SETTINGS = [
   ...[1, 2].flatMap(l => ["a", "b"].map(o => [`osc-tune ${l} ${o}`, `oscTune${l}${o.toUpperCase()}`, jOne(["semitones", "octave", "free", "fixed"])])),
   ["link", "layerLink", jBits(["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"])],
   ["keytrack", "keytrack", jOne(["off", "half", "full"])],
-  ["lfo-sync", "lfo1Sync", jOne(["free", "clock"])], ["lfo-trigger", "lfo1Trigger", jOne(["free", "first", "every", "voice"])],
-  ["lfo2-sync", "lfo2Sync", jOne(["free", "clock"])], ["lfo2-trigger", "lfo2Trigger", jOne(["free", "first", "every", "voice"])],
+  ["lfo-sync", "lfo1Sync", jOne(["free", "clock"])], ["lfo-trigger", "lfo1Trigger", jOne(JN.triggers)],
+  ["lfo2-sync", "lfo2Sync", jOne(["free", "clock"])], ["lfo2-trigger", "lfo2Trigger", jOne(JN.triggers)],
+  ["lfo-cycles", "lfoCycles1", jInt(1, 99)], ["lfo2-cycles", "lfoCycles2", jInt(1, 99)],
   ...[1, 2].flatMap(l => [1, 2].map(n => [`shape ${l} ${n}`, `shape${l}${n}`, jOne(JN.shapes)])),
   ...[1, 2].flatMap(l => [
     [`lfo2-dests ${l}`, `lfo2Dests${l}`, jBits(["pitch", "filter", "pw"])],

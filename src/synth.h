@@ -218,7 +218,7 @@ void synth_freeze_pots(uint32_t mask);
 // A latching button's state as the engine uses it (a loaded patch's, until the button is toggled), and setting it
 // from the host, which holds the same way.
 int synth_switch(int s);
-int synth_probe(uint8_t *out); // the engine's state for the host's probe (55); returns the byte count (53)
+int synth_probe(uint8_t *out); // the engine's state for the host's probe (55); returns the byte count (93)
 void synth_set_switch(int s, int on);
 void synth_hold_switch(int s);
 
