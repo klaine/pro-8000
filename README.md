@@ -32,10 +32,11 @@ The user manual is [MANUAL.md](MANUAL.md).
 
 - **Bitimbral:** two layers (split, stack, or by MIDI channel), selected with Seq 1 / Seq 2, with knob pickup.
   Or one sound with a voice per MIDI channel: eight mono channels, or MPE with per-note bend, pressure and CC 74.
+  - Layer 2 can link its filter, any envelope or either LFO to layer 1, and a mod route can play on both layers.
 - **LFOs:** two per layer, with eight shapes (triangle, square, ramps, sine, sample & hold, drift, and a 1-16 step
   pattern for trance gates, edited on the web page).
   - Sync to MIDI clock in 15 divisions; a delay and fade-in per LFO, per voice.
-  - Retrigger free, on the first key, on every key, or per voice (poly LFOs).
+  - Retrigger free, on the first key, on every key, per voice (poly LFOs), or one shot for 1-99 cycles.
 - **Envelopes:** four per voice, ADSR or DAHDSR (a delay and a hold), with analog, linear or swell curves and
   times shown in ms / s on the display. Env 3 and Env 4 are edited with the filter and amp ADSR knobs while Shift
   (Sync Source) is held.
@@ -54,7 +55,8 @@ The user manual is [MANUAL.md](MANUAL.md).
 - **Oscillator tuning modes:** each oscillator on each layer can use semitone steps, octave steps, continuous tuning,
   or a fixed C1-C8 pitch that still responds to pitch bend and modulation.
 - **Sequencer:** a step sequence per patch, played from a key and transposed by it (up to 64 steps, gate, ties,
-  swing, clock sync), with up to four automation lanes as mod sources; edited on the web page.
+  swing, clock sync), with up to four automation lanes as mod sources; edited on the web page, with a piano roll.
+  Steps can play chords of up to three notes, and each note can hold on its own, so a long bass runs under short notes.
 - **Expression and play:** per-voice poly aftertouch, mono / legato / poly per layer with note priority, a sustain
   pedal, a MIDI CC for every knob, program change, analog-style drift, scale quantize, and patch morph (any mod
   source fades every knob towards another patch). The sequencer has probability, ratchets and an arpeggiator.
@@ -237,7 +239,7 @@ attack, -12 semitones, or a clock division.
 | Memory | Holds |
 |---|---|
 | Flash, sectors 0-3 | The bootloader, write-protected and never touched |
-| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 73 kB in 0.9.2; the bootloader erases sectors 4 and 5 on every update |
+| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 79 kB in 0.9.3; the bootloader erases sectors 4 and 5 on every update |
 | EEPROM `0x00000`-`0x17FFF` | 128 patches, 768 bytes each: both layers' knobs and settings, 32 mod routes, a name and the step sequence with its own checksum |
 | EEPROM, after the patches | The stock factory bank, exactly where the stock firmware left it (importable); the global block (CC numbers, clock source and tempo); the tuning tables |
 
@@ -317,7 +319,7 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 ## Install
 
 ```bash
-build/pro800 install build/pro800-0.9.2.syx --yes
+build/pro800 install build/pro800-0.9.3.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`

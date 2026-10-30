@@ -31,12 +31,12 @@
 </header>
 
 <div class="hero">
-  <div class="kicker">PRO-8000 0.9.2 · technical tour</div>
+  <div class="kicker">PRO-8000 0.9.3 · technical tour</div>
   <h1>How the firmware works</h1>
   <p class="lede">The PRO-800 makes its sound with eight fully analog voices. This firmware is the brain that plays them: it reads your hands and your MIDI, does the maths, and sets the voltages that the analog circuits follow. Here's how, from the circuit board up.</p>
   <p class="note-sm">Built on what Music Tribe, Behringer's parent company, published in <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer">PRO800-Firmware-Packer</a>: the main-board <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer/blob/main/Schematics/PRO800_Main_Schematics.pdf">schematic</a> and the packer that turns a firmware into an update the synth's bootloader accepts.</p>
   <p class="note-sm risk"><b>Wildly experimental:</b> use it at your own risk, with no liability if it harms your hardware. <a href="index.html#experimental">The disclaimer</a></p>
-  <div class="meta"><span class="chip">STM32F446 · 168 MHz</span><span class="chip">Written from scratch in C</span><span class="chip">No operating system</span><span class="chip">About 75 kB</span></div>
+  <div class="meta"><span class="chip">STM32F446 · 168 MHz</span><span class="chip">Written from scratch in C</span><span class="chip">No operating system</span><span class="chip">About 79 kB</span></div>
 </div>
 
 <div class="layout">
@@ -123,7 +123,7 @@
     <div class="stat"><b>41</b><span>control voltages kept fresh: 32 per voice, 9 shared</span></div>
     <div class="stat"><b>≈ 0.6 ms</b><span>between updates of each voice's volume (VCA), with all eight sounding</span></div>
     <div class="stat"><b>±0.7 ¢</b><span>tuning across C1–C8 after autotune</span></div>
-    <div class="stat"><b>≈ 69 kB</b><span>the whole firmware, of the 128 kB the bootloader accepts</span></div>
+    <div class="stat"><b>≈ 79 kB</b><span>the whole firmware, of the 128 kB the bootloader accepts</span></div>
   </div>
 </section>
 
@@ -154,7 +154,7 @@
         <text x="348" y="72" class="t-lg">STM32F446</text>
         <text x="348" y="92" class="t-sm">ARM Cortex-M4F at 168 MHz</text>
         <text x="348" y="110" class="t-sm">128 kB RAM</text>
-        <text x="348" y="128" class="t-sm">firmware ≈ 69 kB of a 128 kB slot</text>
+        <text x="348" y="128" class="t-sm">firmware ≈ 79 kB of a 128 kB slot</text>
         <line class="grid" x1="348" y1="148" x2="532" y2="148"/>
         <text x="348" y="174" class="t-sm t-b">What it runs, in one loop:</text>
         <text x="348" y="198" class="t-sm">• MIDI (USB, 5-pin) and SysEx</text>
@@ -528,10 +528,10 @@
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
       <svg viewBox="0 0 880 300" role="img" aria-labelledby="f14t">
-        <title id="f14t">Flash map: a write-protected bootloader, then up to 128 kB for this firmware across sector 4 and half of sector 5, about 75 kB used. EEPROM map: 128 patch records with their sequences, the stock factory bank, global settings and tuning tables.</title>
+        <title id="f14t">Flash map: a write-protected bootloader, then up to 128 kB for this firmware across sector 4 and half of sector 5, about 79 kB used. EEPROM map: 128 patch records with their sequences, the stock factory bank, global settings and tuning tables.</title>
         <text x="20" y="28" class="t-b">Microcontroller flash · 256 kB</text>
         <rect class="box" x="20" y="40" width="210" height="58" rx="8"/><text x="34" y="64" class="t-b">Bootloader</text><text x="34" y="84" class="t-xs">64 kB · write-protected</text>
-        <rect class="box-dig" x="230" y="40" width="420" height="58" rx="8"/><rect class="f-dig" x="230" y="40" width="246" height="58" rx="8" opacity=".22"/><text x="244" y="64" class="t-b">This firmware</text><text x="244" y="84" class="t-xs">up to 128 kB: sector 4 and half of 5 · ≈ 75 kB used (shaded)</text>
+        <rect class="box-dig" x="230" y="40" width="420" height="58" rx="8"/><rect class="f-dig" x="230" y="40" width="259" height="58" rx="8" opacity=".22"/><text x="244" y="64" class="t-b">This firmware</text><text x="244" y="84" class="t-xs">up to 128 kB: sector 4 and half of 5 · ≈ 79 kB used (shaded)</text>
         <rect class="box-plain" x="650" y="40" width="210" height="58" rx="8"/><text x="664" y="64" class="t-b">Rest of sector 5</text><text x="664" y="84" class="t-xs">erased with every update</text>
         <text x="20" y="150" class="t-b">EEPROM · 128 kB</text>
         <rect class="box-acc" x="20" y="162" width="630" height="58" rx="8"/><text x="34" y="186" class="t-b">128 patch records</text><text x="34" y="206" class="t-xs">768 bytes each: the patch ("P8P2", 512 bytes) and its step sequence ("P8S2", 256 bytes), each with its own checksum</text>
@@ -625,7 +625,7 @@
   <h2>MIDI in: USB, SysEx and the 5-pin socket</h2>
   <div class="prose">
     <p>The USB driver is written from scratch for the chip's USB hardware and shows up as a standard class-compliant MIDI device. It reports Behringer's own IDs, the name "PRO 800" and the same serial number the stock firmware used, so a Mac treats it as the device it already knows. Notes play on any channel, or on the one set with Shift + NOISE or the web page.</p>
-    <p>Everything beyond notes and controllers travels as <strong>SysEx</strong>, MIDI's "system exclusive" messages. They start with Behringer's header <code>F0 00 20 32 00 01 24 00</code>, then a command byte. For example, <code>08 00</code> asks for the firmware version, and the synth answers <code>09 00 00 09 02</code> (0.9.2). The firmware understands dozens of commands: read or set any parameter or setting, read the panel, list, load, save and rename patches, import factory sounds, read and write mod routes and the sequence, run autotune, report timing, the two DAC probes, and a probe of the engine's state (held keys, voices, switch overrides).</p>
+    <p>Everything beyond notes and controllers travels as <strong>SysEx</strong>, MIDI's "system exclusive" messages. They start with Behringer's header <code>F0 00 20 32 00 01 24 00</code>, then a command byte. For example, <code>08 00</code> asks for the firmware version, and the synth answers <code>09 00 00 09 03</code> (0.9.3). The firmware understands dozens of commands: read or set any parameter or setting, read the panel, list, load, save and rename patches, import factory sounds, read and write mod routes and the sequence, run autotune, report timing, the two DAC probes, and a probe of the engine's state (held keys, voices, switch overrides).</p>
     <p>The <strong>5-pin MIDI IN</strong> socket works too, from 0.7.6. Its opto-isolator feeds the chip's UART4 serial port, which receives at MIDI's 31,250 baud and interrupts on every byte. Clock ticks go straight to the clock, timestamped like USB's; everything else is queued and turned into the same packets USB delivers. It carries notes, controllers, pressure, bend, program changes and clock, so a keyboard with a MIDI out plays the synth with no computer. SysEx stays on USB.</p>
     <p>The USB socket itself is a <em>device</em> port, like a printer's: the synth waits for a computer to talk to it, and it can't power or host a USB keyboard. A USB-only controller needs a computer, or a small USB MIDI host box, in between.</p>
   </div>
@@ -725,7 +725,7 @@
 </div>
 
 <footer class="site">
-  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.2 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
+  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.3 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
   <a href="index.html">Home</a><a href="sound-design.html">Sound design →</a>
   <br>Wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your hardware. Not affiliated with Behringer or Music Tribe.
 </footer>
