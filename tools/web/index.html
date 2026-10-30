@@ -311,6 +311,8 @@
   .seq-top { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
   .seq-top input[type=number] { width: 70px; }
   canvas.viz.seq { height: 90px; }
+  canvas.viz.seq-over { height: 16px; }
+  .seq-roll { display: grid; grid-template-columns: 44px 1fr; gap: 3px; align-items: center; }
   .seq-pages { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .seq-grid { display: grid; grid-template-columns: 44px repeat(16, minmax(0, 1fr)); gap: 3px; }
   .seq-labels { display: grid; grid-template-rows: var(--seq-rows, 22px 46px 30px 30px 24px 24px); gap: 3px; align-items: center; }
@@ -331,7 +333,8 @@
   .lane-head { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; }
   .lane-head select { max-width: 260px; }
   canvas.viz.lane { grid-column: 2; height: 52px; cursor: crosshair; touch-action: none; }
-  @media (max-width: 760px) { .seq-grid { grid-template-columns: 30px repeat(8, minmax(0, 1fr)); } .seq-col:nth-child(n+10) { display: none; } }
+  @media (max-width: 760px) { .seq-grid { grid-template-columns: 30px repeat(8, minmax(0, 1fr)); } .seq-col:nth-child(n+10) { display: none; }
+    .seq-roll, .lane-row { grid-template-columns: 30px 1fr; } }
 
   /* ---------------------------------------------------------------- the device cheat sheet */
   .cheat { display: grid; gap: 24px 14px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); margin-top: 18px; }
@@ -2183,39 +2186,70 @@ function stepCell(k, get, set, text, cls, { span = 120, min = 0, max = 127, rese
   return cell;
 }
 
-function drawSeq(g, w, ht) {
+// The step columns on screen, in canvas c's coordinates, so what's drawn over a step lines up with its toggle
+function stepSlots(c) {
+  const left = c.getBoundingClientRect().left + c.clientLeft;
+  return [...document.querySelectorAll(".seq-col")].filter(e => e.offsetWidth).map(e => {
+    const b = e.getBoundingClientRect();
+    return { x: b.left - left, w: b.width };
+  });
+}
+const chordOf = s => s.lane.slice(seqMods(seq), seq.lanes).filter(v => v !== 64).map(v => s.note - 64 + v - 64);
+// Offsets to pixels, from the whole sequence, so the roll's scale doesn't jump between pages
+function seqPitchY(ht) {
+  const offs = [];
+  seq.steps.slice(0, seq.length).filter(s => s.on).forEach(s => offs.push(s.note - 64, ...chordOf(s)));
+  const span = Math.max(12, ...offs.map(Math.abs));
+  return o => ht / 2 - o / span * (ht / 2 - 6);
+}
+const LANE_COLORS = ["#f4f1ea", "#9ad0ff", "#b7f0a0", "#ffd479"];
+// The current page's steps, one column over each step of the grid below
+function drawSeq(g, w, ht, c) {
   if (!seq) return;
-  const n = seq.length, offs = seq.steps.slice(0, n).filter(s => s.on).map(s => s.note - 64);
-  const chordOf = s => s.lane.slice(seqMods(seq), seq.lanes).filter(v => v !== 64).map(v => s.note - 64 + v - 64);
-  seq.steps.slice(0, n).filter(s => s.on).forEach(s => offs.push(...chordOf(s)));
-  const span = Math.max(12, ...offs.map(Math.abs)), cw = w / n, y = o => ht / 2 - o / span * (ht / 2 - 6);
-  g.fillStyle = "rgba(255,255,255,.03)";
-  for (let i = 0; i < n; i += 4) g.fillRect(i * cw, 0, Math.min(2, n - i) * cw, ht);
+  const y = seqPitchY(ht), slots = stepSlots(c);
+  slots.forEach(({ x, w: cw }, k) => {
+    const i = seqPage * 16 + k;
+    if (k % 4 < 2) { g.fillStyle = "rgba(255,255,255,.03)"; g.fillRect(x, 0, cw, ht); }
+    if (i >= seq.length) { g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(x, 0, cw, ht); return; }
+    const s = seq.steps[i];
+    if (!s.on) return;
+    const len = Math.max(2, Math.max(.08, Math.min(1, s.gate / 100)) * cw);
+    g.fillStyle = css("--accent");
+    g.fillRect(x, y(s.note - 64) - 3, len, 6);
+    g.globalAlpha = .6;
+    for (const o of chordOf(s)) g.fillRect(x, y(o) - 2, len, 4);
+    g.globalAlpha = 1;
+  });
+  // lanes as thin lines
+  for (let l = 0; l < seqMods(seq); l++) {
+    g.beginPath();
+    let started = false;
+    slots.forEach(({ x, w: cw }, k) => {
+      const i = seqPage * 16 + k;
+      if (i >= seq.length) return;
+      const v = (seq.steps[i].lane[l] - 64) / 63, yy = ht - 4 - (v + 1) / 2 * 14;
+      started ? g.lineTo(x, yy) : g.moveTo(x, yy);
+      started = true;
+      if (!(seq.smooth >> l & 1)) g.lineTo(x + cw, yy);
+    });
+    g.strokeStyle = LANE_COLORS[l]; g.globalAlpha = .55; g.lineWidth = 1; g.stroke(); g.globalAlpha = 1;
+  }
+  g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
+  g.fillText(`${seq.length} steps · ${DIVISIONS[seq.division]} · ${seq.flags & SEQ_CLOCK ? "MIDI clock" : seq.bpm + " BPM"}` +
+    (seq.swing ? ` · swing ${seq.swing} %` : ""), (slots[0] ? slots[0].x : 0) + 4, 12);
+}
+// The whole sequence in a thin strip, shown when it's longer than a page, with the current page marked
+function drawSeqOverview(g, w, ht) {
+  if (!seq) return;
+  const n = seq.length, cw = w / n, y = seqPitchY(ht);
+  g.fillStyle = "rgba(255,255,255,.08)";
+  g.fillRect(seqPage * 16 * cw, 0, Math.min(16, n - seqPage * 16) * cw, ht);
   for (let i = 0; i < n; i++) {
     const s = seq.steps[i];
     if (!s.on) continue;
-    const len = Math.max(.08, Math.min(1, s.gate / 100)) * cw;
     g.fillStyle = Math.floor(i / 16) === seqPage ? css("--accent") : "#7a3a30";
-    g.fillRect(i * cw + 1, y(s.note - 64) - 3, Math.max(2, len - 2), 6);
-    g.globalAlpha = .6;
-    for (const o of chordOf(s)) g.fillRect(i * cw + 1, y(o) - 2, Math.max(2, len - 2), 4);
-    g.globalAlpha = 1;
+    g.fillRect(i * cw, y(s.note - 64) - 1, Math.max(1, Math.min(1, s.gate / 100) * cw - 1), 2);
   }
-  // lanes as thin lines
-  const colors = ["#f4f1ea", "#9ad0ff", "#b7f0a0", "#ffd479"];
-  for (let l = 0; l < seqMods(seq); l++) {
-    g.beginPath();
-    for (let i = 0; i < n; i++) {
-      const v = (seq.steps[i].lane[l] - 64) / 63, yy = ht - 4 - (v + 1) / 2 * 14 - l * 0;
-      const x0 = i * cw, x1 = (i + 1) * cw;
-      i ? g.lineTo(x0, yy) : g.moveTo(x0, yy);
-      if (!(seq.smooth >> l & 1)) g.lineTo(x1, yy);
-    }
-    g.strokeStyle = colors[l]; g.globalAlpha = .55; g.lineWidth = 1; g.stroke(); g.globalAlpha = 1;
-  }
-  g.fillStyle = css("--dim"); g.font = "10px " + css("--mono");
-  g.fillText(`${n} steps · ${DIVISIONS[seq.division]} · ${seq.flags & SEQ_CLOCK ? "MIDI clock" : seq.bpm + " BPM"}` +
-    (seq.swing ? ` · swing ${seq.swing} %` : ""), 4, 12);
 }
 
 // One automation lane for the current page: drag across it to draw values
@@ -2224,8 +2258,11 @@ function laneEditor(l) {
   let drawing = false;
   const setAt = ev => {
     if (!seq) return;
-    const r = c.getBoundingClientRect(), k = Math.floor((ev.clientX - r.left) / r.width * 16);
-    const i = seqPage * 16 + Math.min(15, Math.max(0, k));
+    const r = c.getBoundingClientRect(), slots = stepSlots(c), at = ev.clientX - r.left - c.clientLeft;
+    if (!slots.length) return;
+    let k = 0; // the column it's over, or the nearest in a gap
+    while (k < slots.length - 1 && at >= slots[k + 1].x) k++;
+    const i = seqPage * 16 + k;
     if (i >= seq.length) return;
     const v = Math.round(127 - Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height)) * 127);
     if (seq.steps[i].lane[l] === v) return;
@@ -2248,14 +2285,13 @@ function laneEditor(l) {
     g.clearRect(0, 0, w, ht);
     g.strokeStyle = "#2e3036"; g.beginPath(); g.moveTo(0, ht / 2 + .5); g.lineTo(w, ht / 2 + .5); g.stroke();
     if (!seq) return;
-    const cw = w / 16;
-    for (let k = 0; k < 16; k++) {
+    stepSlots(c).forEach(({ x, w: cw }, k) => {
       const i = seqPage * 16 + k;
-      if (i >= seq.length) { g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(k * cw, 0, cw, ht); continue; }
+      if (i >= seq.length) { g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(x, 0, cw, ht); return; }
       const v = (seq.steps[i].lane[l] - 64) / 63, y = ht / 2 - v * (ht / 2 - 2);
       g.fillStyle = v < 0 ? css("--accent") : css("--trace");
-      g.fillRect(k * cw + 2, Math.min(y, ht / 2), cw - 4, Math.max(1, Math.abs(y - ht / 2)));
-    }
+      g.fillRect(x, Math.min(y, ht / 2), cw, Math.max(1, Math.abs(y - ht / 2)));
+    });
   });
   // where the lane goes: its mod route on the edit layer
   const src = SEQ_SOURCE + l;
@@ -2377,6 +2413,9 @@ function seqSection() {
       chordLabel(0), chordLabel(1),
       h("span", { class: "lbl" }, "Gate"), h("span", { class: "lbl" }, "Vel"), h("span", { class: "lbl" }, "Prob"),
       h("span", { class: "lbl" }, "Ratch")), ...columns);
+  const roll = viz("seq", (g, w, ht) => drawSeq(g, w, ht, roll));
+  const overview = viz("seq-over", drawSeqOverview);
+  paints.push(() => { overview.hidden = !seq || seq.length <= 16; });
   return sec("seq", "Sequencer",
     h("div", { class: "seq-top" },
       flag(SEQ_ON, "On", "play the sequence from a key (transposed from it) while keys are held"),
@@ -2391,9 +2430,10 @@ function seqSection() {
       field("Lanes", lanesPick),
       chordField,
       h("button", { type: "button", class: "chip", title: "read the sequence from the synth again", onclick: refreshSequence }, "↻")),
-    viz("seq", drawSeq),
     h("div", { class: "seq-pages" }, pages, h("span", { class: "dim small" },
       "Note: drag up/down for semitones from the key (Note 2 / 3: from the step's note, · = none) · Gate: 100 % ties into the next step · Vel: 0 = the key's · double-click resets")),
+    overview,
+    h("div", { class: "seq-roll" }, h("span", { class: "lbl" }, "Roll"), roll),
     grid,
     h("div", { class: "seq-tools" },
       h("span", { class: "lbl" }, "Fill"), euclidK, h("span", { class: "dim small" }, "hits, Euclidean, over the length"),

@@ -1498,6 +1498,12 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   flags with bits 5-6, a change of automation lanes moves the chord notes and keeps the mod values, labels and cells show and
   hide, JSON builds the right header and lanes and refuses `lanes` + `chord` over 4 and an `n3` without chord 2. **Not
   tested:** by ear, and the page against the real synth. An arpeggio with chord notes is by reading the code only.
+- **The roll lines up with the steps** (reported): it drew the whole sequence across the full width, label column included, so
+  nothing sat over its toggle. It now draws the current page, with `stepSlots()` giving each column's real position (the lane
+  editors drew at width / 16 and drifted by the column gaps; they use it too, for drawing and for the pointer). A thin strip
+  above it shows the whole sequence when it's longer than a page. Checked in the built-in browser with a fake synth: 16 slots,
+  page 2 of a 28-step sequence, a pointer over column 3 of page 2 writes step 19 only, and at phone width 8 slots with no sideways
+  scroll. At phone width the grid has always shown 8 columns, so steps 9-16 of a page can't be reached there.
 
 ## Backlog
 
