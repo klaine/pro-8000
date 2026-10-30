@@ -437,6 +437,13 @@ only plays it.
   mod sources Seq A-D: choose a destination next to each lane (a route at depth 99 on the layer you're editing) or
   route them in the Mod matrix with any depth. Steps and lanes share the space in the sequence's slot: 60 steps
   with no lanes, 48 with 1, 40 with 2, 34 with 3, 30 with 4.
+- **Piano roll (0.9.3):** above the steps on the web page, the current page's notes over their step columns, three
+  octaves at a time with a keyboard beside them and ▼ ▲ to scroll by an octave. Offsets are from the key you hold, so
+  offset 0 is drawn as C and the Cs are labelled in semitones. Click to add a note (a rest becomes that note; with Chords on,
+  a played step gets another note; with one note a step, the note moves there). Drag a note up or down to move it. Drag its
+  right edge to stretch it: the gate, or past its step a tie into the next, which takes the same notes. Double-click or
+  right-click a note to remove it (a chord note then takes over as the step's own). A step's notes share its gate, so stretching one
+  stretches them all. A longer sequence also gets a thin strip showing all of it.
 - **Chords (0.9.3):** a step can play up to three notes. Choose Two or Three notes under Chords on the web page, and
   each step gets a Note 2 / Note 3 cell, in semitones from the step's own note (`·` = no extra note, so a step can
   have fewer). Each extra note takes a lane's room, so three notes alone leave 40 steps and at most two automation

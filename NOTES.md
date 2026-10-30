@@ -1504,6 +1504,16 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   above it shows the whole sequence when it's longer than a page. Checked in the built-in browser with a fake synth: 16 slots,
   page 2 of a 28-step sequence, a pointer over column 3 of page 2 writes step 19 only, and at phone width 8 slots with no sideways
   scroll. At phone width the grid has always shown 8 columns, so steps 9-16 of a page can't be reached there.
+- **Editing on the roll** (asked for): `editRoll()`. A fixed window of three octaves from `rollLow` (`ROLL_SPAN`, ▼ ▲ by an octave,
+  `rollFollow()` moves it on a new sequence only if its notes aren't in -12..+24), so rows don't change scale under the pointer,
+  with `drawRollKeys()` beside it (offset 0 drawn as C, the Cs labelled in semitones, since offsets are from the held key).
+  Notes outside the window leave a mark at its edge. Click: a rest becomes the note; a played step takes a free chord lane, or
+  with Chords off its note moves; a full step says so. Drag: pitch, held in the window; moving the step's own note keeps its chord
+  notes where they are by rewriting their offsets, and refuses a collision. Right edge (6 px): gate, or past the column a tie,
+  rebuilt each move from a snapshot of the page from that step, so dragging back restores what it covered; covered steps take the
+  note, velocity and chord, and the chain's ratchets go since one would break the tie (probability stays). Double-click or right-click
+  removes; removing a step's own note makes its first chord note the own note. Moving a note sideways to another step isn't
+  there. Checked with pointer events in the built-in browser with a fake synth: every case above. **Not tested:** with a real mouse and synth.
 
 ## Backlog
 
