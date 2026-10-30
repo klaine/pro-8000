@@ -203,7 +203,7 @@
       <div class="gate-cells" id="gate-cells" aria-label="Sixteen steps"></div>
       <div class="svg-wrap" style="--min:520px"><svg id="gate-svg" viewBox="0 0 880 150" role="img" aria-label="The gate pattern applied to a held chord's volume over one bar"></svg></div>
     </div>
-    <figcaption><b>Figure 4.</b> Top: the pattern (the default is the "ta-ta-taa" trance gate <code>1 0 1 0 1 1 0 0</code>, twice). Bottom: the held chord's volume through the VCA. On the synth the pattern is edited on the web page's Sound tab, or with <code>pro800 set steps</code>.</figcaption>
+    <figcaption><b>Figure 4.</b> Top: the pattern (the default is a trance gate, <code>1 0 1 0 1 1 1 0</code>, twice). Bottom: the held chord's volume through the VCA. On the synth the pattern is edited on the web page's Sound tab, or with <code>pro800 set steps</code>.</figcaption>
   </figure>
   <div class="callout"><span class="label">On the synth</span>Select an LFO, press <kbd>LFO Shape</kbd> until the display shows <span class="led">StEP</span>, set Sync to <span class="led">CLoC</span> and LFO FREQ to <span class="led">1bAr</span> (16 steps = 16ths). No MIDI clock? Tap the tempo on <kbd>Sync Clock</kbd> and the internal clock drives it. Then route it: <kbd>Arp Assign</kbd>, <kbd>1</kbd> for the LFO, touch <b>AMP SUS</b> (the VCA destination), turn VALUE to <span class="led">  99</span>, <kbd>Arp Assign</kbd> again. Lower depths only dip the volume instead of cutting it. Retrigger <span class="led">EACH</span> starts the pattern with every chord.</div>
 </section>
@@ -575,7 +575,7 @@ var SHAPES = [
   { id: "sine", name: "Sine", led: "SInE", f: function (p) { return -Math.cos(2 * Math.PI * p); } },
   { id: "sh", name: "S & H", led: "S-H", f: function (p, n, r) { return r(n); } },
   { id: "drift", name: "Drift", led: "drFt", f: function (p, n, r) { var a = r(n), b = r(n + 1); return a + (b - a) * (1 - Math.cos(Math.PI * p)) / 2; } },
-  { id: "steps", name: "Steps", led: "StEP", f: function (p) { return (0x3535 >> Math.floor(p * 16)) & 1 ? 1 : -1; } },
+  { id: "steps", name: "Steps", led: "StEP", f: function (p) { return (0x7575 >> Math.floor(p * 16)) & 1 ? 1 : -1; } },
   { id: "noise", name: "Noise", led: "nOIS", f: function (p, n, r) { var k = p * 16, i = Math.floor(k); var a = r(n * 16 + i), b = r(n * 16 + i + 1); return a + (b - a) * (k - i); } }
 ];
 function hashRand(run, n) { var x = Math.sin(run * 127.1 + n * 311.7) * 43758.5453; return 2 * (x - Math.floor(x)) - 1; }
@@ -746,7 +746,7 @@ function hashRand(run, n) { var x = Math.sin(run * 127.1 + n * 311.7) * 43758.54
   var pattern = [], btns = [];
   function setPattern(bits) { pattern = bits.slice(); render(); }
   var PRESETS = {
-    trance: function () { return [1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0]; },
+    trance: function () { return [1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0]; },
     euclid: function () { var a = []; for (var i = 0; i < 16; i++) a.push(Math.floor((i * 5) / 16) !== Math.floor(((i - 1) * 5) / 16) || i === 0 ? 1 : 0); return a; },
     off: function () { return [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0]; },
     invert: function () { return pattern.map(function (b) { return 1 - b; }); },

@@ -2053,7 +2053,7 @@ function lfoSection(which) {
   } }, text);
   const countSel = settingSelect("", Array.from({ length: 15 }, (_, k) => `${k + 2} steps`),
     () => steps[which] ? steps[which].count - 2 : undefined,
-    v => sendSteps(which, v + 2, steps[which] ? steps[which].bits : 0x3535), "steps per LFO cycle");
+    v => sendSteps(which, v + 2, steps[which] ? steps[which].bits : 0x7575), "steps per LFO cycle");
   const stepEdit = h("div", { class: "step-edit" }, h("div", { class: "steps" }, cells),
     h("div", { class: "step-tools" }, countSel, op("Clear", "all steps off", () => 0), op("Invert", "", (b, all) => ~b & all),
       op("◀", "rotate left", (b, all, c) => (b >> 1 | (b & 1) << (c - 1)) & all),

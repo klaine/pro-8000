@@ -1578,6 +1578,8 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 
 - The Trance and Euclid buttons are gone from the web page's LFO step grid (clutter: a pattern is quick to click in). A new
   LFO still starts on the trance gate pattern; the sequencer keeps its own Euclid fill.
+- The default pattern is now `1 0 1 0 1 1 1 0`, twice (`LFO_DEFAULT_PATTERN` 0x7575, was 0x3535). It applies to the init sound and
+  records that never stored a step count; a patch that stored a pattern keeps it, and P62 Trance Gate names its own.
 
 ## Backlog
 

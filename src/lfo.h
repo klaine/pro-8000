@@ -24,7 +24,7 @@ typedef enum { LFO_TRIANGLE, LFO_SQUARE, LFO_RAMP_UP, LFO_RAMP_DOWN, LFO_SINE, L
 
 #define LFO_MAX_STEPS 16
 #define LFO_DEFAULT_STEPS   16
-#define LFO_DEFAULT_PATTERN 0x3535u // bit n = step n: 1 0 1 0 1 1 0 0, twice: the "ta-ta-taa" trance gate
+#define LFO_DEFAULT_PATTERN 0x7575u // bit n = step n: 1 0 1 0 1 1 1 0, twice: a trance gate
 
 // Step patterns, per LFO (LFO_ID): bit n on = step n high; the count is 1..LFO_MAX_STEPS.
 extern uint16_t lfo_pattern[LFO_COUNT];
