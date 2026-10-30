@@ -1395,7 +1395,7 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   99 = 95 % (CV 0.835, under voice 6's edge). The bottom is where it was; patches move a little: 50 from 57 % to a
   square, 32 from 38 to about 30 %, 92-99 from silence to a thin pulse. LFO → PW (±0.45 in CV) and routes (MOD_PW,
   in knob units) are unchanged, so modulation still reaches silence at either end. The web page draws the new duty
-  for firmware 0.9.3 and later (nothing in the settings marks it), the old one before. On the synth (P128, the init
+  for firmware with the 0.9.3 settings (it tests for the layer links, since nothing marks this itself), the old one before. On the synth (P128, the init
   sound, square only, A3 held): PW 0, 50, 92 and 99 all read 218.7-220.6 Hz on both oscillators; 92 and 99 were
   silent before.
 
@@ -1473,6 +1473,31 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   knob on layer 2 jumps layer 1. The web page with a fake synth: writes 82 and 83 land on the right settings; with an 86-
   and an 87-setting reply the missing features are named, the Link buttons hide and the patch number still reads. **Not
   tested:** the panel side of either together (needs hands on the knobs).
+
+## Chords in the sequence (0.9.3, 2026-10-30)
+
+- **What:** a step plays up to three notes. `SEQ_CHORD(flags)` (bits 5-6 of the sequence's flags, so no format change; firmware
+  before 0.9.3 ignores them and plays the step's own note) says how many of the lanes, the last ones, are chord notes.
+  A value is semitones from the step's note, `SEQ_LANE_ZERO` (64) = none, which is also what every lane holds after
+  `seq_clear()`. `sequence.lanes` counts them too, so Seq A-D keep their indexes and the step budget (`seq_max_steps()`)
+  needs no change: 48 steps with one extra note, 40 with two. `seq_lane()` gives chord lanes 0, so a route from one is silent.
+- **Engine:** `sounding` became a list. `play_note()` builds the notes (clamped, duplicates dropped), turns on those not
+  already held by a tie, then turns off the ones no longer wanted, so a tie is legato note by note. Gate, velocity,
+  probability and ratchets are the step's. Step recording writes one note and clears the step's chord notes.
+- **Host:** `47` / `48` carry the raw `lanes` and flags; `seq set lanes=` means automation lanes and `chord=` the rest, and the tool
+  adds them. `seq step … n2+4 n3+7` reads the header to find the lanes. JSON: `chord`, `n2`, `n3`, with `lanes` the automation
+  lanes only, so older files mean what they did. On the web page `layoutLanes()` moves chord notes when either count changes,
+  since a chord lane's index depends on the automation lanes; the tool doesn't, so set the header before the steps.
+- **Web:** Chords menu (hidden without the 0.9.3 settings), Note 2 / Note 3 rows in the step grid (`--seq-rows`), the extra notes
+  on the overview, step counts in both menus.
+- **Tested on the synth** (P128, init sound; A3 held; 60 BPM, 1/4): 3 voices gated on a three-note step, 2 on a two-note one, 0 on a
+  rest, 1 on a plain step. Layer in mono, so the newest note sounds: n3+7 329.5 Hz (expected 329.6), n2+3 261.5 (261.6), n2+12 439.7
+  (440), +5 alone 293.5 (293.7). Tie from A C# E into A C# F#: two voices kept, stages untouched, one moved. Two ratchets: the
+  chord sounded again on the second hit. Saved and reloaded: header and notes back, P1 unaffected. No gates left after letting go.
+  `plan.py` accepts all 66 presets as before. In the built-in browser with a fake synth: the Chords menu writes `lanes` 4 and
+  flags with bits 5-6, a change of automation lanes moves the chord notes and keeps the mod values, labels and cells show and
+  hide, JSON builds the right header and lanes and refuses `lanes` + `chord` over 4 and an `n3` without chord 2. **Not
+  tested:** by ear, and the page against the real synth. An arpeggio with chord notes is by reading the code only.
 
 ## Backlog
 

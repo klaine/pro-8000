@@ -24,7 +24,7 @@
 //   345 stage times in note values[2] (a bit per envelope; 0.9.1)
 //   347 layer links (LINK_* bits: what layer 2 takes from layer 1; 0.9.3), 348 reserved to 508
 //   508 checksum (u32) over 0-507
-//   512 "P8S2", 516 length, lanes, division, bpm, flags, swing, smooth, arp, then from 524 each step's note,
+//   512 "P8S2", 516 length, lanes, division, bpm, flags (bits 5-6: chord lanes, 0.9.3), swing, smooth, arp, then from 524 each step's note,
 //       velocity, gate, extra (length × 4 bytes) and each lane's values (length bytes each); 764 checksum over
 //       512-763
 // Zeros in a newer field always mean what older firmware did. A record whose first half isn't ours is an empty

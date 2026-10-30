@@ -87,8 +87,8 @@ Probe (our firmware 0.0.9+):
                                         each patch has its own sequence, saved and cleared with it)
   pro800 seq                            print the loaded patch's step sequence (firmware 0.7.0+)
   pro800 seq set key=value…             its header: on, length, step (division), clock, bpm, swing, once, keys, arp,
-                                        lanes, smooth (e.g. seq set on=1 length=16 step=1/16 clock=1 lanes=1 smooth=A)
-  pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob>] [x<ratchets>] [a<v>]…  one step (a-d: lanes, -99..99)
+                                        lanes, chord (0-2 extra notes per step), smooth (e.g. seq set on=1 length=16 step=1/16 clock=1 lanes=1 smooth=A)
+  pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob>] [x<ratchets>] [a<v>]… [n2<v>] [n3<v>]  one step (a-d: lanes, -99..99; n2, n3: chord notes, semitones from the step's note)
   pro800 set morph <slot|none>          the morph target patch
   pro800 patch init                     load the basic sound (osc A saw), as PERF does
   pro800 patch rename <slot> <name>     rename a patch (up to 16 characters)
@@ -1235,10 +1235,11 @@ func seqSet() {
     let midi = Midi(port: portName)
     guard let h = midi.request([0x48], expect: [0x48], timeout: 2) else { fail("no reply (firmware 0.7.0 or later?)") }
     let d = Array(h[(sysexHeader.count + 1)...])
-    var length = Int(d[0]), lanes = Int(d[1]), division = Int(d[2]), bpm = Int(d[3]) << 7 | Int(d[4]), flags = Int(d[5])
+    var length = Int(d[0]), division = Int(d[2]), bpm = Int(d[3]) << 7 | Int(d[4]), flags = Int(d[5])
+    var chord = flags >> 5 & 3, lanes = Int(d[1]) - chord // automation lanes; the header counts the chord lanes too
     var swing = Int(d[6]), smooth = Int(d[7]), arp = Int(d[9])
     let usage = "usage: pro800 seq set on=0|1 length=1-64 step=<division> clock=0|1 bpm=30-255 swing=0-75 once=0|1 " +
-                "keys=both|1|2 arp=\(arpModeNames.joined(separator: "|")) lanes=0-4 smooth=none|A..D"
+                "keys=both|1|2 arp=\(arpModeNames.joined(separator: "|")) lanes=0-4 chord=0-2 smooth=none|A..D (lanes + chord: at most 4)"
     for kv in args.dropFirst() {
         let parts = kv.split(separator: "=", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { fail(usage) }
@@ -1255,6 +1256,7 @@ func seqSet() {
         case "keys": guard let i = ["both", "1", "2"].firstIndex(of: value) else { fail(usage) }; flags = flags & ~(3 << 3) | i << 3
         case "arp": guard let i = arpModeNames.firstIndex(of: value) else { fail(usage) }; arp = i
         case "lanes": guard let v = Int(value), (0...4).contains(v) else { fail(usage) }; lanes = v
+        case "chord": guard let v = Int(value), (0...2).contains(v) else { fail(usage) }; chord = v
         case "smooth":
             smooth = 0
             for ch in value.uppercased() where ch != "N" && ch != "O" && ch != "E" {
@@ -1264,15 +1266,18 @@ func seqSet() {
         default: fail(usage)
         }
     }
-    probeAck(midi, [0x47, UInt8(length), UInt8(lanes), UInt8(division), UInt8(bpm >> 7), UInt8(bpm & 0x7F), UInt8(flags & 0x7F),
+    guard lanes + chord <= 4 else { fail(usage) }
+    flags = flags & ~(3 << 5) | chord << 5
+    probeAck(midi, [0x47, UInt8(length), UInt8(lanes + chord), UInt8(division), UInt8(bpm >> 7), UInt8(bpm & 0x7F), UInt8(flags & 0x7F),
                     UInt8(swing), UInt8(smooth), UInt8(arp)])
     print("sequence: \(flags & 1 != 0 ? "on" : "off"), \(length) steps of \(divisionNames[division]), " +
-          (flags & 2 != 0 ? "MIDI clock" : "\(bpm) BPM") + ", \(lanes) lanes")
+          (flags & 2 != 0 ? "MIDI clock" : "\(bpm) BPM") + ", \(lanes) lanes" + (chord > 0 ? ", \(chord + 1)-note chords" : ""))
 }
 
-// pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob 1-8>] [x<ratchets 1-4>] [a<-99..99>] … [d<..>] (SysEx 45)
+// pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob 1-8>] [x<ratchets 1-4>] [a<-99..99>] … [d<..>]
+// [n2<+-semitones>] [n3<..>] (SysEx 45; n2 and n3 are the chord notes, from the step's note, 0 = none)
 func seqStep() {
-    let usage = "usage: pro800 seq step <1-64> <+offset|-offset|.> <gate 1-99|tie> [v0-127] [p1-8] [x1-4] [a-99..99] [b..] [c..] [d..]"
+    let usage = "usage: pro800 seq step <1-64> <+offset|-offset|.> <gate 1-99|tie> [v0-127] [p1-8] [x1-4] [a-99..99] [b..] [c..] [d..] [n2-63..63] [n3..]"
     let a = Array(args.dropFirst())
     guard a.count >= 2, let n = Int(a[0]), (1...64).contains(n) else { fail(usage) }
     var on: UInt8 = 1, note = 64, gate = 50, velocity = 0, probability = 8, ratchets = 1, lanes = [64, 64, 64, 64]
@@ -1287,6 +1292,14 @@ func seqStep() {
         options = 3
     }
     for opt in a.dropFirst(options) {
+        if opt.hasPrefix("n2") || opt.hasPrefix("n3") { // a chord note: its lane depends on the header
+            guard let v = Int(opt.dropFirst(2)), (-63...63).contains(v) else { fail(usage) }
+            guard let h = Midi(port: portName).request([0x48], expect: [0x48], timeout: 2) else { fail("no reply") }
+            let d = Array(h[(sysexHeader.count + 1)...]), chord = Int(d[5]) >> 5 & 3, which = opt.hasPrefix("n2") ? 0 : 1
+            guard which < chord else { fail("the sequence has \(chord) chord lane(s): seq set chord=\(which + 1) first") }
+            lanes[Int(d[1]) - chord + which] = 64 + v
+            continue
+        }
         guard let first = opt.first, let v = Int(opt.dropFirst()) else { fail(usage) }
         switch first {
         case "v": guard (0...127).contains(v) else { fail(usage) }; velocity = v
@@ -1311,12 +1324,14 @@ func showSequence() {
     let midi = Midi(port: portName)
     guard let h = midi.request([0x48], expect: [0x48], timeout: 2) else { fail("no reply (firmware 0.7.0 or later?)") }
     let d = Array(h[(sysexHeader.count + 1)...])
-    let length = Int(d[0]), lanes = Int(d[1]), flags = Int(d[5])
+    let length = Int(d[0]), flags = Int(d[5]), chord = flags >> 5 & 3, lanes = Int(d[1]) - chord
     print("\(flags & 1 != 0 ? "on" : "off"), \(length) steps of \(divisionNames[safe: Int(d[2])] ?? "?"), " +
           (flags & 2 != 0 ? "MIDI clock" : "\(Int(d[3]) << 7 | Int(d[4])) BPM") + ", swing \(d[6]) %, " +
           (flags & 4 != 0 ? "once per key" : "loops") + ", keys of " + ["both layers", "layer 1", "layer 2", "?"][flags >> 3 & 3] +
-          ", \(lanes) lane\(lanes == 1 ? "" : "s") (max \(d[8]) steps)" + arpText(d))
+          ", \(lanes) lane\(lanes == 1 ? "" : "s")" + (chord > 0 ? ", \(chord + 1)-note chords" : "") +
+          " (max \(d[8]) steps)" + arpText(d))
     var notes = [String](), gates = [String](), extras = [String](), laneRows = [[String]](repeating: [], count: lanes)
+    var chordRows = [[String]](repeating: [], count: chord)
     for first in stride(from: 0, to: length, by: 8) {
         guard let r = midi.request([0x46, UInt8(first), 8], expect: [0x46, UInt8(first), 8], timeout: 2) else { fail("no reply") }
         let x = Array(r[(sysexHeader.count + 3)...])
@@ -1329,9 +1344,11 @@ func showSequence() {
             extras.append(probability == 8 && ratchets == 1 ? "  ." : ratchets > 1 && probability == 8 ? " x\(ratchets)" :
                           ratchets > 1 ? "\(probability)x\(ratchets)" : " \(probability)8")
             for l in 0..<lanes { laneRows[l].append(String(format: "%+3d", Int((Double(Int(s[5 + l]) - 64) / 63 * 99).rounded()))) }
+            for c in 0..<chord { let v = Int(s[5 + lanes + c]) - 64; chordRows[c].append(v == 0 || s[3] == 0 ? "  ." : String(format: "%+3d", v)) }
         }
     }
     print("note  " + notes.joined(separator: " "))
+    for c in 0..<chord { print("n\(c + 2)    " + chordRows[c].joined(separator: " ")) }
     print("gate  " + gates.joined(separator: " "))
     if extras.contains(where: { $0 != "  ." }) { print("prob  " + extras.joined(separator: " ") + "   (n8 = n in 8, xN = ratchets)") }
     for l in 0..<lanes { print("seq \(["A", "B", "C", "D"][l]) " + laneRows[l].joined(separator: " ")) }

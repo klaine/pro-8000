@@ -606,7 +606,7 @@
         <tr><td>348–507</td><td>Reserved</td><td>160 bytes of zeros for what comes next.</td></tr>
         <tr><td>508–511</td><td>Checksum</td><td>Over everything before it. A record that fails is shown as damaged rather than played.</td></tr>
         <tr><td>512–523</td><td>"P8S2" and the sequence header</td><td>Length, number of lanes, clock division, tempo, flags, swing, smoothing, arpeggio mode.</td></tr>
-        <tr><td>524–763</td><td>Steps and lanes</td><td>240 bytes shared: each step takes 4 (note, velocity, gate, probability and ratchets) plus 1 per automation lane. That's 60 steps with no lanes, 30 with all four.</td></tr>
+        <tr><td>524–763</td><td>Steps and lanes</td><td>240 bytes shared: each step takes 4 (note, velocity, gate, probability and ratchets) plus 1 per automation lane. That's 60 steps with no lanes, 30 with all four. The last one or two lanes can hold a step's extra chord notes instead of modulation: two spare bits in the flags say how many.</td></tr>
         <tr><td>764–767</td><td>Checksum</td><td>Over the sequence half only.</td></tr>
       </tbody>
     </table></div>

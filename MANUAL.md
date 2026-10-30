@@ -437,6 +437,13 @@ only plays it.
   mod sources Seq A-D: choose a destination next to each lane (a route at depth 99 on the layer you're editing) or
   route them in the Mod matrix with any depth. Steps and lanes share the space in the sequence's slot: 60 steps
   with no lanes, 48 with 1, 40 with 2, 34 with 3, 30 with 4.
+- **Chords (0.9.3):** a step can play up to three notes. Choose Two or Three notes under Chords on the web page, and
+  each step gets a Note 2 / Note 3 cell, in semitones from the step's own note (`·` = no extra note, so a step can
+  have fewer). Each extra note takes a lane's room, so three notes alone leave 40 steps and at most two automation
+  lanes (30 steps). The notes share the step's gate, velocity, probability and ratchets, and a tie holds the notes
+  the next step shares and moves the others. They use real voices: a chord on a 4-voice layer leaves little room for
+  overlap, and a mono or legato layer plays only the last of them. In an arpeggio, the extra notes follow the arp's
+  note. Step recording writes single notes.
 - **Recording on the panel (0.9.0):** hold Rec and press Seq 1 (`rSEq`; the edit layer stays, and REC blinks fast).
   Each MIDI note you play is the next step from step 1 (`St 3`): its offset from the first note, its velocity, a
   50 % gate. Seq 2 writes a rest. Rec or Seq 1 ends it (`donE`); `FULL` when the steps run out. The length follows,

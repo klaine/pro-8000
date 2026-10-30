@@ -313,8 +313,8 @@
   canvas.viz.seq { height: 90px; }
   .seq-pages { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .seq-grid { display: grid; grid-template-columns: 44px repeat(16, minmax(0, 1fr)); gap: 3px; }
-  .seq-labels { display: grid; grid-template-rows: 22px 46px 30px 30px 24px 24px; gap: 3px; align-items: center; }
-  .seq-col { display: grid; grid-template-rows: 22px 46px 30px 30px 24px 24px; gap: 3px; min-width: 0; }
+  .seq-labels { display: grid; grid-template-rows: var(--seq-rows, 22px 46px 30px 30px 24px 24px); gap: 3px; align-items: center; }
+  .seq-col { display: grid; grid-template-rows: var(--seq-rows, 22px 46px 30px 30px 24px 24px); gap: 3px; min-width: 0; }
   .seq-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .cell.prob .c-fill, .cell.ratch .c-fill { background: rgba(154, 208, 255, .2); }
   .seq-col .step { font-size: 10px; color: var(--dim); }
@@ -597,7 +597,7 @@
 
     <section class="cs cs-wide">
       <h3>On the web page only</h3>
-      <p class="small">The step sequencer, its lanes, arpeggio, probability and ratchets (the panel only plays it, from a key) ·
+      <p class="small">The step sequencer, its lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key) ·
         LFO step patterns · scale and root · morph target and source · note priority · Mutate · mod routes from Seq A-D
         and to Morph · patch names, export, the factory bank · copying an LFO or envelope from the other layer.</p>
     </section>
@@ -1798,11 +1798,10 @@ function trace(g, w, ht, f, n = 240, { fill = false, color } = {}) { // f(x 0..1
 // recorded through the Move; a PW sweep 5-95 with saw + square): the enabled waves add at their own levels (triangle
 // 1.37 × the saw's peak-to-peak, the pulse's steps 0.83 × the saw's reset). Against a rising saw the triangle is
 // lowest at the saw's reset and the pulse is high from the reset for 0.048 + 1.034 × PW of the cycle (gone from about
-// 92). From 0.9.3 the firmware scales PW to 5-95 % of the cycle, 50 a square (no setting marks it, so the version
-// does; builds before the release still say 0.9.2). The output as recorded is all of that upside down (a falling
-// saw), drawn so here.
+// 92). From 0.9.3 the firmware scales PW to 5-95 % of the cycle, 50 a square (no setting of its own marks it; the
+// layer links arrived with it). The output as recorded is all of that upside down (a falling saw), drawn so here.
 const WAVE_LEVEL = { saw: 1, tri: 1.37, sq: .83 };
-const pwScaled = () => !firmwareVersion || firmwareVersion.split(".").map(Number).reduce((a, n) => a * 10 + n, 0) >= 93;
+const pwScaled = () => feature("layerLink");
 function oscWave(saw, tri, sq, pw, level) {
   return x => {
     const p = (x * 2) % 1, duty = pwScaled() ? .05 + .9 * pw : .048 + 1.034 * pw;
@@ -2088,6 +2087,7 @@ function recordNote(n, vel) {
   const st = seq.steps[seqRec.pos];
   st.note = Math.max(28, Math.min(100, 64 + n - seqRec.base));
   st.on = 1; st.vel = 0;
+  for (let l = seqMods(seq); l < seq.lanes; l++) st.lane[l] = 64;
   sendStep(seqRec.pos);
   touch(`record step ${seqRec.pos + 1}`, offsetText(st.note));
   seqRec.pos++;
@@ -2097,6 +2097,21 @@ function recordNote(n, vel) {
 }
 let seq = null, seqPage = 0, seqFor = null;
 const seqMax = lanes => Math.min(SEQ_MAX, Math.floor(SEQ_BYTES / (4 + lanes)));
+// Chord notes (firmware 0.9.3+): the last one or two lanes, semitones from the step's note, 64 = none. seq.lanes counts
+// them too, so the automation lanes (Seq A-D) keep their places.
+const seqChord = s => s.flags >> 5 & 3, seqMods = s => s.lanes - seqChord(s);
+// Changes how many lanes and chord lanes there are, moving the chord notes to their new places
+function layoutLanes(mods, chord) {
+  const oldMods = seqMods(seq), oldChord = seqChord(seq);
+  for (let i = 0; i < SEQ_MAX; i++) {
+    const st = seq.steps[i], m = st.lane.slice(0, oldMods), c = st.lane.slice(oldMods, oldMods + oldChord), lane = [64, 64, 64, 64];
+    m.slice(0, mods).forEach((v, k) => { lane[k] = v; });
+    c.slice(0, chord).forEach((v, k) => { lane[mods + k] = v; });
+    if (String(lane) !== String(st.lane)) { st.lane = lane; sendStep(i); }
+  }
+  seq.lanes = mods + chord;
+  seq.flags = seq.flags & ~0x60 | chord << 5;
+}
 const newStep = () => ({ note: 64, vel: 0, gate: 50, on: 1, extra: 0, lane: [64, 64, 64, 64] });
 // extra: bits 0-2 probability (0 = always, n = 8 - n in 8), bits 3-4 ratchets - 1
 const probOf = s => 8 - (s.extra & 7), ratchetsOf = s => (s.extra >> 3 & 3) + 1;
@@ -2171,6 +2186,8 @@ function stepCell(k, get, set, text, cls, { span = 120, min = 0, max = 127, rese
 function drawSeq(g, w, ht) {
   if (!seq) return;
   const n = seq.length, offs = seq.steps.slice(0, n).filter(s => s.on).map(s => s.note - 64);
+  const chordOf = s => s.lane.slice(seqMods(seq), seq.lanes).filter(v => v !== 64).map(v => s.note - 64 + v - 64);
+  seq.steps.slice(0, n).filter(s => s.on).forEach(s => offs.push(...chordOf(s)));
   const span = Math.max(12, ...offs.map(Math.abs)), cw = w / n, y = o => ht / 2 - o / span * (ht / 2 - 6);
   g.fillStyle = "rgba(255,255,255,.03)";
   for (let i = 0; i < n; i += 4) g.fillRect(i * cw, 0, Math.min(2, n - i) * cw, ht);
@@ -2180,10 +2197,13 @@ function drawSeq(g, w, ht) {
     const len = Math.max(.08, Math.min(1, s.gate / 100)) * cw;
     g.fillStyle = Math.floor(i / 16) === seqPage ? css("--accent") : "#7a3a30";
     g.fillRect(i * cw + 1, y(s.note - 64) - 3, Math.max(2, len - 2), 6);
+    g.globalAlpha = .6;
+    for (const o of chordOf(s)) g.fillRect(i * cw + 1, y(o) - 2, Math.max(2, len - 2), 4);
+    g.globalAlpha = 1;
   }
   // lanes as thin lines
   const colors = ["#f4f1ea", "#9ad0ff", "#b7f0a0", "#ffd479"];
-  for (let l = 0; l < seq.lanes; l++) {
+  for (let l = 0; l < seqMods(seq); l++) {
     g.beginPath();
     for (let i = 0; i < n; i++) {
       const v = (seq.steps[i].lane[l] - 64) / 63, yy = ht - 4 - (v + 1) / 2 * 14 - l * 0;
@@ -2255,7 +2275,7 @@ function laneEditor(l) {
   const smooth = led("Smooth", () => seq && seq.smooth >> l & 1, on => { if (!seq) return; seq.smooth = on ? seq.smooth | 1 << l : seq.smooth & ~(1 << l); sendSeqHeader(); },
     "glide from step to step instead of jumping");
   const box = h("div", { class: "lane-row" }, h("div", { class: "lane-head" }, h("span", { class: "lbl" }, `Seq ${LANE_NAMES[l]}`), smooth, dest), c);
-  paints.push(() => { box.hidden = !seq || l >= seq.lanes; });
+  paints.push(() => { box.hidden = !seq || l >= seqMods(seq); });
   return box;
 }
 
@@ -2287,6 +2307,15 @@ function seqSection() {
     paints.push(() => { b.hidden = !seq || p * 16 >= seq.length; b.setAttribute("aria-pressed", String(seqPage === p)); });
     return b;
   }));
+  // a chord note of step k: semitones from the step's note, · = none
+  const chordCell = (k, c) => {
+    const at = () => seqMods(seq) + c;
+    const cell = stepCell(k, s => s.lane[at()], (s, v) => { s.lane[at()] = v; }, s => s.lane[at()] === 64 ? "·" : offsetText(s.lane[at()]),
+      "note", { span: 160, min: 28, max: 100, reset: 64 });
+    paints.push(() => { cell.hidden = !seq || seqChord(seq) <= c; });
+    return cell;
+  };
+  const chordLabel = c => { const l = h("span", { class: "lbl" }, `Note ${c + 2}`); paints.push(() => { l.hidden = !seq || seqChord(seq) <= c; }); return l; };
   const columns = Array.from({ length: 16 }, (_, k) => {
     const st = () => seq && seq.steps[seqPage * 16 + k];
     const on = h("button", { type: "button", class: "step", title: "on / rest" });
@@ -2294,6 +2323,7 @@ function seqSection() {
     paints.push(() => { const s = st(), live = s && seqPage * 16 + k < seq.length; on.classList.toggle("on", !!(live && s.on)); on.disabled = !live; on.textContent = seqPage * 16 + k + 1; });
     return h("div", { class: "seq-col" + (k % 4 ? "" : " beat") }, on,
       stepCell(k, s => s.note, (s, v) => { s.note = v; }, s => offsetText(s.note), "note", { span: 160, min: 28, max: 100, reset: 64 }),
+      chordCell(k, 0), chordCell(k, 1),
       stepCell(k, s => s.gate, (s, v) => { s.gate = v; }, s => s.gate >= 100 ? "tie" : s.gate + "%", "gate", { min: 1, max: 100, reset: 50 }),
       stepCell(k, s => s.vel, (s, v) => { s.vel = v; }, s => s.vel ? String(s.vel) : "key", "vel", { reset: 0 }),
       stepCell(k, probOf, (s, v) => { s.extra = s.extra & ~7 | (8 - v); }, s => probOf(s) === 8 ? "100%" : Math.round(probOf(s) * 12.5) + "%",
@@ -2317,13 +2347,36 @@ function seqSection() {
     touch("Euclid", `${k} in ${n}`);
   };
   const resetSteps = () => {
-    if (!seq || !confirm("Reset every step (notes, gates, velocity, probability, ratchets)? Lanes stay.")) return;
-    for (let i = 0; i < seq.length; i++) { Object.assign(seq.steps[i], { note: 64, vel: 0, gate: 50, on: 1, extra: 0 }); sendStep(i); }
+    if (!seq || !confirm("Reset every step (notes and chord notes, gates, velocity, probability, ratchets)? Lanes stay.")) return;
+    for (let i = 0; i < seq.length; i++) {
+      Object.assign(seq.steps[i], { note: 64, vel: 0, gate: 50, on: 1, extra: 0 });
+      for (let l = seqMods(seq); l < seq.lanes; l++) seq.steps[i].lane[l] = 64;
+      sendStep(i);
+    }
   };
   const recButton = led("Record", () => seqRec.armed, on => {
     seqRec.armed = on; seqRec.pos = 0; seqRec.base = null;
     document.getElementById("rec-hint").textContent = on ? "play notes (on-screen keys or the routed MIDI input): each fills the next step" : "";
   }, "record notes from the Play keys or the MIDI router into the steps, from step 1");
+  const lanesPick = pick(["None", "1", "2", "3", "4"], () => seqMods(seq), v => { layoutLanes(Math.min(v, 4 - seqChord(seq)), seqChord(seq)); },
+    "automation lanes: mod sources Seq A-D; each takes room from the steps");
+  const chordPick = pick(["One note", "Two notes", "Three notes"], () => seqChord(seq), v => { layoutLanes(Math.min(seqMods(seq), 4 - v), v); },
+    "notes per step: each extra note takes a lane's room, and shares the step's gate, velocity, probability and ratchets");
+  const chordField = field("Chords", chordPick);
+  paints.push(() => {
+    chordField.hidden = !feature("layerLink"); // came with 0.9.3
+    if (!seq) return;
+    [...lanesPick.options].forEach((o, k) => {
+      o.textContent = `${k || "None"} (${seqMax(k + seqChord(seq))} steps)`;
+      o.disabled = k + seqChord(seq) > 4;
+    });
+    [...chordPick.options].forEach((o, k) => { o.textContent = `${["One note", "Two notes", "Three notes"][k]} (${seqMax(seqMods(seq) + k)} steps)`; });
+    grid.style.setProperty("--seq-rows", `22px 46px ${"30px ".repeat(seqChord(seq))}30px 30px 24px 24px`);
+  });
+  const grid = h("div", { class: "seq-grid" }, h("div", { class: "seq-labels" }, h("span", { class: "lbl" }, "Step"), h("span", { class: "lbl" }, "Note"),
+      chordLabel(0), chordLabel(1),
+      h("span", { class: "lbl" }, "Gate"), h("span", { class: "lbl" }, "Vel"), h("span", { class: "lbl" }, "Prob"),
+      h("span", { class: "lbl" }, "Ratch")), ...columns);
   return sec("seq", "Sequencer",
     h("div", { class: "seq-top" },
       flag(SEQ_ON, "On", "play the sequence from a key (transposed from it) while keys are held"),
@@ -2335,15 +2388,13 @@ function seqSection() {
       flag(SEQ_CLOCK, "MIDI clock", "tempo from MIDI clock (120 BPM until one arrives); off: the BPM here"),
       field("BPM", bpm), field("Swing", swing), field("Length", lengthSel),
       field("Arpeggio", pick(ARPS, () => seq.arp, v => { seq.arp = v; }, "walk the held notes instead of transposing; each step's note offset transposes the arp note")),
-      field("Lanes", pick(["None (60 steps)", "1 (48 steps)", "2 (40 steps)", "3 (34 steps)", "4 (30 steps)"],
-        () => seq.lanes, v => { seq.lanes = v; }, "automation lanes: mod sources Seq A-D; each takes room from the steps")),
+      field("Lanes", lanesPick),
+      chordField,
       h("button", { type: "button", class: "chip", title: "read the sequence from the synth again", onclick: refreshSequence }, "↻")),
     viz("seq", drawSeq),
     h("div", { class: "seq-pages" }, pages, h("span", { class: "dim small" },
-      "Note: drag up/down for semitones from the key · Gate: 100 % ties into the next step · Vel: 0 = the key's · double-click resets")),
-    h("div", { class: "seq-grid" }, h("div", { class: "seq-labels" }, h("span", { class: "lbl" }, "Step"), h("span", { class: "lbl" }, "Note"),
-      h("span", { class: "lbl" }, "Gate"), h("span", { class: "lbl" }, "Vel"), h("span", { class: "lbl" }, "Prob"),
-      h("span", { class: "lbl" }, "Ratch")), ...columns),
+      "Note: drag up/down for semitones from the key (Note 2 / 3: from the step's note, · = none) · Gate: 100 % ties into the next step · Vel: 0 = the key's · double-click resets")),
+    grid,
     h("div", { class: "seq-tools" },
       h("span", { class: "lbl" }, "Fill"), euclidK, h("span", { class: "dim small" }, "hits, Euclidean, over the length"),
       h("button", { type: "button", class: "chip", onclick: () => euclid() }, "Euclid"),
@@ -3073,9 +3124,10 @@ async function readSound() {
   }
   const h = await ask([0x48], [0x48], 1000);
   if (h) {
-    const f = h[6], lanes = h[2], seq = { on: !!(f & 1), length: h[1], step: JN.divisions[h[3]], clock: !!(f & 2),
+    const f = h[6], chord = f >> 5 & 3, lanes = h[2] - chord, seq = { on: !!(f & 1), length: h[1], step: JN.divisions[h[3]], clock: !!(f & 2),
       bpm: h[4] << 7 | h[5], swing: h[7], once: !!(f & 4), keys: ["both", "1", "2"][f >> 3 & 3] || "both",
       arp: JN.arps[h[10] || 0], lanes, smooth: "ABCD".split("").filter((_, i) => h[8] >> i & 1).join(""), steps: [] };
+    if (chord) seq.chord = chord;
     for (let first = 0; first < seq.length; first += 8) {
       const r = await ask([0x46, first, 8], [0x46, first, 8], 1000);
       if (!r) bad("the synth didn't send its sequence");
@@ -3087,6 +3139,7 @@ async function readSound() {
         if ((extra & 7) !== 0) st.prob = 8 - (extra & 7);
         if (extra >> 3 & 3) st.ratchets = (extra >> 3 & 3) + 1;
         lane.slice(0, lanes).forEach((v, i) => { if (v !== 64) st["abcd"[i]] = Math.round((v - 64) / 63 * 99); });
+        lane.slice(lanes, lanes + chord).forEach((v, c) => { if (v !== 64) st[`n${c + 2}`] = v - 64; });
         seq.steps.push(st);
       }
     }
@@ -3148,21 +3201,27 @@ function planSound(j, has) {
   }
   const q = j.sequence;
   if (q) {
-    const lanes = jInt(0, 4).enc(q.lanes ?? 0, "sequence lanes"), list = q.steps || [];
-    if (!Array.isArray(list) || !list.length || list.length > seqMax(lanes)) bad(`sequence: 1-${seqMax(lanes)} steps with ${lanes} lane(s)`);
+    const lanes = jInt(0, 4).enc(q.lanes ?? 0, "sequence lanes"), chord = jInt(0, 2).enc(q.chord ?? 0, "sequence chord"), list = q.steps || [];
+    if (lanes + chord > 4) bad("sequence: lanes + chord, at most 4");
+    if (!Array.isArray(list) || !list.length || list.length > seqMax(lanes + chord)) bad(`sequence: 1-${seqMax(lanes + chord)} steps with ${lanes} lane(s) and chord ${chord}`);
     const keys = ["both", "1", "2"].indexOf(String(q.keys ?? "both")), arp = JN.arps.indexOf(q.arp === "updown" ? "up-down" : q.arp ?? "off");
     if (keys < 0) bad(`sequence keys: both, 1 or 2, not ${JSON.stringify(q.keys)}`);
     if (arp < 0) bad(`sequence arp: one of ${JN.arps.join(" ")}, not ${JSON.stringify(q.arp)}`);
-    const flags = (q.on ?? true ? 1 : 0) | (q.clock ?? true ? 2 : 0) | (q.once ? 4 : 0) | keys << 3;
+    const flags = (q.on ?? true ? 1 : 0) | (q.clock ?? true ? 2 : 0) | (q.once ? 4 : 0) | keys << 3 | chord << 5;
     const smooth = [...String(q.smooth || "")].reduce((b, c) => "ABCD".includes(c.toUpperCase()) ? b | 1 << "ABCD".indexOf(c.toUpperCase()) : bad(`sequence smooth: lanes A-D, not ${JSON.stringify(q.smooth)}`), 0);
     const bpm = jInt(30, 255).enc(q.bpm ?? 120, "sequence bpm"); // the firmware keeps it in a byte
-    messages.push([0x47, list.length, lanes, jOne(JN.divisions).enc(q.step ?? "1/16", "sequence step"), bpm >> 7, bpm & 0x7F,
+    messages.push([0x47, list.length, lanes + chord, jOne(JN.divisions).enc(q.step ?? "1/16", "sequence step"), bpm >> 7, bpm & 0x7F,
       flags, jInt(0, 75).enc(q.swing ?? 0, "sequence swing"), smooth, arp]);
     list.forEach((x, k) => {
       const n = `step ${k + 1}`, rest = !!x.rest;
       const note = rest ? 64 : 64 + jInt(-36, 36).enc(x.note ?? 0, `${n} note`);
       const prob = jInt(1, 8).enc(x.prob ?? 8, `${n} prob`), ratchets = jInt(1, 4).enc(x.ratchets ?? 1, `${n} ratchets`);
       const lane = [0, 1, 2, 3].map(i => 64 + Math.round(jInt(-99, 99).enc(x["abcd"[i]] ?? 0, `${n} lane ${"abcd"[i]}`) * 63 / 99));
+      for (const c of [0, 1]) {
+        const v = jInt(-36, 36).enc(x[`n${c + 2}`] ?? 0, `${n} n${c + 2}`);
+        if (v && c >= chord) bad(`${n}: n${c + 2} needs sequence chord ${c + 1}`);
+        if (c < chord) lane[lanes + c] = 64 + v;
+      }
       messages.push([0x45, k, 1, note, jInt(0, 127).enc(x.vel ?? 0, `${n} vel`), jInt(1, 100).enc(x.gate ?? 50, `${n} gate`),
         rest ? 0 : 1, (8 - prob) | (ratchets - 1) << 3, ...lane]);
     });

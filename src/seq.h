@@ -2,8 +2,9 @@
 // that key; it loops (or plays once) while keys are held, a new key transposes it from the next step, and letting
 // go of every key stops it. In arpeggio mode the steps walk the held notes instead (up, down, up-down, random, as
 // played), each step's offset transposing the note it plays. Steps can play with a probability and as 2-4 ratchets.
-// Up to four automation lanes run with it as mod sources (SRC_SEQ_A..D). Edited from the host only; stored with the
-// patch (store.c).
+// Up to four automation lanes run with it as mod sources (SRC_SEQ_A..D). The last one or two can instead be chord notes
+// (0.9.3): each step then plays up to three notes, sharing its gate, velocity, probability and ratchets. Edited from
+// the host only; stored with the patch (store.c).
 #ifndef SEQ_H
 #define SEQ_H
 
@@ -17,9 +18,13 @@
 #define SEQ_CLOCK      2u // tempo from MIDI clock (lfo.c), else bpm
 #define SEQ_ONE_SHOT   4u // else loops
 #define SEQ_LAYER_SHIFT 3 // bits 3-4: 0 keys of both layers, 1 layer 1's keys, 2 layer 2's
+#define SEQ_CHORD_SHIFT 5 // bits 5-6: how many of the lanes, the last ones, are chord notes (0-2); firmware before
+                          // 0.9.3 ignores them and plays the step's own note
+#define SEQ_CHORD(flags)  ((flags) >> SEQ_CHORD_SHIFT & 3)
+#define SEQ_CHORD_MAX 2
 
 #define SEQ_GATE_TIE 100  // a gate of 100 % holds the note into the next step (legato)
-#define SEQ_LANE_ZERO 64  // lane values 0..127, 64 = 0
+#define SEQ_LANE_ZERO 64  // lane values 0..127, 64 = 0; a chord lane: semitones from the step's note, 64 = no note
 // extra[]: bits 0-2 probability (0 = always, n = 8 - n in 8), bits 3-4 ratchets - 1
 #define SEQ_PROBABILITY(x) (8 - ((x) & 7))
 #define SEQ_RATCHETS(x)    (((x) >> 3 & 3) + 1)

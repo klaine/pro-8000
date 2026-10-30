@@ -138,8 +138,11 @@ def setting_line(key, value):
 def sequence_lines(seq):
     """`seq set` and `seq step` lines (the proposed tool commands, see README)."""
     lanes = in_range(seq.get("lanes", 0), 0, 4, "lanes")
+    chord = in_range(seq.get("chord", 0), 0, 2, "chord")  # 0.9.3: extra notes per step, each taking a lane
+    check(lanes + chord <= 4, "lanes + chord: at most 4")
     steps = seq["steps"]
-    check(1 <= len(steps) <= MAX_STEPS[lanes], "a sequence with %d lanes holds at most %d steps" % (lanes, MAX_STEPS[lanes]))
+    check(1 <= len(steps) <= MAX_STEPS[lanes + chord],
+          "a sequence with %d lanes and chord %d holds at most %d steps" % (lanes, chord, MAX_STEPS[lanes + chord]))
     check(seq.get("length", len(steps)) == len(steps), "sequence length doesn't match its steps")
     step = seq.get("step", "1/16")
     check(step in DIVISIONS, "step division: " + step)
@@ -151,9 +154,10 @@ def sequence_lines(seq):
     check(all(c in "ABCD" for c in smooth), "smooth: " + smooth)
     bpm = in_range(seq.get("bpm", 120), 30, 255, "bpm")  # the firmware keeps it in a byte
     swing = in_range(seq.get("swing", 0), 0, 75, "swing")
-    head = ("seq set on=%d length=%d step=%s clock=%d bpm=%d swing=%d once=%d keys=%s arp=%s lanes=%d smooth=%s"
+    head = ("seq set on=%d length=%d step=%s clock=%d bpm=%d swing=%d once=%d keys=%s arp=%s lanes=%d smooth=%s%s"
             % (1 if seq.get("on", True) else 0, len(steps), step, 1 if seq.get("clock", True) else 0, bpm, swing,
-               1 if seq.get("once") else 0, keys, "updown" if arp == "up-down" else arp, lanes, smooth or "none"))
+               1 if seq.get("once") else 0, keys, "updown" if arp == "up-down" else arp, lanes, smooth or "none",
+               " chord=%d" % chord if chord else ""))
     lines = [head]
     for i, s in enumerate(steps):
         parts = ["seq step %d" % (i + 1)]
@@ -175,6 +179,10 @@ def sequence_lines(seq):
                 parts.append("%s%+d" % (lane, in_range(s[lane], -99, 99, "step %d lane %s" % (i + 1, lane))))
         for lane in "abcd"[lanes:]:
             check(not s.get(lane), "step %d uses lane %s but the sequence has %d lane(s)" % (i + 1, lane, lanes))
+        for c, name in enumerate(("n2", "n3")):
+            if s.get(name):
+                check(c < chord, "step %d uses %s but the sequence has chord %d" % (i + 1, name, chord))
+                parts.append("%s%+d" % (name, in_range(s[name], -36, 36, "step %d %s" % (i + 1, name))))
         lines.append(" ".join(parts))
     return lines
 

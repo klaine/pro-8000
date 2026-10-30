@@ -15,7 +15,9 @@ static struct {
     uint8_t note, velocity, layers; // layers: where the key would have played (synth_key_layers())
 } held[HELD_MAX]; // keys the sequence took, the latest last
 static int held_count;
-static int playing, step, layers, sounding = -1, tied, ratchet, skipped, arp_index;
+static int playing, step, layers, tied, ratchet, skipped, arp_index;
+static uint8_t sounding[1 + SEQ_CHORD_MAX]; // the notes playing, the step's own first
+static int sounding_count;
 static float in_step; // seconds into the current step
 static uint8_t base_note, base_velocity;
 static uint32_t random_state = 0x6C078965u;
@@ -51,6 +53,9 @@ void seq_fix(void)
         s->swing = 75;
     if (s->arp >= ARP_COUNT)
         s->arp = ARP_OFF;
+    int chord = SEQ_CHORD(s->flags);
+    chord = chord > SEQ_CHORD_MAX ? SEQ_CHORD_MAX : chord > s->lanes ? s->lanes : chord;
+    s->flags = (uint8_t)((s->flags & ~(3u << SEQ_CHORD_SHIFT)) | (unsigned)chord << SEQ_CHORD_SHIFT);
 }
 
 void seq_clear(void)
@@ -67,9 +72,9 @@ void seq_clear(void)
 
 static void release(void)
 {
-    if (sounding >= 0)
-        synth_note_off_layers((uint8_t)sounding, layers);
-    sounding = -1;
+    for (int i = 0; i < sounding_count; i++)
+        synth_note_off_layers(sounding[i], layers);
+    sounding_count = 0;
     tied = 0;
 }
 
@@ -117,18 +122,39 @@ static uint8_t arp_note(void)
     return sorted[i];
 }
 
+static int has_note(const uint8_t *notes, int count, int note)
+{
+    for (int i = 0; i < count; i++)
+        if (notes[i] == note)
+            return 1;
+    return 0;
+}
+
+static uint8_t clamp_note(int note) { return (uint8_t)(note < 0 ? 0 : note > 127 ? 127 : note); }
+
+// Plays the step's note and its chord notes, offsets from it
 static void play_note(int retrigger)
 {
+    uint8_t notes[1 + SEQ_CHORD_MAX];
+    int count = 0, chord = SEQ_CHORD(sequence.flags);
     int note = (int)(sequence.arp ? arp_note() : base_note) + (int)sequence.note[step] - 64;
-    note = note < 0 ? 0 : note > 127 ? 127 : note;
-    uint8_t velocity = sequence.velocity[step] ? sequence.velocity[step] : base_velocity;
-    if (retrigger || !(tied && note == sounding)) { // a tie into the same note just carries on
-        int previous = sounding;
-        synth_note_on_layers((uint8_t)note, velocity, layers);
-        if (previous >= 0 && previous != note)
-            synth_note_off_layers((uint8_t)previous, layers); // after the new note: legato when tied
-        sounding = note;
+    notes[count++] = clamp_note(note);
+    for (int c = 0; c < chord; c++) {
+        int value = sequence.lane[sequence.lanes - chord + c][step];
+        uint8_t n = clamp_note(notes[0] + value - SEQ_LANE_ZERO);
+        if (value != SEQ_LANE_ZERO && !has_note(notes, count, n))
+            notes[count++] = n;
     }
+    uint8_t velocity = sequence.velocity[step] ? sequence.velocity[step] : base_velocity;
+    for (int i = 0; i < count; i++) // a tie into the same note just carries on
+        if (retrigger || !(tied && has_note(sounding, sounding_count, notes[i])))
+            synth_note_on_layers(notes[i], velocity, layers);
+    for (int i = 0; i < sounding_count; i++)
+        if (!has_note(notes, count, sounding[i]))
+            synth_note_off_layers(sounding[i], layers); // after the new notes: legato when tied
+    for (int i = 0; i < count; i++)
+        sounding[i] = notes[i];
+    sounding_count = count;
 }
 
 static void play_step(void)
@@ -210,7 +236,7 @@ void seq_update(float dt)
             play_note(1);
         }
     }
-    if (sounding >= 0 && !tied && in_step - (float)ratchet * part >= part * (float)gate / 100.0f)
+    if (sounding_count && !tied && in_step - (float)ratchet * part >= part * (float)gate / 100.0f)
         release();
     while (in_step >= length) {
         in_step -= length;
@@ -229,7 +255,7 @@ void seq_update(float dt)
 
 float seq_lane(int lane)
 {
-    if (!playing || lane >= sequence.lanes)
+    if (!playing || lane >= sequence.lanes - SEQ_CHORD(sequence.flags))
         return 0;
     float v = (float)sequence.lane[lane][step];
     if (sequence.smooth >> lane & 1) {
@@ -258,6 +284,8 @@ static int record_step(int offset, uint8_t velocity, uint8_t gate)
     sequence.velocity[recorded] = velocity;
     sequence.gate[recorded] = gate;
     sequence.extra[recorded] = 0;
+    for (int c = 1; c <= SEQ_CHORD(sequence.flags); c++)
+        sequence.lane[sequence.lanes - c][recorded] = SEQ_LANE_ZERO; // one note: chords are entered on the web page
     sequence.length = (uint8_t)++recorded;
     sequence.flags |= SEQ_ENABLED;
     return recorded;
