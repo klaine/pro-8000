@@ -2057,12 +2057,7 @@ function lfoSection(which) {
   const stepEdit = h("div", { class: "step-edit" }, h("div", { class: "steps" }, cells),
     h("div", { class: "step-tools" }, countSel, op("Clear", "all steps off", () => 0), op("Invert", "", (b, all) => ~b & all),
       op("◀", "rotate left", (b, all, c) => (b >> 1 | (b & 1) << (c - 1)) & all),
-      op("▶", "rotate right", (b, all, c) => (b << 1 | b >> (c - 1)) & all),
-      op("Trance", "1 0 1 0 1 1 0 0, twice", (b, all) => 0x3535 & all),
-      op("Euclid", "3 hits in every 8 steps, spread evenly", (b, all, c) => {
-        const k = Math.max(1, Math.round(c * 3 / 8)); let x = 0;
-        for (let i = 0; i < c; i++) if (i * k % c < k) x |= 1 << i;
-        return x; })));
+      op("▶", "rotate right", (b, all, c) => (b << 1 | b >> (c - 1)) & all)));
   paints.push(() => { stepEdit.hidden = !settings || settings[shapeKey()] !== STEPS_SHAPE; });
   // LFO 1's rate, shape, amount and routing are on the faceplate (LFO-MOD); LFO 2 has them here
   const routing = which ? [["Pitch", 1], ["Filter", 2], ["PW", 4]].map(([t, bit]) => led(t, () => settings && settings[`lfo2Dests${paramsLayer + 1}`] & bit,

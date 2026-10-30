@@ -259,7 +259,7 @@ The setting is per LFO, shared by both layers, and saved in the patch.
 The `StEP` shape plays a pattern of up to 16 steps over one LFO cycle: high for a step that's on, low for one
 that's off. Each LFO of each layer has its own pattern, stored in the patch. The default is the trance gate
 `1 0 1 0 1 1 0 0`, twice. Edit it on the web page's Sound tab: choose Steps as the LFO's shape and a row of step
-boxes appears. Click steps on or off, choose 2-16 steps, and use Clear, Invert, rotate ◀ ▶ or Trance gate. On the
+boxes appears. Click steps on or off, choose 2-16 steps, and use Clear, Invert or rotate ◀ ▶. On the
 command line: `build/pro800 set steps <layer> <lfo> x.x.xx..`.
 
 For a gate on the volume:

@@ -1574,6 +1574,11 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   some would leave the rest wherever they were. Keys under Keys therefore sound like the shared modes.
 - **8CH and MPE** go past the sequence (`synth_voice_note_on()`), so the setting doesn't apply there.
 
+## Fewer buttons on the LFO step grid (0.9.3, 2026-10-30)
+
+- The Trance and Euclid buttons are gone from the web page's LFO step grid (clutter: a pattern is quick to click in). A new
+  LFO still starts on the trance gate pattern; the sequencer keeps its own Euclid fill.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.
