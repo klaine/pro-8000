@@ -749,8 +749,9 @@ computer). It sees what the synth is running and walks through the rest, asking 
 - **Install PRO-8000:** flashes the current release, and if you want, initialises the patch memory and installs the
   preset bank. Coming from stock, it first saves a memory image, your only copy of your stock patches.
 - **Back to stock:** fixes the patch memory while PRO-8000 still runs, flashes stock 1.4.6 from a file you provide
-  (see step 3 below for where SynthTribe keeps it; this site can't share Behringer's firmware), and tells you what's
-  left to do on the synth.
+  (see step 3 below for where SynthTribe keeps it on a Mac; this site can't share Behringer's firmware), and tells you
+  what's left to do on the synth. On Windows SynthTribe leaves no file to provide, so fix the patch memory from the web
+  editor and flash with SynthTribe itself (step 3, route 1).
 
 Before you start, quit SynthTribe and close anything else that uses MIDI, MIDI patchbays and other browser pages
 included. One stray message makes the bootloader refuse the update and stop answering, though nothing is harmed: close
@@ -774,7 +775,8 @@ The installer page does steps 2 to 4 for you. By hand, do these steps in order. 
 read PRO-8000's patches, and the step 2 tools only work while PRO-8000 is running.
 
 **What has been tested:** one synth went back to stock 1.4.6 by route A and by route B in step 2, each time with
-route 2 in step 3. The SynthTribe route (route 1) has failed every time on that synth, so read its note first.
+route 2 in step 3. On that synth the SynthTribe route (route 1) has failed every time on a Mac but worked on Windows,
+so read its note first.
 
 **1. Save your PRO-8000 sounds (optional).** Open the [web editor](https://klaine.github.io/pro-8000/editor/) in Chrome
 or Edge, go to the Patches tab and click **Back up everything**. Only PRO-8000 can read this file, so it is useful only
@@ -807,14 +809,18 @@ the bootloader is ready, so let go of the buttons. Then choose a route.
   current stock firmware itself. It may show the PRO-8000 version number or `0.0.0` as the current firmware; that's
   normal. Clicking update changes the display to `UPDA`.
 
-  *This has never finished on our synth* (SynthTribe 3.2.4, macOS 26, Chrome closed): the bar stays at 0% or 1%
-  and the display stays on `UPDA`. PRO-8000 isn't running at that point, so the cause isn't in its code, and SynthTribe
-  may behave differently on another computer. If the bar hasn't moved after 2 minutes, quit SynthTribe, switch the
-  synth off and on with 0 and 7 held again, and use route 2. The stalled attempt does no harm.
+  *On Windows this seems to work:* SynthTribe 2.6.7 on Windows 11, started after the synth was already showing `boot`,
+  put 1.4.6 back on our synth. Only that one version and computer have been tried, so check the result in step 4.
+
+  *On a Mac it has never finished on our synth* (SynthTribe 3.2.4, macOS 26, Chrome closed): the bar stays at 0% or 1%
+  and the display stays on `UPDA`. PRO-8000 isn't running at that point, so the cause isn't in its code. If the bar
+  hasn't moved after 2 minutes, quit SynthTribe, switch the synth off and on with 0 and 7 held again, and use route 2.
+  The stalled attempt does no harm.
 
 - **Route 2: the command-line tool (Mac).** Run SynthTribe's update once so that it downloads the firmware, then quit
   it, even if the bar is stuck. The file is in `~/Library/Caches/com.behringer.synthtribe/fsCachedData/`. It has a random name and is about
-  169 kB. Copy it somewhere and name it `pro800-stock.syx`, then run:
+  169 kB. (SynthTribe 2.6.7 on Windows leaves no such file: after its update there was no copy on any drive.) Copy it
+  somewhere and name it `pro800-stock.syx`, then run:
 
   ```bash
   build/pro800 flash pro800-stock.syx --yes

@@ -328,7 +328,8 @@ build/pro800 install build/pro800-0.9.3.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`
-(this one or the stock one). See the manual for going back to stock: SynthTribe's own update has stalled on the one synth tested.
+(this one or the stock one). See the manual for going back to stock: on the one synth tested, SynthTribe's own update
+has stalled on a Mac (3.2.4) but seems to work on Windows (2.6.7).
 
 ## Layout
 

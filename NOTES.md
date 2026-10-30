@@ -205,6 +205,16 @@ sat idle with no sending thread. Its symbols (`queryDeviceMode`, `currentModeCha
 `sendFirmwareData`) suggest `03 31` answers a mode query as well as our header. Unknown: what SynthTribe sends after it,
 since CoreMIDI shows only the synth's side. `pro800 flash` with the same file works, and it's the way back to stock.
 
+SynthTribe 2.6.7 on Windows 11, reported by the user 2026-10-30: started after the synth was in the bootloader (0 + 7),
+it seems to put stock 1.4.6 back, so the stall above may be specific to 3.2.4 or macOS. Not checked from here with
+`pro800 version` (the tool is macOS-only). The portable exe (Enigma Virtual Box, unpacks only small `evb*.tmp` stubs to
+Temp) has no installed folder and no PRO-800 update inside: its SysEx headers are all device `1E`, and its cloud URL
+is `cloud.midasconsoles.com/api/v2/firmware/…/latest`. After the update no file of that size or with the update's
+header was on any drive, INetCache included, so unlike the Mac there's nothing to copy; whether it was never written or
+was deleted isn't known. The running process still held it: a read-only search of its memory for `F0 00 20 32 00 01 24`
+found one 169,061-byte run of 664 messages whose SHA-256 is `0f7b1af2…5e18`, the same file as the Mac cache
+(`STOCK_TESTED` in `tools/web/install.html`).
+
 ## DAC and S&H wiring (sheets 1-3, checked at 400 dpi)
 
 - DAC80501 (U46) in SPI mode (SPI2C tied low): SCLK PC10, SDIN PB0, SYNC PA15 (SPI3's pins; bit-banged for
