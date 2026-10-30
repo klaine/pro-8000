@@ -1552,6 +1552,75 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   Now `store_save_patch()` writes the block when it's missing (panel saves, bank installs, factory copies); no slot
   is erased. Raw EEPROM writes (`0x5A`, `eeprom-write`) don't, so writing the stock image back stays stock.
 
+## One shot LFOs (0.9.3, 2026-10-30)
+
+- **What:** two retrigger types after the four old ones, `LFO_TRIGGER_ONE_SHOT` (4, `1Sht`) and `LFO_TRIGGER_ONE_SHOT_VOICE`
+  (5, `1S.Po`), and `lfo_cycles[2]` (1-99), per LFO like the rest of the trigger settings: host settings 84, 85 (read-only
+  ones now 86-89, `SET_COUNT` 90, `SYSEX_MAX` 192), patch record bytes 348-349 (0 = 1, so 158 reserved bytes are left),
+  JSON `lfo-cycles`, `lfo2-cycles`. Tool: `set lfo-trigger one-shot|one-shot-voice`, `set lfo-cycles <1-99>`.
+- **Two types, not a per-voice switch:** retrigger already means "which phase and what restarts it", and `PoLY` is one of its
+  values. A switch would mean nothing for the other types. Every key restarts a one shot; a first-key flavour was left out
+  (the settings' value table has room for six names).
+- **Stopped = phase exactly 1.0** (`advance_shot()`), which `advance()` never leaves, so no flag is needed. Every shape's
+  formula is continuous up to 1.0, so the stopped LFO holds its last output instead of jumping to a shape's rest: triangle,
+  sine, square, ramp down -1; ramp up +1; steps the last step; S&H the held value; drift the `next` it reached; noise
+  frozen where it was (`noise_advance()` is skipped). Restart uses `new_cycle()`, so drift goes on from where it stopped.
+  Leaving one shot mode needs no cleanup: `advance()` wraps 1.0 like any other phase.
+- **The delay holds the start back** (`phase_t.wait`), set from `lfo_seconds(lfo_delay)` at note-on. Otherwise the phase runs
+  during the delay (fine for an endless LFO) and a delay longer than the cycles would fade in only the held end. The fade is
+  still the age-based gain.
+- **Per voice:** `lfo_voice_phases()` replaces the `== PER_VOICE` tests. In `1S.Po` the shared phase is a one shot too,
+  restarted by every key, because LFO → PW reads voice -1: free-running it would never stop.
+- **Clock:** as every retrigger, rate from the tempo, phase from the key; the grid branch is for `FREE` only. MIDI Start
+  zeroes the shared phases, which would have restarted a stopped one shot with no key, so `clock_update()` skips one shots.
+- **Links:** nothing special. `lfos_note_on()` and the voice update already go through `lfo_layer()`, so a linked one shot is
+  layer 1's: a key on either layer restarts it, and in `1S.Po` a layer 2 voice's phase is layer 1's LFO's `voice[v]`.
+- **Older firmware:** `synth_apply_patch()`'s range check turns 4 and 5 into free-running; it doesn't write 348-349 when it saves.
+- **Panel:** Settings 2. Arp Up-Dn is taken there (it picks the LFO), so key 2 again toggles `trIG` and `Cn.1` / `Cn.2`.
+- **Probe:** `pro800 engine` now prints each LFO's phase (`lfo_probe()`, 40 more bytes in the 55 reply, 93).
+
+## LFO restarts from a sequence's keys (0.9.3, 2026-10-30)
+
+- **What:** `lfo_restart_keys`, host setting 86 (read-only ones now 87-90, `SET_COUNT` 91, `SYSEX_MAX` 193), patch record byte
+  350 (0 = steps, what older firmware did; 157 reserved bytes left), `pro800 set lfo-restart steps|keys`, JSON `lfo-restart`,
+  a menu in the web page's Sequencer. No panel page: the sequence is edited from the host. A patch setting rather than a
+  sequence flag: the flags' 7 bits to the host are nearly used up, and the LFOs are what it changes.
+- **Why a setting:** a sequence's notes went through `layer_note_on()`, so each step was a key to the LFOs. That's useful
+  (each note's own one shot) and saved patches may rely on it, so Steps stays the default.
+- **How:** `keys_restart_lfos(layer)` says a layer's notes come from such a sequence, not who is calling, so it also covers a
+  mono layer falling back to a held note in `synth_note_off_layers()`. It silences `lfos_note_on()` and the `lfo_age` reset in
+  `gate_on()`, and `seq_key_on()` calls `synth_lfos_key()` before the first step. There each of the layer's voices restarts
+  its age, so delay and fade run from the key and a voice a step lands on later isn't still in its delay or long past it.
+- **Per-voice modes** restart every voice's phase together (`lfo_key_on()`): steps move between voices, so restarting only
+  some would leave the rest wherever they were. Keys under Keys therefore sound like the shared modes.
+- **8CH and MPE** go past the sequence (`synth_voice_note_on()`), so the setting doesn't apply there.
+
+## Fewer buttons on the LFO step grid (0.9.3, 2026-10-30)
+
+- The Trance and Euclid buttons are gone from the web page's LFO step grid (clutter: a pattern is quick to click in). A new
+  LFO still starts on the trance gate pattern; the sequencer keeps its own Euclid fill.
+- The default pattern is now `1 0 1 0 1 1 1 0`, twice (`LFO_DEFAULT_PATTERN` 0x7575, was 0x3535). It applies to the init sound and
+  records that never stored a step count; a patch that stored a pattern keeps it, and P62 Trance Gate names its own.
+
+## Mod routes on both layers (0.9.3, 2026-10-30)
+
+- **What:** `route_both[2]`, a bit per route slot: that route also plays on the other layer's voices, in split, stack and channel.
+  Patch record bytes 351-354 (zero: as before; 153 reserved bytes left), host settings 87-90 (each layer's slots 0-7 and 8-15,
+  as a setting holds 14 bits and the reply 2 bytes each; read-only now 91-94, `SET_COUNT` 95, `SYSEX_MAX` 201), `pro800
+  route-both <layer> <source> <dest> on|off`, `routes` marks them, JSON `[source, dest, depth, "both"]`, Both in the web matrix.
+- **Why per route:** a Link for the whole matrix would take away layer 2's own routes. One slot and one depth, on the layer it was
+  made on. Sources are read per voice, so velocity and the envelopes are that voice's, and an LFO that layer's unless linked.
+- **`evaluate_routes()`** runs its own 16, then the other layer's flagged ones; the second pass stops at once when that mask is 0, so
+  patches without any cost one test. `fast_routes` and `uses_env34` look at both tables.
+- **Single wires:** `shared_mod[]` adds both layers' `last_mod`, so a both-layers route would count twice. `summed_wire()` lets it count
+  only on `newest_layer()`, which matches what a wire means (the newest note). Morph, detune and the LFO rates are per layer: not summed.
+- **Slots:** `synth_set_route()` clears the bit when a slot empties or fills, so a new route never inherits one. Copying a layer leaves out
+  the source's both-layers routes (they already play on the target) and clears the target's bits.
+- **Panel:** none. Arp Assign makes one-layer routes and browses the edit layer's own table, so a both-layers route shows only on its layer.
+- **Older firmware** ignores 351-354 and plays them as one layer's routes; it clears them when it saves.
+- **Web:** the other layer's flagged routes are listed after the layer's own, marked, with their source and destination locked; depth,
+  Both and Remove act on the owner. The knobs' rings and the LFO depth bars count them. The macro and lane readouts show own routes only.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

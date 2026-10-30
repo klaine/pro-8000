@@ -415,7 +415,7 @@
   <h3>Linking layers</h3>
   <div class="prose">
     <p>A stack usually wants two different oscillators under one filter movement. A patch can <strong>link</strong> groups of layer 2's settings to layer 1: the filter (cutoff and envelope amount), each of the four envelopes, and each LFO. Nothing is copied. When the engine works out a linked group for layer 2 it simply reads layer 1's values, so layer 2's own stay stored and return the moment you unlink. Turning a linked knob while editing layer 2 edits layer 1, and both layer LEDs light for a second to say so.</p>
-    <p>A linked LFO is layer 1's LFO itself, not a second one set to match, so the two layers can't drift apart: layer 2's voices read its phase, or in per-voice retrigger keep their own phases at its rate. Mod routes stay per layer, so layer 2 can still add its own velocity or LFO on top of the shared cutoff. Links work in the split, stack and channel modes; the web page's Filter, envelope and LFO sections each have a Link button.</p>
+    <p>A linked LFO is layer 1's LFO itself, not a second one set to match, so the two layers can't drift apart: layer 2's voices read its phase, or in per-voice retrigger keep their own phases at its rate. A key on either layer restarts a linked one shot. Mod routes stay per layer, so layer 2 can still add its own velocity or LFO on top of the shared cutoff. Links work in the split, stack and channel modes; the web page's Filter, envelope and LFO sections each have a Link button.</p>
   </div>
 
   <h3>Envelopes with an analog shape</h3>
@@ -449,12 +449,12 @@
     <figcaption><b>Figure 11.</b> Top: one beat of MIDI clock, slightly uneven, as it really arrives. Bottom: an LFO at 1/8, smooth, and still landing on the beat. Measured on the synth at 1/4 triplets and 120 BPM: 27 flips averaged 0.1667 s apart, exactly the expected value.</figcaption>
   </figure>
   <div class="prose">
-    <p>Each LFO keeps a phase, a position through its cycle from 0 to 1. In the per-voice retrigger mode, every voice keeps its <em>own</em> phase, started at its own note-on. That's cheap, because LFOs are added in software to each voice's pitch and cutoff. Pulse width is one shared wire, so LFO → PW always uses the shared phase. Each LFO also has a delay and a fade-in: a gain per voice that stays at zero after the note starts and then rises to 1, so vibrato can arrive late without a route.</p>
+    <p>Each LFO keeps a phase, a position through its cycle from 0 to 1. In the per-voice retrigger mode, every voice keeps its <em>own</em> phase, started at its own note-on. That's cheap, because LFOs are added in software to each voice's pitch and cutoff. Pulse width is one shared wire, so LFO → PW always uses the shared phase. A <strong>one shot</strong> is a phase that stops: a key restarts it, it counts its cycles (1 to 99), and at the end of the last it stays at exactly 1.0, where every shape's formula still gives the value it was heading for, so a stopped LFO holds its last output without a jump. Each LFO also has a delay and a fade-in: a gain per voice that stays at zero after the note starts and then rises to 1, so vibrato can arrive late without a route.</p>
   </div>
 
   <h3>The mod matrix: adding things up per voice</h3>
   <div class="prose">
-    <p>Each layer has 16 routes. A route is just three numbers: a source (one of 27), a destination (one of 46), and a depth from −99 to +99. For every voice, the engine evaluates each route and adds <code>source × depth</code> to the destination: routes from envelopes and LFOs into pitch, cutoff and the VCA in every tick, the rest once a pass. Because the sources are per voice too (that voice's velocity, its envelopes, its random value, its pressure, its place in the layer), one route gives every note its own amount.</p>
+    <p>Each layer has 16 routes. A route is just three numbers: a source (one of 27), a destination (one of 46), and a depth from −99 to +99. For every voice, the engine evaluates each route and adds <code>source × depth</code> to the destination: routes from envelopes and LFOs into pitch, cutoff and the VCA in every tick, the rest once a pass. Because the sources are per voice too (that voice's velocity, its envelopes, its random value, its pressure, its place in the layer), one route gives every note its own amount. A route can also be set to play on both layers: it keeps one slot and one depth, and each layer's voices read their own sources. A single wire adds both layers' routes up, so there the route counts once, from the newest note.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
@@ -562,7 +562,7 @@
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
       <svg viewBox="0 0 880 268" role="img" aria-labelledby="f15t">
-        <title id="f15t">A 768-byte patch record drawn to scale. The first 512 bytes: magic and name, settings, knobs, extra knobs, mod routes, later settings, 160 reserved bytes and a checksum. The second 256 bytes: sequence header, step data and a checksum.</title>
+        <title id="f15t">A 768-byte patch record drawn to scale. The first 512 bytes: magic and name, settings, knobs, extra knobs, mod routes, later settings, 153 reserved bytes and a checksum. The second 256 bytes: sequence header, step data and a checksum.</title>
         <text x="20" y="24" class="t-b">The patch: 512 bytes</text><text x="580" y="24" class="t-b">The sequence: 256 bytes</text>
         <rect class="box" x="20" y="74" width="21.9" height="58" rx="2"/>
         <rect class="box-sh" x="41.9" y="74" width="83.1" height="58" rx="2"/>
@@ -579,7 +579,7 @@
         <text x="182" y="108" class="t-xs" text-anchor="middle">knobs</text>
         <text x="260.6" y="108" class="t-xs" text-anchor="middle">extra</text>
         <text x="335" y="108" class="t-xs" text-anchor="middle">mod routes</text>
-        <text x="488" y="108" class="t-xs" text-anchor="middle">reserved: 160 bytes</text>
+        <text x="488" y="108" class="t-xs" text-anchor="middle">reserved: 153 bytes</text>
         <text x="724" y="108" class="t-xs" text-anchor="middle">steps and lanes</text>
         <path class="ln" d="M31 74 V54"/><text x="20" y="48" class="t-xs">"P8P2", name</text>
         <path class="ln" d="M394 74 V54"/><text x="394" y="48" class="t-xs" text-anchor="middle">later settings</text>
@@ -602,8 +602,8 @@
         <tr><td>96–199</td><td>Knobs</td><td>26 per layer, each 16 bits, more than the panel's 12-bit readings or the web page's 14-bit values need.</td></tr>
         <tr><td>200–239</td><td>Extra knobs</td><td>10 per layer that have no knob of their own: Env 3 and Env 4's ADSR, LFO 2's rate and amount.</td></tr>
         <tr><td>240–335</td><td>Mod routes</td><td>16 per layer, 3 bytes each: source, destination, signed depth.</td></tr>
-        <tr><td>336–347</td><td>Later settings</td><td>Cycle counts, stage times in note values, layer links: the fields added since 0.9.1.</td></tr>
-        <tr><td>348–507</td><td>Reserved</td><td>160 bytes of zeros for what comes next.</td></tr>
+        <tr><td>336–354</td><td>Later settings</td><td>Cycle counts, stage times in note values, layer links, one shot LFO cycles, what restarts the LFOs under a sequence, both-layers routes: the fields added since 0.9.1.</td></tr>
+        <tr><td>355–507</td><td>Reserved</td><td>153 bytes of zeros for what comes next.</td></tr>
         <tr><td>508–511</td><td>Checksum</td><td>Over everything before it. A record that fails is shown as damaged rather than played.</td></tr>
         <tr><td>512–523</td><td>"P8S2" and the sequence header</td><td>Length, number of lanes, clock division, tempo, flags, swing, smoothing, arpeggio mode.</td></tr>
         <tr><td>524–763</td><td>Steps and lanes</td><td>240 bytes shared: each step takes 4 (note, velocity, gate, and a byte for probability, ratchets and which notes hold past the gate) plus 1 per automation lane. That's 60 steps with no lanes, 30 with all four. The last one or two lanes can hold a step's extra chord notes instead of modulation: two spare bits in the flags say how many.</td></tr>

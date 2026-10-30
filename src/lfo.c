@@ -13,6 +13,13 @@
 // Every phase carries two random values for the random shapes: the one it holds (sample & hold) and the next one
 // (drift glides towards it); both move on when the phase wraps or is retriggered. The noise shape runs its own
 // faster sequence of random values beside the phase (noise_advance()).
+//
+// One shot: a key restarts the phase and it runs the LFO's count of cycles, then stops at 1.0, the very end of the last
+// cycle, a value no other mode leaves it at. Every shape's formula is continuous up to there, so a stopped LFO holds
+// what it last output and nothing jumps; the random values stay too. A one shot waits out the LFO's delay at phase 0
+// before it starts, or a delay longer than its cycles would hide them all. With the clock the rate follows the tempo
+// and the phase starts at the key, as with every retrigger. In per-voice one shot the shared phase is a one shot too,
+// restarted by every key, for what can only read one phase (pulse width).
 #include "lfo.h"
 #include "clock.h"
 #include "fastmath.h"
@@ -30,6 +37,7 @@
 
 lfo_sync_t lfo_sync[2];
 lfo_trigger_t lfo_trigger[2];
+uint8_t lfo_cycles[2] = {1, 1};
 uint8_t lfo_delay[2], lfo_fade[2];
 
 float lfo_seconds(uint8_t value) { return value ? 0.02f * fast_exp2((float)value * (8.0f / 99)) : 0; }
@@ -64,6 +72,8 @@ typedef struct {
     float phase;
     float held, next; // random values, -1..1
     float noise, noise_from, noise_to; // the noise shape: 0..1 between two random values
+    float wait;    // a one shot: seconds of the LFO's delay still to go
+    uint8_t cycle; // a one shot: the cycles it has finished
 } phase_t;
 
 static struct {
@@ -99,6 +109,8 @@ static void new_cycle(phase_t *p)
 static void restart(phase_t *p)
 {
     p->phase = 0;
+    p->cycle = 0;
+    p->wait = 0;
     new_cycle(p);
 }
 
@@ -121,6 +133,32 @@ static void noise_advance(phase_t *p, float step)
         p->noise_from = p->noise_to;
         p->noise_to = random_value();
     }
+}
+
+static int one_shot(int which)
+{
+    return lfo_trigger[which] == LFO_TRIGGER_ONE_SHOT || lfo_trigger[which] == LFO_TRIGGER_ONE_SHOT_VOICE;
+}
+
+// A one shot's `step` cycles, `dt` seconds of them: after the delay, up to the end of its last cycle
+static void advance_shot(phase_t *p, int which, float dt, float step)
+{
+    if (p->wait > 0) {
+        p->wait -= dt;
+        return;
+    }
+    if (p->phase >= 1.0f)
+        return;
+    noise_advance(p, step);
+    p->phase += step;
+    if (p->phase < 1.0f)
+        return;
+    if (++p->cycle >= lfo_cycles[which]) {
+        p->phase = 1.0f;
+        return;
+    }
+    p->phase -= (float)(int)p->phase;
+    new_cycle(p);
 }
 
 void lfo_clock_tick(uint32_t cycles)
@@ -180,7 +218,8 @@ static void clock_update(float dt)
     }
     if (starts != seen_starts)
         for (int i = 0; i < LFO_COUNT; i++)
-            lfos[i].shared.phase = 0;
+            if (!one_shot(i / 2)) // only a key restarts it
+                lfos[i].shared.phase = 0;
     seen_starts = starts;
     seen_jumps = jumps;
     float interval = tick_interval, since = (float)(DWT_CYCCNT - stamp) / (float)system_hz;
@@ -231,9 +270,40 @@ const char *lfo_shape_name(lfo_shape_t shape) { return shape_names[shape < LFO_S
 void lfo_note_on(int lfo, int voice, int first)
 {
     lfo_trigger_t trigger = lfo_trigger[lfo / 2];
-    if (trigger == LFO_TRIGGER_EVERY_KEY || (trigger == LFO_TRIGGER_FIRST_KEY && first))
+    int shot = one_shot(lfo / 2);
+    if (shot || trigger == LFO_TRIGGER_EVERY_KEY || (trigger == LFO_TRIGGER_FIRST_KEY && first))
         restart(&lfos[lfo].shared);
     restart(&lfos[lfo].voice[voice]);
+    if (shot)
+        lfos[lfo].shared.wait = lfos[lfo].voice[voice].wait = lfo_seconds(lfo_delay[lfo / 2]);
+}
+
+int lfo_probe(uint8_t *out)
+{
+    int n = 0;
+    for (int lfo = 0; lfo < LFO_COUNT; lfo++) {
+        out[n++] = (uint8_t)(lfos[lfo].shared.phase * 100);
+        out[n++] = lfos[lfo].shared.cycle & 0x7F;
+        for (int v = 0; v < VOICE_COUNT; v++)
+            out[n++] = (uint8_t)(lfos[lfo].voice[v].phase * 100);
+    }
+    return n;
+}
+
+void lfo_key_on(int lfo, int first)
+{
+    lfo_trigger_t trigger = lfo_trigger[lfo / 2];
+    int shot = one_shot(lfo / 2);
+    if (shot || trigger == LFO_TRIGGER_EVERY_KEY || (trigger == LFO_TRIGGER_FIRST_KEY && first)) {
+        restart(&lfos[lfo].shared);
+        lfos[lfo].shared.wait = shot ? lfo_seconds(lfo_delay[lfo / 2]) : 0;
+    }
+    if (!lfo_voice_phases(lfo / 2))
+        return;
+    for (int v = 0; v < VOICE_COUNT; v++) {
+        restart(&lfos[lfo].voice[v]);
+        lfos[lfo].voice[v].wait = shot ? lfo_seconds(lfo_delay[lfo / 2]) : 0;
+    }
 }
 
 void lfo_update(int lfo, float dt, float knob, float octaves)
@@ -247,6 +317,10 @@ void lfo_update(int lfo, float dt, float knob, float octaves)
     lfos[lfo].rate = rate;
 
     phase_t *p = &lfos[lfo].shared;
+    if (one_shot(which)) {
+        advance_shot(p, which, dt, rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f));
+        return;
+    }
     if (synced && tick_interval > 0 && lfo_trigger[which] == LFO_TRIGGER_FREE) { // on the grid
         float cycles = position / (TICKS_PER_QUARTER * quarters);
         float grid = cycles - (float)(int)cycles;
@@ -271,6 +345,10 @@ void lfo_update(int lfo, float dt, float knob, float octaves)
 void lfo_update_voice(int lfo, int voice, float dt, float octaves)
 {
     float step = lfos[lfo].rate * dt * (octaves != 0 ? fast_exp2(octaves) : 1.0f);
+    if (one_shot(lfo / 2)) {
+        advance_shot(&lfos[lfo].voice[voice], lfo / 2, dt, step);
+        return;
+    }
     advance(&lfos[lfo].voice[voice], step);
     noise_advance(&lfos[lfo].voice[voice], step);
 }
@@ -286,8 +364,7 @@ static float sine(float x)
 
 float lfo_value(int lfo, int voice, lfo_shape_t shape)
 {
-    const phase_t *p = voice >= 0 && lfo_trigger[lfo / 2] == LFO_TRIGGER_PER_VOICE ? &lfos[lfo].voice[voice]
-                                                                                    : &lfos[lfo].shared;
+    const phase_t *p = voice >= 0 && lfo_voice_phases(lfo / 2) ? &lfos[lfo].voice[voice] : &lfos[lfo].shared;
     float x = p->phase;
     switch (shape) {
     case LFO_SQUARE: return x < 0.5f ? 1.0f : -1.0f;

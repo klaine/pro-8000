@@ -62,6 +62,11 @@ void synth_copy_layer(int from, int to);
 // The layers (bit 0 layer 1, bit 1 layer 2) a key would play, and playing a note on given layers (the sequencer).
 int synth_key_layers(uint8_t note, int channel);
 void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers);
+// A sequence's LFO restarts (0.9.3): 0 from its steps, as any note; 1 from the keys pressed, the steps leaving the LFOs,
+// their delay and fade alone. Per patch.
+int synth_lfo_restart_keys(void);
+void synth_set_lfo_restart_keys(int on);
+void synth_lfos_key(int layers, int busy); // seq.c: a key went down on `layers`, `busy` already had one
 // A note-off on given layers, and the layers a note-off on `channel` releases: the channel's layer in channel mode,
 // else both (a key's voices stay on the layer they started on, wherever the split is now).
 void synth_note_off_layers(uint8_t note, int layers);
@@ -206,6 +211,9 @@ void synth_set_param(int layer, int param, float value);
 int synth_route(int layer, mod_source_t source, mod_dest_t dest);
 int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth);
 const route_t *synth_routes(int layer); // ROUTES entries; source SRC_NONE = unused
+// Bit r: route r of this layer plays on the other layer's voices too, in the two-layer modes (0.9.3)
+int synth_route_both(int layer);
+void synth_set_route_both(int layer, int bits);
 // What touching a control means in MOD ASSIGN (DEST_NONE if it isn't a destination).
 int synth_dest_for_pot(int pot);
 int synth_dest_for_switch(int s);
@@ -218,7 +226,7 @@ void synth_freeze_pots(uint32_t mask);
 // A latching button's state as the engine uses it (a loaded patch's, until the button is toggled), and setting it
 // from the host, which holds the same way.
 int synth_switch(int s);
-int synth_probe(uint8_t *out); // the engine's state for the host's probe (55); returns the byte count (53)
+int synth_probe(uint8_t *out); // the engine's state for the host's probe (55); returns the byte count (93)
 void synth_set_switch(int s, int on);
 void synth_hold_switch(int s);
 

@@ -12,7 +12,7 @@
 //                          t1 << 7 | t0 ms; replies 73 <ok> <periods, 2 × 7 bits> <cycles, 5 × 7 bits>
 //                          <system_hz / 1000, 3 × 7 bits>
 //   55                     the engine's state (synth_probe(): held keys, voice gates and envelope stages, keytrack,
-//                          switch overrides); replies 55 <bytes>; read-only
+//                          switch overrides, LFO phases); replies 55 <bytes>; read-only
 //   6C <bus> <mode> <h1> <h0> <l1> <l0> <speed> <sync us> <settle> <sample>
 //                          probe the CV path (until reboot; dac.h): the DAC80501 bus (bit-bang / SPI3, mode, high
 //                          and low cycles or SPI divider, GPIO speed, SYNC wait) and the S&H waits in tenths of a us
@@ -110,7 +110,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 188 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 201 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -418,7 +418,7 @@ static const char cycle_names[ENV_PAGES][4][6] = {{"En.A", "En.F", "En.3", "En.4
                                                   {"tI.A", "tI.F", "tI.3", "tI.4"}, {"CU.A", "CU.F", "CU.3", "CU.4"},
                                                   {"Cn.A", "Cn.F", "Cn.3", "Cn.4"}};
 static int cycle_env;  // the envelope page 6 shows (amp, filter, Env 3, Env 4)
-static int alt_page;   // pages 3 and 6: the value Arp Up-Dn has chosen: the voice share; ENV_PAGE_*
+static int alt_page;   // pages 3 and 6: the value Arp Up-Dn has chosen: the voice share; ENV_PAGE_*; page 2: its key, the one shot's cycles
 // Page 6's modes: ADSR, DAHDSR, then cycling (free, then each clock division)
 enum { ENV_MODE_CYCLE = 2, ENV_MODE_COUNT = ENV_MODE_CYCLE + 1 + LFO_DIVISIONS };
 
@@ -430,6 +430,8 @@ static const char *page_name(int page)
         return "Lr.Uo";
     if (synth_lfo_select() && page == PAGE_LFO_SYNC)
         return "SYn2";
+    if (page == PAGE_LFO_TRIGGER && alt_page)
+        return synth_lfo_select() ? "Cn.2" : "Cn.1";
     if (synth_lfo_select() && page == PAGE_LFO_TRIGGER)
         return "trI2";
     return page_names[page];
@@ -444,6 +446,8 @@ static int setting_count(int page)
                                            ENV_MODE_COUNT,
                                            12, 51,            // bend 1-12 semitones, detune 0-50 cents
                                            3, 100};           // the edit layer's voice mode, drift 0-99
+    if (page == PAGE_LFO_TRIGGER && alt_page)
+        return 99; // 1-99 cycles
     if (page == PAGE_LAYERS && alt_page)
         return VOICE_COUNT; // automatic, then layer 1's 1-7
     if (page == PAGE_CYCLE && alt_page) {
@@ -458,7 +462,7 @@ static int setting_get(int page)
 {
     switch (page) {
     case PAGE_LFO_SYNC: return (int)lfo_sync[synth_lfo_select()];
-    case PAGE_LFO_TRIGGER: return (int)lfo_trigger[synth_lfo_select()];
+    case PAGE_LFO_TRIGGER: return alt_page ? lfo_cycles[synth_lfo_select()] - 1 : (int)lfo_trigger[synth_lfo_select()];
     case PAGE_LAYERS: return alt_page ? synth_layer_voices() : (int)synth_layer_mode();
     case PAGE_KEYTRACK: return synth_keytrack();
     case PAGE_BEND: return synth_bend_range() - 1;
@@ -487,7 +491,12 @@ static void setting_set(int page, int value)
 {
     switch (page) {
     case PAGE_LFO_SYNC: lfo_sync[synth_lfo_select()] = (lfo_sync_t)value; break;
-    case PAGE_LFO_TRIGGER: lfo_trigger[synth_lfo_select()] = (lfo_trigger_t)value; break;
+    case PAGE_LFO_TRIGGER:
+        if (alt_page)
+            lfo_cycles[synth_lfo_select()] = (uint8_t)(value + 1);
+        else
+            lfo_trigger[synth_lfo_select()] = (lfo_trigger_t)value;
+        break;
     case PAGE_LAYERS:
         if (alt_page)
             synth_set_layer_voices(value);
@@ -541,7 +550,7 @@ static void show_setting(int page)
 {
     _Static_assert(LAYER_MODE_COUNT == 6 && LFO_TRIGGER_COUNT <= 6, "the settings' value names");
     static const char *const values[][6] = {
-        {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY"}, {"OFF", "SPLt", "StAC", "CHAn", "8CH", "nPE"}, {0},
+        {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY", "1Sht", "1S.Po"}, {"OFF", "SPLt", "StAC", "CHAn", "8CH", "nPE"}, {0},
         {"OFF", "HALF", "FULL"},
     };
     if (page == PAGE_CYCLE) {
@@ -561,6 +570,8 @@ static void show_setting(int page)
                 display_text("LOOP");
         } else
             display_text(v > ENV_MODE_CYCLE ? lfo_division_name(v - ENV_MODE_CYCLE - 1) : modes[v]);
+    } else if (page == PAGE_LFO_TRIGGER && alt_page) {
+        display_number(setting_get(page) + 1);
     } else if (page == PAGE_LAYERS && alt_page) {
         int n = synth_layer_voices();
         char text[5] = {(char)('0' + n), '-', (char)('0' + VOICE_COUNT - n), 0};
@@ -1687,6 +1698,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         int page = index == BUTTON_0 ? PAGE_DRIFT : index - BUTTON_1; // key 1 = first page, key 0 = the tenth
         if (page != menu_page)
             alt_page = 0;
+        else if (page == PAGE_LFO_TRIGGER) // its key again: the mode or the one shot's cycles (Arp Up-Dn picks the LFO here)
+            alt_page = !alt_page;
         if (page == PAGE_CYCLE)
             cycle_env = menu_page == PAGE_CYCLE ? (cycle_env + 1) % 4 : synth_env_select() ? synth_env_select() + 1 : 0;
         if (page >= 0 && page < PAGE_COUNT) {
@@ -1773,6 +1786,10 @@ typedef enum {
     SET_OSC_TUNE_L1_A, SET_OSC_TUNE_L1_B, SET_OSC_TUNE_L2_A, SET_OSC_TUNE_L2_B, // FREQ A / B's mode: oscillator_tune_mode_t
     SET_PICKUP,                                          // 1 knob pickup, 0 jump (system-wide; 0.9.3)
     SET_LAYER_LINK,                                      // LINK_* bits: what layer 2 takes from layer 1
+    SET_LFO1_CYCLES, SET_LFO2_CYCLES,                    // a one shot's cycles, 1-99 (0 is taken as 1)
+    SET_LFO_RESTART,                                     // a sequence's LFO restarts: 0 from its steps, 1 from the keys
+    SET_ROUTE_BOTH, // 4 of them: layer 1's routes 0-7 and 8-15, then layer 2's: a bit per slot, plays on both layers
+    SET_ROUTE_BOTH_END = SET_ROUTE_BOTH + 3,
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1801,6 +1818,10 @@ static int host_setting_get(int id)
     case SET_DRIFT: return synth_drift();
     case SET_SCALE: return synth_scale() & 15;
     case SET_ROOT: return synth_scale() >> 4;
+    case SET_LFO1_CYCLES: case SET_LFO2_CYCLES: return lfo_cycles[id == SET_LFO2_CYCLES];
+    case SET_LFO_RESTART: return synth_lfo_restart_keys();
+    case SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END:
+        return synth_route_both((id - SET_ROUTE_BOTH) / 2) >> 8 * ((id - SET_ROUTE_BOTH) % 2) & 0xFF;
     case SET_LFO1_DELAY: case SET_LFO2_DELAY: return lfo_delay[id == SET_LFO2_DELAY];
     case SET_LFO1_FADE: case SET_LFO2_FADE: return lfo_fade[id == SET_LFO2_FADE];
     case SET_CC_A: case SET_CC_B: return synth_cc_number(id == SET_CC_B);
@@ -1843,6 +1864,8 @@ static int host_setting_set(int id, int value)
         [SET_ENV_COUNT ... SET_ENV_COUNT_END] = 100, [SET_ENV_TEMPO_L1] = 16, [SET_ENV_TEMPO_L2] = 16,
         [SET_MIDI_CHANNEL] = 17,
         [SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B] = OSC_TUNE_MODE_COUNT, [SET_PICKUP] = 2, [SET_LAYER_LINK] = LINK_ALL + 1,
+        [SET_LFO1_CYCLES] = 100, [SET_LFO2_CYCLES] = 100, [SET_LFO_RESTART] = 2,
+        [SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END] = 256,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1866,6 +1889,13 @@ static int host_setting_set(int id, int value)
     case SET_DRIFT: synth_set_drift(value); break;
     case SET_SCALE: synth_set_scale(value | (synth_scale() & ~15)); break;
     case SET_ROOT: synth_set_scale((synth_scale() & 15) | value << 4); break;
+    case SET_LFO_RESTART: synth_set_lfo_restart_keys(value); break;
+    case SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END: {
+        int layer = (id - SET_ROUTE_BOTH) / 2, shift = 8 * ((id - SET_ROUTE_BOTH) % 2);
+        synth_set_route_both(layer, (synth_route_both(layer) & ~(0xFF << shift)) | value << shift);
+        break;
+    }
+    case SET_LFO1_CYCLES: case SET_LFO2_CYCLES: lfo_cycles[id == SET_LFO2_CYCLES] = (uint8_t)(value ? value : 1); break;
     case SET_LFO1_DELAY: case SET_LFO2_DELAY: lfo_delay[id == SET_LFO2_DELAY] = (uint8_t)value; break;
     case SET_LFO1_FADE: case SET_LFO2_FADE: lfo_fade[id == SET_LFO2_FADE] = (uint8_t)value; break;
     case SET_CC_A: case SET_CC_B:

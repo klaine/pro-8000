@@ -78,7 +78,11 @@ def setting_line(key, value):
     elif name in ("lfo-sync", "lfo2-sync"):
         check(v in ["free", "clock"], name + ": " + v)
     elif name in ("lfo-trigger", "lfo2-trigger"):
-        check(v in ["free", "first", "every", "voice"], name + ": " + v)
+        check(v in ["free", "first", "every", "voice", "one-shot", "one-shot-voice"], name + ": " + v)
+    elif name == "lfo-restart":  # 0.9.3: with a sequence on, its steps or the keys restart the LFOs
+        check(len(w) == 1 and v in ["steps", "keys"], "lfo-restart: " + v)
+    elif name in ("lfo-cycles", "lfo2-cycles"):  # 0.9.3: how many cycles a one shot runs
+        check(len(w) == 1 and isinstance(value, int) and 1 <= value <= 99, "%s: 1-99, not %r" % (name, value))
     elif name == "shape":
         check(len(w) == 3 and w[1] in LAYERS and w[2] in LFOS and v in SHAPES, "shape: %s %s" % (key, v))
     elif name == "lfo2-dests":
@@ -219,8 +223,9 @@ def plan(patch):
         check(len(routes) <= 16, "layer %s has more than 16 routes" % layer)
         seen = set()
         for r in routes:
-            check(isinstance(r, list) and len(r) == 3, "route must be [source, dest, depth]: %r" % (r,))
-            src, dest, depth = r
+            check(isinstance(r, list) and (len(r) == 3 or (len(r) == 4 and r[3] == "both")),
+                  "route must be [source, dest, depth] or [source, dest, depth, \"both\"]: %r" % (r,))
+            src, dest, depth = r[:3]
             check(src in SOURCES, "source: %s" % src)
             check(dest in DESTS, "destination: %s" % dest)
             in_range(depth, -99, 99, "depth of %s -> %s" % (src, dest))
@@ -228,6 +233,8 @@ def plan(patch):
             check((src, dest) not in seen, "route %s -> %s twice on layer %s" % (src, dest, layer))
             seen.add((src, dest))
             out.append("route %s %s %s %d" % (layer, src, dest, depth))
+            if len(r) == 4:  # 0.9.3: it plays on the other layer's voices too
+                out.append("route-both %s %s %s on" % (layer, src, dest))
     if patch.get("sequence"):
         out.extend(sequence_lines(patch["sequence"]))
     if patch.get("morph"):

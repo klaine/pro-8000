@@ -200,6 +200,12 @@ static void play_step(void)
         arp_index++;
 }
 
+int seq_takes_layer(int layer)
+{
+    int target = sequence.flags >> SEQ_LAYER_SHIFT & 3;
+    return sequence.flags & SEQ_ENABLED && (!target || target >> layer & 1);
+}
+
 int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
 {
     int target = sequence.flags >> SEQ_LAYER_SHIFT & 3, taken = target ? key_layers & target : key_layers;
@@ -207,6 +213,10 @@ int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
         return 0;
     if (held_count == HELD_MAX)
         return taken;
+    int busy = 0; // the layers with a key already down
+    for (int i = 0; i < held_count; i++)
+        busy |= held[i].layers;
+    synth_lfos_key(taken, busy);
     held[held_count].note = note;
     held[held_count].velocity = velocity;
     held[held_count].layers = (uint8_t)taken;

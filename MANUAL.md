@@ -165,7 +165,7 @@ A patch stores:
 - both layers' knobs, Env 3 / 4 and LFO 2 rate and amount;
 - the latching buttons and the keyboard tracking;
 - the layer mode and split;
-- both LFOs' sync, retrigger, shapes and LFO 2 routing;
+- both LFOs' sync, retrigger, one shot cycles, shapes and LFO 2 routing;
 - both layers' mod routes;
 - the name;
 - its step sequence and automation lanes.
@@ -205,8 +205,9 @@ They're stored in the patch. While a group is linked:
 - Turning one of its knobs on layer 2 edits layer 1, and both layer LEDs light for a second to say so. So do the
   envelope pages in Settings and the LFO Shape button.
 - A linked LFO is layer 1's LFO itself, so the layers stay in phase; in per-voice retrigger each voice keeps its own
-  phase at that rate.
-- Mod routes stay per layer, so layer 2's routes still add to the shared values.
+  phase at that rate, and a key on either layer restarts a linked one shot.
+- Mod routes stay per layer, so layer 2's routes still add to the shared values. To share one route, see Both in
+  [the mod matrix](#mod-matrix-mod-assign).
 
 **Per layer:**
 - FREQ A/B and FINE;
@@ -259,8 +260,8 @@ The setting is per LFO, shared by both layers, and saved in the patch.
 
 The `StEP` shape plays a pattern of up to 16 steps over one LFO cycle: high for a step that's on, low for one
 that's off. Each LFO of each layer has its own pattern, stored in the patch. The default is the trance gate
-`1 0 1 0 1 1 0 0`, twice. Edit it on the web page's Sound tab: choose Steps as the LFO's shape and a row of step
-boxes appears. Click steps on or off, choose 2-16 steps, and use Clear, Invert, rotate ◀ ▶ or Trance gate. On the
+`1 0 1 0 1 1 1 0`, twice. Edit it on the web page's Sound tab: choose Steps as the LFO's shape and a row of step
+boxes appears. Click steps on or off, choose 2-16 steps, and use Clear, Invert or rotate ◀ ▶. On the
 command line: `build/pro800 set steps <layer> <lfo> x.x.xx..`.
 
 For a gate on the volume:
@@ -295,8 +296,28 @@ put it (or where the clock stopped). Until a clock arrives, `CLoC` runs the divi
 | `1St` | Restarts on the first key after all were released |
 | `EACH` | Restarts on every key |
 | `PoLY` | Every voice runs its own LFO from its note-on: per-voice LFOs |
+| `1Sht` | One shot: restarts on every key, runs its cycles, then stops |
+| `1S.Po` | One shot per voice: every voice runs its own one shot from its note-on |
 
 Sync and retrigger are set per LFO (LFO 1, LFO 2) and apply to both layers.
+
+**One shot** turns an LFO into an extra envelope. It runs its count of cycles from the key, 1 to 99 and 1 by default:
+press key 2 again on the retrigger page for `Cn.1` / `Cn.2` and turn VALUE (Arp Up-Dn still picks the LFO; on the web
+page, the Cycles knob). Letting go of the key doesn't stop it, and it goes on to the end whether the note is held or not.
+
+- **When it stops,** it holds the value the shape ended on, so nothing jumps: triangle, sine, square and ramp down end
+  low, ramp up ends high, steps on its last step's value, and sample & hold, drift and noise on the random value they
+  had reached. The next key starts it from the shape's start. Triangle, sine and drift start where they stopped, so they
+  don't jump there either; ramps and square do, as they do on any retrigger.
+- **As an envelope,** use the source `LFO 1 (0 to 1)` in the web page's mod matrix: ramp down falls from 1 to 0 and stays, ramp
+  up rises from 0 to 1 and stays. The bipolar source, and the LFO's own routing, swing either side of the knob and stop
+  at the bottom (or at the top with ramp up).
+- **`1Sht` or `1S.Po`:** `1Sht` is one LFO that every new key restarts, so a chord's notes move together and a new note
+  restarts them all. In `1S.Po` each note's LFO runs out on its own. Pulse width is one wire, so LFO → PW always follows
+  the shared one shot, restarted by each key.
+- **Delay and fade** (Shift + LFO FREQ / AMOUNT): the cycles start when the delay ends, and the fade fades them in.
+- **With the clock:** a cycle lasts the division, from the key, not on the grid. MIDI Start doesn't restart a one shot.
+- **The count** does nothing in the other retrigger modes. Firmware before 0.9.3 loads a one shot patch as `FrEE`.
 
 ## Envelopes
 
@@ -429,6 +450,11 @@ only plays it.
   within 30 ms counts as one.
 - **Timing:** a step lasts a clock division (1/16, 1/8T, …) at the MIDI clock's tempo (120 BPM until a clock
   arrives), or at the sequence's own BPM; swing makes even steps longer and odd ones shorter.
+- **LFOs restart from** (Sequencer, stored with the patch): `Steps`, the default, restarts the LFOs on every step's note,
+  as if each were a key: the retrigger modes, delay and fade all start again. `Keys` restarts them only when you press a
+  key, so a `1Sht` or a slow LFO can run across the whole phrase. With `Keys`, `1St` waits for the first key after all
+  are up, `EACH` and `1Sht` take every key, and `PoLY` and `1S.Po` restart every voice's phase together, because the steps
+  move from voice to voice. Layers and keys the sequence doesn't take are unchanged.
 - **Layers:** the sequence can take keys of both layers, or only those of layer 1 or layer 2. In a split, one hand
   plays a sequenced bass and the other plays normally. In a stack, the sequence plays its layer and the other
   layer plays the keys as usual (from 0.8.3; before, the other layer stayed silent): for a pad with an arpeggio
@@ -582,6 +608,15 @@ Rate modulation sweeps smoothly, also on a clock-synced LFO: depth 99 is ±4 oct
 rate at depth 50, with LFO 1 synced at `1-8`, sweeps it between 1/2 and 1/32. While it's swept the LFO leaves the
 beat; with retrigger `FrEE` it slides back onto the bar within a cycle or two once the modulation stops.
 
+### A route on both layers
+
+In split, stack and channel, the web page's Mod matrix has a **Both** switch on each route: the route plays on both
+layers' voices, with one slot and one depth. Each voice reads its own source: its velocity and envelopes, and its layer's
+LFOs, unless that LFO is linked. It's saved with the patch. The route stays on the layer it was made on, and shows on
+the other one too, marked, where you can change its depth or switch it off. A single wire (levels, noise, resonance,
+pulse width, volume) counts it once, from the newest note. Copying a layer leaves it out, as it already plays there.
+On the panel, Arp Assign makes routes for one layer, and browsing shows a both-layers route only on its own layer.
+
 ### Ideas to try
 
 - **Delayed vibrato:** set LFO 1 to pitch with AMOUNT at 0. Route 7 (Env 3) → LFO AMOUNT at depth 30, and give
@@ -650,7 +685,7 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 | Key | Page | Values |
 |---|---|---|
 | 1 | `SYnC` / `SYn2`: selected LFO's sync | `FrEE`, `CLoC` |
-| 2 | `trIG` / `trI2`: selected LFO's retrigger | `FrEE`, `1St`, `EACH`, `PoLY` |
+| 2 | `trIG` / `trI2`: selected LFO's retrigger (2 again: a one shot's cycles, `Cn.1` / `Cn.2`) | `FrEE`, `1St`, `EACH`, `PoLY`, `1Sht`, `1S.Po`; cycles `1` … `99` |
 | 3 | `LAYr`: layer mode (Arp Up-Dn: `Lr.Uo`, the voices per layer) | `OFF`, `SPLt`, `StAC`, `CHAn`, `8CH`, `nPE`; `AUto`, `1-7` … `7-1` |
 | 4 | `SPLt`: split note | 0-127, or play a note |
 | 5 | `trAC`: keyboard tracking (also the switch) | `OFF`, `HALF`, `FULL` |
@@ -684,7 +719,7 @@ envelope cycles), the Device cheat sheet describes that build's panel, and the s
 
 | Tab | What it does |
 |---|---|
-| **Sound** | On top, the synth's own faceplate: oscillators, poly-mod, LFO-MOD (with a rotary for LFO 1's nine shapes), noise, glide, filter (its Env select switch is the keyboard-tracking switch, as on the synth: down, middle and up make the four ADSR knobs edit the filter envelope, Env 3 or Env 4; it follows the synth's switch, and a click holds until you move that), amplifier, Macro 1 (M TUNE) and volume, with knurled knobs and bat-lever switches laid out as on the synth. Values show under the pointer, or always with the Values switch. A red arc around a knob is its modulation range: how far the edit layer's mod routes can move it from where it stands (both ways for sources that swing either side of the middle, one way for 0-to-1 sources); hover for the routes. Each oscillator section shows its waveform (as measured at the output: the enabled waves added at their own levels and pulse width, the saw falling), the filter section its response curve (above its knobs) and the envelope its ADSR knobs are editing, and the amplifier its envelope; under each envelope picture are its Mode menu (ADSR / DAHDSR / cycle / synced cycle), Trigger menu (key down / key up), Timing menu (seconds / note values), Curve menu, Delay and Hold knobs (DAHDSR), Cycles knob (cycling) and ⇆ to copy it from the other layer (in the filter section they follow the Env select switch). Below it, "Beyond the panel": Env 3 and Env 4 (picture, Mode, knobs, ⇆), LFO 1 and LFO 2 (shape, rate, amount, delay and fade, sync, retrigger, routing, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape; LFO 1's rate, amount, shape and routing are also on the faceplate), voice settings (layers, filter keytracking, voice mode and note priority, drift, scale and root, morph, Mutate, bend, detune), the mod matrix (with a knob for each macro's offset: its ring is what the routes into the macro can add, the text beside it what feeds and what it drives) and the sequencer. Drag a knob up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch; click the patch's name there to rename it (Enter or clicking away saves it to the slot, Escape leaves it). Layer 1 / Layer 2 are in the header; knobs, depth bars and the mod matrix edit that layer. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. Amber knobs are shared by both layers (mixer levels, noise, resonance, PW A / B, poly-mod osc B, volume). |
+| **Sound** | On top, the synth's own faceplate: oscillators, poly-mod, LFO-MOD (with a rotary for LFO 1's nine shapes), noise, glide, filter (its Env select switch is the keyboard-tracking switch, as on the synth: down, middle and up make the four ADSR knobs edit the filter envelope, Env 3 or Env 4; it follows the synth's switch, and a click holds until you move that), amplifier, Macro 1 (M TUNE) and volume, with knurled knobs and bat-lever switches laid out as on the synth. Values show under the pointer, or always with the Values switch. A red arc around a knob is its modulation range: how far the edit layer's mod routes can move it from where it stands (both ways for sources that swing either side of the middle, one way for 0-to-1 sources); hover for the routes. Each oscillator section shows its waveform (as measured at the output: the enabled waves added at their own levels and pulse width, the saw falling), the filter section its response curve (above its knobs) and the envelope its ADSR knobs are editing, and the amplifier its envelope; under each envelope picture are its Mode menu (ADSR / DAHDSR / cycle / synced cycle), Trigger menu (key down / key up), Timing menu (seconds / note values), Curve menu, Delay and Hold knobs (DAHDSR), Cycles knob (cycling) and ⇆ to copy it from the other layer (in the filter section they follow the Env select switch). Below it, "Beyond the panel": Env 3 and Env 4 (picture, Mode, knobs, ⇆), LFO 1 and LFO 2 (shape, rate, amount, delay and fade, sync, retrigger, Cycles knob for a one shot, routing, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape; LFO 1's rate, amount, shape and routing are also on the faceplate), voice settings (layers, filter keytracking, voice mode and note priority, drift, scale and root, morph, Mutate, bend, detune), the mod matrix (with a knob for each macro's offset: its ring is what the routes into the macro can add, the text beside it what feeds and what it drives) and the sequencer. Drag a knob up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch; click the patch's name there to rename it (Enter or clicking away saves it to the slot, Escape leaves it). Layer 1 / Layer 2 are in the header; knobs, depth bars and the mod matrix edit that layer. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. Amber knobs are shared by both layers (mixer levels, noise, resonance, PW A / B, poly-mod osc B, volume). |
 | **Device cheat sheet** | How to reach everything this firmware adds from the synth's own panel: the remapped buttons, the display, patches, layers, LFOs, envelopes, mod assign with its source keys and destinations, the settings menu, MIDI and recovery, and what's web-only. |
 | **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 128 as a `.bin`. **In one go:** format the patch memory, copy the whole factory bank into the empty slots, or install the preset bank (66 sounds into P1-P66, from the page's own copy, or a bank file such as the release's `pro8000-presets-<version>.json`; a bank pasted or opened in the JSON box installs too), each after a confirmation. Empty slots are hidden unless "show empty slots" is ticked. **Sound as JSON:** the current sound as JSON in the preset files' format (`presets/README.md`: knobs 0-99, buttons, settings, routes, LFO step patterns, the sequence, the morph target, by the `pro800` tool's names): show it in the text box, copy it, or download it as a `.json` file. Paste JSON into the box (or open a `.json` file, such as one of `presets/`) to load it into the sound: it starts from the init sound and sets what the JSON names, after checking every name and range, and settings the connected firmware hasn't got are left out with a note. Then save it into a slot with its name. A file from here installs with `presets/install.sh` too. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. The browser remembers the router's input and its clock box, and routes again whenever that input is there (after a reload, or when it's plugged back in); choose (off) to forget it. |

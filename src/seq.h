@@ -60,6 +60,7 @@ void seq_fix(void);           // clamps the header to what fits
 // (synth_channel_layers()). A sequence on one layer's keys takes only that layer: in stack mode the other layer
 // plays the key itself.
 int seq_key_on(uint8_t note, uint8_t velocity, int layers);
+int seq_takes_layer(int layer); // the sequence is on and plays from this layer's keys (0 or 1)
 int seq_key_off(uint8_t note, int layers);
 void seq_stop(void); // releases what's sounding
 void seq_update(float dt);

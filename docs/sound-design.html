@@ -162,7 +162,7 @@
     <p>Each layer has <strong>two LFOs</strong> (<kbd>Arp Up-Dn</kbd> picks which one the LFO knobs and buttons edit), so four in all. Each has nine shapes, and three settings that change what kind of movement you get:</p>
     <ul>
       <li><strong>Sync</strong> (<kbd>Settings</kbd> → <kbd>1</kbd>): free-running from 0.05 to 51 Hz, or locked to the clock: MIDI clock from USB or the 5-pin socket, the firmware's own clock (tap the tempo on <kbd>Sync Clock</kbd>), or the SYNC IN jack. Locked, LFO FREQ picks one of 15 divisions from <span class="led">8bAr</span> down to <span class="led">1-32</span>, including dotted and triplet values. MIDI Start, or holding Sync Clock, lines it up with the bar.</li>
-      <li><strong>Retrigger</strong> (<kbd>Settings</kbd> → <kbd>2</kbd>): when the LFO's cycle restarts. The most interesting one is <span class="led">PoLY</span>: every voice runs its own LFO, started by its own note.</li>
+      <li><strong>Retrigger</strong> (<kbd>Settings</kbd> → <kbd>2</kbd>): when the LFO's cycle restarts. The most interesting one is <span class="led">PoLY</span>: every voice runs its own LFO, started by its own note. <span class="led">1Sht</span> and <span class="led">1S.Po</span> are one shots: the LFO runs a count of cycles from the key (1 to 99; press <kbd>2</kbd> again for <span class="led">Cn.1</span>) and holds where it ended, an extra envelope with an LFO's shapes. <span class="led">1S.Po</span> gives each note its own.</li>
       <li><strong>Delay and fade-in</strong> (Shift + LFO FREQ, Shift + LFO AMOUNT): the LFO waits after a note starts and then fades in, per voice, from 20 ms to about 5 s. Vibrato that arrives late, with no route needed.</li>
     </ul>
     <p>Pick a shape and a retrigger mode below. Three notes start at different moments (▼) and are held, then released; a new note follows.</p>
@@ -171,7 +171,7 @@
     <div class="fig">
       <div class="shapes" id="lfo-shapes"></div>
       <div class="controls"><div class="seg" id="lfo-trig" role="group" aria-label="Retrigger mode">
-        <button type="button" data-v="free" aria-pressed="false">FrEE</button><button type="button" data-v="first" aria-pressed="false">1St</button><button type="button" data-v="each" aria-pressed="false">EACH</button><button type="button" data-v="poly" aria-pressed="true">PoLY</button>
+        <button type="button" data-v="free" aria-pressed="false">FrEE</button><button type="button" data-v="first" aria-pressed="false">1St</button><button type="button" data-v="each" aria-pressed="false">EACH</button><button type="button" data-v="poly" aria-pressed="true">PoLY</button><button type="button" data-v="shot" aria-pressed="false">1Sht</button><button type="button" data-v="shotpoly" aria-pressed="false">1S.Po</button>
       </div></div>
       <div class="svg-wrap" style="--min:600px"><svg id="lfo-svg" viewBox="0 0 880 300" role="img" aria-label="Three voices' LFO curves over time for the chosen shape and retrigger mode"></svg></div>
       <p class="desc" id="lfo-desc"></p>
@@ -203,7 +203,7 @@
       <div class="gate-cells" id="gate-cells" aria-label="Sixteen steps"></div>
       <div class="svg-wrap" style="--min:520px"><svg id="gate-svg" viewBox="0 0 880 150" role="img" aria-label="The gate pattern applied to a held chord's volume over one bar"></svg></div>
     </div>
-    <figcaption><b>Figure 4.</b> Top: the pattern (the default is the "ta-ta-taa" trance gate <code>1 0 1 0 1 1 0 0</code>, twice). Bottom: the held chord's volume through the VCA. On the synth the pattern is edited on the web page's Sound tab, or with <code>pro800 set steps</code>.</figcaption>
+    <figcaption><b>Figure 4.</b> Top: the pattern (the default is a trance gate, <code>1 0 1 0 1 1 1 0</code>, twice). Bottom: the held chord's volume through the VCA. On the synth the pattern is edited on the web page's Sound tab, or with <code>pro800 set steps</code>.</figcaption>
   </figure>
   <div class="callout"><span class="label">On the synth</span>Select an LFO, press <kbd>LFO Shape</kbd> until the display shows <span class="led">StEP</span>, set Sync to <span class="led">CLoC</span> and LFO FREQ to <span class="led">1bAr</span> (16 steps = 16ths). No MIDI clock? Tap the tempo on <kbd>Sync Clock</kbd> and the internal clock drives it. Then route it: <kbd>Arp Assign</kbd>, <kbd>1</kbd> for the LFO, touch <b>AMP SUS</b> (the VCA destination), turn VALUE to <span class="led">  99</span>, <kbd>Arp Assign</kbd> again. Lower depths only dip the volume instead of cutting it. Retrigger <span class="led">EACH</span> starts the pattern with every chord.</div>
 </section>
@@ -339,7 +339,7 @@
   <span class="sec-num">08</span>
   <h2>Expression per note</h2>
   <div class="prose">
-    <p>Velocity, aftertouch, a random value and the note's position are all <em>per voice</em> sources. That's what lets a single route make every note of a chord different.</p>
+    <p>Velocity, aftertouch, a random value and the note's position are all <em>per voice</em> sources. A route can be set to Both on the web page, in the two-layer modes, so one route with one depth plays on both layers' notes. That's what lets a single route make every note of a chord different.</p>
     <p><strong>Poly aftertouch</strong> is the standout. A controller that sends per-note pressure (the Ableton Move's pads do) moves only the voice playing that note. Route aftertouch to cutoff and one finger can lean into a single note of a chord and open just that note's filter. Channel pressure still works too and moves all voices; each voice uses whichever is larger.</p>
     <p>Two layer modes go further. <strong>MPE</strong> gives every note its own MIDI channel, so each has its own pitch bend (48 semitones), its own pressure and its own slide (CC 74, the <span class="led">tInb</span> source) from an MPE controller. <strong>8CH</strong> gives eight mono lines, one per channel, each with its own bend and pressure, for a sequencer that drives them.</p>
   </div>
@@ -400,7 +400,7 @@
   <span class="sec-num">11</span>
   <h2>A sequence inside every patch</h2>
   <div class="prose">
-    <p>The stock sequencers are replaced by something different: <strong>each of the 128 patches carries its own step sequence</strong>, played from the keyboard. Press a key and the sequence starts, transposed so that a step of 0 plays that key. Press another key while holding and it transposes from the next step without restarting. Let go and it stops. The notes go through the normal voices, envelopes and modulation, so the sequence is part of the sound, not a separate machine.</p>
+    <p>The stock sequencers are replaced by something different: <strong>each of the 128 patches carries its own step sequence</strong>, played from the keyboard. Press a key and the sequence starts, transposed so that a step of 0 plays that key. Press another key while holding and it transposes from the next step without restarting. Let go and it stops. The notes go through the normal voices, envelopes and modulation, so the sequence is part of the sound, not a separate machine. By default each step restarts the LFOs like a key; set <b>LFOs restart from</b> to Keys and only the keys you press do, so a slow LFO or a one shot can sweep across the whole phrase.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:660px">
@@ -575,7 +575,7 @@ var SHAPES = [
   { id: "sine", name: "Sine", led: "SInE", f: function (p) { return -Math.cos(2 * Math.PI * p); } },
   { id: "sh", name: "S & H", led: "S-H", f: function (p, n, r) { return r(n); } },
   { id: "drift", name: "Drift", led: "drFt", f: function (p, n, r) { var a = r(n), b = r(n + 1); return a + (b - a) * (1 - Math.cos(Math.PI * p)) / 2; } },
-  { id: "steps", name: "Steps", led: "StEP", f: function (p) { return (0x3535 >> Math.floor(p * 16)) & 1 ? 1 : -1; } },
+  { id: "steps", name: "Steps", led: "StEP", f: function (p) { return (0x7575 >> Math.floor(p * 16)) & 1 ? 1 : -1; } },
   { id: "noise", name: "Noise", led: "nOIS", f: function (p, n, r) { var k = p * 16, i = Math.floor(k); var a = r(n * 16 + i), b = r(n * 16 + i + 1); return a + (b - a) * (k - i); } }
 ];
 function hashRand(run, n) { var x = Math.sin(run * 127.1 + n * 311.7) * 43758.5453; return 2 * (x - Math.floor(x)) - 1; }
@@ -688,11 +688,13 @@ function hashRand(run, n) { var x = Math.sin(run * 127.1 + n * 311.7) * 43758.54
     free: "<b>FrEE:</b> one LFO runs all the time; keys don't touch it. Every voice hears the same wave, wherever it happens to be.",
     first: "<b>1St:</b> the shared LFO restarts on the first key after all were released (0.3 s and 3.0 s), so a phrase always starts the same way. Notes added to a held chord join it mid-cycle.",
     each: "<b>EACH:</b> the shared LFO restarts on every key. All held notes jump together whenever a new one starts.",
-    poly: "<b>PoLY:</b> each voice runs its own LFO from its own note-on. The three notes move independently, out of step with each other."
+    poly: "<b>PoLY:</b> each voice runs its own LFO from its own note-on. The three notes move independently, out of step with each other.",
+    shot: "<b>1Sht:</b> one LFO that every key restarts. It runs its cycles (one here) and holds where the last one ended, until the next key. Use it as an extra envelope; the count goes up to 99.",
+    shotpoly: "<b>1S.Po:</b> a one shot for each voice, from its own note-on. Each note's LFO runs out on its own, like one more envelope with an LFO's shapes."
   };
   // the phase source for voice v at time t: [phase in cycles, run id], or null before the voice's first note
   function phaseAt(v, t) {
-    if (mode === "poly") {
+    if (mode === "poly" || mode === "shotpoly") {
       var start = null, run = 0;
       gates[v].forEach(function (g, i) { if (t >= g[0]) { start = g[0]; run = 10 * v + i + 1; } });
       return start === null ? null : [(t - start) * rate, run];
@@ -716,7 +718,7 @@ function hashRand(run, n) { var x = Math.sin(run * 127.1 + n * 311.7) * 43758.54
       function val(t) {
         var ph = phaseAt(v, t);
         if (!ph) return null;
-        var c = ph[0];
+        var c = mode === "shot" || mode === "shotpoly" ? Math.min(ph[0], 0.99999) : ph[0]; // one cycle, then its end held
         return shape.f(c - Math.floor(c), Math.floor(c), function (n) { return hashRand(ph[1] + 1, n); });
       }
       var ghost = "", bold = "", prevOn = false, prevOk = false, N = 700;
@@ -744,7 +746,7 @@ function hashRand(run, n) { var x = Math.sin(run * 127.1 + n * 311.7) * 43758.54
   var pattern = [], btns = [];
   function setPattern(bits) { pattern = bits.slice(); render(); }
   var PRESETS = {
-    trance: function () { return [1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0]; },
+    trance: function () { return [1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0]; },
     euclid: function () { var a = []; for (var i = 0; i < 16; i++) a.push(Math.floor((i * 5) / 16) !== Math.floor(((i - 1) * 5) / 16) || i === 0 ? 1 : 0); return a; },
     off: function () { return [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0]; },
     invert: function () { return pattern.map(function (b) { return 1 - b; }); },
