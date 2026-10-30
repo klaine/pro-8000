@@ -321,7 +321,7 @@ build/pro800 install build/pro800-0.9.2.syx --yes
 ```
 
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`
-(this one or the stock one, with SynthTribe). See the manual for going back to stock.
+(this one or the stock one). See the manual for going back to stock: SynthTribe's own update has stalled on the one synth tested.
 
 ## Layout
 

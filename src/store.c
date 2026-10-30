@@ -377,7 +377,11 @@ int store_save_patch(int n, const patch_t *patch)
     _Static_assert(OFF_ROUTES + 3 * 2 * ROUTES <= OFF_CHECKSUM, "routes overflow");
     _Static_assert(SEQ_OFF + SEQ_SIZE == RECORD_SIZE && SEQ_DATA + SEQ_BYTES <= SEQ_CHECKSUM, "record size");
     put32(b + OFF_CHECKSUM, checksum(b, OFF_CHECKSUM));
-    return eeprom_write(record_address(n), b, sizeof b);
+    if (!eeprom_write(record_address(n), b, sizeof b))
+        return 0;
+    // Memory never formatted (fresh from stock): a patch of ours makes it ours, so the last patch and the settings
+    // are kept from now on. The other slots stay as they are.
+    return global.valid || write_global();
 }
 
 // Stock patch body offsets (unpacked bytes; u16 little-endian)

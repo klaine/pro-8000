@@ -17,7 +17,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     `play`, `cc` and `bend` default to that channel, else 6 (the stock firmware's) for `play` and 1 for the others.
   - Knob pickup is on unless turned off (`set pickup on|off`, Shift + FIL ENV AMT, 0.9.3): off, a knob in pickup
     takes over as soon as it moves (the stock synth's jump).
-  - `install <file.syx> --yes`: update-mode + flash + wait until the new firmware answers (it autotunes first).
+  - `install <file.syx> --yes`: update-mode + flash + wait until the synth runs the file's version (it autotunes first). Fails if the synth doesn't reach the bootloader (USB `1397:1260`), the bootloader doesn't confirm the update, or another version answers; reinstalling the same version is fine.
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
   - Patches: `patches`, `patch load|save|clear <slot>`, `format --yes` (wipe every slot), `eeprom <file>` (read),
     `eeprom-write <image> --yes` (write and verify, e.g. back to stock).

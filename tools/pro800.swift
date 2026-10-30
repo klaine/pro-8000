@@ -22,6 +22,7 @@ import AudioToolbox
 import CoreAudio
 import CoreMIDI
 import Foundation
+import IOKit
 
 let helpText = """
 Read-only:
@@ -103,7 +104,7 @@ Changes the synth (only when you mean it):
                                         stream a firmware update to the bootloader
   pro800 format --yes                   wipe every patch slot and mark the EEPROM as ours (format 2), in place
   pro800 eeprom-write <file> --yes      write a whole EEPROM image and verify it (e.g. back to stock)
-  pro800 install <file.syx> --yes       update-mode + flash + wait until the new firmware answers
+  pro800 install <file.syx> --yes       update-mode + flash + check the synth runs the file's version
 
 Options for every command: --port <name> (default "PRO 800").
 """
@@ -1690,7 +1691,8 @@ func updateMessages(_ path: String) -> [[UInt8]] {
     return messages
 }
 
-func flash() {
+@discardableResult
+func flash() -> Bool {
     let rate = Double(option("--rate") ?? "3000") ?? 3000 // bytes/s; the bootloader takes up to 9640
     let eraseWait = Double(option("--erase-wait") ?? "3") ?? 3
     let confirmed = flag("--yes")
@@ -1702,7 +1704,7 @@ func flash() {
     let total = messages.reduce(0) { $0 + $1.count }
     let seconds = Double(total) / rate + eraseWait
     print("\(path): \(messages.count) messages, \(total) bytes, about \(Int(seconds.rounded(.up))) s at \(Int(rate)) B/s")
-    if dryRun { return }
+    if dryRun { return true }
     guard confirmed else {
         fail("""
         not sent. The PRO-800 must already be in update mode (hold buttons 0 and 7 at power-up, or run
@@ -1713,17 +1715,45 @@ func flash() {
 
     let midi = Midi(port: portName)
     _ = midi.takeSysex()
+    var last = [UInt8]()
     for (i, m) in messages.enumerated() {
         midi.send(m)
         // the header comes first; give the bootloader time to erase the application flash
         Thread.sleep(forTimeInterval: Double(m.count) / rate + (i == 0 ? eraseWait : 0))
-        for reply in midi.takeSysex() { print("\nreply after message \(i + 1): \(hex(reply))") }
+        for reply in midi.takeSysex() { print("\nreply after message \(i + 1): \(hex(reply))"); last = reply }
         print("\rsent \(i + 1)/\(messages.count)", terminator: "")
         fflush(stdout)
     }
     Thread.sleep(forTimeInterval: 1)
-    for reply in midi.takeSysex() { print("\nreply: \(hex(reply))") }
+    for reply in midi.takeSysex() { print("\nreply: \(hex(reply))"); last = reply }
     print("\ndone. If the synth doesn't restart by itself, power-cycle it.")
+    return last == sysexHeader + [0x01, 0x00, 0x00, 0xF7] // the bootloader's OK after the last block
+}
+
+// The synth on USB: 1397:125F running a firmware, 1397:1260 in the bootloader. The bootloader answers the version
+// request too (with the version of the last update), so only this tells the two apart.
+let usbFirmware = 0x125F, usbBootloader = 0x1260
+
+func usbDevicePresent(product: Int) -> Bool {
+    guard let matching = IOServiceMatching("IOUSBHostDevice") as NSMutableDictionary? else { return false }
+    matching["idVendor"] = 0x1397
+    matching["idProduct"] = product
+    var iterator: io_iterator_t = 0
+    guard IOServiceGetMatchingServices(0, matching, &iterator) == KERN_SUCCESS else { return false }
+    defer { IOObjectRelease(iterator) }
+    let device = IOIteratorNext(iterator)
+    if device != 0 { IOObjectRelease(device) }
+    return device != 0
+}
+
+// Waits up to `seconds` for a condition, letting CoreMIDI run.
+func waitFor(_ seconds: Double, _ condition: () -> Bool) -> Bool {
+    let end = Date().addingTimeInterval(seconds)
+    while !condition() {
+        if Date() > end { return false }
+        pump(0.25)
+    }
+    return true
 }
 
 // Waits while letting CoreMIDI process its notifications: without the run loop, a process that keeps running across
@@ -1737,31 +1767,60 @@ func install() {
     guard flag("--yes") else { fail("usage: pro800 install <file.syx> --yes (switches to update mode, flashes, waits)") }
     guard let path = args.first else { fail("usage: pro800 install <file.syx> --yes") }
     let messages = updateMessages(path) // check the file before touching the synth
-    do {
-        let midi = Midi(port: portName)
-        midi.send(sysexHeader + [0x03, 0x30, 0xF7])
+    guard messages[0].count > 44 else { fail("\(path): header too short to hold a version") }
+    let expected = Array(messages[0][42...44]) // the version PRO800_update_gen packed into the header
+    let expectedText = expected.map(String.init).joined(separator: ".")
+
+    // an open client keeps this process's list of ports current while the synth re-enumerates
+    var watcher = MIDIClientRef()
+    MIDIClientCreateWithBlock("pro800 install" as CFString, &watcher) { _ in }
+    defer { MIDIClientDispose(watcher) }
+
+    if usbDevicePresent(product: usbBootloader) {
+        print("already in the bootloader")
+    } else {
+        guard usbDevicePresent(product: usbFirmware) else { fail("no PRO-800 on USB") }
+        print("update mode requested; waiting for the bootloader")
+        var entered = false
+        for _ in 0..<3 where !entered { // the stock firmware sometimes misses a SysEx message
+            Midi(existing: portName)?.send(sysexHeader + [0x03, 0x30, 0xF7])
+            entered = waitFor(6) { usbDevicePresent(product: usbBootloader) }
+        }
+        guard entered else {
+            fail("the synth didn't enter the bootloader, so nothing was flashed. Switch it off, hold buttons 0 and 7, switch it on, and run this again.")
+        }
     }
-    print("update mode requested; waiting for the bootloader")
-    pump(4)
+    // macOS can drop the port and set it up again right after the device appears: wait until it stays
+    var steady: Date?
+    let portReady = waitFor(20) {
+        guard Midi.endpoints(portName) != nil else { steady = nil; return false }
+        if steady == nil { steady = Date() }
+        return Date().timeIntervalSince(steady!) >= 3
+    }
+    guard portReady else { fail("the bootloader's MIDI port didn't appear") }
     args = [path, "--yes"]
-    _ = messages
-    flash()
+    guard flash() else {
+        fail("the bootloader didn't confirm the update. Quit anything else using MIDI (a web page in Chrome), switch the synth off and on, and run this again with 0 and 7 held if it comes up on the old firmware.")
+    }
     // a first boot after an update also autotunes (about 30 s) before it answers
     print("waiting for the new firmware (it tunes first, about 30 s)", terminator: "")
     for _ in 0..<75 {
         pump(1)
         print(".", terminator: ""); fflush(stdout)
-        guard let midi = Midi(existing: portName) else { continue }
-        if midi.request([0x08, 0x00], expect: [0x09, 0x00], timeout: 1) != nil {
-            // macOS sets the port up once more shortly after it first appears: answer again after a pause
-            pump(3)
-            if let reply = Midi(existing: portName)?.request([0x08, 0x00], expect: [0x09, 0x00], timeout: 2) {
-                print("\nrunning firmware \(reply.dropFirst(sysexHeader.count + 2).dropLast().map(String.init).joined(separator: "."))")
-                return
-            }
-        }
+        guard usbDevicePresent(product: usbFirmware), let midi = Midi(existing: portName),
+              midi.request([0x08, 0x00], expect: [0x09, 0x00], timeout: 1) != nil else { continue }
+        // macOS sets the port up once more shortly after it first appears: answer again after a pause
+        pump(3)
+        guard let reply = Midi(existing: portName)?.request([0x08, 0x00], expect: [0x09, 0x00], timeout: 2) else { continue }
+        let running = Array(reply.dropFirst(sysexHeader.count + 2).dropLast())
+        let runningText = running.map(String.init).joined(separator: ".")
+        guard running == expected else { fail("\nthe synth runs firmware \(runningText), not the \(expectedText) in \(path)") }
+        print("\nrunning firmware \(runningText)")
+        return
     }
-    fail("\nthe firmware didn't answer within 75 s")
+    fail(usbDevicePresent(product: usbBootloader)
+        ? "\nthe synth is still in the bootloader. Switch it off and on, and run this again if it stays on the display's boot screen."
+        : "\nthe firmware didn't answer within 75 s")
 }
 
 // MARK: - Main

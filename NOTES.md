@@ -197,6 +197,14 @@ Before the first flash we didn't know: how the bootloader answers (if at all), w
 "PRO 800" in update mode, and how long it needs to erase after the header. `pro800 flash` waits 3 s after the
 header (`--erase-wait`) and prints any reply.
 
+SynthTribe 3.2.4's update, tested 2026-10-30 (macOS 26, Chrome closed, synth entered with 0 + 7, so only the
+bootloader was running): it never finishes. The bar stays at 0% and the display goes from `boot` to `UPDA`. Recorded with
+`pro800 listen`, the bootloader sent the version (`09 00 00 00 00` after an unfinished update, else the last update's
+version), then `03 31` twice, 2 s apart, then nothing for over 3 minutes: no `01 00 07`, no `01 00 00`. SynthTribe then
+sat idle with no sending thread. Its symbols (`queryDeviceMode`, `currentModeChanged` comparing 0x31, `receivedACK`,
+`sendFirmwareData`) suggest `03 31` answers a mode query as well as our header. Unknown: what SynthTribe sends after it,
+since CoreMIDI shows only the synth's side. `pro800 flash` with the same file works, and it's the way back to stock.
+
 ## DAC and S&H wiring (sheets 1-3, checked at 400 dpi)
 
 - DAC80501 (U46) in SPI mode (SPI2C tied low): SCLK PC10, SDIN PB0, SYNC PA15 (SPI3's pins; bit-banged for
@@ -1531,10 +1539,26 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   In the built-in browser with a fake synth: a bass at step 1 stretched over +12, +15, +19, a rest and to mid step 6 keeps them all and raises
   Chords, dragging back restores, an upper note's own gate changes under the held bass, moving and removing take the whole bass, JSON keeps it. Tried by the user on the roll with the synth: long bass notes under short upper notes work.
 
+## Typing a slot number (0.9.3, 2026-10-30)
+
+- A user reported `donE` with the patch not in the chosen slot. From 0.8.0 (128 slots) a number that could still take
+  a digit was only held: Rec dropped it and saved to the slot in use, so P1-P12 went wrong and overwrote that slot.
+  P1-P9 couldn't be chosen by key at all, for loading either, and the 3 s pause in the manual never existed.
+- Now Rec in a save takes the open number as the slot, the pause ends it (`typed_check()`, a lone `0` just goes), and
+  any other button drops it. VALUE still drops it and steps from the slot in use.
+- After a Tune from the panel the display goes back to its idle state (it was left blank with a patch loaded).
+- Memory never formatted (fresh from stock) had no global block, and only Format wrote one, so a saved or installed
+  patch was kept but the last patch and the system settings weren't, and the synth started blank in manual mode.
+  Now `store_save_patch()` writes the block when it's missing (panel saves, bank installs, factory copies); no slot
+  is erased. Raw EEPROM writes (`0x5A`, `eeprom-write`) don't, so writing the stock image back stays stock.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.
 - Audition the preset bank on the synth and tune levels and cutoffs.
+- Compare stock and PRO-8000 tuning. Stock's Tune takes clearly longer than ours (about 25 s) and, by ear on 2026-10-30,
+  goes voice by voice through notes in different octaves, then PW and filters. Ours measures each oscillator and filter
+  at fixed CVs and doesn't touch PW. Find out what stock's extra time buys and whether ours should do any of it.
 
 Nothing here is needed for the synth to work; this is what's open, consolidated 2026-10-28 after the review, the
 0.7.7 / 0.7.8 measurements and the dac-test sweep. What each buys is in its line.

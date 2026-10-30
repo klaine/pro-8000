@@ -197,6 +197,7 @@ static int sustain;
 static uint8_t sustained[128];
 static char loaded_name[PATCH_NAME + 1]; // travels with the sound when it's saved to an empty slot
 static uint32_t typed_at;
+#define TYPED_PAUSE_MS 3000
 
 // Step recording (0.9.0): hold Rec and press Seq 1 (the edit layer stays); every MIDI note then writes the next step
 // (seq_record_note()) and still plays, without the sequence. Seq 2 writes a rest; Rec or Seq 1 ends it, as does
@@ -1290,6 +1291,31 @@ static void env_extra_turn(int pot, int raw)
         show_env_extra();
 }
 
+// A typed number ends here: in a save it picks the slot, otherwise it loads that patch. 0 stays on the current slot.
+static void typed_end(void)
+{
+    int n = typed_value > 0 ? typed_value - 1 : current_patch;
+    typed_digits = 0;
+    if (saving) {
+        current_patch = n;
+        show_patch(n);
+    } else
+        load_patch(n);
+}
+
+// A number with room for another digit ends after a pause of TYPED_PAUSE_MS. A lone 0 is no number: it just goes.
+static void typed_check(uint32_t now)
+{
+    if (!typed_digits || (int32_t)(now - typed_at) < TYPED_PAUSE_MS) // signed: as for sync_press_at
+        return;
+    if (typed_value && !menu_open && (saving || preset_mode))
+        typed_end();
+    else {
+        typed_digits = 0;
+        idle_display();
+    }
+}
+
 static void control_event(control_kind_t kind, int index, int32_t value)
 {
     static const led_t button_led[BUTTON_COUNT] = {
@@ -1302,6 +1328,10 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     if (report_mode) {
         report_event(kind, index, value);
         return;
+    }
+    if (typed_digits && kind == CONTROL_BUTTON && value && index > BUTTON_9 && !(index == BUTTON_REC && saving)) {
+        typed_digits = 0; // any other button drops a number being typed; Rec in a save takes it as the slot
+        idle_display();
     }
     if (kind == CONTROL_BUTTON && (index == BUTTON_SEQ1 || index == BUTTON_SEQ2) && !value
         && !controls_button(BUTTON_SEQ1) && !controls_button(BUTTON_SEQ2) && tune_mode_frozen) {
@@ -1620,7 +1650,6 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         if (index == BUTTON_PERF && value && !saving && !menu_open)
             init_patch();
         if (index == BUTTON_PRESET && value) {
-            typed_digits = 0;
             if (saving) { // cancels a save
                 saving = 0;
                 display_led(LED_REC, 0);
@@ -1631,12 +1660,13 @@ static void control_event(control_kind_t kind, int index, int32_t value)
                 load_patch(current_patch);
         }
         if (index == BUTTON_REC && value && !menu_open) {
-            typed_digits = 0;
             if (!saving) {
                 saving = 1; // the LED blinks in the main loop until the second press
                 show_patch(current_patch);
                 display_until = 0;
             } else {
+                if (typed_digits)
+                    typed_end();
                 saving = 0;
                 display_led(LED_REC, 0);
                 display_text(save_patch(current_patch) ? "donE" : "Err");
@@ -1669,20 +1699,13 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && !menu_open && (preset_mode || saving)) {
         int digit = index - BUTTON_0;
-        if (typed_digits && ms_ticks - typed_at < 3000 && typed_value * 10 + digit <= PATCH_COUNT
+        if (typed_digits && typed_value * 10 + digit <= PATCH_COUNT
             && (typed_digits == 2 || (typed_value * 10 + digit) * 10 > PATCH_COUNT || (typed_value * 10 + digit) == 0)) {
             // the number is complete: a third digit, or no further digit could keep it within 1-128
-            int n = typed_value * 10 + digit - 1;
-            typed_digits = 0;
-            if (n < 0)
-                n = current_patch;
-            if (saving) {
-                current_patch = n;
-                show_patch(n);
-            } else
-                load_patch(n);
-        } else if (typed_digits && ms_ticks - typed_at < 3000 && typed_value * 10 + digit <= PATCH_COUNT) {
-            typed_digits = 2; // "P 12-": one more digit may follow (within 3 s), or VALUE / a key ends it
+            typed_value = typed_value * 10 + digit;
+            typed_end();
+        } else if (typed_digits && typed_value * 10 + digit <= PATCH_COUNT) {
+            typed_digits = 2; // "P 12-": one more digit may follow, until typed_check()'s pause; Rec in a save ends it too
             typed_value = typed_value * 10 + digit;
             typed_at = ms_ticks;
             char text[6] = {'P', ' ', (char)('0' + typed_value / 10), (char)('0' + typed_value % 10), 0};
@@ -1910,7 +1933,7 @@ static void run_tuning(void)
     tuning_run();
     synth_init();
     drop_stale_midi();
-    display_clear();
+    idle_display(); // the patch's number, the open menu's page, or blank in manual mode
 }
 
 static void enter_update_mode(void)
@@ -2673,6 +2696,7 @@ int main(void)
         uint32_t tc = DWT_CYCCNT;
         controls_poll(now, control_event);
         cycles_controls = DWT_CYCCNT - tc;
+        typed_check(now);
         if (tune_requested) {
             tune_requested = 0;
             run_tuning();

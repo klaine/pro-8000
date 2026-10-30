@@ -149,12 +149,13 @@ keep them).
 - **Edit:** a loaded patch's knobs are in pickup (with pickup off: until you move them) and its buttons keep their
   stored state until you press them.
   Press Preset for manual mode, where the whole panel is live as it is.
-- **Save:** press Rec (it blinks), choose a slot by number or with VALUE, then press Rec again (`donE`). Preset
-  cancels. The patch's name follows the sound into an empty slot.
+- **Save:** press Rec (it blinks), choose a slot by number or with VALUE, then press Rec again (`donE`). You don't
+  have to wait after typing: `5`, Rec saves to P5 at once. Preset cancels. The patch's name follows the sound into an empty slot.
 - **Init:** Perf loads a plain sound. Rec saves it anywhere.
 - **Names, export, backup, the factory bank:** on the web page (Patches tab).
 - **Filling the slots after installing:** the firmware starts with no patches of its own, and slots that still hold
-  the stock firmware's data show `nonE`. On the web page's Patches tab: **Format the patch memory** (every slot
+  the stock firmware's data show `nonE`. Saving a patch or installing a bank is enough for the synth to start on your
+last patch from then on; the other slots stay as they are. On the web page's Patches tab: **Format the patch memory** (every slot
   empty), then **Copy the whole factory bank** (the 100 stock sounds into the empty slots, converted) and/or
   **Install the preset bank** (66 sounds into P1-P66; or **Install a bank file…** with the release's
   `pro8000-presets-<version>.json`). Each asks first.
@@ -711,15 +712,86 @@ build/pro800 install build/pro800-0.9.2.syx --yes
   web page (see Patches: "Filling the slots after installing").
 
 - **Update:** `build/pro800 install build/pro800-<version>.syx --yes` puts the synth into update mode, flashes it
-  and waits for the new firmware. Patches and tuning stay.
+  and waits until it runs the file's version. Patches and tuning stay. If the stock firmware doesn't go into update
+  mode, it stops without flashing: hold 0 and 7 at power-up, then run it again.
 - **If a firmware won't start:** hold buttons **0 and 7** while switching on to reach the bootloader. Then flash
   any firmware `.syx` with `build/pro800 flash` or Behringer's SynthTribe. The bootloader can't be overwritten
   from here.
-- **Back to stock:** the stock firmware can't read this firmware's patch format.
-  1. Export or back up anything you want to keep (Patches tab, "Back up everything").
-  2. While this firmware still runs, write back the stock EEPROM image with
-     `build/pro800 eeprom-write backup/2026-10-27/eeprom-stock.bin --yes`.
-  3. Flash the stock firmware with SynthTribe.
+
+### Going back to the stock firmware
+
+Do these steps in order. **Fix the patch memory (step 2) before you flash stock (step 3):** the stock firmware can't
+read PRO-8000's patches, and the step 2 tools only work while PRO-8000 is running.
+
+**What has been tested:** one synth went back to stock 1.4.6 by route A and by route B in step 2, each time with
+route 2 in step 3. The SynthTribe route (route 1) has failed every time on that synth, so read its note first.
+
+**1. Save your PRO-8000 sounds (optional).** Open the [web editor](https://klaine.github.io/pro-8000/editor/) in Chrome
+or Edge, go to the Patches tab and click **Back up everything**. Only PRO-8000 can read this file, so it is useful only
+if you come back to PRO-8000 later.
+
+**2. Fix the patch memory.** Choose one route. Leave the synth switched on, running PRO-8000.
+
+- **Route A: you saved a full EEPROM image of your synth before you first installed PRO-8000** (with `pro800 eeprom`).
+  This puts back your stock patches and settings exactly. It needs a Mac and the command-line tool: clone this
+  repository, run `scripts/tools.sh`, then run:
+
+  ```bash
+  build/pro800 eeprom-write <your-image.bin> --yes
+  ```
+
+  Wait for the line `verified: the EEPROM matches`. The message then says to power-cycle the synth: don't, go straight
+  to step 3. Use only an image from your own synth, because it holds that synth's data as well as its patches.
+
+- **Route B: you have no image.** Your original stock patches can't be brought back from the synth, because PRO-8000
+  overwrote them. In the web editor's Patches tab, click **Format the patch memory**. Every slot becomes empty, which
+  is also how the stock firmware stores an empty slot. The 100 factory sounds stay in the EEPROM, and step 4 brings
+  them back. If you kept `.syx` patch backups from before installing, you can load them after step 4.
+
+**3. Flash the stock firmware.** First quit Chrome, Edge, and any other program that uses MIDI, completely (Cmd+Q on a
+Mac). An open editor page can make the update fail, because the bootloader's USB port is also called "PRO 800". Connect
+the synth by USB. Switch it off, hold buttons **0** and **7**, and switch it on. The display shows `boot` and stays there, which means
+the bootloader is ready, so let go of the buttons. Then choose a route.
+
+- **Route 1: SynthTribe.** Open Behringer's SynthTribe, go to **Update**, and start the update. It downloads the
+  current stock firmware itself. It may show the PRO-8000 version number or `0.0.0` as the current firmware; that's
+  normal. Clicking update changes the display to `UPDA`.
+
+  *This has never finished on our synth* (SynthTribe 3.2.4, macOS 26, Chrome closed): the bar stays at 0% or 1%
+  and the display stays on `UPDA`. PRO-8000 isn't running at that point, so the cause isn't in its code, and SynthTribe
+  may behave differently on another computer. If the bar hasn't moved after 2 minutes, quit SynthTribe, switch the
+  synth off and on with 0 and 7 held again, and use route 2. The stalled attempt does no harm.
+
+- **Route 2: the command-line tool (Mac).** Run SynthTribe's update once so that it downloads the firmware, then quit
+  it, even if the bar is stuck. The file is in `~/Library/Caches/com.behringer.synthtribe/fsCachedData/`. It has a random name and is about
+  169 kB. Copy it somewhere and name it `pro800-stock.syx`, then run:
+
+  ```bash
+  build/pro800 flash pro800-stock.syx --yes
+  ```
+
+  It takes about a minute. A good update prints a reply ending in `03 31 F7` near the start and one ending in
+  `01 00 00 F7` at the very end. Blocks answered with `01 00 07` mean something else was talking to the synth: quit
+  it, switch the synth off and on with 0 and 7 held, and flash again.
+
+**4. Check the result.** Switch the synth off and on if it hasn't restarted by itself. It should start as a stock
+PRO-800, showing a patch number such as `A-13`. SynthTribe, or `build/pro800 version`, should show the stock version
+(`firmware 1.4.6` when this was written); if the tool gets no reply, wait a few seconds and try again. The bootloader
+also answers version requests, so a number alone doesn't prove the flash worked: the synth must also start and play.
+
+After route B, the synth is out of tune and its slots are empty, so a key plays a plain saw with the filter open.
+Finish it like this:
+
+1. Press **Tune** and let it finish. It takes longer than PRO-8000's Tune, going voice by voice.
+2. Press **Settings**, then **0**, then **0** again to confirm the factory reset. Don't switch off during it.
+3. The 100 factory sounds are back in the first 100 slots, starting with "Organ I". The other 300 slots stay empty.
+4. The reset also returns the system settings to their defaults. The MIDI channel goes back to `DIPS`, so set it again
+   if your MIDI source plays on one channel.
+
+**If it goes wrong:** the bootloader can't be overwritten. If the tool says `MIDI port "PRO 800" not found`, wait a few
+seconds and run it again. If the display stays on `boot` after a flash or shows `noFW`, switch the synth off and on,
+then go back to step 3. To return to PRO-8000 at any point, enter the bootloader the same way and
+flash a PRO-8000 `.syx` from the [releases](https://github.com/klaine/pro-8000/releases).
 
 ## Known limitations
 
