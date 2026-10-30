@@ -93,7 +93,7 @@
 static struct {
     int valid;
     uint16_t last_patch;
-    uint8_t preset_mode, format, cc[2], clock_source, midi_channel;
+    uint8_t preset_mode, format, cc[2], clock_source, midi_channel, no_pickup;
     uint16_t bpm; // ×10
 } global;
 
@@ -122,6 +122,7 @@ static int write_global(void)
     b[8] = global.cc[0];
     b[9] = global.cc[1];
     b[10] = global.midi_channel; // 0.9.1; 0 in older blocks: every channel, as before
+    b[11] = global.no_pickup;    // 0.9.3; 0 in older blocks: knobs pick up, as before
     put32(b + 12, checksum(b, 12));
     put16(b + 16, global.bpm); // the clock, outside the checksum (older blocks have anything here: range-checked)
     b[18] = global.clock_source;
@@ -157,6 +158,7 @@ void store_init(void)
     global.cc[0] = global.valid ? b[8] : 0;
     global.cc[1] = global.valid ? b[9] : 0;
     global.midi_channel = global.valid && b[10] <= 16 ? b[10] : 0;
+    global.no_pickup = global.valid && b[11] == 1;
     global.bpm = get16(b + 16);
     global.clock_source = b[18];
     if (!global.valid || global.bpm < 300 || global.bpm > 3000) // 30-300 BPM
@@ -184,6 +186,17 @@ void store_set_midi_channel(int channel)
     if (channel < 0 || channel > 16 || global.midi_channel == channel)
         return;
     global.midi_channel = (uint8_t)channel;
+    if (global.valid)
+        write_global();
+}
+
+int store_pickup(void) { return !global.no_pickup; }
+
+void store_set_pickup(int on)
+{
+    if ((on == 0) == global.no_pickup)
+        return;
+    global.no_pickup = !on;
     if (global.valid)
         write_global();
 }

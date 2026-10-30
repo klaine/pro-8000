@@ -1401,7 +1401,7 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 
 ## Layer links (0.9.3, 2026-10-30)
 
-- **What:** `layer_link` (patch record byte 347, host setting 82, `pro800 set link`, JSON `link`), 7 bits: `LINK_ENV(e)`
+- **What:** `layer_link` (patch record byte 347, host setting 83, `pro800 set link`, JSON `link`), 7 bits: `LINK_ENV(e)`
   (amp, filter, Env 3, Env 4), `LINK_LFO(w)`, `LINK_FILTER` (cutoff, envelope amount). Zero in every older record.
   One byte of the 161 reserved, so 160 are left. Effective only in split, stack and channel (`links()` is 0 when
   `one_layer()`).
@@ -1428,8 +1428,51 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   patterns go to layer 1, a JSON read keeps layer 2's own values. **Not tested:** the panel side (a linked knob on layer 2
   editing layer 1, the LEDs), which needs hands on the synth; the two layers' LFO phases side by side (same `LFO_ID` by
   construction).
-- **Merging with the pickup branch** (`claude/pickup-off-c44676`): that branch also takes host setting 82. Whichever
-  merges second moves its setting up one, in `main.c`, `pro800.swift` (ids and printer cases), and the page's `SETTINGS`.
+
+## Knob pickup off (0.9.3, 2026-10-30)
+
+- **Issue 4** ("Option to turn off 'Knob value catch'"): pickup makes the synth feel less immediate, a knob doing
+  nothing until it passes the stored value. A system setting now turns it off: a knob in pickup takes over as soon
+  as it moves, jumping the value to its position (the stock firmware's behaviour). Pickup stays the default.
+- **How** (`read_panel()`): a knob waiting for its value already noted which side of it it started on, at its first
+  free pass; it now notes where it was then too (`pickup_from`). With pickup off it takes over once it's more than
+  2 % from there (`JUMP_MOVE`: above the pots' jitter, which the 1.5 % pickup window already lives with), or a step
+  for a stepped knob (FREQ A / B, a synced LFO FREQ: they have hysteresis, so any step is a real turn). Reaching or
+  sweeping past the value still takes over as before. Changing the setting makes every waiting knob start again from
+  where it is (`synth_set_pickup()`), else one that had moved while waiting would jump the moment pickup went off.
+- **Per case.** Patch load, switching layer, LFO or envelope (the keytrack switch, Shift's Env 3 / Env 4 on the ADSR
+  knobs), the web page or a CC moving a value: with pickup off, a knob that moves takes over at once. The gestures that
+  freeze knobs keep their guard: under Shift (the non-ADSR knobs nudge secondaries), in MOD ASSIGN, on the envelope
+  page (ATT / DEC set delay / hold) and during Seq + FREQ, a frozen knob doesn't start waiting until the freeze ends,
+  so its reference is where it is then. Letting go of Shift, or leaving MOD ASSIGN, moves nothing; moving the knob
+  after does. The display's dot still means "not yet taking over" in both modes.
+- **Stored** in the global block's byte 11, inside the checksum (`store.c`, `no_pickup`, 1 = off), so older blocks
+  (0 there) keep pickup. Host setting 82 after the oscillator tuning modes (1 pickup, 0 jump); with the layer links at 83 the read-only
+  ones are 84-87, so `SET_COUNT` is 88 and the 54 reply 187 bytes: `SYSEX_MAX` 188. Panel: Shift + FIL ENV AMT
+  (`P.UP`, `on` / `OFF`), a quarter turn a step, since a full sweep for one on/off step was too far. The tool's
+  `set pickup on|off` (and `settings` shows it), the web page's System tab ("Knobs", hidden on firmware without the
+  setting through `FEATURES.pickup`) and the cheat sheet's Shift and display lines.
+- **Tested** on the host: `synth.c` and `lfo.c` built for the Mac with the panel stubbed, driving pots through
+  `synth_update()`: pickup on (stays when turned away, follows once swept past); off (a 1 % wobble stays, 4 %
+  jumps, a muxed shared knob jumps on both layers, one semitone step of FREQ A jumps); off with Shift (turned under
+  Shift: unchanged; released: unchanged; moved after: jumps), Shift + FIL ATT jumping Env 3 and leaving the filter
+  attack alone at release, MOD ASSIGN and Seq + FREQ freezes the same way, the edit-layer switch (layer 2 jumps,
+  layer 1 kept), a patch load, turning pickup off while a moved knob waits (nothing moves; it jumps when moved
+  after), and back on. The web page in the built-in browser with a fake synth answering 08, 54
+  and 7D: the select shows the setting, Off sends `7D 52 00 00` and reads back; with an 86-setting reply (0.9.2) the
+  section and the cheat-sheet lines hide, the status names it missing, and the read-only settings still land right.
+  The guide's Figure 13 has a "Pickup off (jump)" box, checked in the built-in browser. Builds at 73,760 bytes (with issue 7).
+- **On the synth** (2026-10-30, the unsaved init sound; P128 holds a patch): the setting reads back after the flash as
+  on, the rest of the settings unchanged. With pickup off, 30 s with no hand on the panel moved nothing, including knobs
+  put in pickup from the host (pot jitter at most 1/99, below `JUMP_MOVE`). CUTOFF waited at 99 with the knob at 76: a
+  1-point move stayed, further on it jumped to 71 and followed. Shift + FIL ENV AMT toggled it, read back by the tool.
+  `set pickup off` / `on` flips byte 11 and the checksum of the global block, and back on the block is identical.
+- **With the layer links** (merged on `0.9.3`, installed, 75,240 bytes): the settings reply reads right at 88 (pickup 82,
+  link 83, read-only 84-87). 15 s of pickup off moved no knob on P128. The filter test still gave 762 Hz unlinked, 2184
+  Hz linked, the same with pickup off, 766 Hz unlinked again. A jump now writes to `param_layer()`'s layer, so a linked
+  knob on layer 2 jumps layer 1. The web page with a fake synth: writes 82 and 83 land on the right settings; with an 86-
+  and an 87-setting reply the missing features are named, the Link buttons hide and the patch number still reads. **Not
+  tested:** the panel side of either together (needs hands on the knobs).
 
 ## Backlog
 

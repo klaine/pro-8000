@@ -67,7 +67,8 @@ Probe (our firmware 0.0.9+):
                                         steps <layer> <lfo> x.x.xx.. (the step shape's pattern, 1-16),
                                         cycle-sync <layer> <env> free|1/16|… (a cycle's length from the clock),
                                         button a-saw|…|sync on|off (the panel's latching buttons),
-                                        midi-channel all|1-16 (the channel it listens on; 0.9.1)
+                                        midi-channel all|1-16 (the channel it listens on; 0.9.1),
+                                        pickup on|off (off: a knob that moves takes over at once; 0.9.3)
   pro800 settings                       print every setting
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
@@ -953,7 +954,8 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
                    "macro 2 2", "clock", "bpm", "env-up 1", "env-up 2", "dahdsr 1", "dahdsr 2", "env-curve 1", "env-curve 2"]
     + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
     + ["env-tempo 1", "env-tempo 2", "midi-channel",
-       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "link", "env-select", "preset-mode", "patch", "morph"]
+       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link",
+       "env-select", "preset-mode", "patch", "morph"]
 let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
@@ -981,7 +983,7 @@ func setSetting() {
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger free|first|every|voice | " +
         "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | " +
         "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
-        "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | " +
+        "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
@@ -1025,6 +1027,8 @@ func setSetting() {
         (id, v) = (66, n)
     } else if args.count == 2, args[0] == "midi-channel", let c = args[1] == "all" ? 0 : Int(args[1]), (0...16).contains(c) {
         (id, v) = (77, c)
+    } else if args.count == 2, args[0] == "pickup", let i = ["off", "on"].firstIndex(of: args[1]) {
+        (id, v) = (82, i)
     } else if args.count == 4, args[0] == "osc-tune", let layer = Int(args[1]), (1...2).contains(layer),
               let osc = ["a", "b"].firstIndex(of: args[2]),
               let mode = ["semitones", "octave", "free", "fixed"].firstIndex(of: args[3]) {
@@ -1070,7 +1074,7 @@ func setSetting() {
             guard let i = linkNames.firstIndex(of: String(name)) else { fail(usage) }
             bits |= 1 << i
         }
-        (id, v) = (82, bits)
+        (id, v) = (83, bits)
     } else if args.count == 3, ["cycle", "env-up", "dahdsr", "env-tempo"].contains(args[0]), let layer = Int(args[1]), (1...2).contains(layer) {
         var bits = 0
         for name in args[2].split(separator: ",") where name != "none" {
@@ -1151,12 +1155,13 @@ func settings() {
         case 66: text = v == 0 ? "automatic" : "\(v) + \(8 - v)"
         case 77: text = v == 0 ? "all" : "\(v)"
         case 78...81: text = ["semitones", "octave", "free", "fixed"][safe: v] ?? text
-        case 82:
+        case 82: text = v == 0 ? "off (a knob jumps)" : "on"
+        case 83:
             let on = linkNames.indices.filter { v >> $0 & 1 != 0 }.map { linkNames[$0] }
             text = on.isEmpty ? "none" : on.joined(separator: ",")
-        case 83: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 85: text = slotName(v)
-        case 86: text = v == 0 ? "none" : slotName(v - 1)
+        case 84: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 86: text = slotName(v)
+        case 87: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")

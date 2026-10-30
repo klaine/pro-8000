@@ -15,6 +15,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     for the flash erase. `--dry-run` only checks the file.
   - Our firmware plays on every MIDI channel unless one is set (`set midi-channel all|1-16`, Shift + NOISE);
     `play`, `cc` and `bend` default to that channel, else 6 (the stock firmware's) for `play` and 1 for the others.
+  - Knob pickup is on unless turned off (`set pickup on|off`, Shift + FIL ENV AMT, 0.9.3): off, a knob in pickup
+    takes over as soon as it moves (the stock synth's jump).
   - `install <file.syx> --yes`: update-mode + flash + wait until the new firmware answers (it autotunes first).
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
   - Patches: `patches`, `patch load|save|clear <slot>`, `format --yes` (wipe every slot), `eeprom <file>` (read),
