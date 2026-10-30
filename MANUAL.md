@@ -743,6 +743,21 @@ build/pro800 install build/pro800-0.9.3.syx --yes
 
 ## Updating, recovery and going back to stock
 
+**The easy way is the [installer page](https://klaine.github.io/pro-8000/editor/install.html)** (Chrome or Edge on a
+computer). It sees what the synth is running and walks through the rest, asking you to hold 0 and 7 only if it has to:
+
+- **Install PRO-8000:** flashes the current release, and if you want, initialises the patch memory and installs the
+  preset bank. Coming from stock, it first saves a memory image, your only copy of your stock patches.
+- **Back to stock:** fixes the patch memory while PRO-8000 still runs, flashes stock 1.4.6 from a file you provide
+  (see step 3 below for where SynthTribe keeps it; this site can't share Behringer's firmware), and tells you what's
+  left to do on the synth.
+
+Before you start, quit SynthTribe and close anything else that uses MIDI, MIDI patchbays and other browser pages
+included. One stray message makes the bootloader refuse the update and stop answering, though nothing is harmed: close
+it and try again. Editor tabs in the same browser let go of the synth by themselves.
+
+The rest of this section is the same thing by hand, with the command-line tool.
+
 - **First install:** after flashing from the stock firmware the slots are empty or unreadable; fill them from the
   web page (see Patches: "Filling the slots after installing").
 
@@ -755,7 +770,7 @@ build/pro800 install build/pro800-0.9.3.syx --yes
 
 ### Going back to the stock firmware
 
-Do these steps in order. **Fix the patch memory (step 2) before you flash stock (step 3):** the stock firmware can't
+The installer page does steps 2 to 4 for you. By hand, do these steps in order. **Fix the patch memory (step 2) before you flash stock (step 3):** the stock firmware can't
 read PRO-8000's patches, and the step 2 tools only work while PRO-8000 is running.
 
 **What has been tested:** one synth went back to stock 1.4.6 by route A and by route B in step 2, each time with

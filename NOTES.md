@@ -1638,6 +1638,31 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   channel 16 is heard and 15 ignored.
 - Before the release's install, the sound on the synth (P68) was compared with `params`, `routes`, `seq` and `settings`: the same after the reboot and after a reload.
 
+## The installer page (0.9.3, 2026-10-30)
+
+`tools/web/install.html`, asked for so that installing, initialising and going back to stock need no command line.
+
+- **Interference is the whole risk.** Testing with Chrome and the MIDI patchbay open, the bootloader answered nothing,
+  not even the version request, and refused every block with `01 00 07`, from the page and from `pro800 flash` alike.
+  Closing them was enough: the next `pro800 flash` got `03 31` and `01 00 00` with no power-cycle, and the bootloader
+  answered the version request again. So any program's traffic does it, not only the editor's poll. The page stops at a
+  missing `03 31` or any `01 00 0x` error, and treats a port that answers nothing as the bootloader, since sending the
+  update header to anything else does nothing. Editor tabs let go over a BroadcastChannel; other software can't be told.
+- **What's on the port** without the USB product id, which a page can't see: only our firmware answers 79, only stock
+  answers 77 7E 03, anything else counts as the bootloader.
+- **The stock file:** Behringer's cloud (`cloud.midasconsoles.com`) wants an authorised token, and the firmware isn't
+  ours to host, so the user opens it. The page checks it's an update and names whether it's the tested 1.4.6 by SHA-256.
+- **Images:** stock patches survive the first boot of PRO-8000. An image taken after it differs from the stock image only
+  from 0x1F500 to 0x1FA4B (tuning tables, 1,166 bytes over stock's scratch data), so the page saves it after flashing and
+  before wiping, to a file chosen at Start because a browser opens that dialog only after a click. An image with a
+  global block is refused for the way back to stock.
+- **Tested on the synth** in a separate Chrome (own profile, MIDI granted over CDP, the save dialog stubbed): reinstall
+  through update mode; to stock with the memory emptied, image identical to `pro800 eeprom`'s; stock to PRO-8000 with
+  format and bank, 66 presets read back; to stock writing `eeprom-stock.bin` back; PRO-8000 over that real stock
+  memory, leaving it alone; the user's image written back, read back identical. Update mode worked from stock each time.
+  Against a simulated synth: the 0 + 7 prompt, a refused header, a refused block, retrying. Not tested: Windows, Linux,
+  Edge, a stock file other than the 1.4.6 one, and the real save dialog.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

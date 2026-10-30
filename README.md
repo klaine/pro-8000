@@ -318,6 +318,10 @@ MIDI tool. `scripts/web.sh` serves the editor at http://localhost:8800 (Chrome o
 
 ## Install
 
+The [installer page](https://klaine.github.io/pro-8000/editor/install.html) (Chrome or Edge) flashes the current
+release, initialises the patch memory and installs the preset bank if you want, and goes back to stock 1.4.6 from a
+file you provide. From the command line:
+
 ```bash
 build/pro800 install build/pro800-0.9.3.syx --yes
 ```

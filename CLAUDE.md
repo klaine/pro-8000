@@ -41,10 +41,16 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     stages, keytrack and switch overrides, from 0.9.3 the LFOs' phases; read-only).
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
+- The installer page `tools/web/install.html` (http://localhost:8800/install.html, on the site `editor/install.html`):
+  WebMIDI, needs the same browsers. Flashes `firmware.syx` beside it (`scripts/web.sh` and `scripts/pages.sh` copy the
+  current build there; git-ignored in `tools/web/`), initialises the memory, installs the preset bank, writes a memory
+  image back, and goes back to stock from a file the user opens. **Behringer's firmware never goes on the site or in
+  git.** `tools/web/sound-plan.js` holds the preset-format code it shares with the editor. Other MIDI software on the
+  Mac breaks a flash (NOTES), the command-line flash too; the Chrome test uses a separate profile.
 - The preset bank: `presets/lib/bundle.py` bundles `presets/*.json` into one file for the editor's Patches tab;
   `scripts/web.sh` writes `tools/web/presets.json` (git-ignored), `scripts/pages.sh` the site's `editor/presets.json`,
   and `scripts/build.sh` `build/pro8000-presets-<VERSION>.json`, which a release carries with the `.syx`.
-- `scripts/pages.sh` builds the GitHub Pages site (`docs/` → `build/pages/`, with the editor from `tools/web/` as
+- `scripts/pages.sh` builds the GitHub Pages site (`docs/` → `build/pages/`, with the editor and installer from `tools/web/` as
   `editor/`) and writes the `pages` branch as one parentless commit; `--push` force-pushes it. The site is
   https://klaine.github.io/pro-8000/ (repository `klaine/pro-8000`).
 - `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, because the bootloader takes it as XYZ.

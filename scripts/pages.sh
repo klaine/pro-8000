@@ -3,8 +3,8 @@
 #   scripts/pages.sh          # build/pages/, then update the local pages branch
 #   scripts/pages.sh --push   # also push it to origin
 #
-# The site is docs/ (three guides, style and script inlined by docs/build.py) plus the WebMIDI editor from
-# tools/web/ as editor/. The branch is written with git plumbing, so the working tree and the current branch are
+# The site is docs/ (three guides, style and script inlined by docs/build.py) plus the WebMIDI editor and installer
+# from tools/web/ as editor/, with the firmware the installer flashes (build/, from scripts/build.sh) next to them. The branch is written with git plumbing, so the working tree and the current branch are
 # left alone; it holds one commit with no history, replaced only when the site changes, which is why the push is
 # forced. A checkout of the branch (git worktree) is reset to the new commit.
 #
@@ -28,7 +28,13 @@ OUT=$ROOT/build/pages
 rm -rf "$OUT"
 mkdir -p "$OUT/editor"
 "$PYTHON" -I docs/build.py docs "$OUT"
-cp tools/web/index.html tools/web/panel-map.json "$OUT/editor/"
+SYX=build/pro800-$(cat VERSION).syx
+if [ ! -f "$SYX" ]; then
+  echo "pages: no $SYX for the installer, run scripts/build.sh first" >&2
+  exit 1
+fi
+cp tools/web/index.html tools/web/install.html tools/web/sound-plan.js tools/web/panel-map.json "$OUT/editor/"
+cp "$SYX" "$OUT/editor/firmware.syx"
 "$PYTHON" -I presets/lib/bundle.py "$OUT/editor/presets.json"
 if grep -rl -E '/Users/|/home/' "$OUT"; then
   echo "pages: build paths in the site, not publishing" >&2
@@ -48,7 +54,7 @@ if [ "$(git rev-parse -q --verify 'refs/heads/pages^{tree}' || true)" = "$TREE" 
 else
   SRC=$(git rev-parse --short HEAD)
   git diff --quiet HEAD -- || SRC="$SRC with local changes"
-  git update-ref refs/heads/pages "$(git commit-tree "$TREE" -m "PRO-8000 $(cat VERSION): the guides and the editor, built from $SRC")"
+  git update-ref refs/heads/pages "$(git commit-tree "$TREE" -m "PRO-8000 $(cat VERSION): the guides, the editor and the installer, built from $SRC")"
   echo "== pages: built from $SRC"
   WT=$(git worktree list --porcelain | awk '/^worktree /{w=substr($0,10)} /^branch refs\/heads\/pages$/{print w}')
   if [ -n "$WT" ]; then

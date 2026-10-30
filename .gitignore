@@ -1,6 +1,7 @@
 # build outputs
 build/
 tools/web/presets.json
+tools/web/firmware.syx
 
 # third-party material: GliGli's p600fw, Music Tribe's packer and schematic
 reference/
