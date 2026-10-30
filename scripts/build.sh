@@ -48,17 +48,21 @@ echo "pro800.bin: $size bytes"
 
 [ "$pack" = 1 ] || exit 0
 
+packer=PRO800_update_gen
+packer_copy=$packer
 case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) packer_dir="macos arm64" ;;
     Linux-*) packer_dir=linux ;;
+    # Windows asks for elevation before running an unsigned 32-bit exe with "update" in its name, so the copy has another.
+    MINGW*|MSYS*|CYGWIN*) packer_dir=windows; packer=PRO800_update_gen.exe; packer_copy=pro800-packer.exe ;;
     *) echo "no PRO800_update_gen for $(uname -s)-$(uname -m)" >&2; exit 1 ;;
 esac
-packer_src="$root/reference/PRO800-Firmware-Packer/$packer_dir/PRO800_update_gen"
+packer_src="$root/reference/PRO800-Firmware-Packer/$packer_dir/$packer"
 [ -f "$packer_src" ] || { echo "packer missing: $packer_src" >&2; exit 1; }
-cp "$packer_src" "$build/PRO800_update_gen"
-chmod +x "$build/PRO800_update_gen"
+cp "$packer_src" "$build/$packer_copy"
+chmod +x "$build/$packer_copy"
 
 syx="pro800-$version.syx"
-"$build/PRO800_update_gen" pro800.bin "$syx" "$(echo "$version" | tr -d .)"
+"$build/$packer_copy" pro800.bin "$syx" "$(echo "$version" | tr -d .)"
 echo "$syx: $(wc -c < "$syx" | tr -d ' ') bytes"
 "${PYTHON:-python3}" -I "$root/presets/lib/bundle.py" "pro8000-presets-$version.json"

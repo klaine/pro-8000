@@ -15,16 +15,16 @@ if len(sys.argv) not in (2, 3):
 out = sys.argv[1]
 here = os.path.dirname(os.path.abspath(__file__))
 folder = sys.argv[2] if len(sys.argv) == 3 else os.path.dirname(here)
-with open(os.path.join(os.path.dirname(folder), "VERSION")) as f:
+with open(os.path.join(os.path.dirname(folder), "VERSION"), encoding="utf-8") as f:
     version = f.read().strip()
 presets = []
 for path in sorted(glob.glob(os.path.join(folder, "*.json"))):
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         p = json.load(f)
     if not isinstance(p, dict) or not isinstance(p.get("slot"), int) or not p.get("name"):
         sys.exit(f"{path}: not a preset (needs a slot and a name)")
     presets.append(p)
-with open(out, "w") as f:
+with open(out, "w", encoding="utf-8", newline="\n") as f:
     json.dump({"format": "pro8000-presets", "version": version, "presets": presets}, f, separators=(",", ":"))
     f.write("\n")
 print(f"{out}: {len(presets)} presets")

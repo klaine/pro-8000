@@ -300,6 +300,7 @@ The bootloader sits at the start of the flash, write-protected; nothing here eve
 
 Needs zig (as the C cross-compiler), Music Tribe's packer cloned into `reference/PRO800-Firmware-Packer/` from
 [its repository](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer), and Xcode's swiftc for the tool.
+On Windows, install zig with `winget install zig.zig` and run `scripts/build.sh` from Git Bash; the tool is macOS-only.
 
 ```bash
 scripts/build.sh

@@ -1,0 +1,2 @@
+# Text stays LF on every system: the scripts run under sh and build.sh reads VERSION as it is.
+* text=auto eol=lf

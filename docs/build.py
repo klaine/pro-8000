@@ -5,15 +5,15 @@ import sys
 src = pathlib.Path(sys.argv[1])
 out = pathlib.Path(sys.argv[2])
 out.mkdir(parents=True, exist_ok=True)
-css = (src / "style.css").read_text()
-js = (src / "common.js").read_text()
+css = (src / "style.css").read_text(encoding="utf-8")
+js = (src / "common.js").read_text(encoding="utf-8")
 for page in ["index.html", "how-it-works.html", "sound-design.html"]:
     p = src / page
     if not p.exists():
         continue
-    html = p.read_text()
+    html = p.read_text(encoding="utf-8")
     html = html.replace("<!--STYLE-->", "<style>\n" + css + "</style>")
     html = html.replace("<!--COMMON-->", "<script>\n" + js + "</script>")
-    (out / page).write_text(html)
+    (out / page).write_bytes(html.encode("utf-8"))
     print(page, len(html))
 (out / ".nojekyll").write_text("")

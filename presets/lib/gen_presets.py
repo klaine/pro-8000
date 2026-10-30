@@ -912,7 +912,7 @@ for p in PATCHES:
     while "--" in slug:
         slug = slug.replace("--", "-")
     path = os.path.join(OUT, "%02d-%s.json" % (p["slot"], slug))
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(p, f, indent=1)
         f.write("\n")
 print("wrote %d patches to %s" % (len(PATCHES), OUT))

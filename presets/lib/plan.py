@@ -275,7 +275,7 @@ def main(argv):
     check(files, "no preset files given")
     patches = []
     for f in files:
-        with open(f) as fh:
+        with open(f, encoding="utf-8") as fh:
             try:
                 patch = json.load(fh)
             except ValueError as e:

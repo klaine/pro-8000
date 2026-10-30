@@ -6,7 +6,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 ## Commands
 
 - `scripts/build.sh` builds `build/pro800.elf` / `.bin` with zig cc and packs `build/pro800-<VERSION>.syx`
-  with Music Tribe's `PRO800_update_gen`. `--no-pack` skips packing; `-h` prints the help.
+  with Music Tribe's `PRO800_update_gen`. `--no-pack` skips packing; `-h` prints the help. On Windows, run it from
+  Git Bash (`winget install zig.zig`). The packer salts its output, so two packs of one `.bin` differ: compare `.bin`s.
 - `scripts/tools.sh` builds `build/pro800`, the macOS USB MIDI tool (`build/pro800 help`):
   - Read-only: `ports`, `version`, `listen`, `backup <dir>` (system settings + patches as .syx).
   - `play <note> --record`: plays a note and measures level and pitch from the Move's audio input.

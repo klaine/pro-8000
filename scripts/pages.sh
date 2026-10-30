@@ -45,7 +45,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "== pages: not a git checkout,
 GITDIR=$(git rev-parse --absolute-git-dir)
 INDEX=$ROOT/build/pages.index
 rm -f "$INDEX"
-TREE=$(cd "$OUT" && GIT_DIR=$GITDIR GIT_WORK_TREE=$OUT GIT_INDEX_FILE=$INDEX git add -A . \
+TREE=$(cd "$OUT" && GIT_DIR=$GITDIR GIT_WORK_TREE=$OUT GIT_INDEX_FILE=$INDEX git -c core.autocrlf=false add -A . \
   && GIT_DIR=$GITDIR GIT_WORK_TREE=$OUT GIT_INDEX_FILE=$INDEX git write-tree)
 rm -f "$INDEX"
 
