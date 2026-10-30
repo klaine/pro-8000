@@ -205,7 +205,8 @@ They're stored in the patch. While a group is linked:
   envelope pages in Settings and the LFO Shape button.
 - A linked LFO is layer 1's LFO itself, so the layers stay in phase; in per-voice retrigger each voice keeps its own
   phase at that rate, and a key on either layer restarts a linked one shot.
-- Mod routes stay per layer, so layer 2's routes still add to the shared values.
+- Mod routes stay per layer, so layer 2's routes still add to the shared values. To share one route, see Both in
+  [the mod matrix](#mod-matrix-mod-assign).
 
 **Per layer:**
 - FREQ A/B and FINE;
@@ -605,6 +606,15 @@ The LFO rate is per voice in `PoLY` retrigger mode. Otherwise it follows the mos
 Rate modulation sweeps smoothly, also on a clock-synced LFO: depth 99 is ±4 octaves, so LFO 2 (triangle) → LFO 1
 rate at depth 50, with LFO 1 synced at `1-8`, sweeps it between 1/2 and 1/32. While it's swept the LFO leaves the
 beat; with retrigger `FrEE` it slides back onto the bar within a cycle or two once the modulation stops.
+
+### A route on both layers
+
+In split, stack and channel, the web page's Mod matrix has a **Both** switch on each route: the route plays on both
+layers' voices, with one slot and one depth. Each voice reads its own source: its velocity and envelopes, and its layer's
+LFOs, unless that LFO is linked. It's saved with the patch. The route stays on the layer it was made on, and shows on
+the other one too, marked, where you can change its depth or switch it off. A single wire (levels, noise, resonance,
+pulse width, volume) counts it once, from the newest note. Copying a layer leaves it out, as it already plays there.
+On the panel, Arp Assign makes routes for one layer, and browsing shows a both-layers route only on its own layer.
 
 ### Ideas to try
 

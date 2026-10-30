@@ -1581,6 +1581,25 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 - The default pattern is now `1 0 1 0 1 1 1 0`, twice (`LFO_DEFAULT_PATTERN` 0x7575, was 0x3535). It applies to the init sound and
   records that never stored a step count; a patch that stored a pattern keeps it, and P62 Trance Gate names its own.
 
+## Mod routes on both layers (0.9.3, 2026-10-30)
+
+- **What:** `route_both[2]`, a bit per route slot: that route also plays on the other layer's voices, in split, stack and channel.
+  Patch record bytes 351-354 (zero: as before; 153 reserved bytes left), host settings 87-90 (each layer's slots 0-7 and 8-15,
+  as a setting holds 14 bits and the reply 2 bytes each; read-only now 91-94, `SET_COUNT` 95, `SYSEX_MAX` 201), `pro800
+  route-both <layer> <source> <dest> on|off`, `routes` marks them, JSON `[source, dest, depth, "both"]`, Both in the web matrix.
+- **Why per route:** a Link for the whole matrix would take away layer 2's own routes. One slot and one depth, on the layer it was
+  made on. Sources are read per voice, so velocity and the envelopes are that voice's, and an LFO that layer's unless linked.
+- **`evaluate_routes()`** runs its own 16, then the other layer's flagged ones; the second pass stops at once when that mask is 0, so
+  patches without any cost one test. `fast_routes` and `uses_env34` look at both tables.
+- **Single wires:** `shared_mod[]` adds both layers' `last_mod`, so a both-layers route would count twice. `summed_wire()` lets it count
+  only on `newest_layer()`, which matches what a wire means (the newest note). Morph, detune and the LFO rates are per layer: not summed.
+- **Slots:** `synth_set_route()` clears the bit when a slot empties or fills, so a new route never inherits one. Copying a layer leaves out
+  the source's both-layers routes (they already play on the target) and clears the target's bits.
+- **Panel:** none. Arp Assign makes one-layer routes and browses the edit layer's own table, so a both-layers route shows only on its layer.
+- **Older firmware** ignores 351-354 and plays them as one layer's routes; it clears them when it saves.
+- **Web:** the other layer's flagged routes are listed after the layer's own, marked, with their source and destination locked; depth,
+  Both and Remove act on the owner. The knobs' rings and the LFO depth bars count them. The macro and lane readouts show own routes only.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

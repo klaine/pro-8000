@@ -75,6 +75,7 @@ Probe (our firmware 0.0.9+):
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
   pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, 0 removes); pro800 routes lists them
+  pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
                                         replies on stdout as hex; over one MIDI connection
@@ -955,7 +956,8 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
                    "macro 2 2", "clock", "bpm", "env-up 1", "env-up 2", "dahdsr 1", "dahdsr 2", "env-curve 1", "env-curve 2"]
     + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
     + ["env-tempo 1", "env-tempo 2", "midi-channel",
-       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles", "lfo-restart",
+       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles", "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)",
+       "route-both 2 (0-7)", "route-both 2 (8-15)",
        "env-select", "preset-mode", "patch", "morph"]
 let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
@@ -1164,9 +1166,9 @@ func settings() {
             text = on.isEmpty ? "none" : on.joined(separator: ",")
         case 84, 85: text = v == 1 ? "1 cycle (one shot)" : "\(v) cycles (one shot)"
         case 86: text = v == 0 ? "steps (a sequence's notes restart the LFOs)" : "keys (the keys restart them, not a sequence's steps)"
-        case 87: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 89: text = slotName(v)
-        case 90: text = v == 0 ? "none" : slotName(v - 1)
+        case 91: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 93: text = slotName(v)
+        case 94: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
@@ -1560,9 +1562,39 @@ func route() {
     print("layer \(layer): \(args[1]) → \(args[2]) = \(depth)")
 }
 
+// pro800 route-both <layer 1|2> <source> <dest> on|off: the route plays on the other layer too (settings 87-90: a bit per slot)
+func routeBoth() {
+    guard args.count == 4, let layer = Int(args[0]), layer == 1 || layer == 2,
+          let src = sourceNames.firstIndex(of: args[1]), src > 0, let dest = destNames.firstIndex(of: args[2]),
+          args[3] == "on" || args[3] == "off" else {
+        fail("usage: pro800 route-both <layer 1|2> <source> <destination> on|off")
+    }
+    let midi = Midi(port: portName)
+    guard let reply = midi.request([0x57, UInt8(layer - 1)], expect: [0x57, UInt8(layer - 1)], timeout: 2) else { fail("no reply") }
+    let b = Array(reply[(sysexHeader.count + 2)..<(reply.count - 1)])
+    guard let slot = stride(from: 0, to: b.count - 3, by: 4).first(where: { Int(b[$0]) == src && Int(b[$0 + 1]) == dest }).map({ $0 / 4 }) else {
+        fail("layer \(layer) has no route \(args[1]) → \(args[2])")
+    }
+    guard let masks = routeBothMasks(midi) else { fail("this firmware hasn't got both-layers routes (0.9.3)") }
+    let id = 87 + 2 * (layer - 1) + slot / 8, part = masks[layer - 1] >> (8 * (slot / 8)) & 0xFF, bit = 1 << (slot % 8)
+    let v = args[3] == "on" ? part | bit : part & ~bit
+    probeAck(midi, [0x7D, UInt8(id), UInt8(v >> 7), UInt8(v & 0x7F)])
+    print("layer \(layer): \(args[1]) → \(args[2]) on both layers \(args[3])")
+}
+
+// Each layer's both-layers routes, a bit per slot; nil from firmware without them (fewer settings than 0.9.3's 95)
+func routeBothMasks(_ midi: Midi) -> [Int]? {
+    guard let reply = midi.request([0x54], expect: [0x54], timeout: 2) else { return nil }
+    let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)]).map(Int.init)
+    guard b[0] >= 95 else { return nil }
+    let value = { (i: Int) in b[1 + 2 * i] << 7 | b[2 + 2 * i] }
+    return [value(87) | value(88) << 8, value(89) | value(90) << 8]
+}
+
 // pro800 routes: both layers' mod routes
 func routes() {
     let midi = Midi(port: portName)
+    let both = routeBothMasks(midi) ?? [0, 0]
     for layer in 0..<2 {
         guard let reply = midi.request([0x57, UInt8(layer)], expect: [0x57, UInt8(layer)], timeout: 2) else {
             fail("no reply (firmware 0.5.0 or later?)")
@@ -1570,7 +1602,8 @@ func routes() {
         let b = Array(reply[(sysexHeader.count + 2)..<(reply.count - 1)])
         var lines = [String]()
         for i in stride(from: 0, to: b.count - 3, by: 4) where b[i] != 0 && Int(b[i]) < sourceNames.count && Int(b[i + 1]) < destNames.count {
-            lines.append("  \(sourceNames[Int(b[i])]) → \(destNames[Int(b[i + 1])]): \((Int(b[i + 2]) << 7 | Int(b[i + 3])) - 99)")
+            lines.append("  \(sourceNames[Int(b[i])]) → \(destNames[Int(b[i + 1])]): \((Int(b[i + 2]) << 7 | Int(b[i + 3])) - 99)"
+                         + (both[layer] >> (i / 4) & 1 != 0 ? " (both layers)" : ""))
         }
         print("layer \(layer + 1): " + (lines.isEmpty ? "no routes" : "\n" + lines.joined(separator: "\n")))
     }
@@ -1807,6 +1840,7 @@ case "layer": layer()
 case "eeprom": eeprom()
 case "route": route()
 case "routes": routes()
+case "route-both": routeBoth()
 case "timing": timing()
 case "engine": engine()
 case "sysex": sysexPipe()

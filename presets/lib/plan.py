@@ -223,8 +223,9 @@ def plan(patch):
         check(len(routes) <= 16, "layer %s has more than 16 routes" % layer)
         seen = set()
         for r in routes:
-            check(isinstance(r, list) and len(r) == 3, "route must be [source, dest, depth]: %r" % (r,))
-            src, dest, depth = r
+            check(isinstance(r, list) and (len(r) == 3 or (len(r) == 4 and r[3] == "both")),
+                  "route must be [source, dest, depth] or [source, dest, depth, \"both\"]: %r" % (r,))
+            src, dest, depth = r[:3]
             check(src in SOURCES, "source: %s" % src)
             check(dest in DESTS, "destination: %s" % dest)
             in_range(depth, -99, 99, "depth of %s -> %s" % (src, dest))
@@ -232,6 +233,8 @@ def plan(patch):
             check((src, dest) not in seen, "route %s -> %s twice on layer %s" % (src, dest, layer))
             seen.add((src, dest))
             out.append("route %s %s %s %d" % (layer, src, dest, depth))
+            if len(r) == 4:  # 0.9.3: it plays on the other layer's voices too
+                out.append("route-both %s %s %s on" % (layer, src, dest))
     if patch.get("sequence"):
         out.extend(sequence_lines(patch["sequence"]))
     if patch.get("morph"):

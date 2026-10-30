@@ -103,7 +103,7 @@
   .seg-b svg { width: 26px; height: 13px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
   .chip { padding: 4px 9px; font-size: 11px; }
   .chip.small { padding: 3px 8px; }
-  .chip.link[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip.link[aria-pressed="true"], .chip.both[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
   .ps-flt > .chip.link { justify-self: start; align-self: flex-start; width: auto; }
   .knob.linked .lbl::after { content: " ⇆"; }
 
@@ -603,7 +603,7 @@
 
     <section class="cs cs-wide">
       <h3>On the web page only</h3>
-      <p class="small">The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key)<span data-needs="lfoRestart">, and whether its steps or your keys restart the LFOs</span> ·
+      <p class="small">The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key)<span data-needs="lfoRestart">, and whether its steps or your keys restart the LFOs</span> ·<span data-needs="routeBoth"> a mod route on both layers (Both, in the two-layer modes) ·</span>
         LFO step patterns · scale and root · morph target and source · note priority · Mutate · mod routes from Seq A-D
         and to Morph · patch names, export, the factory bank · copying an LFO or envelope from the other layer.</p>
     </section>
@@ -620,17 +620,20 @@
       several destinations with their own depths; a macro moves once a pass (1-2.4 ms). Envelope stage destinations
       scale that stage's time up to 16× either way at depth 99 (sustain adds to the level). On the panel: Arp Assign,
       then a source (a number key, a touch of an LFO or ADSR knob, or scroll with VALUE), then a destination (touch
-      its knob or LFO button, or scroll and press Arp Assign), VALUE for the depth; hold Arp Assign to browse the routes.</p>
+      its knob or LFO button, or scroll and press Arp Assign), VALUE for the depth; hold Arp Assign to browse the routes.
+      <span data-needs="routeBoth">In the two-layer modes, Both plays a route on both layers' voices with one slot and one
+      depth; each voice reads its own velocity, envelopes and LFOs. It shows on the other layer too, marked, and edits from there.</span></p>
     <div class="row macros" id="macros"></div>
     <div class="row"><span class="dim small">the layer you're editing</span>
       <button id="matrix-refresh">Refresh</button><span class="msg" id="matrix-msg"></span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Source</th><th>Destination</th><th>Depth</th><th></th></tr></thead>
+      <thead><tr><th>Source</th><th>Destination</th><th>Depth</th><th class="both-cell">Layers</th><th></th></tr></thead>
       <tbody id="routes"></tbody>
-      <tfoot><tr class="new-head"><td colspan="4">New route: pick a source, a destination and a depth, then
+      <tfoot><tr class="new-head"><td colspan="5">New route: pick a source, a destination and a depth, then
         Add route. It does nothing until it's added.</td></tr>
         <tr class="new-route"><td><select id="new-source"></select></td><td><select id="new-dest"></select></td>
         <td><div class="depth-cell"><input type="range" id="new-depth" min="-99" max="99" value="50"><output id="new-depth-out">50</output></div></td>
+        <td class="both-cell"></td>
         <td class="actions"><button class="primary" id="add-route">Add route</button></td></tr></tfoot>
     </table></div>
   </section>
@@ -1205,6 +1208,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "layerLink", // what layer 2 takes from layer 1: a bit per envelope (ENV_CYCLE_* order), 16 LFO 1, 32 LFO 2, 64 filter
   "lfoCycles1", "lfoCycles2", // a one shot's cycles, 1-99 (0 is taken as 1)
   "lfoRestart", // a sequence's LFO restarts: 0 from its steps, 1 from the keys
+  "routeBoth1Lo", "routeBoth1Hi", "routeBoth2Lo", "routeBoth2Hi", // per layer, a bit per route slot: plays on both layers
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -1221,6 +1225,7 @@ const FEATURES = {
   layerLink: ["layerLink", "layer links"],
   lfoOneShot: ["lfoCycles1", "one shot LFOs"],
   lfoRestart: ["lfoRestart", "LFO restarts from a sequence's keys"],
+  routeBoth: ["routeBoth1Lo", "mod routes on both layers"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1358,7 +1363,10 @@ const STEPS_SHAPE = 7;
 // LFO depth bars: mod-matrix routes from LFO 1 / LFO 2 (sources 1 / 11) to these destinations
 const LFO_SOURCE = [1, 11];
 const LFO_TARGETS = [["VCA", [9]], ["Cutoff", [3]], ["Pitch A", [0]], ["Pitch B", [1]], ["PWM", [14, 15]]];
-let layerRoutes = null; // the edit layer's routes: [{source, dest, depth}]
+let layerRoutes = null; // the edit layer's routes: [{layer, slot, source, dest, depth, both}]
+let otherRoutes = [];   // the other layer's routes that play on this one too (same form)
+const routeBothMask = l => rawSettings ? (rawSettings[`routeBoth${l + 1}Lo`] || 0) | (rawSettings[`routeBoth${l + 1}Hi`] || 0) << 8 : 0;
+const routesBothShown = () => !!settings && twoLayers(settings) && feature("routeBoth");
 // How far the edit layer's routes can move each knob, in knob units (0..1 of its travel), from the engine's
 // scales: a destination's full-depth swing over the knob's own range. Pitch depths are squared; the others linear.
 // Sources that swing either side of the middle (LFOs, random, note, bend, the lanes, the macros) spread both
@@ -1373,10 +1381,11 @@ const DEST_SCALE = { 0: 24 / 72, 1: 24 / 72, 2: 24 / 72, 3: 96 / 120, 4: 0.5, 5:
   16: 1, 18: 0.4, 19: 1, 20: 0.4, 41: 0.4, 43: 1 }; // stages: 4 octaves of 12
 const BIPOLAR_SOURCES = new Set([1, 11, 9, 10, 12, 13, 14, 15, 20, 26, 27]);
 const SQUARED_DESTS = new Set([0, 1, 2]);
+const routeOf = (source, dest) => [...layerRoutes, ...otherRoutes].find(x => x.source === source && x.dest === dest);
 function modRange(knob) {
   const r = { lo: 0, hi: 0, who: [] };
   if (!layerRoutes) return r;
-  for (const { source, dest, depth } of layerRoutes) {
+  for (const { source, dest, depth } of [...layerRoutes, ...otherRoutes]) {
     const knobs = DEST_KNOBS[dest];
     if (!knobs || !knobs.includes(knob) || !depth) continue;
     const scale = DEST_SCALE[dest] ?? (dest >= 25 && dest <= 40 ? 4 / 12 : 0);
@@ -1749,7 +1758,7 @@ function depthBar(which, t) {
   const val = h("span", { class: "val" }, "off");
   let local = null, timer = 0, at = 0;
   const get = () => local !== null && Date.now() - at < 1500 ? local
-    : (layerRoutes && (layerRoutes.find(x => x.source === src && x.dest === dests[0]) || {}).depth) || 0;
+    : (layerRoutes && (routeOf(src, dests[0]) || {}).depth) || 0;
   const set = u => {
     if (offline()) return;
     const depth = Math.round(Math.min(99, Math.max(-99, u * 198 - 99)));
@@ -1759,7 +1768,7 @@ function depthBar(which, t) {
     clearTimeout(timer);
     timer = setTimeout(async () => {
       for (const dest of dests)
-        if (!await setRoute(paramsLayer, src, dest, depth)) {
+        if (!await setRoute((routeOf(src, dest) || { layer: paramsLayer }).layer, src, dest, depth)) { // a both-layers route: where it lives
           document.getElementById("status").textContent = `All 16 mod routes of layer ${paramsLayer + 1} are in use (Mod matrix, below)`;
           local = null;
           break;
@@ -2995,9 +3004,15 @@ function buildPanel() {
 async function refreshLayerRoutes() {
   const layer = paramsLayer, d = await ask([0x57, layer], [0x57, layer], 1000);
   if (!d) return;
-  layerRoutes = [];
-  for (let r = 0; r < 16; r++)
-    if (d[2 + 4 * r]) layerRoutes.push({ source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
+  const parse = (d, layer) => {
+    const list = [], mask = routeBothMask(layer);
+    for (let r = 0; r < 16; r++)
+      if (d[2 + 4 * r]) list.push({ layer, slot: r, source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, both: !!(mask >> r & 1) });
+    return list;
+  };
+  const other = routesBothShown() && routeBothMask(1 - layer) ? await ask([0x57, 1 - layer], [0x57, 1 - layer], 1000) : null;
+  layerRoutes = parse(d, layer);
+  otherRoutes = other ? parse(other, 1 - layer).filter(r => r.both) : [];
   paintAll();
   renderRoutes();
 }
@@ -3182,44 +3197,65 @@ async function setRoute(layer, src, dest, depth) {
   const d = depth + 99;
   return ack([0x56, layer, src, dest, d >> 7, d & 0x7F]);
 }
-// The edit layer's routes as a table: rebuilt when they change, but not under a control that's being used
+async function setRouteBoth(route, on) {
+  const key = `routeBoth${route.layer + 1}${route.slot < 8 ? "Lo" : "Hi"}`, bit = 1 << route.slot % 8;
+  await setSetting(SET_ID[key], on ? rawSettings[key] | bit : rawSettings[key] & ~bit);
+}
+// The edit layer's routes as a table, then the other layer's that play here too: rebuilt when they change, but not
+// under a control that's being used
 let routesShown = null;
 function renderRoutes(force) {
   const body = document.getElementById("routes");
   if (!layerRoutes) return;
-  const key = paramsLayer + ":" + JSON.stringify(layerRoutes);
+  const key = paramsLayer + ":" + routesBothShown() + JSON.stringify([layerRoutes, otherRoutes]);
   if (!force && (key === routesShown || body.contains(document.activeElement))) return;
   routesShown = key;
   body.innerHTML = "";
   let used = 0;
-  for (const { source: src, dest, depth } of layerRoutes) {
+  for (const route of [...layerRoutes, ...otherRoutes]) {
+    const { layer, source: src, dest, depth, both } = route, own = layer === paramsLayer;
     if (src >= SOURCES.length || dest >= DESTS.length) continue;
-    used++;
+    if (own) used++;
     const tr = document.createElement("tr");
     tr.innerHTML = `<td><select class="s">${options(SOURCES, 0)}</select></td>
-      <td><select class="d">${options(DESTS, -1)}</select> ${WIRE.has(dest) ? '<span class="tag">wire</span>' : ""}</td>
+      <td><select class="d">${options(DESTS, -1)}</select> ${WIRE.has(dest) ? '<span class="tag">wire</span>' : ""}${own ? "" : ` <span class="tag">layer ${layer + 1}'s</span>`}</td>
       <td><div class="depth-cell"><input type="range" min="-99" max="99" value="${depth}"><output>${depth}</output></div></td>
+      <td class="both-cell"><button type="button" class="chip both" aria-pressed="${both}" title="this route plays on both layers' voices, each reading its own velocity, envelopes and LFOs. It takes one slot, on the layer it was made on. A wire destination counts once, from the newest note">Both</button></td>
       <td class="actions"><button class="del">Remove</button></td>`;
     tr.querySelector(".s").value = src; tr.querySelector(".d").value = dest;
     const range = tr.querySelector("input"), out = tr.querySelector("output");
     let timer = 0;
     range.oninput = () => { out.textContent = range.value; clearTimeout(timer);
-      timer = setTimeout(() => setRoute(paramsLayer, src, dest, +range.value || 0), 40); };
+      timer = setTimeout(() => setRoute(layer, src, dest, +range.value || 0), 40); };
     range.onchange = () => { if (+range.value === 0) loadRoutes(); };
     const move = async () => {
       const s2 = +tr.querySelector(".s").value, d2 = +tr.querySelector(".d").value;
-      await setRoute(paramsLayer, src, dest, 0);
-      if (!await setRoute(paramsLayer, s2, d2, depth || 50)) msg("matrix-msg", "Couldn't set that route", "bad");
+      await setRoute(layer, src, dest, 0);
+      if (!await setRoute(layer, s2, d2, depth || 50)) msg("matrix-msg", "Couldn't set that route", "bad");
+      else if (both) { // its new slot starts as one layer's
+        await refreshLayerRoutes();
+        const moved = layerRoutes.find(r => r.source === s2 && r.dest === d2);
+        if (moved) await setRouteBoth(moved, true);
+      }
       loadRoutes();
     };
     tr.querySelector(".s").onchange = move; tr.querySelector(".d").onchange = move;
-    tr.querySelector(".del").onclick = async () => { await setRoute(paramsLayer, src, dest, 0); loadRoutes(); };
+    tr.querySelector(".s").disabled = tr.querySelector(".d").disabled = !own; // on the layer it was made on
+    tr.querySelector(".both").onclick = async () => { await setRouteBoth(route, !both); loadRoutes(); };
+    tr.querySelector(".del").onclick = async () => { await setRoute(layer, src, dest, 0); loadRoutes(); };
     body.appendChild(tr);
   }
-  if (!used) body.innerHTML = `<tr><td colspan="4" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
+  if (!body.children.length) body.innerHTML = `<tr><td colspan="5" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
   document.getElementById("add-route").disabled = used >= 16;
   paintAll(); // the macro knobs' rings and wiring follow the routes
 }
+// The Both column: only in the two-layer modes; entering or leaving one changes which routes play here
+let bothShown = false;
+paints.push(() => {
+  const show = routesBothShown();
+  document.querySelectorAll("#tab-sound .both-cell").forEach(e => { e.hidden = !show; });
+  if (show !== bothShown) { bothShown = show; if (layerRoutes) refreshLayerRoutes(); }
+});
 async function loadRoutes() {
   if (offline()) return;
   await refreshLayerRoutes();
@@ -3465,7 +3501,8 @@ async function readSound() {
     const d = await ask([0x57, layer], [0x57, layer], 1000), list = [];
     if (!d) bad("the synth didn't send its routes");
     for (let r = 0; r < 16; r++)
-      if (d[2 + 4 * r]) list.push([JN.sources[d[2 + 4 * r] - 1], JN.dests[d[3 + 4 * r]], (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99]);
+      if (d[2 + 4 * r]) list.push([JN.sources[d[2 + 4 * r] - 1], JN.dests[d[3 + 4 * r]], (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99,
+        ...(routeBothMask(layer) >> r & 1 ? ["both"] : [])]);
     if (list.length) out.routes[layer + 1] = list;
   }
   const h = await ask([0x48], [0x48], 1000);
@@ -3537,14 +3574,18 @@ function planSound(j, has) {
   for (const [layer, list] of Object.entries(j.routes || {})) {
     if (layer !== "1" && layer !== "2") bad(`routes: layer "1" or "2", not ${JSON.stringify(layer)}`);
     if (!Array.isArray(list) || list.length > 16) bad(`routes ${layer}: a list of up to 16`);
-    for (const r of list) {
-      if (!Array.isArray(r) || r.length !== 3) bad(`route: [source, destination, depth], not ${JSON.stringify(r)}`);
+    let bothBits = 0;
+    for (const [slot, r] of list.entries()) { // after the init sound a layer's routes fill its slots in order
+      if (!Array.isArray(r) || !(r.length === 3 || (r.length === 4 && r[3] === "both"))) bad(`route: [source, destination, depth] or [source, destination, depth, "both"], not ${JSON.stringify(r)}`);
+      if (r.length === 4) bothBits |= 1 << slot;
       const s = JN.sources.indexOf(r[0]) + 1, d = JN.dests.indexOf(r[1]);
       if (!s) bad(`route source: ${JSON.stringify(r[0])}`);
       if (d < 0) bad(`route destination: ${JSON.stringify(r[1])}`);
       const depth = jInt(-99, 99).enc(r[2], `depth of ${r[0]} → ${r[1]}`) + 99;
       messages.push([0x56, layer - 1, s, d, depth >> 7, depth & 0x7F]);
     }
+    if (bothBits && !has(`routeBoth${layer}Lo`)) warnings.push(`routes ${layer}: "both": this firmware hasn't got it`);
+    else if (bothBits) { setting(SET_ID[`routeBoth${layer}Lo`], bothBits & 255); setting(SET_ID[`routeBoth${layer}Hi`], bothBits >> 8); }
   }
   const q = j.sequence;
   if (q) {

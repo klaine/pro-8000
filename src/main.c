@@ -110,7 +110,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 193 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 201 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -1765,6 +1765,8 @@ typedef enum {
     SET_LAYER_LINK,                                      // LINK_* bits: what layer 2 takes from layer 1
     SET_LFO1_CYCLES, SET_LFO2_CYCLES,                    // a one shot's cycles, 1-99 (0 is taken as 1)
     SET_LFO_RESTART,                                     // a sequence's LFO restarts: 0 from its steps, 1 from the keys
+    SET_ROUTE_BOTH, // 4 of them: layer 1's routes 0-7 and 8-15, then layer 2's: a bit per slot, plays on both layers
+    SET_ROUTE_BOTH_END = SET_ROUTE_BOTH + 3,
     SET_WRITABLE,                                        // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1795,6 +1797,8 @@ static int host_setting_get(int id)
     case SET_ROOT: return synth_scale() >> 4;
     case SET_LFO1_CYCLES: case SET_LFO2_CYCLES: return lfo_cycles[id == SET_LFO2_CYCLES];
     case SET_LFO_RESTART: return synth_lfo_restart_keys();
+    case SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END:
+        return synth_route_both((id - SET_ROUTE_BOTH) / 2) >> 8 * ((id - SET_ROUTE_BOTH) % 2) & 0xFF;
     case SET_LFO1_DELAY: case SET_LFO2_DELAY: return lfo_delay[id == SET_LFO2_DELAY];
     case SET_LFO1_FADE: case SET_LFO2_FADE: return lfo_fade[id == SET_LFO2_FADE];
     case SET_CC_A: case SET_CC_B: return synth_cc_number(id == SET_CC_B);
@@ -1838,6 +1842,7 @@ static int host_setting_set(int id, int value)
         [SET_MIDI_CHANNEL] = 17,
         [SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B] = OSC_TUNE_MODE_COUNT, [SET_PICKUP] = 2, [SET_LAYER_LINK] = LINK_ALL + 1,
         [SET_LFO1_CYCLES] = 100, [SET_LFO2_CYCLES] = 100, [SET_LFO_RESTART] = 2,
+        [SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END] = 256,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
         return 0;
@@ -1862,6 +1867,11 @@ static int host_setting_set(int id, int value)
     case SET_SCALE: synth_set_scale(value | (synth_scale() & ~15)); break;
     case SET_ROOT: synth_set_scale((synth_scale() & 15) | value << 4); break;
     case SET_LFO_RESTART: synth_set_lfo_restart_keys(value); break;
+    case SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END: {
+        int layer = (id - SET_ROUTE_BOTH) / 2, shift = 8 * ((id - SET_ROUTE_BOTH) % 2);
+        synth_set_route_both(layer, (synth_route_both(layer) & ~(0xFF << shift)) | value << shift);
+        break;
+    }
     case SET_LFO1_CYCLES: case SET_LFO2_CYCLES: lfo_cycles[id == SET_LFO2_CYCLES] = (uint8_t)(value ? value : 1); break;
     case SET_LFO1_DELAY: case SET_LFO2_DELAY: lfo_delay[id == SET_LFO2_DELAY] = (uint8_t)value; break;
     case SET_LFO1_FADE: case SET_LFO2_FADE: lfo_fade[id == SET_LFO2_FADE] = (uint8_t)value; break;

@@ -241,6 +241,7 @@ static const uint8_t link_of_param[PARAM_COUNT] = {
 static uint8_t switch_override[SWITCH_COUNT], switch_value[SWITCH_COUNT], switch_at_load[SWITCH_COUNT];
 static int keytrack_setting = 2;
 static route_t routes[LAYERS][ROUTES];
+static uint16_t route_both[LAYERS]; // bit r: routes[layer][r] plays on the other layer's voices too
 
 static layer_mode_t layer_mode = LAYER_OFF;
 static int split_note = 60;
@@ -622,8 +623,10 @@ int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth)
         if (x->source == source && x->dest == dest) {
             if (depth)
                 x->depth = (int8_t)depth;
-            else
+            else {
                 *x = (route_t){0};
+                route_both[layer] &= (uint16_t)~(1u << r);
+            }
             return 1;
         }
         if (x->source == SRC_NONE && free_slot < 0)
@@ -634,8 +637,13 @@ int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth)
     if (free_slot < 0)
         return 0;
     routes[layer][free_slot] = (route_t){(uint8_t)source, (uint8_t)dest, (int8_t)depth};
+    route_both[layer] &= (uint16_t)~(1u << free_slot);
     return 1;
 }
+
+int synth_route_both(int layer) { return route_both[layer]; }
+
+void synth_set_route_both(int layer, int bits) { route_both[layer] = (uint16_t)bits; }
 
 const route_t *synth_routes(int layer) { return routes[layer]; }
 
@@ -807,6 +815,8 @@ void synth_apply_patch(const patch_t *patch)
     layer1_voices = patch->layer_voices < VOICE_COUNT ? patch->layer_voices : 0;
     layer_link = patch->layer_link & LINK_ALL;
     lfo_restart_keys = patch->lfo_restart_keys != 0;
+    for (int l = 0; l < LAYERS; l++)
+        route_both[l] = patch->route_both[l];
     synth_set_split_note(patch->split);
     for (int w = 0; w < 2; w++) {
         lfo_sync[w] = patch->lfo_sync[w] < LFO_SYNC_COUNT ? (lfo_sync_t)patch->lfo_sync[w] : LFO_SYNC_FREE;
@@ -876,6 +886,8 @@ void synth_capture_patch(patch_t *patch)
     patch->layer_voices = (uint8_t)layer1_voices;
     patch->layer_link = layer_link;
     patch->lfo_restart_keys = lfo_restart_keys;
+    for (int l = 0; l < LAYERS; l++)
+        patch->route_both[l] = route_both[l];
     patch->split = (uint8_t)split_note;
     patch->voice_mode = (uint8_t)(voice_mode[0] | priority[0] << 2 | voice_mode[1] << 4 | priority[1] << 6);
     patch->drift = (uint8_t)drift_amount;
@@ -1188,8 +1200,9 @@ void synth_copy_layer(int from, int to)
     for (int i = 0; i < PARAM_COUNT; i++)
         if (per_layer[i])
             layer_param[to][i] = layer_param[from][i];
-    for (int r = 0; r < ROUTES; r++)
-        routes[to][r] = routes[from][r];
+    for (int r = 0; r < ROUTES; r++) // a both-layers route already plays on `to`: a copy would count it twice
+        routes[to][r] = route_both[from] >> r & 1 ? (route_t){0} : routes[from][r];
+    route_both[to] = 0;
     for (int w = 0; w < 2; w++) {
         lfo_shape[to][w] = lfo_shape[from][w];
         lfo_pattern[LFO_ID(to, w)] = lfo_pattern[LFO_ID(from, w)];
@@ -1806,6 +1819,19 @@ static int fast_route(const route_t *r)
 // level down by its depth, either sign: 50 is half, a layer's level.
 static int macro_source(int source) { return source == SRC_MACRO1 || source == SRC_MACRO2; }
 
+// The destinations that are added up over both layers for a single wire. A both-layers route counts there once: on the
+// layer with the newest note, as a single wire follows the newest note.
+static int summed_wire(int dest)
+{
+    return (dest >= DEST_A_LEVEL && dest <= DEST_LFO_TO_PW) || dest == DEST_LFO2_TO_PW || dest == DEST_VOLUME;
+}
+
+static int newest_layer(void)
+{
+    int a = last_voice[0], b = last_voice[1];
+    return b < 0 ? 0 : a < 0 ? 1 : (int32_t)(voices[b].started - voices[a].started) > 0;
+}
+
 static void evaluate_routes(int layer, int voice, float *mod, int fast)
 {
     // the slow routes in two phases: everything into the macros first, then the routes the macros feed
@@ -1816,10 +1842,16 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
                         + (k ? 0 : synth_knob_macro(layer_param[layer][POT_MASTER_TUNE]));
                 voices[voice].macro[k] = m < -1 ? -1 : m > 1 ? 1 : m;
             }
-        for (int r = 0; r < ROUTES; r++) {
-            const route_t *x = &routes[layer][r];
+        for (int n = 0; n < 2 * ROUTES; n++) { // its own routes, then the other layer's both-layers ones
+            int owner = n < ROUTES ? layer : 1 - layer, r = n % ROUTES, both = route_both[owner] >> r & 1;
+            if (n == ROUTES && (one_layer() || !route_both[owner]))
+                break;
+            if (owner != layer && !both)
+                continue;
+            const route_t *x = &routes[owner][r];
             if (x->source == SRC_NONE || x->dest >= DEST_COUNT || fast_route(x) != fast
-                || macro_source(x->source) != phase)
+                || macro_source(x->source) != phase
+                || (both && !one_layer() && summed_wire(x->dest) && layer != newest_layer()))
                 continue;
             float value = source_value(&voices[voice], voice, layer, x->source);
             float depth = (float)x->depth / 99.0f;
@@ -2019,8 +2051,11 @@ void synth_update(float dt)
         lfo_octaves[l][0] = last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES;
         lfo_octaves[l][1] = last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES;
         fast_routes[l] = uses_env34[l] = 0;
-        for (int r = 0; r < ROUTES; r++) {
-            const route_t *x = &routes[l][r];
+        for (int n = 0; n < 2 * ROUTES; n++) { // as evaluate_routes()
+            int owner = n < ROUTES ? l : 1 - l, r = n % ROUTES;
+            if (owner != l && (one_layer() || !(route_both[owner] >> r & 1)))
+                continue;
+            const route_t *x = &routes[owner][r];
             if (x->source == SRC_NONE || x->dest >= DEST_COUNT)
                 continue;
             fast_routes[l] |= fast_route(x);

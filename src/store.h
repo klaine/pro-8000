@@ -50,6 +50,7 @@ typedef struct {
     uint8_t layer_link;                      // LINK_* bits: what layer 2 takes from layer 1 (0.9.3)
     uint8_t lfo_cycles[2];                   // per LFO, a one shot's cycles; 0 (older patches) = 1 (0.9.3)
     uint8_t lfo_restart_keys;                // a sequence's keys restart the LFOs, 0 its steps (0.9.3)
+    uint16_t route_both[2];                  // per layer, bit r: route r plays on the other layer too (0.9.3)
 } patch_t;
 
 typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t; // (SLOT_STOCK: no longer in slots)

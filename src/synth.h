@@ -211,6 +211,9 @@ void synth_set_param(int layer, int param, float value);
 int synth_route(int layer, mod_source_t source, mod_dest_t dest);
 int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth);
 const route_t *synth_routes(int layer); // ROUTES entries; source SRC_NONE = unused
+// Bit r: route r of this layer plays on the other layer's voices too, in the two-layer modes (0.9.3)
+int synth_route_both(int layer);
+void synth_set_route_both(int layer, int bits);
 // What touching a control means in MOD ASSIGN (DEST_NONE if it isn't a destination).
 int synth_dest_for_pot(int pot);
 int synth_dest_for_switch(int s);
