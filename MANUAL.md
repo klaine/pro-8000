@@ -464,12 +464,9 @@ only plays it.
   50 % gate. Seq 2 writes a rest. Rec or Seq 1 ends it (`donE`); `FULL` when the steps run out. The length follows,
   the sequence is switched on, and its lanes and settings stay. The notes sound while you record, without the
   sequence. Rec then saves it with the patch as usual.
-- **Resizing on the web page (0.9.3):** **Duplicate** plays the pattern twice at the same step length. **Double** makes twice the
-  steps at half the step length (1/8 to 1/16), so it plays the same with room for more notes. **Halve** makes half the steps at
-  twice the length, so the bar stays the same length: the odd steps stay, and it asks first if notes that start on even steps
-  would go (the same notes struck twice in a row become a ratchet). Each is greyed out when the steps wouldn't fit what the lanes
-  and chords leave, when no such step length exists (none is half of 1/16., 1/16T or 1/32), or for Halve when the length is odd;
-  the button's tooltip says why. Swing stays as it is, so it falls differently at a new step length.
+- **Resizing on the web page (0.9.3):** **Duplicate** repeats the pattern, doubling the number of steps; it's greyed out when they
+  wouldn't fit what the lanes and chords leave. **Halve** keeps the first half of the steps as they are and drops the rest (an odd
+  length rounds up). The step length stays the same for both.
 - **On the web page also:** Euclid fills the steps with k hits spread evenly over the length; Record writes notes
   you play (the on-screen keys or the routed MIDI input, e.g. the Move) into the steps one by one, relative to the
   first; Reset steps.

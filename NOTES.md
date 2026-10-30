@@ -1514,13 +1514,9 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   note, velocity and chord, and the chain's ratchets go since one would break the tie (probability stays). Double-click or right-click
   removes; removing a step's own note makes its first chord note the own note. Moving a note sideways to another step isn't
   there. Checked with pointer events in the built-in browser with a fake synth: every case above. **Not tested:** with a real mouse and synth.
-- **Duplicate, Double, Halve** (asked for; web page only, `duplicateSeq()`, `doubleSeq()`, `halveSeq()`). Duplicate copies the pattern at the same
-  division. Double and Halve keep the bar: `SHORTER` / `LONGER` give the division half or twice as long by index (1/4. to 1/8., 1/4T to 1/8T; 1/16.,
-  1/16T and 1/32 have no shorter one). Double: gate up to 50 % becomes twice that in the first step and only held notes go on; over 50 % every note holds
-  through the first step and ends at 2 × gate - 100 in the second; ratchets share out between the two. Halve is the inverse, with each note's end worked out
-  from both steps and the longest as the shared gate, and asks before dropping notes that start on even steps; two equal strikes become a ratchet. Checked
-  in the built-in browser with a fake synth: Double then Halve gives back gates, holds, chords and a x2 ratchet, Duplicate copies them, the buttons grey out with their
-  reasons (no room, no such division, odd length). Swing isn't scaled, and an arpeggio walks per played step, so it runs at the new rate. **Not tested:** on the synth.
+- **Duplicate and Halve** (asked for; web page only, `duplicateSeq()`, `halveSeq()`): the step length stays. Duplicate repeats the pattern when the
+  steps fit `seqMax()`; Halve keeps the first half as it is, an odd length rounding up. A first version also changed the step length to keep the bar's
+  length, with a Double; that wasn't what was asked, and it's gone. Checked in the built-in browser with a fake synth.
 - **Per-note holds** (reported: stretching a bass removed the short notes above it). A step had one gate, and a tie held all its
   notes, so the two couldn't live together, and the first stretch copied the note over what it covered. `SEQ_HOLDS(extra)`, bits 5-7
   of the stored `extra` (own note, Note 2, Note 3; firmware before 0.9.3 reads only bits 0-4): the note ignores the gate and carries
