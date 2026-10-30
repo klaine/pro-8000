@@ -62,6 +62,11 @@ void synth_copy_layer(int from, int to);
 // The layers (bit 0 layer 1, bit 1 layer 2) a key would play, and playing a note on given layers (the sequencer).
 int synth_key_layers(uint8_t note, int channel);
 void synth_note_on_layers(uint8_t note, uint8_t velocity, int layers);
+// A sequence's LFO restarts (0.9.3): 0 from its steps, as any note; 1 from the keys pressed, the steps leaving the LFOs,
+// their delay and fade alone. Per patch.
+int synth_lfo_restart_keys(void);
+void synth_set_lfo_restart_keys(int on);
+void synth_lfos_key(int layers, int busy); // seq.c: a key went down on `layers`, `busy` already had one
 // A note-off on given layers, and the layers a note-off on `channel` releases: the channel's layer in channel mode,
 // else both (a key's voices stay on the layer they started on, wherever the split is now).
 void synth_note_off_layers(uint8_t note, int layers);

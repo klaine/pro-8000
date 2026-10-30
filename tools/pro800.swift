@@ -57,7 +57,7 @@ Probe (our firmware 0.0.9+):
   pro800 state                          print every pot (0-99) and switch as the firmware reads them
   pro800 set <setting> <value>          lfo-sync / lfo2-sync free|clock, lfo-trigger / lfo2-trigger
                                         free|first|every|voice|one-shot|one-shot-voice, lfo-cycles / lfo2-cycles <1-99>
-                                        (how many cycles a one shot runs), layers off|split|stack|channel|8ch|mpe, split <note>,
+                                        (how many cycles a one shot runs), lfo-restart steps|keys (what restarts the LFOs with a sequence on), layers off|split|stack|channel|8ch|mpe, split <note>,
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
                                         bend <1-12> (semitones), detune <0-50> (unison, cents), drift <0-99>,
                                         scale off|major|minor|dorian|…|chromatic, root C..B,
@@ -955,7 +955,7 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
                    "macro 2 2", "clock", "bpm", "env-up 1", "env-up 2", "dahdsr 1", "dahdsr 2", "env-curve 1", "env-curve 2"]
     + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
     + ["env-tempo 1", "env-tempo 2", "midi-channel",
-       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles",
+       "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles", "lfo-restart",
        "env-select", "preset-mode", "patch", "morph"]
 let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
@@ -980,8 +980,8 @@ func setSetting() {
     let table: [String: (UInt8, [String])] = ["lfo-sync": (0, ["free", "clock"]), "lfo-trigger": (1, triggerModes),
                                                "layers": (2, layerModes), "keytrack": (4, ["off", "half", "full"]),
                                                "lfo2-sync": (5, ["free", "clock"]), "lfo2-trigger": (6, triggerModes),
-                                               "lfo": (8, ["1", "2"])]
-    let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger \(triggerModes.joined(separator: "|")) | lfo-cycles|lfo2-cycles <1-99> | " +
+                                               "lfo": (8, ["1", "2"]), "lfo-restart": (86, ["steps", "keys"])]
+    let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger \(triggerModes.joined(separator: "|")) | lfo-cycles|lfo2-cycles <1-99> | lfo-restart steps|keys | " +
         "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | " +
         "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
         "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | " +
@@ -1163,9 +1163,10 @@ func settings() {
             let on = linkNames.indices.filter { v >> $0 & 1 != 0 }.map { linkNames[$0] }
             text = on.isEmpty ? "none" : on.joined(separator: ",")
         case 84, 85: text = v == 1 ? "1 cycle (one shot)" : "\(v) cycles (one shot)"
-        case 86: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 88: text = slotName(v)
-        case 89: text = v == 0 ? "none" : slotName(v - 1)
+        case 86: text = v == 0 ? "steps (a sequence's notes restart the LFOs)" : "keys (the keys restart them, not a sequence's steps)"
+        case 87: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 89: text = slotName(v)
+        case 90: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")

@@ -448,6 +448,11 @@ only plays it.
   within 30 ms counts as one.
 - **Timing:** a step lasts a clock division (1/16, 1/8T, …) at the MIDI clock's tempo (120 BPM until a clock
   arrives), or at the sequence's own BPM; swing makes even steps longer and odd ones shorter.
+- **LFOs restart from** (Sequencer, stored with the patch): `Steps`, the default, restarts the LFOs on every step's note,
+  as if each were a key: the retrigger modes, delay and fade all start again. `Keys` restarts them only when you press a
+  key, so a `1Sht` or a slow LFO can run across the whole phrase. With `Keys`, `1St` waits for the first key after all
+  are up, `EACH` and `1Sht` take every key, and `PoLY` and `1S.Po` restart every voice's phase together, because the steps
+  move from voice to voice. Layers and keys the sequence doesn't take are unchanged.
 - **Layers:** the sequence can take keys of both layers, or only those of layer 1 or layer 2. In a split, one hand
   plays a sequenced bass and the other plays normally. In a stack, the sequence plays its layer and the other
   layer plays the keys as usual (from 0.8.3; before, the other layer stayed silent): for a pad with an arpeggio

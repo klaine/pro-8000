@@ -603,7 +603,7 @@
 
     <section class="cs cs-wide">
       <h3>On the web page only</h3>
-      <p class="small">The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key) ·
+      <p class="small">The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key)<span data-needs="lfoRestart">, and whether its steps or your keys restart the LFOs</span> ·
         LFO step patterns · scale and root · morph target and source · note priority · Mutate · mod routes from Seq A-D
         and to Morph · patch names, export, the factory bank · copying an LFO or envelope from the other layer.</p>
     </section>
@@ -1204,6 +1204,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "pickup", // 1 knob pickup, 0 jump (system-wide)
   "layerLink", // what layer 2 takes from layer 1: a bit per envelope (ENV_CYCLE_* order), 16 LFO 1, 32 LFO 2, 64 filter
   "lfoCycles1", "lfoCycles2", // a one shot's cycles, 1-99 (0 is taken as 1)
+  "lfoRestart", // a sequence's LFO restarts: 0 from its steps, 1 from the keys
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -1219,6 +1220,7 @@ const FEATURES = {
   pickup: ["pickup", "the knob pickup setting"],
   layerLink: ["layerLink", "layer links"],
   lfoOneShot: ["lfoCycles1", "one shot LFOs"],
+  lfoRestart: ["lfoRestart", "LFO restarts from a sequence's keys"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -2680,8 +2682,12 @@ function seqSection() {
   const chordPick = pick(["One note", "Two notes", "Three notes"], () => seqChord(seq), v => { layoutLanes(Math.min(seqMods(seq), 4 - v), v); },
     "notes per step: each extra note takes a lane's room, and shares the step's gate, velocity, probability and ratchets");
   const chordField = field("Chords", chordPick);
+  const lfoRestartField = field("LFOs restart from", settingSelect("", ["Steps", "Keys"], () => settings && settings.lfoRestart,
+    v => setSetting(SET_ID.lfoRestart, v), "what restarts the LFOs (their retrigger modes, delay and fade) while the sequence is on: every step's " +
+    "note, or only the keys you press, so one LFO or one shot can run across the whole phrase. Stored with the patch"));
   paints.push(() => {
     chordField.hidden = !feature("layerLink"); // came with 0.9.3
+    lfoRestartField.hidden = !feature("lfoRestart");
     if (!seq) return;
     [...lanesPick.options].forEach((o, k) => {
       o.textContent = `${k || "None"} (${seqMax(k + seqChord(seq))} steps)`;
@@ -2726,6 +2732,7 @@ function seqSection() {
       field("Arpeggio", pick(ARPS, () => seq.arp, v => { seq.arp = v; }, "walk the held notes instead of transposing; each step's note offset transposes the arp note")),
       field("Lanes", lanesPick),
       chordField,
+      lfoRestartField,
       h("button", { type: "button", class: "chip", title: "read the sequence from the synth again", onclick: refreshSequence }, "↻")),
     h("div", { class: "seq-pages" }, pages, octave, h("span", { class: "dim small" },
       "Roll: click to add a note, drag to move it, drag its right edge to stretch it, double-click to remove it · Note: drag up/down for semitones from the key (Note 2 / 3: from the step's note, · = none) · Gate: 100 % ties into the next step · Vel: 0 = the key's · double-click resets")),
@@ -3404,6 +3411,7 @@ const JSON_SETTINGS = [
   ["lfo-sync", "lfo1Sync", jOne(["free", "clock"])], ["lfo-trigger", "lfo1Trigger", jOne(JN.triggers)],
   ["lfo2-sync", "lfo2Sync", jOne(["free", "clock"])], ["lfo2-trigger", "lfo2Trigger", jOne(JN.triggers)],
   ["lfo-cycles", "lfoCycles1", jInt(1, 99)], ["lfo2-cycles", "lfoCycles2", jInt(1, 99)],
+  ["lfo-restart", "lfoRestart", jOne(["steps", "keys"])],
   ...[1, 2].flatMap(l => [1, 2].map(n => [`shape ${l} ${n}`, `shape${l}${n}`, jOne(JN.shapes)])),
   ...[1, 2].flatMap(l => [
     [`lfo2-dests ${l}`, `lfo2Dests${l}`, jBits(["pitch", "filter", "pw"])],

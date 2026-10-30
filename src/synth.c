@@ -207,6 +207,7 @@ static uint8_t env_delay[LAYERS][4], env_hold[LAYERS][4]; // 0-99
 static uint8_t env_count[LAYERS][4];                      // cycles, 0 = endless
 static uint8_t env_tempo[LAYERS];                         // a bit per envelope: stage times in note values
 static uint8_t layer_link;                                // LINK_* bits
+static uint8_t lfo_restart_keys;                          // a sequence's keys restart the LFOs, not its steps
 
 // Each envelope's knobs: attack, decay, sustain, release
 static const uint8_t env_params[4][4] = {
@@ -805,6 +806,7 @@ void synth_apply_patch(const patch_t *patch)
     layer_mode = patch->layer_mode < LAYER_MODE_COUNT ? (layer_mode_t)patch->layer_mode : LAYER_OFF;
     layer1_voices = patch->layer_voices < VOICE_COUNT ? patch->layer_voices : 0;
     layer_link = patch->layer_link & LINK_ALL;
+    lfo_restart_keys = patch->lfo_restart_keys != 0;
     synth_set_split_note(patch->split);
     for (int w = 0; w < 2; w++) {
         lfo_sync[w] = patch->lfo_sync[w] < LFO_SYNC_COUNT ? (lfo_sync_t)patch->lfo_sync[w] : LFO_SYNC_FREE;
@@ -873,6 +875,7 @@ void synth_capture_patch(patch_t *patch)
     patch->layer_mode = (uint8_t)layer_mode;
     patch->layer_voices = (uint8_t)layer1_voices;
     patch->layer_link = layer_link;
+    patch->lfo_restart_keys = lfo_restart_keys;
     patch->split = (uint8_t)split_note;
     patch->voice_mode = (uint8_t)(voice_mode[0] | priority[0] << 2 | voice_mode[1] << 4 | priority[1] << 6);
     patch->drift = (uint8_t)drift_amount;
@@ -928,6 +931,13 @@ static float random_signed(void) // xorshift32, -1..1
     return (float)(int32_t)random_state / 2147483648.0f;
 }
 
+// This layer's notes come from a sequence whose keys restart the LFOs, so a note leaves them alone. (The one-voice-per-
+// channel modes go past the sequence.)
+static int keys_restart_lfos(int layer)
+{
+    return lfo_restart_keys && layer_mode != LAYER_VOICE_PER_CHANNEL && layer_mode != LAYER_MPE && seq_takes_layer(layer);
+}
+
 static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
 {
     int was_silent = x->amp.stage == ENV_IDLE;
@@ -941,7 +951,8 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
         x->pitch = note; // glide only from a sounding note
     if (retrigger || was_silent) {
         x->fresh = 1;
-        x->lfo_age = 0;
+        if (!keys_restart_lfos(layer_of((int)(x - voices))))
+            x->lfo_age = 0;
     }
     if (retrigger) {
         // from the current level, so a stolen voice doesn't click (ENV_DELAY goes on to the attack at once without
@@ -1027,6 +1038,8 @@ static void mono_voices(int layer, int *first, int *end)
 // A note started on voice v of `layer`. A linked LFO is one LFO for both layers, so "the first key" counts both.
 static void lfos_note_on(int layer, int v, int first)
 {
+    if (keys_restart_lfos(layer))
+        return;
     for (int w = 0; w < 2; w++)
         lfo_note_on(LFO_ID(lfo_layer(layer, w), w), v,
                     first && !(linked(1, LINK_LFO(w)) && layer_gated(1 - layer)));
@@ -1060,6 +1073,26 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
     gate_on(&voices[v], note, velocity, 1);
     lfos_note_on(layer, v, !was_gated);
     last_voice[layer] = v;
+}
+
+int synth_lfo_restart_keys(void) { return lfo_restart_keys; }
+
+void synth_set_lfo_restart_keys(int on) { lfo_restart_keys = on != 0; }
+
+void synth_lfos_key(int layers, int busy)
+{
+    for (int l = 0; l < LAYERS; l++) {
+        if (!(layers >> l & 1) || (l && one_layer()) || !keys_restart_lfos(l))
+            continue;
+        int first, end;
+        layer_voices(l, &first, &end);
+        for (int v = first; v < end; v++)
+            voices[v].lfo_age = 0;
+        for (int w = 0; w < 2; w++) { // a linked LFO is one LFO for both layers, so "the first key" counts both
+            int other = linked(1, LINK_LFO(w)) && (busy >> (1 - l) & 1 || layer_gated(1 - l));
+            lfo_key_on(LFO_ID(lfo_layer(l, w), w), !(busy >> l & 1) && !other);
+        }
+    }
 }
 
 int synth_key_layers(uint8_t note, int channel)

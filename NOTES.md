@@ -1558,6 +1558,22 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 - **Panel:** Settings 2. Arp Up-Dn is taken there (it picks the LFO), so key 2 again toggles `trIG` and `Cn.1` / `Cn.2`.
 - **Probe:** `pro800 engine` now prints each LFO's phase (`lfo_probe()`, 40 more bytes in the 55 reply, 93).
 
+## LFO restarts from a sequence's keys (0.9.3, 2026-10-30)
+
+- **What:** `lfo_restart_keys`, host setting 86 (read-only ones now 87-90, `SET_COUNT` 91, `SYSEX_MAX` 193), patch record byte
+  350 (0 = steps, what older firmware did; 157 reserved bytes left), `pro800 set lfo-restart steps|keys`, JSON `lfo-restart`,
+  a menu in the web page's Sequencer. No panel page: the sequence is edited from the host. A patch setting rather than a
+  sequence flag: the flags' 7 bits to the host are nearly used up, and the LFOs are what it changes.
+- **Why a setting:** a sequence's notes went through `layer_note_on()`, so each step was a key to the LFOs. That's useful
+  (each note's own one shot) and saved patches may rely on it, so Steps stays the default.
+- **How:** `keys_restart_lfos(layer)` says a layer's notes come from such a sequence, not who is calling, so it also covers a
+  mono layer falling back to a held note in `synth_note_off_layers()`. It silences `lfos_note_on()` and the `lfo_age` reset in
+  `gate_on()`, and `seq_key_on()` calls `synth_lfos_key()` before the first step. There each of the layer's voices restarts
+  its age, so delay and fade run from the key and a voice a step lands on later isn't still in its delay or long past it.
+- **Per-voice modes** restart every voice's phase together (`lfo_key_on()`): steps move between voices, so restarting only
+  some would leave the rest wherever they were. Keys under Keys therefore sound like the shared modes.
+- **8CH and MPE** go past the sequence (`synth_voice_note_on()`), so the setting doesn't apply there.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.

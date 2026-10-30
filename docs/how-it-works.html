@@ -562,7 +562,7 @@
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
       <svg viewBox="0 0 880 268" role="img" aria-labelledby="f15t">
-        <title id="f15t">A 768-byte patch record drawn to scale. The first 512 bytes: magic and name, settings, knobs, extra knobs, mod routes, later settings, 158 reserved bytes and a checksum. The second 256 bytes: sequence header, step data and a checksum.</title>
+        <title id="f15t">A 768-byte patch record drawn to scale. The first 512 bytes: magic and name, settings, knobs, extra knobs, mod routes, later settings, 157 reserved bytes and a checksum. The second 256 bytes: sequence header, step data and a checksum.</title>
         <text x="20" y="24" class="t-b">The patch: 512 bytes</text><text x="580" y="24" class="t-b">The sequence: 256 bytes</text>
         <rect class="box" x="20" y="74" width="21.9" height="58" rx="2"/>
         <rect class="box-sh" x="41.9" y="74" width="83.1" height="58" rx="2"/>
@@ -579,7 +579,7 @@
         <text x="182" y="108" class="t-xs" text-anchor="middle">knobs</text>
         <text x="260.6" y="108" class="t-xs" text-anchor="middle">extra</text>
         <text x="335" y="108" class="t-xs" text-anchor="middle">mod routes</text>
-        <text x="488" y="108" class="t-xs" text-anchor="middle">reserved: 158 bytes</text>
+        <text x="488" y="108" class="t-xs" text-anchor="middle">reserved: 157 bytes</text>
         <text x="724" y="108" class="t-xs" text-anchor="middle">steps and lanes</text>
         <path class="ln" d="M31 74 V54"/><text x="20" y="48" class="t-xs">"P8P2", name</text>
         <path class="ln" d="M394 74 V54"/><text x="394" y="48" class="t-xs" text-anchor="middle">later settings</text>
@@ -602,8 +602,8 @@
         <tr><td>96–199</td><td>Knobs</td><td>26 per layer, each 16 bits, more than the panel's 12-bit readings or the web page's 14-bit values need.</td></tr>
         <tr><td>200–239</td><td>Extra knobs</td><td>10 per layer that have no knob of their own: Env 3 and Env 4's ADSR, LFO 2's rate and amount.</td></tr>
         <tr><td>240–335</td><td>Mod routes</td><td>16 per layer, 3 bytes each: source, destination, signed depth.</td></tr>
-        <tr><td>336–349</td><td>Later settings</td><td>Cycle counts, stage times in note values, layer links, one shot LFO cycles: the fields added since 0.9.1.</td></tr>
-        <tr><td>350–507</td><td>Reserved</td><td>158 bytes of zeros for what comes next.</td></tr>
+        <tr><td>336–350</td><td>Later settings</td><td>Cycle counts, stage times in note values, layer links, one shot LFO cycles, what restarts the LFOs under a sequence: the fields added since 0.9.1.</td></tr>
+        <tr><td>351–507</td><td>Reserved</td><td>157 bytes of zeros for what comes next.</td></tr>
         <tr><td>508–511</td><td>Checksum</td><td>Over everything before it. A record that fails is shown as damaged rather than played.</td></tr>
         <tr><td>512–523</td><td>"P8S2" and the sequence header</td><td>Length, number of lanes, clock division, tempo, flags, swing, smoothing, arpeggio mode.</td></tr>
         <tr><td>524–763</td><td>Steps and lanes</td><td>240 bytes shared: each step takes 4 (note, velocity, gate, and a byte for probability, ratchets and which notes hold past the gate) plus 1 per automation lane. That's 60 steps with no lanes, 30 with all four. The last one or two lanes can hold a step's extra chord notes instead of modulation: two spare bits in the flags say how many.</td></tr>

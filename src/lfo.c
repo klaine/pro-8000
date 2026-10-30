@@ -290,6 +290,22 @@ int lfo_probe(uint8_t *out)
     return n;
 }
 
+void lfo_key_on(int lfo, int first)
+{
+    lfo_trigger_t trigger = lfo_trigger[lfo / 2];
+    int shot = one_shot(lfo / 2);
+    if (shot || trigger == LFO_TRIGGER_EVERY_KEY || (trigger == LFO_TRIGGER_FIRST_KEY && first)) {
+        restart(&lfos[lfo].shared);
+        lfos[lfo].shared.wait = shot ? lfo_seconds(lfo_delay[lfo / 2]) : 0;
+    }
+    if (!lfo_voice_phases(lfo / 2))
+        return;
+    for (int v = 0; v < VOICE_COUNT; v++) {
+        restart(&lfos[lfo].voice[v]);
+        lfos[lfo].voice[v].wait = shot ? lfo_seconds(lfo_delay[lfo / 2]) : 0;
+    }
+}
+
 void lfo_update(int lfo, float dt, float knob, float octaves)
 {
     int which = lfo / 2;

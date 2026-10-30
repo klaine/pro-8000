@@ -55,6 +55,9 @@ void lfo_clock_song_position(uint16_t sixteenths);
 
 // A note started on `voice` of the LFO's layer; `first` when no other key of that layer was held.
 void lfo_note_on(int lfo, int voice, int first);
+// A key went down that a sequence plays from, when the keys restart the LFOs instead of its steps: the same restarts
+// as lfo_note_on(), and in the per-voice modes every voice's phase together (steps move from voice to voice).
+void lfo_key_on(int lfo, int first);
 // For the host's probe: per LFO_ID the shared phase in % (a stopped one shot: 100), its finished cycles, then each
 // voice's phase in %. Returns the byte count (40).
 int lfo_probe(uint8_t *out);

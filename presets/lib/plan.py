@@ -79,6 +79,8 @@ def setting_line(key, value):
         check(v in ["free", "clock"], name + ": " + v)
     elif name in ("lfo-trigger", "lfo2-trigger"):
         check(v in ["free", "first", "every", "voice", "one-shot", "one-shot-voice"], name + ": " + v)
+    elif name == "lfo-restart":  # 0.9.3: with a sequence on, its steps or the keys restart the LFOs
+        check(len(w) == 1 and v in ["steps", "keys"], "lfo-restart: " + v)
     elif name in ("lfo-cycles", "lfo2-cycles"):  # 0.9.3: how many cycles a one shot runs
         check(len(w) == 1 and isinstance(value, int) and 1 <= value <= 99, "%s: 1-99, not %r" % (name, value))
     elif name == "shape":
