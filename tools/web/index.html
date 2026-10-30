@@ -2495,6 +2495,92 @@ function drawSeqOverview(g, w, ht) {
   }
 }
 
+// --- Duplicate, Double, Halve ---
+// The division half as long as each (DIVISIONS index); 1/16., 1/16T and 1/32 have none. The reverse for Halve.
+const SHORTER = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 6, 6: 9, 9: 12, 12: 14, 5: 8, 8: 11, 7: 10, 10: 13 };
+const LONGER = Object.fromEntries(Object.entries(SHORTER).map(([a, b]) => [b, +a]));
+const copyStep = s => ({ ...s, lane: [...s.lane] });
+// A step's notes as a list of { pitch, held }, the first its own note; none makes it a rest
+function setStepNotes(s, notes) {
+  const mods = seqMods(seq);
+  s.hold = 0;
+  for (let l = mods; l < seq.lanes; l++) s.lane[l] = 64;
+  s.on = notes.length ? 1 : 0;
+  if (!notes.length) return;
+  s.note = 64 + notes[0].pitch;
+  if (notes[0].held) s.hold |= 1;
+  notes.slice(1).forEach((n, k) => { s.lane[mods + k] = 64 + n.pitch - notes[0].pitch; if (n.held) s.hold |= 2 << k; });
+}
+function seqResized(length, division, text) {
+  seq.length = length;
+  seq.division = division;
+  seqPage = 0;
+  sendSeqHeader();
+  for (let i = 0; i < length; i++) sendStep(i);
+  touch("Sequencer", text);
+}
+// The pattern twice, at the same step length
+function duplicateSeq() {
+  const n = seq.length;
+  for (let i = 0; i < n; i++) seq.steps[n + i] = copyStep(seq.steps[i]);
+  seqResized(2 * n, seq.division, `duplicated: ${2 * n} steps`);
+}
+// Twice the steps at half the length: it plays the same, with room between the notes. A note that lasted past half a step
+// holds through the first of its two steps, and a held note through both.
+function doubleSeq() {
+  const n = seq.length, old = seq.steps.slice(0, n).map(copyStep);
+  old.forEach((s, i) => {
+    const a = copyStep(s), b = copyStep(s), ratchets = (s.extra >> 3 & 3) + 1, notes = s.on ? stepNotes(s) : [];
+    if (!s.on) { /* two rests */ }
+    else if (ratchets > 1) { // the hits share out between the two
+      a.extra = s.extra & 7 | (Math.ceil(ratchets / 2) - 1) << 3;
+      b.extra = s.extra & 7 | (Math.floor(ratchets / 2) - 1) << 3;
+    } else if (s.gate < 100 && s.gate > 50) { // into the second: all of them hold through the first
+      a.hold = notes.reduce((x, m) => x | m.bit, 0);
+      b.gate = Math.max(1, 2 * s.gate - 100);
+    } else if (s.gate < 100) { // over within the first; only the held notes go on
+      a.gate = Math.min(99, 2 * s.gate);
+      setStepNotes(b, notes.filter(m => m.held));
+    }
+    seq.steps[2 * i] = a;
+    seq.steps[2 * i + 1] = b;
+  });
+  seqResized(2 * n, SHORTER[seq.division], `doubled: ${2 * n} steps of ${DIVISIONS[SHORTER[seq.division]]}`);
+}
+// Half the steps at twice the length: the first of each pair stays, and how long its notes last comes from both
+function halveSeq() {
+  const n = seq.length, old = seq.steps.slice(0, n).map(copyStep);
+  // the same notes struck twice, with nothing held: a ratchet says exactly that
+  const hits = s => (s.extra >> 3 & 3) + 1;
+  const strikesTwice = (a, b) => a.on && b.on && a.gate === b.gate && a.gate < 100 && hits(a) + hits(b) <= 4
+    && String(stepNotes(a).map(m => m.pitch).sort()) === String(stepNotes(b).map(m => m.pitch).sort())
+    && !stepNotes(a).some(m => m.held) && !stepNotes(b).some(m => m.held);
+  let lost = 0;
+  for (let i = 1; i < n; i += 2) {
+    if (!old[i].on || strikesTwice(old[i - 1], old[i])) continue;
+    const before = old[i - 1].on ? stepNotes(old[i - 1]) : [];
+    lost += stepNotes(old[i]).filter(m => !before.some(x => x.pitch === m.pitch && x.held)).length;
+  }
+  if (lost && !confirm(`Halving keeps the odd steps: ${lost} note${lost > 1 ? "s" : ""} starting on the even steps will go. Halve?`)) return;
+  for (let i = 0; i < n / 2; i++) {
+    const a = old[2 * i], b = old[2 * i + 1], s = copyStep(a);
+    if (strikesTwice(a, b)) s.extra = a.extra & 7 | (hits(a) + hits(b) - 1) << 3;
+    else if (a.on) {
+      const after = b.on ? stepNotes(b) : [], ends = [];
+      const notes = stepNotes(a).map(m => {
+        const next = m.held ? after.find(x => x.pitch === m.pitch) : null;
+        if (next && next.held) return { pitch: m.pitch, held: true };
+        ends.push(!m.held ? a.gate / 2 : next ? (100 + b.gate) / 2 : 50);
+        return { pitch: m.pitch, held: false };
+      });
+      setStepNotes(s, notes);
+      s.gate = ends.length ? Math.max(1, Math.min(99, Math.round(Math.max(...ends)))) : 99;
+    }
+    seq.steps[i] = s;
+  }
+  seqResized(n / 2, LONGER[seq.division], `halved: ${n / 2} steps of ${DIVISIONS[LONGER[seq.division]]}`);
+}
+
 // One automation lane for the current page: drag across it to draw values
 function laneEditor(l) {
   const c = h("canvas", { class: "viz lane" });
@@ -2656,6 +2742,12 @@ function seqSection() {
       chordLabel(0), chordLabel(1),
       h("span", { class: "lbl" }, "Gate"), h("span", { class: "lbl" }, "Vel"), h("span", { class: "lbl" }, "Prob"),
       h("span", { class: "lbl" }, "Ratch")), ...columns);
+  // why not gives the reason it can't be done now, or nothing
+  const resizeButton = (text, title, run, whyNot) => {
+    const b = h("button", { type: "button", class: "chip", title, onclick: () => { if (seq && !offline() && !whyNot()) run(); } }, text);
+    paints.push(() => { const why = seq ? whyNot() : "no sequence"; b.disabled = !!why; b.title = why || title; });
+    return b;
+  };
   const roll = viz("seq", (g, w, ht) => drawSeq(g, w, ht, roll));
   editRoll(roll);
   const keys = viz("seq-keys", drawRollKeys);
@@ -2691,6 +2783,14 @@ function seqSection() {
     h("div", { class: "seq-tools" },
       h("span", { class: "lbl" }, "Fill"), euclidK, h("span", { class: "dim small" }, "hits, Euclidean, over the length"),
       h("button", { type: "button", class: "chip", onclick: () => euclid() }, "Euclid"),
+      resizeButton("Duplicate", "the pattern twice, same step length", duplicateSeq,
+        () => seq.length * 2 > seqMax(seq.lanes) ? `no room: ${seqMax(seq.lanes)} steps at most with these lanes and chords` : ""),
+      resizeButton("Double", "twice the steps at half the length: it plays the same, with room for more notes", doubleSeq,
+        () => seq.length * 2 > seqMax(seq.lanes) ? `no room: ${seqMax(seq.lanes)} steps at most with these lanes and chords`
+          : SHORTER[seq.division] === undefined ? `no step half as long as ${DIVISIONS[seq.division]}` : ""),
+      resizeButton("Halve", "half the steps at twice the length; the odd steps stay", halveSeq,
+        () => seq.length % 2 ? "needs an even number of steps"
+          : LONGER[seq.division] === undefined ? `no step twice as long as ${DIVISIONS[seq.division]}` : ""),
       h("button", { type: "button", class: "chip", title: "every step on, note 0, gate 50 %, always, one note", onclick: () => resetSteps() }, "Reset steps"),
       recButton, h("span", { class: "dim small", id: "rec-hint" })),
     ...[0, 1, 2, 3].map(laneEditor),
