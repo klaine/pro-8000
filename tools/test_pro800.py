@@ -1,0 +1,941 @@
+#!/usr/bin/env python3
+# Tests tools/pro800.py against a simulated synth: `python tools/test_pro800.py`. No MIDI port is opened. The replies
+# below are built the way src/main.c and src/synth.c build them, the requests are checked byte for byte, and the name
+# tables are compared with tools/pro800.swift's.
+import contextlib
+import io
+import itertools
+import os
+import re
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from unittest import mock
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.dont_write_bytecode = True
+import pro800  # noqa: E402
+
+HEADER = pro800.SYSEX_HEADER
+
+
+def request_bytes(*data):
+    return HEADER + bytes(data) + b"\xF7"
+
+
+class FakeSynth:
+    """Our firmware's SysEx, as far as the tool's commands need it."""
+
+    def __init__(self, firmware=(0, 9, 3)):
+        self.firmware = firmware
+        self.sent = []
+        self.receive = None
+        self.settings = [0] * 95
+        self.buttons = [0] * 16
+        self.steps = {}
+        self.params = [[0] * 36, [0] * 36]
+        self.pots = [0] * 26
+        self.switches = [1] * 24
+        self.routes = [[(0, 0, 0)] * 16, [(0, 0, 0)] * 16]
+        self.sequence = bytearray([8, 0, 12, 0, 120, 0, 0, 0, 64, 0])  # length lanes division bpm(2) flags swing smooth max arp
+        self.seq_steps = [[64, 100, 50, 1, 0, 64, 64, 64, 64] for _ in range(64)]
+        self.slots = {}
+        self.eeprom = bytearray((i * 7) & 0xFF for i in range(0x20000))
+        self.note_hz = None
+        self.silent = False  # stock firmware: answers nothing of ours
+        self.start_messages = []
+        self.panel_events = []
+
+    def open(self, source, destination, receive):
+        self.receive = receive
+        self.later(self.start_messages)
+        return self
+
+    def later(self, messages):  # as the real thing: while the command is waiting
+        def deliver():
+            for message in messages:
+                self.receive(message)
+        threading.Timer(0.03, deliver).start()
+
+    def close(self):
+        pass
+
+    def reply(self, *body):
+        self.receive(HEADER + bytes(body) + b"\xF7")
+
+    def ack(self, command):
+        self.reply(0x7F, command)
+
+    def send(self, data):
+        self.sent.append(bytes(data))
+        if data.startswith(HEADER) and not self.silent:
+            self.handle(data[len(HEADER):-1])
+
+    def handle(self, d):
+        c = d[0]
+        if c == 0x08:
+            self.reply(0x09, 0x00, *self.firmware)
+        elif c == 0x54:
+            values = []
+            for v in self.settings:
+                values += [v >> 7 & 0x7F, v & 0x7F]
+            self.reply(0x54, len(self.settings), *values)
+        elif c == 0x4C:
+            self.reply(0x4C, *self.buttons)
+        elif c == 0x4D:
+            count, bits = self.steps.get((d[1], d[2]), (16, 0))
+            self.reply(0x4D, d[1], d[2], count, bits >> 14 & 0x7F, bits >> 7 & 0x7F, bits & 0x7F)
+        elif c == 0x53:
+            values = []
+            for v in self.params[d[1]]:
+                values += [v >> 7, v & 0x7F]
+            self.reply(0x53, d[1], len(self.params[d[1]]), *values)
+        elif c == 0x7C:
+            values = []
+            for v in self.pots:
+                values += [v >> 7, v & 0x7F]
+            self.reply(0x7C, *values, *self.switches)
+        elif c == 0x55:
+            self.engine_probe()
+        elif c == 0x48:
+            self.reply(0x48, *self.sequence)
+        elif c == 0x46:
+            out = []
+            for s in self.seq_steps[d[1]:d[1] + d[2]]:
+                out += s
+            self.reply(0x46, d[1], d[2], *out)
+        elif c == 0x5E:
+            kind, name = self.slots.get(d[1] << 7 | d[2], (0, b""))
+            self.reply(0x5E, d[1], d[2], kind, *name)
+        elif c == 0x57:
+            out = []
+            for source, dest, depth in self.routes[d[1]]:
+                out += [source, dest, (depth + 99) >> 7, (depth + 99) & 0x7F]
+            self.reply(0x57, d[1], *out)
+        elif c == 0x58:
+            out = []
+            for us in (100, 200, 300, 400, 500, 600, 1000, 800):
+                out += [us >> 14 & 0x7F, us >> 7 & 0x7F, us & 0x7F]
+            self.reply(0x58, *out)
+        elif c == 0x77:
+            out = []
+            for p in range(14):
+                centihertz = 0 if d[1] == 3 else 2750 * (p + 1)
+                out += [centihertz >> shift & 0x7F for shift in (21, 14, 7, 0)]
+            self.reply(0x77, d[1], 14, *out)
+        elif c == 0x79:
+            address, n = d[1] << 14 | d[2] << 7 | d[3], d[4]
+            out = [0x01, 0x02]  # status register 0x12
+            for b in self.eeprom[address:address + n]:
+                out += [b >> 4, b & 0x0F]
+            self.reply(*d, *out)
+        elif c == 0x5A:
+            address, n = d[1] << 14 | d[2] << 7 | d[3], d[4]
+            self.eeprom[address:address + n] = bytes(d[5 + 2 * i] << 4 | d[6 + 2 * i] for i in range(n))
+            self.ack(0x5A)
+        elif c == 0x50:
+            self.reply(0x50, d[1], 1, *b"Factory") if d[1] == 0 else self.reply(0x50, d[1], 0)
+        elif c == 0x51:
+            self.reply(0x51, 0)
+        elif c == 0x5B:
+            self.reply(0x5B, 0, 128, 0)
+        elif c == 0x75:
+            self.reply(0x76, 24)
+        elif c == 0x72:
+            self.measurement()
+        elif c == 0x78:
+            self.note_hz = 440 * 2 ** ((d[3] - 69) / 12)
+            self.ack(0x78)
+        elif c == 0x6C:
+            self.reply(0x7F, 0x6C, 1)
+        elif c == 0x7A:
+            self.ack(0x7A)
+            if d[1] == 1:
+                self.later([HEADER + bytes(event) + b"\xF7" for event in self.panel_events])
+        elif c == 0x7D:
+            self.settings[d[1]] = d[2] << 7 | d[3]
+            self.ack(0x7D)
+        elif c in (0x03,):
+            pass
+        else:
+            self.ack(c)  # the commands that only acknowledge
+
+    def engine_probe(self):
+        out = [2, 60, 64, 0, 0, 0, 0, 0, 0, 0]  # held keys per layer: count, four notes
+        for v in range(8):
+            out += [1 if v == 0 else 0, 1 if v == 0 else 0, 3 if v == 1 else 0]  # gate, amp stage, filter stage
+        out += [2, 0, 1]  # keytrack setting, switch seen + 1, switch now
+        out += [0b011 if s == 0 else 0b100 if s == 1 else 0 for s in range(16)]  # override | value << 1 | panel << 2
+        for l in range(4):
+            out += [25, l, 100] + [50] * 7  # LFO: shared phase, cycles done, 8 voices
+        self.reply(0x55, *out)
+
+    def measurement(self):
+        if self.note_hz is None:
+            self.reply(0x73, 0)
+            return
+        khz, periods = 168000, 20
+        cycles = round(periods * khz * 1000 / self.note_hz)
+        self.reply(0x73, 1, periods >> 7, periods & 0x7F, *[cycles >> shift & 0x7F for shift in (28, 21, 14, 7, 0)],
+                   *[khz >> shift & 0x7F for shift in (14, 7, 0)])
+
+
+def run(synth, *argv, port_list=None):
+    """Runs one command in-process; returns (output, exit code)."""
+    names = port_list or (["PRO 800"], ["PRO 800"])
+    out = io.StringIO()
+    pro800.args = list(argv)
+    command = pro800.args.pop(0)
+    code = 0
+    with mock.patch.object(pro800, "port_names", lambda: names), mock.patch.object(pro800, "open_transport", synth.open):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            try:
+                pro800.COMMANDS[command]()
+            except SystemExit as e:
+                code = e.code or 0
+            finally:
+                pro800.close_midi()
+    return out.getvalue(), code
+
+
+class SwiftParity(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(HERE, "pro800.swift"), encoding="utf-8") as f:
+            cls.swift = f.read()
+
+    def table(self, name):
+        found = re.search(r"let " + name + r"(?:: \[String\])? = \[(.*?)\]\n?", self.swift, re.S)
+        self.assertIsNotNone(found, name)
+        return re.findall(r'"([^"]*)"', found.group(1))
+
+    def test_name_tables(self):
+        for swift_name, table in (
+                ("switchNames", pro800.SWITCH_NAMES), ("potNames", pro800.POT_NAMES), ("switchLabels", pro800.SWITCH_LABELS),
+                ("shapeNames", pro800.SHAPE_NAMES), ("lfo2DestNames", pro800.LFO2_DEST_NAMES), ("cycleNames", pro800.CYCLE_NAMES),
+                ("linkNames", pro800.LINK_NAMES), ("curveNames", pro800.CURVE_NAMES), ("scaleNames", pro800.SCALE_NAMES),
+                ("rootNames", pro800.ROOT_NAMES), ("divisionNames", pro800.DIVISION_NAMES), ("paramNames", pro800.PARAM_NAMES),
+                ("sourceNames", pro800.SOURCE_NAMES), ("destNames", pro800.DEST_NAMES), ("arpModeNames", pro800.ARP_MODE_NAMES),
+                ("gateNames", pro800.GATE_NAMES)):
+            self.assertEqual(self.table(swift_name), table, swift_name)
+
+    def test_setting_names(self):
+        self.assertEqual(len(pro800.SETTING_NAMES), 95)
+        self.assertEqual(pro800.SETTING_NAMES.index("midi-channel"), 77)
+        self.assertEqual(pro800.SETTING_NAMES.index("env-count 2 env4"), 74)
+        self.assertEqual(pro800.SETTING_NAMES.index("lfo-restart"), 86)
+        self.assertEqual(pro800.SETTING_NAMES[91:], ["env-select", "preset-mode", "patch", "morph"])
+
+    def test_every_command_is_here(self):
+        commands = set(re.findall(r'^case "([a-z0-9-]+)":', self.swift, re.M))
+        self.assertTrue(commands)
+        self.assertEqual(commands - set(pro800.COMMANDS), set())
+
+    def test_help_mentions_what_the_preset_installer_greps_for(self):
+        self.assertIn("seq set", pro800.HELP_TEXT)
+        self.assertIn("set morph", pro800.HELP_TEXT)
+
+
+class ReadOnly(unittest.TestCase):
+    def setUp(self):
+        self.synth = FakeSynth()
+
+    def test_ports(self):
+        out, code = run(self.synth, "ports", port_list=(["PRO 800", "Other"], ["GS", "PRO 800"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "MIDI sources:\n  PRO 800\n  Other\nMIDI destinations:\n  GS\n  PRO 800\n")
+
+    def test_version(self):
+        self.assertEqual(run(self.synth, "version"), ("firmware 0.9.3\n", 0))
+        self.assertEqual(self.synth.sent, [request_bytes(0x08, 0x00)])
+
+    def test_port_names(self):
+        decorated = (["Move", "PRO 800:PRO 800 MIDI 1 28:0"], ["PRO 800:PRO 800 MIDI 1 28:0"])
+        second_synth = (["2- PRO 800"], ["2- PRO 800"])
+        with mock.patch.object(pro800.sys, "platform", "win32"):
+            self.assertEqual(pro800.find_port(["Move", "PRO 800"], "PRO 800"), 1)
+            self.assertEqual(run(self.synth, "version", port_list=second_synth)[1], 1)  # never another synth
+        with mock.patch.object(pro800.sys, "platform", "linux"):
+            self.assertEqual(run(self.synth, "version", port_list=decorated)[1], 0)
+            self.assertEqual(run(self.synth, "version", port_list=(["PRO 800 a", "PRO 800 b"], ["PRO 800 a"]))[1], 1)
+
+    def test_missing_port(self):
+        out, code = run(self.synth, "version", port_list=(["Move"], ["Move"]))
+        self.assertEqual(code, 1)
+        self.assertIn('MIDI port "PRO 800" not found', out)
+
+    def test_no_reply(self):
+        self.synth.silent = True
+        with mock.patch.object(pro800.Midi, "request", lambda *a, **k: None):
+            out, code = run(self.synth, "settings")
+        self.assertEqual(code, 1)
+        self.assertIn("no reply (firmware 0.6.0 or later?)", out)
+
+    def test_settings(self):
+        s = self.synth.settings
+        s[0], s[2], s[4], s[13], s[25], s[26] = 1, 2, 2, 5, 12, 25
+        s[38], s[43], s[48], s[50], s[66], s[67] = 104, 120, 1 | 2 << 2, 99, 3, 7
+        s[77], s[83], s[86], s[93], s[94] = 5, 65, 1, 127, 1
+        self.synth.buttons[0], self.synth.buttons[15] = 1, 1
+        self.synth.steps[(1, 1)] = (4, 0b0101)
+        out, code = run(self.synth, "settings")
+        self.assertEqual(code, 0)
+        for line in ("lfo-sync             clock", "layers               stack", "keytrack             full",
+                     "lfo2-dests 1         pitch,pw", "bend                 ±12 semitones", "detune               25 cents",
+                     "macro 1 1            +5", "bpm                  120 BPM", "env-delay 1 amp      99 (10.000 s)",
+                     "env-curve 1          amp linear, filter swell, env3 analog, env4 analog",
+                     "layer-voices         3 + 5", "env-count 1 amp      7 cycles", "midi-channel         5",
+                     "link                 amp-env,filter", "patch                P128", "morph                P1",
+                     "buttons              a-saw sync", "steps 2 2            x.x."):
+            self.assertIn(line + "\n", out)
+
+    def test_settings_of_an_older_firmware(self):
+        self.synth.settings = self.synth.settings[:82]
+        self.synth.settings[-1] = 2  # read-only ones are the reply's last four whatever the count
+        self.synth.settings[-2] = 6
+        out, _ = run(self.synth, "settings")
+        self.assertIn("morph                P2\n", out)
+        self.assertIn("patch                P7\n", out)
+        self.assertNotIn("pickup", out)
+
+    def test_params(self):
+        self.synth.params[1][24] = 16383
+        self.synth.params[1][0] = 8192
+        out, _ = run(self.synth, "params", "2")
+        self.assertIn("layer 2:\n", out)
+        self.assertIn("amp-rel       50", out)
+        self.assertIn("cutoff        99", out)
+        self.assertNotIn("layer 1:", out)
+
+    def test_state(self):
+        self.synth.pots[24] = 4095
+        self.synth.pots[0] = 2048
+        self.synth.switches[0] = self.synth.switches[12] = self.synth.switches[14] = 0
+        out, _ = run(self.synth, "state")
+        self.assertIn("CUTOFF         99\n", out)
+        self.assertIn("AMP REL        49\n", out)
+        self.assertIn("on: Osc A Saw, Unison\n", out)
+        self.assertIn("keyboard tracking: Full\n", out)
+
+    def test_engine(self):
+        out, _ = run(self.synth, "engine")
+        self.assertIn("layer 1 held keys: 2 (60 64)\n", out)
+        self.assertIn("layer 2 held keys: 0\n", out)
+        self.assertIn("voice 1: gate 1, amp attack, filter idle\n", out)
+        self.assertIn("voice 2: gate 0, amp idle, filter release\n", out)
+        self.assertIn("keytrack full, switch last seen unknown, now half\n", out)
+        self.assertIn("switch OSC1_SAW: patch holds it, 1, panel 0\n", out)
+        self.assertIn("switch OSC1_TRI: follows the panel, panel 1\n", out)
+        self.assertIn("LFO 1 layer 1: shared 25%, cycles done 0; voices stopped 50% 50% 50% 50% 50% 50% 50%\n", out)
+        self.assertIn("LFO 2 layer 2: shared 25%, cycles done 3;", out)
+
+    def test_seq(self):
+        q = self.synth.sequence
+        q[0], q[1], q[5] = 9, 2, 1 | 1 << 5  # 9 steps, one lane + one chord lane, on
+        self.synth.seq_steps[0] = [69, 100, 100, 1 | 3 << 1, 0b01100, 127, 67, 64, 64]  # tie, holds 3, 4 in 8 × 2
+        self.synth.seq_steps[1] = [64, 100, 50, 0, 0, 1, 64, 64, 64]  # a rest
+        out, _ = run(self.synth, "seq")
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "on, 9 steps of 1/16, 120 BPM, swing 0 %, loops, keys of both layers, 1 lane, 2-note chords (max 64 steps)")
+        self.assertEqual(lines[1], "note   +5   .   0   0   0   0   0   0   0")
+        self.assertEqual(lines[2], "n2     +3   .   .   .   .   .   .   .   .")
+        self.assertEqual(lines[3], "gate  tie   .  50  50  50  50  50  50  50")
+        self.assertTrue(lines[4].startswith("hold    3   .   ."))
+        self.assertTrue(lines[5].startswith("prob  4x2   .   ."))
+        self.assertTrue(lines[6].startswith("seq A +99 -99  +0"))
+        # two requests: steps 1-8, then 9-16
+        self.assertIn(request_bytes(0x46, 8, 8), self.synth.sent)
+
+    def test_patches(self):
+        self.synth.slots = {0: (1, b"Lead"), 5: (2, b""), 127: (3, b"")}
+        out, _ = run(self.synth, "patches")
+        self.assertEqual(out, "P1  ours    Lead\nP6  STOCK   \nP128  corrupt \n1 ours, 1 stock, 125 empty, 1 corrupt\n")
+        self.assertEqual(len(self.synth.sent), 128)
+        self.assertEqual(self.synth.sent[127], request_bytes(0x5E, 0, 127))
+        self.assertEqual(run(self.synth, "patches", "--all")[0].count("\n"), 129)
+
+    def test_routes(self):
+        self.synth.routes[0][1] = (1, 3, -50)
+        self.synth.routes[1][9] = (27, 45, 99)
+        self.synth.settings[87] = 0b10  # layer 1, slot 1 plays on both layers
+        out, _ = run(self.synth, "routes")
+        self.assertEqual(out, "layer 1: \n  lfo → cutoff: -50 (both layers)\nlayer 2: \n  macro2 → macro2: 99\n")
+
+    def test_timing(self):
+        with mock.patch.object(pro800.time, "sleep"):
+            out, _ = run(self.synth, "timing")
+        self.assertEqual(out, "engine 100 µs, CV refresh 200 µs (of which the four ticks 800 µs), main-loop pass 300 µs (longest in 2 s: 400 µs)\n"
+                              "panel poll 500 µs, display 600 µs (last pass)\n"
+                              "1000 passes in the last second: 1000 µs per pass on average, modulation 1000 times a second\n")
+
+    def test_tuning(self):
+        out, _ = run(self.synth, "tuning")
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "row           2000    3000    4000    5000    6000    7000    8000    9000    A000    B000    C000    D000    E000    F000")
+        self.assertTrue(lines[1].startswith("osc A1        27.5    55.0    82.5"))
+        self.assertTrue(lines[4].startswith("osc A4           -       -"))
+        self.assertTrue(lines[24].startswith("filter8 "))
+        self.assertEqual(len(lines), 25)
+
+    def test_check(self):
+        out, code = run(self.synth, "check", "60", "--osc")
+        self.assertEqual(code, 0)
+        self.assertRegex(out, r"osc A1                [+-]0\.0\n")
+        self.assertRegex(out, r"osc B8                [+-]0\.0\n")
+        self.assertIn("worst oscillator: 0.0 cents\n", out)
+        self.assertNotIn("filter", out)
+        self.assertEqual(self.synth.sent[0], request_bytes(0x74, 1))
+        self.assertEqual(self.synth.sent[-1], request_bytes(0x74, 0))
+
+    def test_check_retries_an_octave_high_reading(self):
+        readings = itertools.cycle([(523.2511, 20), (261.6256, 20)])  # C5 read for C4, then right
+        with mock.patch.object(pro800, "measure_once", lambda *a: next(readings)):
+            out, _ = run(self.synth, "check", "60", "--filters")
+        self.assertRegex(out, r"filter 1              [+-]0\.0\n")
+        self.assertIn("worst filter: 0.0 cents", out)
+
+    def test_panel(self):
+        self.synth.panel_events = [(0x60, 24, 0x1F, 0x7F), (0x61, 12, 1), (0x62, 2, 0, 5), (0x63, 0, 65), (0x64, 7, 1), (0x64, 7, 0), (0x65, 1, 1)]
+        out, code = run(self.synth, "panel", "0.1")
+        self.assertEqual(code, 0)
+        for text in ("pot CUTOFF (#24)  4095", "switch UNISON = 1", "keys byte 2 = 00000101", "encoder +", "button #7 pressed",
+                     "button #7 released", "65 01 01"):
+            self.assertIn(text, out)
+        self.assertEqual(self.synth.sent[0], request_bytes(0x7A, 1))
+        self.assertEqual(self.synth.sent[-1], request_bytes(0x7A, 0))
+
+    def test_panel_goes_off_on_ctrl_c(self):
+        with mock.patch.object(pro800.time, "sleep", side_effect=KeyboardInterrupt):
+            pro800.args = ["5"]
+            with mock.patch.object(pro800, "port_names", lambda: (["PRO 800"], ["PRO 800"])), \
+                    mock.patch.object(pro800, "open_transport", self.synth.open), contextlib.redirect_stdout(io.StringIO()):
+                pro800.panel()
+                pro800.connection = None
+        self.assertEqual(self.synth.sent[-1], request_bytes(0x7A, 0))
+
+    def test_listen(self):
+        self.synth.start_messages = [bytes([0xB0, 0x01, 0x40]), bytes([0xF8]), bytes([0x90, 0x3C, 0x64]), bytes([0xF8, 0xFE])]
+        out, _ = run(self.synth, "listen", "0.15")
+        self.assertIn('listening on "PRO 800" for 0 s', out)
+        self.assertIn("B0 01 40\n90 3C 64\n", out)
+        self.assertIn("2 messages\n", out)
+        self.assertEqual(run(FakeSynth(), "listen", "0")[0].splitlines()[-1], "0 messages")  # 0 means 0, not the default
+
+    def test_sysex_split_over_buffers(self):
+        self.synth.start_messages = [b"\xF0\x01\x02", b"\x03\xF7", b"\xF0\x04\xF7\xF0\x05\xF7"]
+        out, _ = run(self.synth, "listen", "0.15")
+        self.assertIn("F0 01 02 03 F7\nF0 04 F7\nF0 05 F7\n", out)
+
+    def test_eeprom_read(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "image.bin")
+            out, code = run(self.synth, "eeprom", path, "0x100", "100")
+            self.assertEqual(code, 0)
+            with open(path, "rb") as f:
+                self.assertEqual(f.read(), bytes(self.synth.eeprom[0x100:0x164]))
+        self.assertIn("status register 0x12", out)
+        self.assertEqual(self.synth.sent[0], request_bytes(0x79, 0, 2, 0, 48))
+        self.assertEqual(self.synth.sent[2], request_bytes(0x79, 0, 2, 96, 4))
+
+    def test_factory_list(self):
+        out, _ = run(self.synth, "factory")
+        self.assertTrue(out.startswith(" 0  Factory\n 1  (none)\n"))
+        self.assertEqual(out.count("\n"), 100)
+
+    def test_sysex_pipe(self):
+        with mock.patch.object(sys, "stdin", io.StringIO("08 00; 09\n\n7D 00 00 01; 7f 7d\n")):
+            out, _ = run(self.synth, "sysex")
+        self.assertEqual(out, "09 00 00 09 03\nnone\n7f 7d\n")
+
+
+class Stock(unittest.TestCase):
+    """The stock firmware: 77 lo hi, a bare F0 F7 for an empty slot, here with another program's F0 F7 arriving late."""
+
+    class Firmware(FakeSynth):
+        def __init__(self):
+            super().__init__((1, 4, 6))
+            self.late = []
+
+        def handle(self, d):
+            for message in self.late:
+                self.receive(message)
+            self.late = []
+            if d[0] == 0x08:
+                self.reply(0x09, 0x00, 1, 4, 6)
+            elif d[:3] == bytes([0x77, 0x7E, 0x03]):
+                self.reply(0x78, 0x7E, 0x03, 1, 2, 3)
+                self.late.append(pro800.EMPTY_SLOT)  # arrives during the next request
+            elif d[0] == 0x77 and d[1] == 0 and d[2] == 0:
+                data = bytearray(200)
+                data[4] = 0x6F
+                data[150:154] = b"Lead"
+                packed = []
+                for i in range(0, len(data), 7):
+                    group = data[i:i + 7]
+                    packed.append(sum((b >> 7) << k for k, b in enumerate(group)))
+                    packed += [b & 0x7F for b in group]
+                self.reply(0x78, 0, 0, *packed)
+            elif d[0] == 0x77:
+                self.receive(pro800.EMPTY_SLOT)
+
+    def test_backup(self):
+        synth = self.Firmware()
+        with tempfile.TemporaryDirectory() as folder:
+            out, code = run(synth, "backup", folder, "0", "2")
+            self.assertEqual(code, 0)
+            self.assertEqual(sorted(os.listdir(folder)), ["dump-log.txt", "patch-000-P1.syx", "pro800-all.syx", "system.syx", "version.syx"])
+            with open(os.path.join(folder, "dump-log.txt"), encoding="utf-8") as f:
+                self.assertEqual(f.read(), out)
+        self.assertIn("firmware 1.4.6\n", out)
+        self.assertIn("system settings: 15 bytes\n", out)
+        self.assertIn('P1: 241 bytes, format 0x6F, name "Lead"\n', out)  # not "empty", for the late F0 F7
+        self.assertIn("P2: empty\nP3: empty\n", out)
+        self.assertIn("done: 1 patches saved, 2 empty slots, 0 failed []\n", out)
+
+    def test_version_ignores_a_stray_empty_reply(self):
+        synth = self.Firmware()
+        synth.late.append(pro800.EMPTY_SLOT)
+        self.assertEqual(run(synth, "version"), ("firmware 1.4.6\n", 0))
+
+
+class Writes(unittest.TestCase):
+    def test_requests_byte_for_byte(self):
+        cases = [
+            (("set", "lfo-sync", "clock"), [0x7D, 0, 0, 1]),
+            (("set", "lfo-trigger", "one-shot"), [0x7D, 1, 0, 4]),
+            (("set", "layers", "mpe"), [0x7D, 2, 0, 5]),
+            (("set", "split", "60"), [0x7D, 3, 0, 60]),
+            (("set", "keytrack", "full"), [0x7D, 4, 0, 2]),
+            (("set", "lfo2-sync", "clock"), [0x7D, 5, 0, 1]),
+            (("set", "lfo2-trigger", "first"), [0x7D, 6, 0, 1]),
+            (("set", "lfo", "2"), [0x7D, 8, 0, 1]),
+            (("set", "shape", "2", "2", "sine"), [0x7D, 12, 0, 4]),
+            (("set", "lfo2-dests", "2", "pitch,pw"), [0x7D, 14, 0, 5]),
+            (("set", "cycle", "1", "amp,env4"), [0x7D, 15, 0, 9]),
+            (("set", "cycle-sync", "2", "env4", "1/32"), [0x7D, 24, 0, 15]),
+            (("set", "bend", "12"), [0x7D, 25, 0, 12]),
+            (("set", "detune", "50"), [0x7D, 26, 0, 50]),
+            (("set", "voice", "2", "legato", "high"), [0x7D, 28, 0, 10]),
+            (("set", "drift", "99"), [0x7D, 29, 0, 99]),
+            (("set", "scale", "chromatic"), [0x7D, 30, 0, 12]),
+            (("set", "root", "a#"), [0x7D, 31, 0, 10]),
+            (("set", "lfo-fade", "2", "10"), [0x7D, 35, 0, 10]),
+            (("set", "cc-b", "127"), [0x7D, 37, 0, 127]),
+            (("set", "macro", "2", "2", "-99"), [0x7D, 41, 0, 0]),
+            (("set", "macro", "1", "1", "99"), [0x7D, 38, 1, 70]),
+            (("set", "clock", "sync-in"), [0x7D, 42, 0, 2]),
+            (("set", "bpm", "300"), [0x7D, 43, 2, 44]),
+            (("set", "env-up", "2", "filter"), [0x7D, 45, 0, 2]),
+            (("set", "dahdsr", "1", "none"), [0x7D, 46, 0, 0]),
+            (("set", "env-delay", "2", "env3", "7"), [0x7D, 56, 0, 7]),
+            (("set", "env-hold", "1", "amp", "9"), [0x7D, 58, 0, 9]),
+            (("set", "layer-voices", "auto"), [0x7D, 66, 0, 0]),
+            (("set", "env-count", "2", "env4", "loop"), [0x7D, 74, 0, 0]),
+            (("set", "env-tempo", "2", "amp"), [0x7D, 76, 0, 1]),
+            (("set", "midi-channel", "16"), [0x7D, 77, 0, 16]),
+            (("set", "midi-channel", "all"), [0x7D, 77, 0, 0]),
+            (("set", "osc-tune", "2", "b", "fixed"), [0x7D, 81, 0, 3]),
+            (("set", "pickup", "off"), [0x7D, 82, 0, 0]),
+            (("set", "link", "amp-env,filter"), [0x7D, 83, 0, 65]),
+            (("set", "lfo2-cycles", "99"), [0x7D, 85, 0, 99]),
+            (("set", "lfo-restart", "keys"), [0x7D, 86, 0, 1]),
+            (("set", "morph", "P128"), [0x44, 1, 0]),
+            (("set", "morph", "none"), [0x44, 0, 0]),
+            (("set", "steps", "1", "2", "x.x"), [0x4E, 0, 1, 3, 0, 0, 5]),
+            (("set", "button", "sync", "on"), [0x4B, 15, 1]),
+            (("param", "2", "cutoff", "99"), [0x52, 1, 24, 0x7F, 0x7F]),
+            (("param", "1", "amp-rel", "0"), [0x52, 0, 0, 0, 0]),
+            (("layer", "2"), [0x7E, 1]),
+            (("route", "1", "lfo", "cutoff", "-99"), [0x56, 0, 1, 3, 0, 0]),
+            (("route", "2", "macro2", "macro2", "99"), [0x56, 1, 27, 45, 1, 70]),
+            (("patch", "load", "P7"), [0x5C, 0, 6]),
+            (("patch", "save", "P128"), [0x5D, 0, 127]),
+            (("patch", "clear", "127"), [0x4F, 0, 127]),
+            (("patch", "init"), [0x5F]),
+            (("patch", "rename", "P2", "Foo"), [0x59, 0, 1, 0x46, 0x6F, 0x6F]),
+            (("factory", "import", "5", "P128", "--force"), [0x51, 5, 0, 127, 1]),
+            (("format", "--yes"), [0x5B]),
+            (("direct", "on"), [0x74, 1]),
+            (("cv", "osca1", "0xFFFF"), [0x70, 0, 3, 0x7F, 0x7F]),
+            (("cv", "res", "1"), [0x70, 40, 0, 0, 1]),
+            (("gate", "sync", "1"), [0x71, 2, 1]),
+            (("tune",), [0x75]),
+            (("seq", "step", "1", "+5", "tie", "v100", "p4", "x2", "a99"), [0x45, 0, 1, 69, 100, 100, 1, 12, 127, 64, 64, 64]),
+            (("seq", "step", "2", ".", "20"), [0x45, 1, 1, 64, 0, 50, 0, 0, 64, 64, 64, 64]),
+            (("seq", "step", "3", "-2", "30", "h5", "b-99"), [0x45, 2, 1, 62, 0, 30, 1 | 5 << 1, 0, 64, 1, 64, 64]),
+            (("sh-waits", "2", "4"), [0x6C, 0, 0, 1, 40, 1, 40, 0, 0, 20, 40]),
+            (("update-mode",), [0x03, 0x30]),
+        ]
+        for argv, expected in cases:
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(synth.sent, [request_bytes(*expected)], out)
+
+    def test_read_first_settings(self):
+        synth = FakeSynth()
+        synth.settings[49] = 1  # layer 2: amp linear
+        run(synth, "set", "env-curve", "2", "filter", "swell")
+        self.assertEqual(synth.sent, [request_bytes(0x54), request_bytes(0x7D, 49, 0, 9)])
+
+        synth = FakeSynth()
+        run(synth, "seq", "set", "on=1", "length=16", "step=1/16", "bpm=200", "chord=1", "lanes=1", "smooth=AC", "arp=played")
+        self.assertEqual(synth.sent[-1], request_bytes(0x47, 16, 2, 12, 1, 72, 0x21, 0, 5, 5))
+
+        synth = FakeSynth()
+        synth.sequence[1], synth.sequence[5] = 2, 1 << 5
+        run(synth, "seq", "step", "1", "0", "50", "n2+7")
+        self.assertEqual(synth.sent[-1], request_bytes(0x45, 0, 1, 64, 0, 50, 1, 0, 64, 71, 64, 64))
+
+        synth = FakeSynth()
+        synth.routes[0][9] = (1, 3, 50)
+        run(synth, "route-both", "1", "lfo", "cutoff", "on")
+        self.assertEqual(synth.sent[-1], request_bytes(0x7D, 88, 0, 2))
+
+    def test_sequence_chord_needs_its_lane(self):
+        out, code = run(FakeSynth(), "seq", "step", "1", "0", "50", "n2+7")
+        self.assertEqual(code, 1)
+        self.assertIn("seq set chord=1 first", out)
+
+    def test_short_messages(self):
+        synth = FakeSynth()
+        run(synth, "cc", "1", "64", "--channel", "3")
+        self.assertEqual(synth.sent, [bytes([0xB2, 1, 64])])
+        synth = FakeSynth()
+        run(synth, "bend", "16383", "--channel", "1")
+        self.assertEqual(synth.sent, [bytes([0xE0, 0x7F, 0x7F])])
+        synth = FakeSynth()
+        run(synth, "play", "60", "--channel", "2", "--hold", "0", "--velocity", "99")
+        self.assertEqual(synth.sent, [bytes([0x91, 60, 99]), bytes([0x81, 60, 0])])
+        synth = FakeSynth()
+        run(synth, "play", "60", "--channel", "all", "--hold", "0")
+        self.assertEqual(len(synth.sent), 32)
+
+    def test_default_channels(self):
+        synth = FakeSynth()
+        synth.settings[77] = 5
+        run(synth, "play", "60", "--hold", "0")
+        self.assertEqual(synth.sent[1:], [bytes([0x94, 60, 100]), bytes([0x84, 60, 0])])
+        synth = FakeSynth()
+        synth.silent = True  # stock: no 54, so the stock firmware's channel 6
+        run(synth, "play", "60", "--hold", "0")
+        self.assertEqual(synth.sent[1:], [bytes([0x95, 60, 100]), bytes([0x85, 60, 0])])
+        synth = FakeSynth()
+        run(synth, "cc", "1", "2")  # every channel: channel 1
+        self.assertEqual(synth.sent[-1], bytes([0xB0, 1, 2]))
+
+    def test_clock(self):
+        synth = FakeSynth()
+        run(synth, "clock", "120", "0.1")
+        self.assertEqual(synth.sent, [b"\xFA"] + [b"\xF8"] * 4 + [b"\xFC"])
+
+    def test_no_audio(self):
+        synth = FakeSynth()
+        out, code = run(synth, "play", "60", "--record")
+        self.assertEqual(code, 1)
+        self.assertIn("macOS tool", out)
+        self.assertEqual(synth.sent, [])
+
+    def test_bad_arguments_send_nothing(self):
+        for argv in (("set", "nonsense", "1"), ("set", "bend", "13"), ("set", "macro", "3", "1", "0"), ("set", "voice", "1", "poly"),
+                     ("param", "1", "nope", "1"), ("param", "3", "cutoff", "1"), ("route", "1", "", "cutoff", "1"),
+                     ("route", "1", "lfo", "cutoff", "100"), ("patch", "load", "P129"), ("patch", "save", "128"),
+                     ("seq", "step", "65", "0", "50"), ("cc", "128", "0", "--channel", "1"), ("bend", "16384", "--channel", "1"),
+                     ("format",), ("eeprom-write", "x"), ("direct", "maybe"), ("cv", "nope", "1"), ("gate", "sawa"),
+                     ("cv", "osca1", "0xF_F"), ("param", "1", "cutoff", "1_0"), ("param", "1", "cutoff", "nan"),
+                     ("play", "60", "--hold", "-1", "--channel", "1"), ("check", "200"),
+                     ("cc", "1", "2", "--channel", "0"), ("cc", "1", "2", "--channel", "17"), ("bend", "0", "--channel", "-1")):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertEqual(code, 1, out)
+                self.assertEqual(synth.sent, [], out)
+
+    def test_eeprom_write_verifies(self):
+        synth = FakeSynth()
+        image = bytes((i * 13) & 0xFF for i in range(0x20000))
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "image.bin")
+            with open(path, "wb") as f:
+                f.write(image)
+            out, code = run(synth, "eeprom-write", path, "--yes")
+        self.assertEqual(code, 0)
+        self.assertEqual(bytes(synth.eeprom), image)
+        self.assertIn("verified: the EEPROM matches", out)
+
+    def test_seq_set_wants_a_value(self):
+        synth = FakeSynth()
+        self.assertEqual(run(synth, "seq", "set", "smooth=")[1], 1)
+        self.assertEqual(synth.sent, [request_bytes(0x48)])  # only the header's read
+
+    def test_eeprom_write_fails_on_a_mismatch(self):
+        class Forgetful(FakeSynth):
+            def handle(self, d):
+                if d[0] == 0x5A:
+                    self.ack(0x5A)
+                else:
+                    super().handle(d)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "image.bin")
+            with open(path, "wb") as f:
+                f.write(bytes(0x20000))
+            out, code = run(Forgetful(), "eeprom-write", path, "--yes")
+        self.assertEqual(code, 1)
+        self.assertIn("MISMATCH", out)
+
+    def test_eeprom_write_wants_a_whole_image(self):
+        synth = FakeSynth()
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "short.bin")
+            with open(path, "wb") as f:
+                f.write(bytes(100))
+            out, code = run(synth, "eeprom-write", path, "--yes")
+        self.assertEqual(code, 1)
+        self.assertIn("isn't a 128 kB image", out)
+        self.assertEqual(synth.sent, [])
+
+
+def update_file(folder, version=(0, 9, 3), blocks=8, block_size=200):
+    header = HEADER + b"\x0A" + bytes(33) + bytes(version) + bytes(10) + b"\xF7"
+    assert header[42:45] == bytes(version)
+    block = HEADER + b"\x0B" + bytes(block_size) + b"\xF7"
+    path = os.path.join(folder, "update.syx")
+    with open(path, "wb") as f:
+        f.write(header + block * blocks)
+    return path, header, block
+
+
+class Bootloader:
+    """Records when each message came and answers as the bootloader does."""
+
+    def __init__(self, ok=True):
+        self.times = []
+        self.sent = []
+        self.ok = ok
+        self.receive = None
+
+    def open(self, source, destination, receive):
+        self.receive = receive
+        return self
+
+    def close(self):
+        pass
+
+    def send(self, data):
+        self.times.append(time.perf_counter())
+        self.sent.append(bytes(data))
+        if data[8] == 0x0A:
+            self.receive(HEADER + b"\x03\x31\xF7")
+        elif len(self.sent) == 9:
+            self.receive(HEADER + (b"\x01\x00\x00" if self.ok else b"\x01\x00\x07") + b"\xF7")
+
+
+class Flash(unittest.TestCase):
+    def test_dry_run_needs_no_synth(self):
+        def no_midi(*a):
+            raise AssertionError("opened MIDI")
+
+        with tempfile.TemporaryDirectory() as folder:
+            path, header, block = update_file(folder)
+            pro800.args = [path, "--dry-run"]
+            out = io.StringIO()
+            with mock.patch.object(pro800, "port_names", no_midi), mock.patch.object(pro800, "open_transport", no_midi), \
+                    contextlib.redirect_stdout(out):
+                pro800.flash()
+        self.assertIn(f"9 messages, {len(header) + 8 * len(block)} bytes, about 4 s at 3000 B/s", out.getvalue())
+
+    def test_needs_yes(self):
+        synth = Bootloader()
+        with tempfile.TemporaryDirectory() as folder:
+            out, code = run(synth, "flash", update_file(folder)[0])
+        self.assertEqual(code, 1)
+        self.assertIn("not sent", out)
+        self.assertEqual(synth.sent, [])
+
+    def test_refuses_other_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cases = {"text": b"hello", "no-f7": HEADER + b"\x0A\x00", "not-update": HEADER + b"\x08\x00\xF7",
+                     "other-data": HEADER + b"\x0A\xF7" + HEADER + b"\x08\xF7", "high-byte": HEADER + b"\x0A\x80\xF7",
+                     "f0-inside": HEADER + b"\x0A" + HEADER + b"\xF7"}
+            for name, content in cases.items():
+                with self.subTest(name):
+                    path = os.path.join(folder, name)
+                    with open(path, "wb") as f:
+                        f.write(content)
+                    synth = Bootloader()
+                    out, code = run(synth, "flash", path, "--yes")
+                    self.assertEqual(code, 1, out)
+                    self.assertEqual(synth.sent, [])
+            self.assertEqual(run(Bootloader(), "flash", os.path.join(folder, "missing"), "--yes")[1], 1)
+
+    def test_rate_limit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = update_file(folder)[0]
+            self.assertEqual(run(Bootloader(), "flash", path, "--yes", "--rate", "9001")[1], 1)
+            self.assertEqual(run(Bootloader(), "flash", path, "--yes", "--rate", "0")[1], 1)
+            synth = Bootloader()
+            self.assertEqual(run(synth, "flash", path, "--yes", "--erase-wait", "-1")[1], 1)
+            self.assertEqual(synth.sent, [])
+
+    def test_pacing(self):
+        rate, erase_wait = 9000, 0.2
+        synth = Bootloader()
+        with tempfile.TemporaryDirectory() as folder:
+            path, header, block = update_file(folder)
+            out, code = run(synth, "flash", path, "--yes", "--rate", str(rate), "--erase-wait", str(erase_wait))
+        self.assertEqual(code, 0)
+        self.assertEqual(synth.sent, [header] + [block] * 8)
+        gaps = [b - a for a, b in zip(synth.times, synth.times[1:])]
+        self.assertGreaterEqual(gaps[0], len(header) / rate + erase_wait)
+        for gap in gaps[1:]:
+            self.assertGreaterEqual(gap, len(block) / rate)
+        speed = len(block) * (len(synth.times) - 2) / (synth.times[-1] - synth.times[1])
+        self.assertLess(speed, 9640)
+        self.assertIn("reply after message 1: F0 00 20 32 00 01 24 00 03 31 F7", out)
+        self.assertIn("F0 00 20 32 00 01 24 00 01 00 00 F7", out)
+
+    def test_require_ok(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = update_file(folder, blocks=8, block_size=4)[0]
+            good = run(Bootloader(), "flash", path, "--yes", "--require-ok", "--erase-wait", "0")
+            refused = run(Bootloader(ok=False), "flash", path, "--yes", "--require-ok", "--erase-wait", "0")
+            unchecked = run(Bootloader(ok=False), "flash", path, "--yes", "--erase-wait", "0")
+        self.assertEqual((good[1], refused[1], unchecked[1]), (0, 1, 0))
+
+
+class Install(unittest.TestCase):
+    """install's steps, with the USB list and the child processes replaced."""
+
+    class Machine:
+        def __init__(self, mode=pro800.USB_FIRMWARE, enters=True, flash_ok=True, runs="0.9.3"):
+            self.mode, self.enters, self.flash_ok, self.runs = mode, enters, flash_ok, runs
+            self.commands = []
+
+        def usb(self, product):
+            return self.mode == product
+
+        def run_self(self, *command, capture=True, timeout=None):
+            self.commands.append(command)
+            done = mock.Mock(returncode=0, stdout="")
+            if command[0] == "update-mode" and self.enters:
+                self.mode = pro800.USB_BOOTLOADER
+            elif command[0] == "flash":
+                done.returncode = 0 if self.flash_ok else 1
+                if self.flash_ok:
+                    self.mode = pro800.USB_FIRMWARE
+            elif command[0] == "version":
+                done.stdout = f"firmware {self.runs}\n"
+            return done
+
+    def install(self, machine, version=(0, 9, 3)):
+        with tempfile.TemporaryDirectory() as folder:
+            path = update_file(folder, version)[0]
+            out = io.StringIO()
+            pro800.args = [path, "--yes"]
+            code = 0
+            real_sleep = time.sleep
+            with mock.patch.object(pro800, "usb_device_present", machine.usb), mock.patch.object(pro800, "run_self", machine.run_self), \
+                    mock.patch.object(pro800.time, "sleep", lambda s: real_sleep(min(s, 0.01))), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                try:
+                    pro800.install()
+                except SystemExit as e:
+                    code = e.code or 0
+        return out.getvalue(), code
+
+    def names(self, machine):
+        steps = []
+        for command in machine.commands:
+            if not steps or steps[-1] != command[0]:
+                steps.append(command[0])
+        return steps
+
+    def test_from_a_running_firmware(self):
+        machine = self.Machine()
+        with mock.patch.object(pro800.time, "monotonic", side_effect=iter(range(0, 100000))):
+            out, code = self.install(machine)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.names(machine), ["update-mode", "port-present", "flash", "version"])
+        self.assertTrue(any(c[0] == "flash" and "--require-ok" in c and "--yes" in c for c in machine.commands))
+        self.assertIn("running firmware 0.9.3", out)
+
+    def test_from_the_bootloader(self):
+        machine = self.Machine(mode=pro800.USB_BOOTLOADER)
+        with mock.patch.object(pro800.time, "monotonic", side_effect=iter(range(0, 100000))):
+            out, code = self.install(machine)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.names(machine), ["port-present", "flash", "version"])
+        self.assertIn("already in the bootloader", out)
+
+    def test_no_synth(self):
+        machine = self.Machine(mode=None)
+        out, code = self.install(machine)
+        self.assertEqual(code, 1)
+        self.assertIn("no PRO-800 on USB", out)
+        self.assertEqual(machine.commands, [])
+
+    def test_no_flash_without_the_bootloader(self):
+        machine = self.Machine(enters=False)
+        with mock.patch.object(pro800.time, "monotonic", side_effect=iter(range(0, 100000))):
+            out, code = self.install(machine)
+        self.assertEqual(code, 1)
+        self.assertIn("nothing was flashed", out)
+        self.assertEqual([c[0] for c in machine.commands], ["update-mode"] * 3)
+
+    def test_says_why_a_step_failed(self):
+        self.addCleanup(setattr, pro800, "child_error", "")
+        pro800.child_error = "can't open the MIDI port: another program has it"
+        err = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+            pro800.fail_with_child_error("nothing was flashed")
+        self.assertIn("Last error: can't open the MIDI port", err.getvalue())
+
+    def test_refused_flash(self):
+        machine = self.Machine(flash_ok=False)
+        with mock.patch.object(pro800.time, "monotonic", side_effect=iter(range(0, 100000))):
+            out, code = self.install(machine)
+        self.assertEqual(code, 1)
+        self.assertIn("didn't confirm", out)
+
+    def test_another_version_answers(self):
+        machine = self.Machine(runs="0.9.2")
+        with mock.patch.object(pro800.time, "monotonic", side_effect=iter(range(0, 100000))):
+            out, code = self.install(machine)
+        self.assertEqual(code, 1)
+        self.assertIn("the synth runs firmware 0.9.2, not the 0.9.3", out)
+
+    def test_bad_file_touches_nothing(self):
+        machine = self.Machine()
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "x.syx")
+            with open(path, "wb") as f:
+                f.write(b"nope")
+            pro800.args = [path, "--yes"]
+            with mock.patch.object(pro800, "usb_device_present", machine.usb), mock.patch.object(pro800, "run_self", machine.run_self), \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                pro800.install()
+        self.assertEqual(machine.commands, [])
+
+
+class Helpers(unittest.TestCase):
+    def test_short_message_sizes(self):
+        self.assertEqual([pro800.short_message_size(s) for s in (0x90, 0xB5, 0xC0, 0xD3, 0xE0, 0xF1, 0xF2, 0xF3, 0xF6, 0xF8, 0xFE)],
+                         [3, 3, 2, 2, 3, 2, 3, 2, 1, 1, 1])
+
+    def test_rounding_is_away_from_zero(self):
+        self.assertEqual([pro800.rounded(x) for x in (0.5, 1.5, 2.5, -0.5, -1.5, 0.49)], [1, 2, 3, -1, -2, 0])
+
+    def test_unpack(self):
+        self.assertEqual(pro800.unpack(bytes([0b0000101, 1, 2, 3, 4, 5, 6, 7, 0, 9])), bytes([0x81, 2, 0x83, 4, 5, 6, 7, 9]))
+
+    def test_slots(self):
+        self.assertEqual([pro800.slot_number(t) for t in ("0", "127", "p1", "P128", "128", "P0", "x")], [0, 127, 0, 127, None, None, None])
+
+
+if __name__ == "__main__":
+    unittest.main()

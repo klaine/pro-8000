@@ -299,8 +299,9 @@ The bootloader sits at the start of the flash, write-protected; nothing here eve
 ## Build
 
 Needs zig (as the C cross-compiler), Music Tribe's packer cloned into `reference/PRO800-Firmware-Packer/` from
-[its repository](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer), and Xcode's swiftc for the tool.
-On Windows, install zig with `winget install zig.zig` and run `scripts/build.sh` from Git Bash; the tool is macOS-only.
+[its repository](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer), and on macOS Xcode's swiftc for the
+tool. On Windows, install zig with `winget install zig.zig` and run `scripts/build.sh` from Git Bash; the tool there is
+`tools/pro800.py`, which needs only Python and no build.
 
 ```bash
 scripts/build.sh
@@ -327,6 +328,14 @@ file you provide. From the command line:
 build/pro800 install build/pro800-0.9.3.syx --yes
 ```
 
+On Windows (Python 3.8 or later, nothing to install; quit SynthTribe and close any editor page first):
+
+```bash
+python tools/pro800.py install pro800-0.9.3.syx --yes
+```
+
+`python tools/pro800.py help` lists the commands, the same as `build/pro800`'s without the audio recording ones.
+
 Recovery is always possible through the bootloader: hold buttons 0 and 7 at power-up and flash any firmware `.syx`
 (this one or the stock one). See the manual for going back to stock: on the one synth tested, SynthTribe's own update
 has stalled on a Mac (3.2.4) but seems to work on Windows (2.6.7).
@@ -336,7 +345,8 @@ has stalled on a Mac (3.2.4) but seems to work on Windows (2.6.7).
 | Path | Contents |
 |---|---|
 | `src/` | The firmware: drivers (DAC, S&H, panel, controls, EEPROM, USB MIDI, 5-pin MIDI in, tuning comparator), the engine (`synth.c`, `lfo.c`, `mod.h`), patch storage (`store.c`) and `main.c` (panel UI, SysEx). |
-| `tools/pro800.swift` | The command-line tool (CoreMIDI). |
+| `tools/pro800.swift` | The command-line tool (macOS, CoreMIDI). |
+| `tools/pro800.py` | The same tool for Windows (Python, no build); `tools/test_pro800.py` tests it against a simulated synth. |
 | `tools/web/` | The WebMIDI editor (one HTML file) and the panel map. |
 | `docs/` | The guides on the GitHub Pages site; `scripts/pages.sh` builds them, with the editor, onto the `pages` branch. |
 | `reference/`, `backup/` | Third-party material and the synth's own backups, not in git. |
