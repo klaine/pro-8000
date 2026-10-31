@@ -1610,6 +1610,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             oscillator_tune_mode_t mode = synth_osc_tune_mode(synth_edit_layer(), osc);
             if (mode == OSC_TUNE_FIXED)
                 format_quantity(440.0f * fast_exp2((pitch - 69.0f) / 12.0f), text);
+            else if (mode == OSC_TUNE_FREE)
+                format_quantity(440.0f * fast_exp2((60.0f + pitch - 69.0f) / 12.0f), text);
             else if (mode == OSC_TUNE_OCTAVE)
                 format_signed(pitch / 12.0f, text); // octaves
             else

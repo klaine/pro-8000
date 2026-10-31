@@ -54,7 +54,7 @@ The display shows a knob's value while you turn it, in real units where it has o
 
 | Knob | Shows | Range and curve |
 |---|---|---|
-| FREQ A / B | depends on tuning mode | semitones: ±36 in steps; octave: ±3 octaves; free: continuous ±36 semitones; fixed: C1-C8 |
+| FREQ A / B | depends on tuning mode | semitones: ±36 in steps; octave: ±3 octaves; free: continuous ±36 semitones, displayed as Hz relative to C4; fixed: C1-C8 |
 | FINE | cents | ±100 |
 | M TUNE | Macro 1, signed (`-45`, `  12`) | −99..99, 0 in the middle |
 | CUTOFF | Hz; with a point from 1 kHz on, kHz (` 737`, ` 1.24`, ` 16.7`) | 16 Hz-16.7 kHz, exponential |
@@ -68,8 +68,9 @@ The display shows a knob's value while you turn it, in real units where it has o
 
 Each layer stores a separate mode for FREQ A and FREQ B. The modes are **Semitones** (the original ±36-semitone
 range in one-semitone steps), **Octave** (−3 to +3 octaves in octave steps), **Free** (continuous ±36 semitones),
-and **Fixed** (continuous C1-C8, independent of played notes). Fixed mode still responds to pitch bend and pitch
-modulation. Its display shows the equivalent frequency in Hz or kHz. Mode changes are saved with the patch.
+and **Fixed** (continuous C1-C8, independent of played notes). Free mode displays the frequency of C4 plus its
+semitone offset; the played note still shifts the actual oscillator pitch. Fixed mode displays its absolute frequency
+and still responds to pitch bend and pitch modulation. Mode changes are saved with the patch.
 
 A digit display can't show a plus sign, so positive values have none. A dot after the value means the knob hasn't
 **picked up** the stored value yet. Turn it past the stored value (or onto it) and it takes over. This happens:
