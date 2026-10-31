@@ -3663,7 +3663,7 @@ document.getElementById("backup-all").onclick = async () => {
     if (n % 10 === 9) msg("patch-msg", `backing up… ${n + 1} / 128`);
   }
   const now = new Date(), two = x => String(x).padStart(2, "0"); // local time, no colons: Windows refuses them in a name
-  download(`pro800-patches-${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}.bin`, all);
+  download(`pro800-patches-${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}.bin`, all);
   msg("patch-msg", "backup downloaded (128 patches with their sequences, 98304 bytes)", "ok");
 };
 // Back up everything's file into the slots: only the slots that differ, each read back. A slot in neither of our two
