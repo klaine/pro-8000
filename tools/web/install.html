@@ -183,7 +183,7 @@
 <script>
 const HEADER = [0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00];
 const STOCK_TESTED = { sha: "0f7b1af2a4c15eda917e56a13dba97228641cafc67359409dce9856892ea5e18", version: "1.4.6" };
-const IMAGE_SIZE = 0x20000, PATCH_COUNT = 128, GLOBAL_ADDRESS = 0x1F400, GLOBAL_MAGIC = [0x50, 0x38, 0x47, 0x31]; // "P8G1", src/store.c
+const IMAGE_SIZE = 0x20000, PATCH_COUNT = 128;
 // The bootloader takes up to 9640 B/s; the same pace and erase wait as `pro800 flash`
 const FLASH_RATE = 3000, ERASE_WAIT = 3000;
 
@@ -207,11 +207,14 @@ const sleep = ms => new Promise(wake => { sleeping.set(++sleepId, wake); timerWo
 
 // --- MIDI ---
 let access = null, input = null, output = null, waiters = [], portEpoch = 0, portChangedAt = 0, replies = null;
+// Another tab's installer is running: this tab keeps off the port altogether, as its traffic would make the bootloader refuse the blocks
+let otherRunning = false, running = false;
+const standingBack = () => otherRunning && !running;
 
 function bindPorts() {
   if (!access) return;
   const find = list => Array.from(list.values()).find(p => p.state === "connected" && p.name && p.name.includes("PRO 800"));
-  const i = find(access.inputs), o = find(access.outputs);
+  const i = standingBack() ? null : find(access.inputs), o = standingBack() ? null : find(access.outputs);
   if (input && input !== i) input.onmidimessage = null;
   input = i || null; output = o || null;
   if (input) input.onmidimessage = onMessage;
@@ -225,7 +228,7 @@ function onMessage(e) {
     if (w.prefix.every((b, i) => d[i] === b)) { waiters = waiters.filter(x => x !== w); w.resolve(d); return; }
 }
 function sendRaw(bytes) {
-  if (!output) return false;
+  if (!output || standingBack()) return false;
   try { output.send(bytes); return true; } catch (e) { log(`send failed: ${e.message}`); return false; }
 }
 const send = data => sendRaw([...HEADER, ...data, 0xF7]);
@@ -313,7 +316,7 @@ function download(name, bytes) {
 }
 
 // --- the page's state ---
-let state = { kind: "none" }, slots = null, running = false, cancelAsk = null, chosenFresh = true;
+let state = { kind: "none" }, slots = null, cancelAsk = null, chosenFresh = true;
 let firmware = null, firmwareProblem = "", stockFile = null, imageFile = null, bank = null, bankProblem = "", savedImage = null;
 const bankList = () => bank ? (Array.isArray(bank) ? bank : bank.presets) : [];
 const bankRange = () => { const s = bankList().map(p => p.slot); return `P${Math.min(...s)}-P${Math.max(...s)}`; };
@@ -321,36 +324,46 @@ const presetSlots = () => new Set(bankList().map(p => p.slot - 1));
 
 async function readSlots() {
   slots = null;
-  if (state.kind !== "pro8000") return;
+  if (state.kind !== "pro8000" || standingBack()) return;
   const list = [];
   for (let n = 0; n < PATCH_COUNT; n++) {
     const d = await request([0x5E, n >> 7, n & 0x7F], [0x5E, n >> 7, n & 0x7F], 2000);
     if (!d) return;
-    list.push(d[3]); // 0 empty, 1 ours, 2 stock format
+    list.push(d[3]); // store_slot_kind(): 0 empty, 1 ours, 3 anything else (stock data and damaged records read the same)
   }
   slots = list;
 }
 const slotsOf = kind => slots ? slots.filter(k => k === kind).length : 0;
-const slotsFull = () => slots ? slots.filter(k => k !== 0).length : 0; // stock data reads as stock or damaged records
+const slotsFull = () => slots ? slots.filter(k => k !== 0).length : 0;
 function memoryText() {
   if (state.kind === "stock") return "It holds your stock patches. PRO-8000 can't read them, so it needs initialising, and an image keeps a copy.";
   if (state.kind === "bootloader") return "It can't be read from the bootloader. If you are coming from stock, choose Initialise. If this is PRO-8000, you can leave it.";
   if (!slots) return "";
   if (state.memory === "fresh") return "It still holds the stock firmware's data, your stock patches included: PRO-8000 hasn't taken it over yet.";
-  const damaged = PATCH_COUNT - slotsOf(0) - slotsOf(1);
-  return `${slotsOf(1)} patches, ${slotsOf(0)} empty slots` + (damaged ? `, ${damaged} damaged.` : ".");
+  const other = PATCH_COUNT - slotsOf(0) - slotsOf(1);
+  return `${slotsOf(1)} patches, ${slotsOf(0)} empty slots` + (other ? `, ${other} stock or unreadable.` : ".");
 }
 
+function showOtherRunning() {
+  bindPorts();
+  state = { kind: "none" }; slots = null;
+  $("state").textContent = "Another installer tab is running: this tab keeps off the synth until it finishes."; $("state").className = "bad";
+  render();
+}
 async function refresh() {
   if (running) return;
+  if (otherRunning) { showOtherRunning(); return; }
   $("state").textContent = "Looking for the synth…"; $("state").className = "dim";
   const s = await identify();
   if (running) return;
+  if (otherRunning) { showOtherRunning(); return; }
   state = s;
   log(`state: ${stateText(s)}`);
   $("state").textContent = stateText(s);
   $("state").className = usable(s) ? "ok" : "bad";
   await readSlots();
+  if (running) return;
+  if (otherRunning) { showOtherRunning(); return; }
   // after a failed run the synth may well be somewhere else, but what the user chose still stands
   if (chosenFresh) { applyDefaults(); chosenFresh = false; }
   render();
@@ -375,7 +388,7 @@ function syncSave() {
 function note(id, text, kind = "") { const el = $(id); el.textContent = text; el.className = `note ${kind}`; el.hidden = !text; }
 
 function render() {
-  const ready = usable(state) && !running;
+  const ready = usable(state) && !running && !otherRunning;
   $("choose").hidden = !ready;
   const task = radio("task");
   const install = ready && task === "install", stock = ready && task === "stock";
@@ -652,9 +665,9 @@ async function saveImage() {
 const imageName = () => `pro800-memory-${timestamp()}.bin`;
 
 async function formatMemory() {
-  const d = await request([0x5B], [0x5B], 60000);
-  if (!d || d[3]) throw new Stop(d ? "The memory reported a write error during the format." : "The synth didn't answer the format.", "Press Try again. If it keeps failing, use the editor's Patches tab to see what the memory holds.");
-  log("memory formatted");
+  const r = formatReply(await request([0x5B], [0x5B], 60000));
+  if (!r || r.failed) throw new Stop(r ? "The memory reported a write error during the format." : "The synth didn't answer the format.", "Press Try again. If it keeps failing, use the editor's Patches tab to see what the memory holds.");
+  log(`memory formatted: ${r.count} slots`);
 }
 
 async function writeImage() {
@@ -684,7 +697,7 @@ async function installPresets() {
     for (const m of plan.messages)
       if (!await ack(m)) throw new Stop(`P${p.slot}: the synth didn't take a message (${m[0].toString(16)}).`, help);
     if (!await ack([0x5D, slot >> 7, slot & 0x7F])) throw new Stop(`Saving P${p.slot} failed.`, help);
-    const name = Array.from(String(p.name || "").slice(0, 16)).map(c => c.charCodeAt(0)).filter(c => c >= 0x20 && c < 0x7F);
+    const name = nameBytes(p.name);
     if (name.length) await ack([0x59, slot >> 7, slot & 0x7F, ...name]);
     plan.warnings.forEach(w => left.add(w.replace(/^"([^"]*)".*/, "$1")));
     progress(i + 1, list.length, `P${p.slot} ${p.name || ""}`);
@@ -692,7 +705,7 @@ async function installPresets() {
   // read back: every slot holds a patch of ours, under its name
   for (const p of list) {
     const slot = p.slot - 1, r = await request([0x5E, slot >> 7, slot & 0x7F], [0x5E, slot >> 7, slot & 0x7F], 2000);
-    if (!r || r[3] !== 1 || String.fromCharCode(...r.slice(4)) !== String(p.name || "").slice(0, 16)) throw new Stop(`P${p.slot} didn't read back as "${p.name}".`, help);
+    if (!r || r[3] !== 1 || String(r.slice(4)) !== String(nameBytes(p.name))) throw new Stop(`P${p.slot} didn't read back as "${p.name}".`, help);
   }
   await ack([0x5C, 0, list[0].slot - 1]); // start on the bank's first sound rather than its last
   log(`presets installed and read back: ${list.length}` + (left.size ? `; this firmware hasn't got: ${[...left].join(", ")}` : ""));
@@ -701,8 +714,24 @@ async function installPresets() {
 
 // --- running it ---
 const installerChannel = "BroadcastChannel" in window ? new BroadcastChannel("pro800-installer") : null;
-if (installerChannel) installerChannel.onmessage = e => { if (e.data === "ask" && running) installerChannel.postMessage("busy"); };
+let refreshTimer = null;
+if (installerChannel) {
+  const watch = watchInstaller(installerChannel, busy => {
+    otherRunning = busy;
+    clearTimeout(refreshTimer);
+    if (running) return;
+    if (busy) { showOtherRunning(); return; }
+    $("state").textContent = access ? "Looking for the synth…" : "Not connected"; $("state").className = "dim";
+    if (access) refreshTimer = setTimeout(refresh, 3500); // as after any change of the port: it has just stopped being flashed
+  });
+  installerChannel.onmessage = e => {
+    if (e.data === "ask") { if (running) installerChannel.postMessage("busy"); }
+    else watch.heard(e.data);
+  };
+  installerChannel.postMessage("ask");
+}
 window.addEventListener("beforeunload", e => { if (running) e.preventDefault(); });
+window.addEventListener("pagehide", () => { if (running && installerChannel) installerChannel.postMessage("idle"); });
 
 function resultBox(kind, title, paragraphs, keepImage) {
   $("result").className = kind === "ok" ? "ok-box" : "bad-box";
@@ -721,6 +750,7 @@ function list(items) {
 }
 
 async function start() {
+  if (otherRunning) return;
   const task = radio("task"), install = task === "install", stock = task === "stock";
   const memoryOp = install ? radio("memory") : state.kind === "pro8000" ? radio("stock-memory") : "keep";
   const presets = install && $("do-presets").checked;
@@ -740,6 +770,12 @@ async function start() {
   running = true;
   if (installerChannel) installerChannel.postMessage("busy");
   await sleep(1200); // a poll another tab has already sent is answered and gone
+  if (otherRunning) { // two pressed Start at once: neither has touched the synth yet, and each stands back
+    running = false;
+    if (installerChannel) installerChannel.postMessage("idle");
+    showOtherRunning();
+    return;
+  }
   let wake = null;
   try { wake = await navigator.wakeLock.request("screen"); } catch (e) {}
   for (const id of ["choose", "options-install", "options-stock", "backup-section", "review", "result"]) $(id).hidden = true;
@@ -779,7 +815,7 @@ function finish(install, memoryOp, presets) {
   if (install) {
     paragraphs.push(`The synth is running PRO-8000 ${state.version}.`);
     if (memoryOp === "image") paragraphs.push("Switch the synth off and on now, so it reads the memory you just wrote.");
-    if (state.memory === "fresh" && !presets && memoryOp === "keep") paragraphs.push("Its memory still holds the stock firmware's data, which PRO-8000 shows as damaged slots. Initialise it here when you're ready, after saving an image if you want your stock patches back one day.");
+    if (state.memory === "fresh" && !presets && memoryOp === "keep") paragraphs.push("Its memory still holds the stock firmware's data, which PRO-8000 shows as stock or unreadable slots. Initialise it here when you're ready, after saving an image if you want your stock patches back one day.");
     if (presets) paragraphs.push(`${bankList().length} presets are in ${bankRange()}, and the synth is on the first of them.`);
     editor.innerHTML = 'Next: the <a href="./">editor</a>. Its Patches tab can also copy the 100 factory sounds into empty slots.';
     paragraphs.push(editor);
@@ -802,14 +838,13 @@ async function connect() {
   if (!navigator.requestMIDIAccess) { $("state").textContent = "This browser has no WebMIDI: use Chrome or Edge on a computer."; $("state").className = "bad"; return; }
   try {
     access = await navigator.requestMIDIAccess({ sysex: true });
-    let timer = null;
     access.onstatechange = e => {
       if (!e.port.name || !e.port.name.includes("PRO 800")) return;
       portEpoch++; portChangedAt = performance.now();
       log(`port ${e.port.type} ${e.port.state}`);
       bindPorts();
-      clearTimeout(timer);
-      if (!running) timer = setTimeout(refresh, 3500);
+      clearTimeout(refreshTimer);
+      if (!running && !otherRunning) refreshTimer = setTimeout(refresh, 3500);
     };
     $("connect").textContent = "Look again";
     await refresh();
@@ -883,6 +918,8 @@ async function loadBundled() {
     bank = await r.json();
     if (!bankList().length) throw new Error("empty");
   } catch (e) { bank = null; bankProblem = "No preset bank next to this page (start it with scripts/web.sh)."; }
+  const wrong = badSlotPreset(bankList());
+  if (wrong !== undefined) { bank = null; bankProblem = `The preset bank next to this page has a preset without a slot of 1-128${wrong && wrong.name ? ` ("${wrong.name}")` : ""}.`; }
   log(`firmware beside the page: ${firmware ? firmware.version : "none"}; presets: ${bank ? bankList().length : "none"}`);
 }
 
@@ -890,7 +927,7 @@ loadBundled().then(() => {
   render();
   // connect by itself when the browser already allows MIDI with SysEx for this site
   if (navigator.permissions) navigator.permissions.query({ name: "midi", sysex: true })
-    .then(p => { if (p.state === "granted") connect(); }).catch(() => {});
+    .then(p => { if (p.state === "granted") setTimeout(connect, 200); }).catch(() => {}); // after a running installer has answered
 });
 </script>
 </body>

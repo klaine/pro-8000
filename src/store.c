@@ -117,6 +117,15 @@ static uint32_t checksum(const uint8_t *b, uint32_t n)
 
 static int is_stock(const uint8_t *b) { return b[0] == 0xA5 && b[1] == 0x16 && b[2] == 0x61 && b[3] == 0x00; }
 
+// The settings kept here change on every step of a knob sweep and on every tap, and a write holds the engine and the CV
+// refresh for up to 5 ms. So their setters only mark the block, and store_poll() writes it once they have rested. RAM
+// stays the truth meanwhile; a power cut inside the rest loses the change.
+#define GLOBAL_REST_MS 1000u
+static int global_dirty, global_changed;
+static uint32_t global_changed_at;
+
+static void global_mark(void) { global_dirty = global_changed = 1; }
+
 static int write_global(void)
 {
     uint8_t b[20] = {0};
@@ -135,7 +144,27 @@ static int write_global(void)
         return 0;
     global.valid = 1;
     global.format = FORMAT;
+    global_dirty = 0; // whoever wrote it, it carries every setting
     return 1;
+}
+
+void store_poll(uint32_t now)
+{
+    if (!global_dirty)
+        return;
+    if (global_changed) { // the setters don't know the time
+        global_changed = 0;
+        global_changed_at = now;
+    } else if (now - global_changed_at >= GLOBAL_REST_MS) {
+        global_changed_at = now; // a failed write waits another rest
+        write_global(); // on memory never formatted too: it becomes ours, as with a saved patch
+    }
+}
+
+void store_flush(void)
+{
+    if (global_dirty)
+        write_global();
 }
 
 // Wipes the patch area (every record all zero: empty) and writes the global block for this format
@@ -189,7 +218,7 @@ void store_set_midi_channel(int channel)
     if (channel < 0 || channel > 16 || global.midi_channel == channel)
         return;
     global.midi_channel = (uint8_t)channel;
-    write_global(); // on memory never formatted too: it becomes ours, as with a saved patch
+    global_mark();
 }
 
 int store_pickup(void) { return !global.no_pickup; }
@@ -199,7 +228,7 @@ void store_set_pickup(int on)
     if ((on == 0) == global.no_pickup)
         return;
     global.no_pickup = !on;
-    write_global(); // on memory never formatted too: it becomes ours, as with a saved patch
+    global_mark();
 }
 
 int store_clock_source(void) { return global.clock_source; }
@@ -213,7 +242,7 @@ void store_set_clock(int source, int bpm_tenths)
         return;
     global.clock_source = (uint8_t)source;
     global.bpm = (uint16_t)bpm_tenths;
-    write_global(); // on memory never formatted too: it becomes ours, as with a saved patch
+    global_mark();
 }
 
 void store_set_cc_number(int which, int number)
@@ -221,7 +250,7 @@ void store_set_cc_number(int which, int number)
     if (number < 0 || number > 127 || global.cc[which & 1] == number)
         return;
     global.cc[which & 1] = (uint8_t)number;
-    write_global(); // on memory never formatted too: it becomes ours, as with a saved patch
+    global_mark();
 }
 
 static uint32_t record_address(int n) { return (uint32_t)n * RECORD_SIZE; }
@@ -458,7 +487,11 @@ int store_import_factory(int f, int n)
         return 0;
     patch_t p;
     convert_stock(b, &p);
-    return store_save_patch(n, &p) ? 1 : -1;
+    if (!store_save_patch(n, &p))
+        return -1;
+    // The sequence half too: it loads on its own, and the slot's old steps would play the new sound
+    static const uint8_t zeros[SEQ_SIZE];
+    return eeprom_write(record_address(n) + SEQ_OFF, zeros, SEQ_SIZE) ? 1 : -1;
 }
 
 int store_rename(int n, const char *name)

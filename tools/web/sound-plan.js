@@ -22,6 +22,40 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
 
+// The EEPROM's global block (src/store.c): its magic is what says the memory is PRO-8000's
+const GLOBAL_ADDRESS = 0x1F400, GLOBAL_MAGIC = [0x50, 0x38, 0x47, 0x31]; // "P8G1"
+
+// A patch name as the bytes 59 takes: what the slot reads back afterwards
+const nameBytes = name => Array.from(String(name || "").slice(0, 16)).map(c => c.charCodeAt(0)).filter(c => c >= 0x20 && c < 0x7F);
+// The first preset in a list without a slot of 1-128
+const badSlotPreset = list => list.find(p => !p || typeof p !== "object" || !Number.isInteger(p.slot) || p.slot < 1 || p.slot > 128);
+
+// The reply to a format: 5B <slots, 2 x 7 bits> <1 if a write failed>. Up to 0.9.3 the count was the one byte 00 80,
+// which this reads as 128 too. Null for no reply.
+function formatReply(d) { return d ? { count: d[1] << 7 | d[2], failed: !!d[3] } : null; }
+
+// Whether an installer is running in another tab, over the installer's BroadcastChannel: "ask" (is one running?), "busy"
+// (the answer, and said at its start) and "idle" (it ended). A tab that is closed or crashes says nothing, so while busy
+// this keeps asking, and two asks without an answer count as finished. Counting asks, not time: the timers of a tab in the
+// background may run once a minute, and a running installer still answers each ask at once. The page gives heard() what
+// it receives; changed(busy) is called on each change.
+function watchInstaller(channel, changed, every = 4000) {
+  let busy = false, unanswered = 0;
+  const heard = data => {
+    if (data === "busy") {
+      unanswered = 0;
+      if (!busy) { busy = true; changed(true); }
+    } else if (data === "idle" && busy) { busy = false; changed(false); }
+  };
+  setInterval(() => {
+    if (!busy) return;
+    if (unanswered >= 2) { busy = false; changed(false); return; }
+    unanswered++;
+    channel.postMessage("ask");
+  }, every);
+  return { heard };
+}
+
 const SEQ_MAX = 64, SEQ_BYTES = 240;
 const seqMax = lanes => Math.min(SEQ_MAX, Math.floor(SEQ_BYTES / (4 + lanes)));
 

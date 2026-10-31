@@ -10,6 +10,7 @@ MEMORY
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
 }
 
+_sram = ORIGIN(RAM);
 _estack = ORIGIN(RAM) + LENGTH(RAM);
 
 SECTIONS
@@ -43,5 +44,13 @@ SECTIONS
         *(COMMON)
         . = ALIGN(4);
         _ebss = .;
+    } > RAM
+
+    /* Past _ebss, so no startup code clears it, and NOLOAD, so it adds nothing to the .bin: the crash record (fault.h). */
+    .noinit (NOLOAD) :
+    {
+        . = ALIGN(4);
+        *(.noinit*)
+        . = ALIGN(4);
     } > RAM
 }

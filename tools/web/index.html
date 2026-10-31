@@ -397,7 +397,6 @@
   td input.name { width: 100%; min-width: 120px; border-color: transparent; background: transparent; }
   td input.name:hover, td input.name:focus { border-color: var(--edge); background: var(--well); outline: none; }
   .kind { font-size: 11px; color: var(--dim); }
-  .kind.stock { color: var(--accent); }
   .kind.corrupt { color: var(--warn); }
   .table-wrap { overflow-x: auto; }
   pre.out { font: 12px var(--mono); background: var(--well); border: 1px solid #000; border-radius: 6px; padding: 8px; overflow-x: auto; margin: 0; }
@@ -584,6 +583,7 @@
         <tr><td><kbd>0</kbd></td><td><code class="lcd">drFt</code> drift, 0-99</td></tr>
       </table>
       <p class="dim small"><kbd>Settings</kbd> opens and closes it; <kbd>VALUE</kbd> changes. Settings live in the patch: save to keep them.</p>
+      <p class="dim small">System-wide ones need no save: the clock source and tempo, CC A / B<span data-needs="midiChannel">, the MIDI channel</span><span data-needs="pickup">, knob pickup</span>. The synth stores them a second after the last change, so switching off straight after one loses it.</p>
     </section>
 
     <section class="cs">
@@ -601,6 +601,7 @@
       <ul>
         <li>A firmware that won't start: hold <kbd>0</kbd> and <kbd>7</kbd> while switching on → bootloader; flash any <code>.syx</code>.</li>
         <li>Retune after the synth has warmed up: <kbd>Tune</kbd>.</li>
+        <li><code class="lcd">CrSh</code> for 1.5 s at a start, where the version goes: the last run crashed and the synth restarted. It plays on as usual. After three crashes with less than 10 s between them it stops restarting: then the bootloader, above.</li>
       </ul>
     </section>
 
@@ -763,7 +764,7 @@
       knob is in pickup: the sound keeps the stored value until the knob reaches it or sweeps past it, and the
       display shows a dot meanwhile. With pickup off, a knob takes over as soon as you move it, and the value jumps
       to where the knob is, as on the stock synth. Letting go of Shift, MOD ASSIGN, the envelope page or Seq + FREQ
-      moves nothing either way. System-wide, kept through power-off; on the synth: Shift + FIL ENV AMT
+      moves nothing either way. System-wide, stored a second after a change and kept through power-off; on the synth: Shift + FIL ENV AMT
       (<code class="lcd">P.UP</code>).</p>
     <div class="row" id="pickup-row"></div>
   </section>
@@ -855,18 +856,25 @@ function save() {
 // 1 (and says so, pointing at Connect) when there's no synth to talk to
 function offline() {
   if (output) return 0;
+  if (installerBusy) return 1; // the status line says so already
   const status = document.getElementById("status"), button = document.getElementById("connect");
   status.textContent = "Not connected: click Connect"; status.className = "bad";
   button.classList.add("nudge"); clearTimeout(button._t); button._t = setTimeout(() => button.classList.remove("nudge"), 1500);
   return 1;
 }
-function send(data) { if (!offline()) output.send([...HEADER, ...data, 0xF7]); }
+// False when nothing went out: not connected, or a port that has just gone away (send throws then)
+function send(data) {
+  if (offline()) return false;
+  try { output.send([...HEADER, ...data, 0xF7]); return true; }
+  catch (e) { console.warn(`send failed: ${e.message}`); return false; }
+}
+// The reply, or null for none. It never rejects, and a message that didn't go out leaves no waiter to steal the next reply.
 function request(data, prefix, ms = 1500) {
   return new Promise(resolve => {
-    const w = { prefix, resolve };
+    const w = { prefix, resolve }, giveUp = () => { waiters = waiters.filter(x => x !== w); resolve(null); };
+    const timer = setTimeout(giveUp, ms);
     waiters.push(w);
-    send(data);
-    setTimeout(() => { waiters = waiters.filter(x => x !== w); resolve(null); }, ms);
+    if (!send(data)) { clearTimeout(timer); giveUp(); }
   });
 }
 function onMessage(e) {
@@ -896,52 +904,107 @@ function showFirmware() {
 
 // The installer page (install.html) asks the other tabs to let go of the synth while it runs: this page's poll in the
 // middle of an update spoils it, since the bootloader's port is called "PRO 800" too.
-let installerBusy = false;
+let installerBusy = false, connecting = false, connectWanted = false, reconnectTimer = 0;
+const RECONNECT_QUIET = 3000; // a device can drop its port and set it up again right after it appears
+const portSeen = new Map();
+const pro800Port = list => Array.from(list.values()).find(p => p.state === "connected" && p.name && p.name.includes("PRO 800"));
+function letGoOfSynth() {
+  if (input) input.onmidimessage = null;
+  input = output = null;
+  document.body.classList.add("offline");
+}
+function installerChanged(busy) {
+  const status = document.getElementById("status");
+  installerBusy = busy;
+  if (busy) {
+    letGoOfSynth();
+    status.textContent = "The installer is running: this tab has let go of the synth"; status.className = "bad";
+    return;
+  }
+  status.textContent = connectWanted ? "The installer has finished: this tab connects again when the synth is there" : "The installer has finished: click Connect";
+  status.className = "";
+  if (connectWanted) scheduleReconnect();
+}
 const installerChannel = "BroadcastChannel" in window ? new BroadcastChannel("pro800-installer") : null;
 if (installerChannel) {
-  installerChannel.onmessage = e => {
-    const status = document.getElementById("status");
-    if (e.data === "busy") {
-      installerBusy = true;
-      if (input) input.onmidimessage = null;
-      input = output = null;
-      document.body.classList.add("offline");
-      status.textContent = "The installer is running: this tab has let go of the synth"; status.className = "bad";
-    } else if (e.data === "idle" && installerBusy) {
-      installerBusy = false;
-      status.textContent = "The installer has finished: click Connect"; status.className = "";
-    }
-  };
+  const watch = watchInstaller(installerChannel, installerChanged);
+  installerChannel.onmessage = e => watch.heard(e.data);
   installerChannel.postMessage("ask");
 }
 
+// Connects by itself when a PRO 800 comes back (after an install, a power cycle, a replug), once the ports have rested
+function scheduleReconnect() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => {
+    if (output || installerBusy || (midiAccess && !(pro800Port(midiAccess.inputs) && pro800Port(midiAccess.outputs)))) return;
+    connect();
+  }, RECONNECT_QUIET);
+}
+function portChanged(e) {
+  fillRouteInputs();
+  const p = e.port, key = p.type + p.id;
+  // Only a change of state counts: a port this page opens fires this too, and that mustn't set off another try.
+  if (!p.name || !p.name.includes("PRO 800") || portSeen.get(key) === p.state) return;
+  portSeen.set(key, p.state);
+  if ((input && input.state === "disconnected") || (output && output.state === "disconnected")) {
+    letGoOfSynth();
+    const status = document.getElementById("status");
+    status.textContent = "Disconnected"; status.className = "bad";
+  }
+  scheduleReconnect();
+}
+function watchPorts(access) {
+  if (midiAccess) midiAccess.onstatechange = null;
+  midiAccess = access;
+  portSeen.clear();
+  for (const list of [access.inputs, access.outputs])
+    for (const p of list.values()) portSeen.set(p.type + p.id, p.state);
+  access.onstatechange = portChanged;
+  fillRouteInputs();
+}
+
+// Two messages at most on whatever is on the port, then this page stays off it unless that's our firmware. The bootloader's
+// port has the same name, a page can't see the USB product id and the bootloader answers the version too; only our firmware
+// reads the EEPROM (79). The poll would spoil an update (NOTES), and stock has nothing for it either.
 async function connect() {
   const status = document.getElementById("status");
-  if (installerBusy) return;
+  connectWanted = true;
+  if (installerBusy || connecting) return;
+  connecting = true;
+  clearTimeout(reconnectTimer);
   try {
-    const access = await navigator.requestMIDIAccess({ sysex: true });
-    const find = list => Array.from(list.values()).find(p => p.name && p.name.includes("PRO 800"));
-    input = find(access.inputs); output = find(access.outputs);
-    if (!input || !output) throw new Error("no MIDI port called PRO 800");
+    watchPorts(await navigator.requestMIDIAccess({ sysex: true }));
+    if (installerBusy) return;
+    const i = pro800Port(midiAccess.inputs), o = pro800Port(midiAccess.outputs);
+    if (!i || !o) throw new Error("no MIDI port called PRO 800");
+    letGoOfSynth();
+    input = i; output = o;
     input.onmidimessage = onMessage;
     const v = await request([0x08, 0x00], [0x09, 0x00]);
+    if (installerBusy) return;
     if (!v) throw new Error("the synth didn't answer the version request");
+    const a = [GLOBAL_ADDRESS >> 14 & 0x7F, GLOBAL_ADDRESS >> 7 & 0x7F, GLOBAL_ADDRESS & 0x7F, 4];
+    const ours = await request([0x79, ...a], [0x79, ...a]);
+    if (installerBusy) return;
+    if (!ours) {
+      letGoOfSynth();
+      status.textContent = "The synth isn't running PRO-8000 (it's in its bootloader or on stock), so this tab stays off it. Use the Installer.";
+      status.className = "bad";
+      return;
+    }
     firmwareVersion = v.slice(2).join(".");
     status.textContent = `Connected: firmware ${firmwareVersion}`;
     status.className = "ok";
     document.body.classList.remove("offline");
     document.getElementById("connect").textContent = "Reconnect";
-    midiAccess = access;
-    fillRouteInputs();
+    // what was read before may be gone: a power cycle can come with a new firmware or a formatted memory
+    slots = []; paintSlots(); seqFor = null; patchNameFor = -1;
     afterConnect();
-    access.addEventListener("statechange", fillRouteInputs);
-    access.onstatechange = () => { if (input && input.state === "disconnected") {
-      status.textContent = "Disconnected"; status.className = "bad";
-      input = output = null; document.body.classList.add("offline"); } };
   } catch (err) {
-    input = output = null;
+    letGoOfSynth();
+    if (installerBusy) return;
     status.textContent = "Can't connect: " + err.message; status.className = "bad";
-  }
+  } finally { connecting = false; }
 }
 
 // --- UI ---
@@ -1378,6 +1441,8 @@ const LFO_SOURCE = [1, 11];
 const LFO_TARGETS = [["VCA", [9]], ["Cutoff", [3]], ["Pitch A", [0]], ["Pitch B", [1]], ["PWM", [14, 15]]];
 let layerRoutes = null; // the edit layer's routes: [{layer, slot, source, dest, depth, both}]
 let otherRoutes = [];   // the other layer's routes that play on this one too (same form)
+const ROUTES = 16;      // per layer, src/mod.h
+const routesFull = () => `All ${ROUTES} mod routes of layer ${paramsLayer + 1} are in use`;
 const routeBothMask = l => rawSettings ? (rawSettings[`routeBoth${l + 1}Lo`] || 0) | (rawSettings[`routeBoth${l + 1}Hi`] || 0) << 8 : 0;
 const routesBothShown = () => !!settings && twoLayers(settings) && feature("routeBoth");
 // How far the edit layer's routes can move each knob, in knob units (0..1 of its travel), from the engine's
@@ -1391,7 +1456,7 @@ const DEST_KNOBS = { 0: [P.FREQ_A], 1: [P.FREQ_B], 2: [P.FREQ_A, P.FREQ_B], 3: [
   33: [P.ENV3 + 0], 34: [P.ENV3 + 1], 35: [P.ENV3 + 2], 36: [P.ENV3 + 3], 37: [P.ENV4 + 0], 38: [P.ENV4 + 1], 39: [P.ENV4 + 2], 40: [P.ENV4 + 3],
   41: [P.GLIDE], 43: [P.VOL] };
 const DEST_SCALE = { 0: 24 / 72, 1: 24 / 72, 2: 24 / 72, 3: 96 / 120, 4: 0.5, 5: 1, 6: 1, 10: 1, 11: 1, 12: 1, 13: 1, 14: 0.5, 15: 0.5,
-  16: 1, 18: 0.4, 19: 1, 20: 0.4, 41: 0.4, 43: 1 }; // stages: 4 octaves of 12
+  16: 1, 18: 0.4, 19: 1, 20: 0.4, 27: 1, 31: 1, 35: 1, 39: 1, 41: 0.4, 43: 1 }; // sustains add to the level; other stages: 4 octaves of 12
 const BIPOLAR_SOURCES = new Set([1, 11, 9, 10, 12, 13, 14, 15, 20, 26, 27]);
 const SQUARED_DESTS = new Set([0, 1, 2]);
 const FIXED_SOURCE = 25;
@@ -1457,19 +1522,22 @@ function routeSwing(source, dest, depth) {
   const text = lo === hi ? s(hi) : !mul && lo === -hi ? "±" + fmt(hi) : `${s(lo)} to ${s(hi)}`;
   return { lo, hi, text };
 }
-// Where that takes the knob from where it stands, when the unit is a frequency or a time: "1.2 kHz – 4.6 kHz"
+// Where that takes the knob from where it stands, when the unit is a frequency or a time: "1.2 kHz – 4.6 kHz", one
+// value for a fixed offset. An LFO rate is multiplied (2^octaves, no end stop); a synced one reads in note values
 function swingWhere(dest, sw) {
   const knobs = DEST_KNOBS[dest];
   if (!params || !sw || !knobs || knobs.length !== 1) return "";
-  const i = knobs[0], v = params[i], at = x => format(i, Math.min(1, Math.max(0, v + x)));
-  if (dest === 3) return `${at(sw.lo / 120)} – ${at(sw.hi / 120)}`;                 // 120 semitones of travel
-  if (rateDest(dest))                                                                 // 10 octaves of travel
-    return settings && settings[dest === 20 ? "lfo2Sync" : "lfo1Sync"] ? "" : `${at(sw.lo / 10)} – ${at(sw.hi / 10)}`;
+  const i = knobs[0], v = params[i], span = at => sw.lo === sw.hi ? at(sw.hi) : `${at(sw.lo)} – ${at(sw.hi)}`;
+  if (dest === 3) return span(x => format(i, Math.min(1, Math.max(0, v + x / 120)))); // 120 semitones of travel
+  if (rateDest(dest)) {
+    if (settings && settings[dest === 20 ? "lfo2Sync" : "lfo1Sync"]) return span(x => noteValue(QUARTERS[Math.round(v * 14)] / 2 ** x));
+    return span(x => hertz(lfoHz(v) * 2 ** x));
+  }
   if (timeDest(dest)) {
     let t;
     if (dest === 41) t = v < 0.02 ? 0 : 0.002 * 2 ** (v * 10);
     else { const [bit, stage] = ENV_KNOB[i]; if (cycleSync(bit) || envTempo(bit)) return ""; t = envTime(stage, v, cycling(bit)); }
-    return t > 0 ? `${seconds(t * 2 ** sw.lo)} – ${seconds(t * 2 ** sw.hi)}` : "";
+    return t > 0 ? span(x => seconds(t * 2 ** x)) : "";
   }
   return "";
 }
@@ -1492,6 +1560,19 @@ const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A"
 
 function seconds(s) { return s < 0.9995 ? Math.round(s * 1000) + " ms" : s.toFixed(s < 9.995 ? 2 : 1) + " s"; }
 function lfoHz(v) { return 0.05 * 2 ** (v * 10); }
+function hertz(hz) { return (hz < 10 ? hz.toFixed(2) : hz.toFixed(1)) + " Hz"; }
+// A period in quarter notes as the nearest note value (straight, dotted or triplet; bars from a bar up), "~" when it's
+// more than 2 % off: "1/64", "~1/8.", "1/4T", "1.5 bars"
+function noteValue(q) {
+  if (q >= 4) { const bars = +(q / 4).toFixed(1); return bars + (bars === 1 ? " bar" : " bars"); }
+  let best;
+  for (let k = 2; k >= -7; k--)
+    for (const [m, tag] of k < 2 ? [[1, ""], [1.5, "."], [2 / 3, "T"]] : [[1, ""]]) {
+      const off = Math.abs(Math.log2(q / (m * 2 ** k)));
+      if (!best || off < best.off) best = { k, tag, off };
+    }
+  return (best.off > 0.03 ? "~" : "") + (best.k === 2 ? "1 bar" : `1/${2 ** (2 - best.k)}${best.tag}`);
+}
 function format(i, v) {
   const signed = x => (x > 0 ? "+" : "") + x;
   if (i === P.FREQ_A || i === P.FREQ_B) {
@@ -1521,8 +1602,7 @@ function format(i, v) {
   if (i === P.GLIDE) return v < 0.02 ? "off" : seconds(0.002 * 2 ** (v * 10));
   if (i === P.LFO_RATE || i === P.LFO2_RATE) {
     if (settings && settings[i === P.LFO2_RATE ? "lfo2Sync" : "lfo1Sync"]) return DIVISIONS[Math.round(v * 14)];
-    const hz = lfoHz(v);
-    return hz < 10 ? hz.toFixed(2) + " Hz" : hz.toFixed(1) + " Hz";
+    return hertz(lfoHz(v));
   }
   return String(Math.round(v * 99));
 }
@@ -1855,7 +1935,7 @@ function depthBar(which, t) {
     timer = setTimeout(async () => {
       for (const dest of dests)
         if (!await setRoute((routeOf(src, dest) || { layer: paramsLayer }).layer, src, dest, depth)) { // a both-layers route: where it lives
-          document.getElementById("status").textContent = `All 16 mod routes of layer ${paramsLayer + 1} are in use (Mod matrix, below)`;
+          document.getElementById("status").textContent = `${routesFull()} (Mod matrix, below)`;
           local = null;
           break;
         }
@@ -2265,6 +2345,7 @@ function sendStep(i) {
   paintAll();
   clearTimeout(stepTimer);
   stepTimer = setTimeout(() => {
+    if (!seq) { dirtySteps.clear(); return; } // gone in the 40 ms: the synth didn't answer
     for (const k of [...dirtySteps]) {
       const st = seq.steps[k];
       send([0x45, k, 1, st.note, st.vel, st.gate, (st.on ? 1 : 0) | st.hold << 1, st.extra & 0x1F, ...st.lane]);
@@ -2674,7 +2755,7 @@ function laneEditor(l) {
     if (offline() || !layerRoutes) return;
     for (const r of layerRoutes.filter(r => r.source === src)) await setRoute(paramsLayer, src, r.dest, 0);
     if (+dest.value >= 0 && !await setRoute(paramsLayer, src, +dest.value, 99))
-      document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use`;
+      document.getElementById("status").textContent = routesFull();
     await refreshLayerRoutes();
   };
   paints.push(() => {
@@ -2927,7 +3008,7 @@ function morphControls() {
     if (offline() || !layerRoutes) return;
     for (const r of layerRoutes.filter(r => r.dest === MORPH_DEST)) await setRoute(paramsLayer, r.source, MORPH_DEST, 0);
     if (+source.value && !await setRoute(paramsLayer, +source.value, MORPH_DEST, 99))
-      document.getElementById("status").textContent = `All 8 mod routes of layer ${paramsLayer + 1} are in use`;
+      document.getElementById("status").textContent = routesFull();
     await refreshLayerRoutes();
   };
   paints.push(() => { const r = layerRoutes && layerRoutes.find(r => r.dest === MORPH_DEST);
@@ -3096,7 +3177,7 @@ async function refreshLayerRoutes() {
   if (!d) return;
   const parse = (d, layer) => {
     const list = [], mask = routeBothMask(layer);
-    for (let r = 0; r < 16; r++)
+    for (let r = 0; r < ROUTES; r++)
       if (d[2 + 4 * r]) list.push({ layer, slot: r, source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, both: !!(mask >> r & 1) });
     return list;
   };
@@ -3186,7 +3267,7 @@ async function copyLfo(which) {
   // routes: drop this LFO's routes on this layer, then add the other layer's
   const read = async layer => {
     const d = await ask([0x57, layer], [0x57, layer], 1000), list = [];
-    if (d) for (let r = 0; r < 16; r++)
+    if (d) for (let r = 0; r < ROUTES; r++)
       if (d[2 + 4 * r] === src) list.push({ dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
     return d ? list : null;
   };
@@ -3258,7 +3339,7 @@ function paintParams() { paintAll(); }
 // keep in step with the panel
 let polling = false;
 setInterval(async () => {
-  if (!output || polling || document.hidden || (tab !== "sound" && tab !== "patches")) return;
+  if (!output || connecting || polling || document.hidden || (tab !== "sound" && tab !== "patches")) return; // connecting: it may not be our firmware
   polling = true;
   try { if (await refreshSettings() && tab === "sound") await refreshParams(); } finally { polling = false; }
 }, 900);
@@ -3347,8 +3428,10 @@ function renderRoutes(force) {
 // A Range cell: the route's reach in the destination's units and, for a cutoff, a rate or a time, where that takes
 // the knob from where it stands (which follows the knob, so the cells are repainted with the knobs)
 function paintRange(cell, src, dest, depth) {
-  const sw = routeSwing(src, dest, depth);
-  cell.replaceChildren(sw ? sw.text : "–", h("small", {}, sw ? swingWhere(dest, sw) : ""));
+  const sw = routeSwing(src, dest, depth), where = sw ? swingWhere(dest, sw) : "";
+  // an LFO rate reads best as the rates it reaches (Hz, or note values when synced), its octaves under them
+  const [text, under] = rateDest(dest) && where ? [where, sw.text] : [sw ? sw.text : "–", where];
+  cell.replaceChildren(text, h("small", {}, under));
 }
 function paintNewRange() { // hoisted: the new-route row's handlers above call it
   paintRange(document.getElementById("new-range"), +document.getElementById("new-source").value,
@@ -3375,18 +3458,25 @@ document.getElementById("add-route").onclick = async () => {
   const src = +document.getElementById("new-source").value, dest = +document.getElementById("new-dest").value;
   const depth = +document.getElementById("new-depth").value;
   if (!depth) { msg("matrix-msg", "A depth of 0 is no route", "bad"); return; }
-  if (!await setRoute(paramsLayer, src, dest, depth)) msg("matrix-msg", "All 16 routes are in use", "bad");
+  if (!await setRoute(paramsLayer, src, dest, depth)) msg("matrix-msg", routesFull(), "bad");
   loadRoutes();
 };
 
 // --- patches ---
-const KINDS = ["empty", "ours", "stock", "corrupt"];
+// What store_slot_kind() says: 0 empty, 1 ours, 3 anything else. A stock patch and a damaged record of ours read the
+// same. No firmware we still read sends 2 for a slot; it counts with 3.
+const kindText = k => k === 0 ? "empty" : k === 1 ? "ours" : "stock or unreadable";
+const kindClass = k => k === 0 ? "empty" : k === 1 ? "ours" : "corrupt";
 let slots = [];
 function slotLabel(n) { return "P" + (n + 1); }
 async function slotInfo(n) {
   const d = await ask([0x5E, n >> 7, n & 0x7F], [0x5E, n >> 7, n & 0x7F], 2000);
   if (!d) return null;
   return { kind: d[3], name: String.fromCharCode(...d.slice(4)) };
+}
+function scanSummary(list) {
+  const count = test => list.filter(x => test(x.kind)).length, other = count(k => k > 1);
+  return `${count(k => k === 1)} patches, ${count(k => k === 0)} empty${other ? `, ${other} stock or unreadable` : ""}`;
 }
 async function scanSlots() {
   if (offline()) return;
@@ -3397,8 +3487,7 @@ async function scanSlots() {
     slots[n] = info;
     if (n % 25 === 24) { msg("patch-msg", `reading slots… ${n + 1} / 128`); paintSlots(); }
   }
-  const count = k => slots.filter(x => x.kind === k).length;
-  msg("patch-msg", `${count(1)} patches, ${count(0)} empty${count(2) ? `, ${count(2)} still in the stock format` : ""}`);
+  msg("patch-msg", scanSummary(slots));
   paintSlots();
 }
 function paintSlots() {
@@ -3413,7 +3502,7 @@ function paintSlots() {
     const ours = info.kind === 1;
     tr.innerHTML = `<td class="slot">${slotLabel(n)}</td>
       <td>${ours ? `<input class="name" maxlength="16" placeholder="(no name)">` : '<span class="muted">–</span>'}</td>
-      <td><span class="kind ${KINDS[info.kind]}">${KINDS[info.kind]}</span></td>
+      <td><span class="kind ${kindClass(info.kind)}">${kindText(info.kind)}</span></td>
       <td class="actions">${ours ? '<button data-a="load">Load</button> ' : ""}<button data-a="save">Save here</button>
         ${ours ? '<button data-a="export">Export</button> ' : ""}<button data-a="import">Import…</button>
         ${info.kind ? '<button data-a="clear">Clear</button>' : ""}</td>`;
@@ -3429,8 +3518,7 @@ function paintSlots() {
 }
 async function refreshSlot(n) { const info = await slotInfo(n); if (info) slots[n] = info; paintSlots(); }
 async function renameSlot(n, name) {
-  const bytes = Array.from(name.slice(0, 16)).map(c => c.charCodeAt(0)).filter(c => c >= 0x20 && c < 0x7F);
-  const ok = await ack([0x59, n >> 7, n & 0x7F, ...bytes], 3000);
+  const ok = await ack([0x59, n >> 7, n & 0x7F, ...nameBytes(name)], 3000);
   result("patch-msg", ok, `renamed ${slotLabel(n)}`, "rename failed");
   if (ok && settings && settings.presetMode && settings.patch === n) patchName = name.slice(0, 16);
   refreshSlot(n);
@@ -3459,14 +3547,22 @@ function download(name, bytes) {
   a.href = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/octet-stream" }));
   a.download = name; a.click();
 }
+// Whether a save may go into slot n. The last scan may be old (the panel saves too, and no scan may have run), so this
+// asks the synth what the slot holds now: one 5E. Only an empty slot goes without a question: one that doesn't answer gets it.
+async function mayOverwrite(n, question) {
+  const info = await slotInfo(n);
+  if (info) slots[n] = info;
+  return (info && info.kind === 0) || confirm(question(info));
+}
+const quotedName = info => info && info.name ? ` "${info.name}"` : "";
 let importSlot = -1;
 async function slotAction(action, n) {
-  const info = slots[n], label = slotLabel(n), named = info && info.name ? ` "${info.name}"` : "";
+  const info = slots[n], label = slotLabel(n), named = quotedName(info);
   if (action === "load") {
     result("patch-msg", await ack([0x5C, n >> 7, n & 0x7F], 3000), `loaded ${label}${named}`, "load failed");
     refreshSettings();
   } else if (action === "save") {
-    if (info && info.kind !== 0 && !confirm(`Replace ${label}${named} with the sound as it is now?`)) return;
+    if (!await mayOverwrite(n, now => `Replace ${label}${quotedName(now)} with the sound as it is now?`)) return;
     result("patch-msg", await ack([0x5D, n >> 7, n & 0x7F], 3000), `saved to ${label}`, "save failed");
     refreshSlot(n); refreshSettings();
   } else if (action === "clear") {
@@ -3499,8 +3595,7 @@ document.getElementById("import-file").onchange = async e => {
     msg("patch-msg", "That isn't an exported patch (.p8p, 768 bytes starting with P8P2)", "bad"); return;
   }
   if (!recordChecksumOk(bytes)) { msg("patch-msg", "That .p8p is damaged (its checksum doesn't match)", "bad"); return; }
-  const info = slots[n];
-  if (info && info.kind !== 0 && !confirm(`Replace ${slotLabel(n)}${info.name ? ` "${info.name}"` : ""} with ${file.name}?`)) return;
+  if (!await mayOverwrite(n, now => `Replace ${slotLabel(n)}${quotedName(now)} with ${file.name}?`)) return;
   result("patch-msg", await writeBytes(n * 768, bytes), `imported ${file.name} into ${slotLabel(n)}`, "write failed");
   refreshSlot(n);
 };
@@ -3546,7 +3641,7 @@ async function readSound() {
   for (const layer of [0, 1]) {
     const d = await ask([0x57, layer], [0x57, layer], 1000), list = [];
     if (!d) bad("the synth didn't send its routes");
-    for (let r = 0; r < 16; r++)
+    for (let r = 0; r < ROUTES; r++)
       if (d[2 + 4 * r]) list.push([JN.sources[d[2 + 4 * r] - 1], JN.dests[d[3 + 4 * r]], (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99,
         ...(routeBothMask(layer) >> r & 1 ? ["both"] : [])]);
     if (list.length) out.routes[layer + 1] = list;
@@ -3646,8 +3741,8 @@ document.getElementById("json-apply").onclick = () => loadSound(jsonText().value
 document.getElementById("json-save").onclick = async () => {
   if (offline()) { jsonMsg("Connect first", "bad"); return; }
   const n = +document.getElementById("json-slot").value, name = document.getElementById("json-name").value.trim();
-  const info = slots[n], label = slotLabel(n);
-  if ((!info || info.kind !== 0) && !confirm(`Save the sound into ${label}${info && info.name ? ` (replacing "${info.name}")` : ""}?`)) return;
+  const label = slotLabel(n);
+  if (!await mayOverwrite(n, now => `Save the sound into ${label}${now && now.name ? ` (replacing "${now.name}")` : ""}?`)) return;
   if (!await ack([0x5D, n >> 7, n & 0x7F], 3000)) { jsonMsg("save failed", "bad"); return; }
   if (name && !await renameSlot(n, name)) { jsonMsg(`saved to ${label}, but naming it failed`, "bad"); return; }
   jsonMsg(`saved to ${label}${name ? ` as "${name}"` : ""}`, "ok");
@@ -3666,16 +3761,33 @@ document.getElementById("backup-all").onclick = async () => {
   download(`pro800-patches-${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}.bin`, all);
   msg("patch-msg", "backup downloaded (128 patches with their sequences, 98304 bytes)", "ok");
 };
+// Memory that holds stock data, or damaged records, and no patch of ours: a restore over it asks for a format first
+const needsFormatFirst = list => list.some(x => x.kind > 1) && !list.some(x => x.kind === 1);
+// Writes to the slots leave the global block alone, and without it the firmware keeps no last patch or settings. A setter
+// writes it on any memory (store_set_last() doesn't): pickup off and on marks it and changes nothing. The read then (79)
+// has the firmware write it now rather than after its second's rest. False if the block still isn't there, as on a
+// firmware without the pickup setting.
+async function markMemoryOurs() {
+  const isOurs = async () => { const b = await readBytes(GLOBAL_ADDRESS, 4); return !!b && GLOBAL_MAGIC.every((x, i) => b[i] === x); };
+  if (await isOurs()) return true;
+  const d = await ask([0x54], [0x54], 1000), id = SET_ID.pickup;
+  if (!d || id >= d[1] - READ_ONLY) return false;
+  const on = d[2 + 2 * id] << 7 | d[3 + 2 * id];
+  for (const v of [on ? 0 : 1, on]) if (!await ack([0x7D, id, v >> 7, v & 127])) return false;
+  return isOurs();
+}
 // Back up everything's file into the slots: only the slots that differ, each read back. A slot in neither of our two
-// forms (a backup taken with stock data left in it) goes back as it was. On memory still in the stock format the writes
-// wouldn't make it ours (only a save or a format writes the global block), so that asks for a format first.
+// forms (a backup taken with stock data left in it) goes back as it was. Memory holding stock data asks for a format first,
+// which wipes it; on memory holding nothing yet the restore itself gets the global block written.
 document.getElementById("restore-all").onclick = () => {
   if (!offline()) document.getElementById("restore-file").click();
 };
 document.getElementById("restore-file").onchange = async e => {
   const file = e.target.files[0];
   e.target.value = "";
-  if (!file) return;
+  if (file) await restoreEverything(file);
+};
+async function restoreEverything(file) {
   const all = Array.from(new Uint8Array(await file.arrayBuffer()));
   if (all.length !== 128 * 768) {
     msg("patch-msg", `${file.name} isn't from Back up everything (exactly 98304 bytes; a 128 kB memory image goes through the installer)`, "bad");
@@ -3693,8 +3805,8 @@ document.getElementById("restore-file").onchange = async e => {
   if (!ours) { msg("patch-msg", `${file.name} holds no PRO-8000 patches. Nothing was written.`, "bad"); return; }
   await scanSlots();
   if (slots.length < 128) return;
-  if (slots.some(x => x.kind === 2) && !slots.some(x => x.kind === 1)) {
-    msg("patch-msg", "The memory is still in the stock format: press Format the patch memory first, then restore", "bad"); return;
+  if (needsFormatFirst(slots)) {
+    msg("patch-msg", "The memory holds stock or unreadable data and no PRO-8000 patches: press Format the patch memory first, then restore", "bad"); return;
   }
   if (!confirm(`Replace every slot with ${file.name} (${ours} patches, ${empty} empty${other ? `, ${other} in another format` : ""})? What's in the slots now is overwritten: use Back up everything first if you want to keep it.`)) return;
   let written = 0;
@@ -3710,9 +3822,11 @@ document.getElementById("restore-file").onchange = async e => {
     }
     if (n % 10 === 9) msg("patch-msg", `restoring… ${n + 1} / 128`);
   }
+  const marked = await markMemoryOurs();
   await scanSlots();
+  if (!marked) { msg("patch-msg", `restored ${file.name}, but the memory isn't marked as PRO-8000's yet, so the synth won't keep its last patch or settings: save any patch once`, "bad"); return; }
   msg("patch-msg", `restored ${file.name}: ${written} slots changed, the others already matched. The sound playing stays until you load a patch.`, "ok");
-};
+}
 
 // factory bank
 document.getElementById("factory-load").onclick = async () => {
@@ -3757,10 +3871,10 @@ document.getElementById("bank-format").onclick = () => bankRun(async () => {
   if (!confirm("Format the patch memory? All 128 slots become empty, sequences included, and it can't be undone. "
     + "Back up first (Back up everything) if you want to keep anything.")) return;
   bankMsg("formatting…");
-  const d = await ask([0x5B], [0x5B], 60000);
-  if (!d || d[3]) { bankMsg(d ? "format failed (an EEPROM write error)" : "no answer", "bad"); return; }
+  const r = formatReply(await ask([0x5B], [0x5B], 60000));
+  if (!r || r.failed) { bankMsg(r ? "format failed (an EEPROM write error)" : "no answer", "bad"); return; }
   await scanSlots();
-  bankMsg("formatted: all 128 slots are empty", "ok");
+  bankMsg(`formatted: all ${r.count} slots are empty`, "ok");
 });
 document.getElementById("bank-factory").onclick = () => bankRun(async () => {
   await scanSlots();
@@ -3786,7 +3900,7 @@ document.getElementById("bank-factory").onclick = () => bankRun(async () => {
 // named; the sound on the synth ends up as the last one.
 async function installBank(bank, from) {
   const list = Array.isArray(bank) ? bank : bank && Array.isArray(bank.presets) ? bank.presets : null;
-  if (!list || !list.length || list.some(p => !p || typeof p !== "object" || !Number.isInteger(p.slot) || p.slot < 1 || p.slot > 128)) {
+  if (!list || !list.length || badSlotPreset(list)) {
     bankMsg(`${from} isn't a preset bank (a list of presets, each with a slot 1-128)`, "bad"); return;
   }
   await refreshSettings();
@@ -3807,7 +3921,7 @@ async function installBank(bank, from) {
     for (const m of plans[i].messages)
       if (!await ack(m, 3000)) { bankMsg(`P${p.slot}: the synth didn't take a message (${m[0].toString(16)}); stopped`, "bad"); await scanSlots(); return; }
     if (!await ack([0x5D, n >> 7, n & 0x7F], 3000)) { bankMsg(`saving P${p.slot} failed; stopped`, "bad"); await scanSlots(); return; }
-    const name = Array.from(String(p.name || "").slice(0, 16)).map(c => c.charCodeAt(0)).filter(c => c >= 0x20 && c < 0x7F);
+    const name = nameBytes(p.name);
     if (name.length) await ack([0x59, n >> 7, n & 0x7F, ...name], 3000);
     plans[i].warnings.forEach(w => left.add(w.replace(/^"([^"]*)".*/, "$1")));
     bankMsg(`installing… ${i + 1} / ${list.length} (P${p.slot} ${p.name || ""})`);

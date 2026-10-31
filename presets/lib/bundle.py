@@ -17,12 +17,36 @@ here = os.path.dirname(os.path.abspath(__file__))
 folder = sys.argv[2] if len(sys.argv) == 3 else os.path.dirname(here)
 with open(os.path.join(os.path.dirname(folder), "VERSION"), encoding="utf-8") as f:
     version = f.read().strip()
-presets = []
+
+
+def problem(p):
+    """What's wrong with a preset, as the firmware and the pages take it: a slot 1-128, a name that reads back as written."""
+    if not isinstance(p, dict):
+        return "not a preset (needs a slot and a name)"
+    slot, name = p.get("slot"), p.get("name")
+    if type(slot) is not int or not 1 <= slot <= 128:
+        return f"slot: 1-128, not {slot!a}"
+    if not isinstance(name, str) or not name:
+        return f"name: needs one, not {name!a}"
+    if len(name) > 16:
+        return f"name: {name!a} has more than 16 characters"
+    if any(not 0x20 <= ord(c) <= 0x7E for c in name):
+        return f"name: {name!a} isn't plain ASCII"
+    if name != name.strip():
+        return f"name: {name!a} starts or ends with a space"
+    return None
+
+
+presets, taken = [], {}
 for path in sorted(glob.glob(os.path.join(folder, "*.json"))):
     with open(path, encoding="utf-8") as f:
         p = json.load(f)
-    if not isinstance(p, dict) or not isinstance(p.get("slot"), int) or not p.get("name"):
-        sys.exit(f"{path}: not a preset (needs a slot and a name)")
+    wrong = problem(p)
+    if not wrong and p["slot"] in taken:
+        wrong = f"slot {p['slot']} is taken by {taken[p['slot']]}"
+    if wrong:
+        sys.exit(f"{path}: {wrong}")
+    taken[p["slot"]] = os.path.basename(path)
     presets.append(p)
 with open(out, "w", encoding="utf-8", newline="\n") as f:
     json.dump({"format": "pro8000-presets", "version": version, "presets": presets}, f, separators=(",", ":"))

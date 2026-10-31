@@ -140,6 +140,13 @@
 #define SCB_SHPR3       REG(0xE000ED20u)
 #define SCB_AIRCR       REG(0xE000ED0Cu)
 #define SCB_AIRCR_SYSRESETREQ 0x05FA0004u
+#define SCB_CFSR        REG(0xE000ED28u)
+#define SCB_HFSR        REG(0xE000ED2Cu)
+#define SCB_MMFAR       REG(0xE000ED34u)
+#define SCB_BFAR        REG(0xE000ED38u)
+#define SCB_FPCCR       REG(0xE000EF34u)
+#define SCB_FPCCR_ASPEN (1u << 31)
+#define SCB_FPCCR_LSPEN (1u << 30)
 #define DEMCR           REG(0xE000EDFCu)
 #define DEMCR_TRCENA    (1u << 24)
 #define DWT_CTRL        REG(0xE0001000u)

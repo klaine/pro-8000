@@ -124,10 +124,16 @@ static void make_serial(void)
     serial[12] = 0;
 }
 
-// MIDI event packets from the host: written by the interrupt, read by the main loop
+// MIDI event packets from the host: written by the interrupt, read by the main loop. A USB packet holds up to 16 of
+// them, so the OUT endpoint is armed only with room for 16. Without it the endpoint stays disarmed ("parked"): the core
+// NAKs, the host's driver queues, and the read that makes room arms it again, so a burst of any size arrives whole.
+// Realtime bytes share the endpoint, so a parked endpoint delays them until the next drain: one tick normally, one
+// patch load at worst. That's why a long stall (an autotune) uses usb_midi_discard() instead.
 #define RX_PACKETS 64
+#define RX_ROOM_TO_ARM (MIDI_SIZE / 4)
 static uint8_t rx_ring[RX_PACKETS][4];
 static volatile uint32_t rx_head, rx_tail;
+static volatile int rx_parked, rx_discard;
 static void (*realtime)(uint8_t status, uint16_t data, uint32_t cycles); // clock messages, from the interrupt
 
 static uint32_t setup[2];
@@ -182,13 +188,36 @@ static void midi_out_arm(void)
     DOEPCTL(MIDI_EP) |= EPCTL_EPENA | EPCTL_CNAK;
 }
 
+static uint32_t rx_room(void) { return (rx_tail + RX_PACKETS - rx_head - 1) % RX_PACKETS; }
+
+// The endpoint is disarmed and its last packet is in the ring: arm it, or park it for usb_midi_read() to arm. Only the
+// interrupt calls this, or the main loop with the interrupt masked. Parked is set only with 48 events or more waiting,
+// and every read and flush after that looks again, so it can't outlast the ring: an empty ring is always armed.
+static void midi_out_next(void)
+{
+    rx_parked = !rx_discard && rx_room() < RX_ROOM_TO_ARM;
+    if (!rx_parked)
+        midi_out_arm();
+}
+
+static void rx_unpark_if_room(void)
+{
+    if (!rx_parked || rx_room() < RX_ROOM_TO_ARM)
+        return;
+    NVIC_ICER(OTG_FS_IRQ / 32) = 1u << (OTG_FS_IRQ % 32);
+    if (rx_parked) // (a bus reset may have come in since the look above)
+        midi_out_next();
+    NVIC_ISER(OTG_FS_IRQ / 32) = 1u << (OTG_FS_IRQ % 32);
+}
+
 static void configure_midi_endpoints(void)
 {
+    DOEPINT(MIDI_EP) = 0xFFFFFFFFu; // an old XFRC must not arm it a second time
     DOEPCTL(MIDI_EP) = EPCTL_USBAEP | EPCTL_BULK | EPCTL_SD0PID | MIDI_SIZE;
     DIEPCTL(MIDI_EP) = EPCTL_USBAEP | EPCTL_BULK | EPCTL_SD0PID | EPCTL_SNAK | (uint32_t)MIDI_EP << 22 | MIDI_SIZE;
     DAINTMSK |= 1u << MIDI_EP | 1u << (16 + MIDI_EP);
     tx_busy = 0;
-    midi_out_arm();
+    midi_out_next(); // the ring may still hold what came before: it parks again if that leaves no room
     configured = 1;
 }
 
@@ -273,7 +302,9 @@ static void bus_reset(void)
 {
     configured = 0;
     tx_busy = 0;
+    rx_parked = 0;
     DCFG &= ~DCFG_DAD_MASK;
+    DOEPINT(MIDI_EP) = 0xFFFFFFFFu; // an XFRC from before the reset must not arm a dead endpoint
     DOEPCTL(MIDI_EP) = 0;
     DIEPCTL(MIDI_EP) = 0;
     flush_fifos();
@@ -316,9 +347,10 @@ static void read_packet(uint32_t status)
         }
         uint32_t next = (rx_head + 1) % RX_PACKETS;
         if (next == rx_tail)
-            continue; // full: drop
+            continue; // full: drop (only with usb_midi_discard() on: otherwise a packet is armed only if it fits)
         for (int b = 0; b < 4; b++)
             rx_ring[rx_head][b] = (uint8_t)(word >> 8 * b);
+        __asm volatile("" ::: "memory"); // the event is in the ring before the main loop can see it
         rx_head = next;
     }
 }
@@ -351,7 +383,7 @@ void OTG_FS_IRQHandler(void)
             uint32_t flags = DOEPINT(MIDI_EP);
             DOEPINT(MIDI_EP) = flags;
             if (flags & EPINT_XFRC)
-                midi_out_arm();
+                midi_out_next();
         }
     }
     if (status & GINT_IEPINT) {
@@ -411,11 +443,26 @@ int usb_midi_read(uint8_t packet[4])
         return 0;
     for (int b = 0; b < 4; b++)
         packet[b] = rx_ring[rx_tail][b];
+    __asm volatile("" ::: "memory"); // copied before the interrupt may overwrite it
     rx_tail = (rx_tail + 1) % RX_PACKETS;
+    rx_unpark_if_room();
     return 1;
 }
 
-void usb_midi_flush(void) { rx_tail = rx_head; }
+void usb_midi_flush(void)
+{
+    rx_tail = rx_head;
+    rx_unpark_if_room();
+}
+
+void usb_midi_discard(int on)
+{
+    NVIC_ICER(OTG_FS_IRQ / 32) = 1u << (OTG_FS_IRQ % 32);
+    rx_discard = on;
+    if (rx_parked)
+        midi_out_next();
+    NVIC_ISER(OTG_FS_IRQ / 32) = 1u << (OTG_FS_IRQ % 32);
+}
 
 void usb_midi_realtime(void (*handler)(uint8_t status, uint16_t data, uint32_t cycles)) { realtime = handler; }
 
@@ -437,4 +484,5 @@ void usb_disconnect(void)
     NVIC_ICER(OTG_FS_IRQ / 32) = 1u << (OTG_FS_IRQ % 32);
     DCTL |= DCTL_SDIS;
     configured = 0;
+    rx_parked = 0;
 }

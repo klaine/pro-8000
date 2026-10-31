@@ -3,6 +3,7 @@
 #include "eeprom.h"
 #include "clock.h"
 #include "gpio.h"
+#include "regs.h"
 
 #define WP   (1u << 1)
 #define SCK  (1u << 2)
@@ -78,6 +79,7 @@ static void command(uint8_t cmd)
 static int wait_ready(void)
 {
     for (int us = 0; us < WRITE_TIMEOUT_US; us += 50) {
+        IWDG_KR = IWDG_KR_REFRESH; // a format is about 384 pages, with no main loop in between
         if (!(eeprom_status() & STATUS_WIP))
             return 1;
         delay_us(50);

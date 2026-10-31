@@ -27,7 +27,7 @@
 #define SAMPLE_DEFAULT     60
 static uint32_t settle_tenths = DAC_SETTLE_DEFAULT, sample_tenths = SAMPLE_DEFAULT;
 
-static uint32_t tenths_to_cycles(uint32_t tenths) { return tenths * (system_hz / 1000u) / 10000u; }
+static uint32_t tenths_to_cycles(uint32_t tenths) { return tenths * (system_hz / 1000000u) / 10u; }
 
 typedef struct {
     uint32_t en_port;
@@ -129,6 +129,7 @@ static void sample16(const mux_t *mux, uint32_t address, uint16_t value)
 void sh_safe(void)
 {
     RCC_AHB1ENR |= RCC_AHB1ENR_GPIOB | RCC_AHB1ENR_GPIOD;
+    (void)RCC_AHB1ENR; // the first write after a clock enable can be lost (errata), and that one sets the enables high
     gpio_write(GPIOB_BASE, EN_PINS_B, 1);
     gpio_write(GPIOB_BASE, SH_PINS_B, 0);
     gpio_write(GPIOD_BASE, EN_PINS_D, 1);

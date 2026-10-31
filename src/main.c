@@ -13,6 +13,11 @@
 //                          <system_hz / 1000, 3 × 7 bits>
 //   55                     the engine's state (synth_probe(): held keys, voice gates and envelope stages, keytrack,
 //                          switch overrides, LFO phases); replies 55 <bytes>; read-only
+//   49                     the last crash (fault.h); replies 49 <1 if there is a record> <streak> <exception number>,
+//                          then pc, lr, EXC_RETURN, CFSR, HFSR, MMFAR, BFAR, 5 × 7 bits each, high first (all 0 without
+//                          a record); read-only
+//   4A 43 52               crash on purpose, to try the above: a read of an unmapped address. No reply, the synth
+//                          restarts; without those two bytes it does nothing
 //   6C <bus> <mode> <h1> <h0> <l1> <l0> <speed> <sync us> <settle> <sample>
 //                          probe the CV path (until reboot; dac.h): the DAC80501 bus (bit-bang / SPI3, mode, high
 //                          and low cycles or SPI divider, GPIO speed, SYNC wait) and the S&H waits in tenths of a us
@@ -92,6 +97,7 @@
 #include "controls.h"
 #include "display.h"
 #include "eeprom.h"
+#include "fault.h"
 #include "store.h"
 #include "lfo.h"
 #include "fastmath.h"
@@ -184,6 +190,17 @@ static void show_version(void)
 
 static uint32_t display_until; // ms_ticks when a pot value on the display gives way; 0 = nothing shown
 static int tune_requested;
+
+// What a start shows for 1.5 s: the version, or that the last run crashed
+static void show_boot(int crashed)
+{
+    if (crashed) {
+        display_text("CrSh");
+        display_update();
+    } else
+        show_version();
+    display_until = ms_ticks + 1500;
+}
 
 // Patches: PRESET toggles preset mode (a patch loaded) and manual mode (the panel live). In preset mode two keypad
 // digits pick a patch (1-128) and VALUE steps through them; REC, then the slot, then REC saves;
@@ -2016,24 +2033,43 @@ static void drop_stale_midi(void)
         sustained[n] = 0;
 }
 
+// An autotune is too long for the host to wait behind NAKs, and it would then replay 30 s of old notes: USB keeps
+// accepting meanwhile and drops what doesn't fit, and all of it goes at the end. The clock keeps its ticks this way.
+static int tune_dropping_midi(void)
+{
+    store_flush(); // no pass for 25 s, in which the power may go
+    usb_midi_discard(1);
+    int rows = tuning_run();
+    clock_primed = 0; // the generator starts again from now: 13 to 25 s behind reads as ahead in clock_run()
+    synth_init();
+    drop_stale_midi();
+    usb_midi_discard(0);
+    return rows;
+}
+
 static void run_tuning(void)
 {
     synth_all_off();
     display_text("tUnE");
     display_update();
-    tuning_run();
-    synth_init();
-    drop_stale_midi();
+    tune_dropping_midi();
     idle_display(); // the patch's number, the open menu's page, or PAnL in manual mode
 }
 
+// 0 when the crystal didn't start: no 48 MHz, so usb_init() would wait for ever for a core reset, and the OTG core's
+// clock stays off. usb_midi_read() and usb_midi_write() then just find nothing to do; a request over DIN reaches
+// enter_update_mode() all the same.
+static int usb_running;
+
 static void enter_update_mode(void)
 {
+    store_flush();
     synth_all_off();
     sh_set(CV_MASTER_VOL, 0);
     for (int i = 0; i < 4; i++)
         sh_refresh();
-    usb_disconnect();
+    if (usb_running)
+        usb_disconnect();
     delay_us(100000); // let the host see the unplug before the bootloader re-enumerates
     update_mode_enter();
 }
@@ -2054,6 +2090,23 @@ static void handle_sysex(const uint8_t *message, int length)
 
     if (data_length == 2 && data[0] == 0x03 && data[1] == 0x30)
         enter_update_mode();
+    if (data_length == 3 && data[0] == 0x4A && data[1] == 0x43 && data[2] == 0x52) {
+        store_flush(); // the crash shouldn't cost the settings waiting to be written
+        fault_provoke();
+    }
+    if (data_length == 1 && data[0] == 0x49) {
+        int present = fault_valid(&fault_record);
+        const uint32_t values[] = {fault_record.pc, fault_record.lr, fault_record.exc_return, fault_record.cfsr,
+                                   fault_record.hfsr, fault_record.mmfar, fault_record.bfar};
+        uint32_t streak = present ? fault_record.streak : 0;
+        reply[n++] = 0x49;
+        reply[n++] = (uint8_t)present;
+        reply[n++] = (uint8_t)(streak > 0x7F ? 0x7F : streak);
+        reply[n++] = present ? fault_record.exception & 0x7F : 0; // the vector table ends at 112
+        for (unsigned v = 0; v < sizeof values / sizeof values[0]; v++)
+            for (int shift = 28; shift >= 0; shift -= 7)
+                reply[n++] = present ? (values[v] >> shift) & 0x7F : 0;
+    }
     if (data_length == 2 && data[0] == 0x74) {
         direct_mode = data[1] != 0;
         synth_all_off();
@@ -2197,7 +2250,8 @@ static void handle_sysex(const uint8_t *message, int length)
         q->length = data[1];
         q->lanes = data[2];
         q->division = data[3];
-        q->bpm = (uint8_t)(data[4] << 7 | data[5]);
+        int bpm = data[4] << 7 | data[5];
+        q->bpm = (uint8_t)(bpm > 255 ? 255 : bpm); // a byte here; seq_fix() takes care of the low end
         q->flags = data[6];
         q->swing = data[7];
         q->smooth = data[8] & 0x0F;
@@ -2309,6 +2363,7 @@ static void handle_sysex(const uint8_t *message, int length)
         uint8_t bytes[48];
         for (int i = 0; i < data[4]; i++)
             bytes[i] = (uint8_t)(data[5 + 2 * i] << 4 | data[6 + 2 * i]);
+        store_flush(); // now, or it would land on what the host writes here
         if (address + data[4] <= EEPROM_SIZE && eeprom_write(address, bytes, data[4])) {
             reply[n++] = 0x7F;
             reply[n++] = 0x5A;
@@ -2318,8 +2373,8 @@ static void handle_sysex(const uint8_t *message, int length)
         synth_all_off();
         int ok = store_format();
         reply[n++] = 0x5B;
-        reply[n++] = 0;
-        reply[n++] = (uint8_t)PATCH_COUNT;
+        reply[n++] = PATCH_COUNT >> 7;
+        reply[n++] = PATCH_COUNT & 0x7F;
         reply[n++] = (uint8_t)!ok;
     }
     if (data_length == 3 && (data[0] == 0x5C || data[0] == 0x5D)) {
@@ -2382,16 +2437,19 @@ static void handle_sysex(const uint8_t *message, int length)
     }
     if (data_length == 5 && data[0] == 0x79 && data[4] >= 1 && data[4] <= 48) {
         uint32_t address = (uint32_t)data[1] << 14 | (uint32_t)data[2] << 7 | data[3];
-        uint8_t bytes[48];
-        eeprom_read(address, bytes, data[4]);
-        uint8_t status = eeprom_status();
-        for (int i = 0; i < 5; i++)
-            reply[n++] = data[i];
-        reply[n++] = status >> 4;
-        reply[n++] = status & 0x0F;
-        for (int i = 0; i < data[4]; i++) {
-            reply[n++] = bytes[i] >> 4;
-            reply[n++] = bytes[i] & 0x0F;
+        if (address + data[4] <= EEPROM_SIZE) {
+            uint8_t bytes[48];
+            store_flush(); // a backup taken now holds the settings as they are
+            eeprom_read(address, bytes, data[4]);
+            uint8_t status = eeprom_status();
+            for (int i = 0; i < 5; i++)
+                reply[n++] = data[i];
+            reply[n++] = status >> 4;
+            reply[n++] = status & 0x0F;
+            for (int i = 0; i < data[4]; i++) {
+                reply[n++] = bytes[i] >> 4;
+                reply[n++] = bytes[i] & 0x0F;
+            }
         }
     }
     if (data_length == 2 && data[0] == 0x7E && data[1] < 2) {
@@ -2411,9 +2469,7 @@ static void handle_sysex(const uint8_t *message, int length)
     }
     if (data_length == 1 && data[0] == 0x75) {
         synth_all_off();
-        int rows = tuning_run();
-        synth_init();
-        drop_stale_midi();
+        int rows = tune_dropping_midi();
         if (direct_mode)
             sh_set(CV_MASTER_VOL, 0); // otherwise the engine sets it from M VOL
         reply[n++] = 0x76;
@@ -2622,13 +2678,19 @@ static int listen_channel(uint8_t status)
     return channel >= 0 && channel < span ? channel : -1;
 }
 
+// At most this many events a call, and it's called four times a pass: a read lets the USB host send more, so a flood
+// might never run dry and would starve the CV refresh. What's left waits in the ring, and behind the NAKs, for the next
+// call. A SysEx cut off by the bound carries on then, in the statics below.
+#define MIDI_PER_CALL 64
+
 static void handle_midi(void)
 {
     static uint8_t sysex[SYSEX_MAX];
     static int sysex_length;
     uint8_t p[4];
 
-    while (usb_midi_read(p) || din_midi_read(p)) { // USB first, then the 5-pin socket
+    // The 5-pin socket first: at 31250 baud it can't use up the bound, while a USB flood would leave it none
+    for (int left = MIDI_PER_CALL; left > 0 && (din_midi_read(p) || usb_midi_read(p)); left--) {
         uint8_t cin = p[0] & 0x0F;
         uint8_t status = p[1] & 0xF0;
         if (cin >= 0x8 && cin <= 0xE) { // a channel message: from here on its channel counts from the setting
@@ -2721,7 +2783,9 @@ static void handle_midi(void)
 int main(void)
 {
     sh_safe();
-    clock_init();
+    fault_boot_check(&fault_record);
+    int crashed = fault_record.streak != 0; // a record survives a clean run, with its streak cleared
+    int crystal = clock_init();
     sh_init();
 
     SYST_RVR = system_hz / 1000 - 1;
@@ -2752,8 +2816,7 @@ int main(void)
         tuning_run();
         synth_init();
     }
-    show_version();
-    display_until = ms_ticks + 1500;
+    show_boot(crashed);
 
     for (int k = 0; k < 2; k++)
         if (store_cc_number(k))
@@ -2769,8 +2832,7 @@ int main(void)
             controls_poll(ms_ticks, 0); // read every knob once, so the patch's pickup starts from them
         if (load_patch(current_patch)) {
             undo_valid = 0; // nothing of the user's to bring back yet
-            show_version(); // the load showed the slot: the version gets its time first
-            display_until = ms_ticks + 1500;
+            show_boot(crashed); // the load showed the slot: the version gets its time first
         }
     }
     if (store_formatted()) {
@@ -2779,8 +2841,12 @@ int main(void)
     }
     usb_midi_realtime(realtime);
     din_init(realtime);
-    usb_init();
+    if (crystal) {
+        usb_init();
+        usb_running = 1;
+    }
 
+    int streak_settled = 0;
     uint32_t last = DWT_CYCCNT;
     for (;;) {
         IWDG_KR = IWDG_KR_REFRESH;
@@ -2791,6 +2857,10 @@ int main(void)
         last = cycles;
 
         uint32_t now = ms_ticks;
+        if (!streak_settled && now >= FAULT_CLEAN_MS) {
+            streak_settled = 1;
+            fault_clear_streak(&fault_record);
+        }
         uint32_t tc = DWT_CYCCNT;
         controls_poll(now, control_event);
         cycles_controls = DWT_CYCCNT - tc;
@@ -2850,6 +2920,7 @@ int main(void)
         }
         if (turned_patch >= 0 && (int32_t)(now - encoder_patch_at) >= TURNED_REST_MS)
             turned_load();
+        store_poll(now);
         cc_show(now);
         if (assign_press_at && (int32_t)(now - assign_press_at) >= 600) {
             assign_press_at = 0;

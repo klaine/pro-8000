@@ -61,6 +61,7 @@ void UART4_IRQHandler(void)
     uint32_t next = (rx_head + 1) % RX_BYTES;
     if (next != rx_tail) {
         rx_ring[rx_head] = byte;
+        __asm volatile("" ::: "memory"); // the byte is in the ring before the main loop can see it
         rx_head = next;
     }
 }
@@ -84,6 +85,7 @@ int din_midi_read(uint8_t packet[4])
 {
     while (rx_tail != rx_head) {
         uint8_t byte = rx_ring[rx_tail];
+        __asm volatile("" ::: "memory"); // read before the interrupt may overwrite it
         rx_tail = (rx_tail + 1) % RX_BYTES;
         if (byte & 0x80) { // a channel status starts running status; SysEx and system common end it
             running = byte < 0xF0 ? byte : 0;

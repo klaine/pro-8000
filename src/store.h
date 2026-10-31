@@ -77,6 +77,11 @@ void store_set_pickup(int on);
 int store_clock_source(void);
 int store_bpm_tenths(void);
 void store_set_clock(int source, int bpm_tenths);
+// Those four setters only mark the global block; reads show the new value at once. store_poll(), once a pass with
+// ms_ticks, writes the block when nothing has changed for a second; store_flush() writes it now if it waits, before
+// anything that stops the main loop or resets.
+void store_poll(uint32_t now);
+void store_flush(void);
 // The stock factory bank (100 patches, left in place at 0x19000): its name, or 0 if that slot isn't a stock patch.
 int store_factory_name(int f, char name[PATCH_NAME + 1]);
 // Converts factory patch f into slot n. Returns 0 if f isn't a stock patch, -1 on a write error, else 1.

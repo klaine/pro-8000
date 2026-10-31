@@ -14,6 +14,12 @@
 //   disp                    <ms> and the display RAM  hist               display changes since last asked: <ms>:<ram> ...
 //   cv                      every CV                  gates              every gate
 //   save                    write the EEPROM file     quit
+//   midistat                USB and DIN events waiting, discard on, autotunes with discard on and with it off
+//   writes                  how many EEPROM writes the firmware has asked for, and how many as the last autotune began
+//   faultstore <kind> <n>   src/fault.h's handler logic on a made-up stack, as exception n: prints 1 to reset, 0 to stay
+//
+// Options after the EEPROM file: --untuned; --no-crystal, where clock_init() fails and USB stays off; --fault, as if the
+// last run crashed; --fault-old, a record whose streak a clean run has cleared; --fault-bad, a record with a bad check word.
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +37,7 @@
 #include "dac.h"
 #include "din.h"
 #include "eeprom.h"
+#include "fault.h"
 #include "sh.h"
 #include "tune.h"
 #include "tuning.h"
@@ -41,7 +48,7 @@
 extern int firmware_main(void);
 extern void SysTick_Handler(void);
 
-#define CYCLES_PER_MS 168000u
+#define CYCLES_PER_MS (system_hz / 1000u)
 uint32_t system_hz = 168000000u;
 
 // --- time and registers ---
@@ -109,15 +116,22 @@ volatile uint32_t *sim_reg(uint32_t address)
         *slot = channel == 13 ? sim_pots[POT_CUTOFF] : channel == 2 ? sim_pots[POT_NOISE]
               : sim_pots[(channel - 10) * 8 + mux];
         if (!in_loop)
-            advance_cycles(20000); // the boot's wait for a first reading of every knob
+            advance_cycles(CYCLES_PER_MS * 5 / 42); // the boot's wait for a first reading of every knob
     } else if (address == GPIOA_BASE + 0x10u || address == GPIOB_BASE + 0x10u || address == GPIOC_BASE + 0x10u
                || address == GPIOD_BASE + 0x10u || address == GPIOE_BASE + 0x10u)
         *slot = read_gpio(address - 0x10u);
     return slot;
 }
 
-int clock_init(void) { return 1; }
-void delay_us(uint32_t us) { advance_cycles(us * 168u); }
+static int no_crystal;
+int clock_init(void)
+{
+    if (!no_crystal)
+        return 1;
+    system_hz = HSI_HZ;
+    return 0;
+}
+void delay_us(uint32_t us) { advance_cycles(us * (system_hz / 1000000u)); }
 void delay_cycles(uint32_t n) { advance_cycles(n); }
 
 // --- the panel ---
@@ -169,8 +183,10 @@ static const char *eeprom_path;
 void eeprom_init(void) {}
 void eeprom_read(uint32_t a, uint8_t *data, uint32_t n) { memcpy(data, eeprom + a, n); }
 uint8_t eeprom_status(void) { return 0; }
+static int eeprom_writes, writes_at_tune;
 int eeprom_write(uint32_t a, const uint8_t *data, uint32_t n)
 {
+    eeprom_writes++;
     memcpy(eeprom + a, data, n);
     return 1;
 }
@@ -194,13 +210,25 @@ static void (*din_realtime)(uint8_t, uint16_t, uint32_t);
 static uint8_t out_bytes[1u << 20];
 static int out_count;
 
-void usb_init(void) {}
+// Without usb_init() the core has no clock and the host can't reach the firmware: nothing comes in, a write is refused
+// (as src/usb.c does while not configured) with time passing as the firmware spins on it, and a register access is a bug.
+static int usb_started;
+void usb_init(void) { usb_started = 1; }
 void usb_midi_realtime(void (*handler)(uint8_t, uint16_t, uint32_t)) { usb_realtime = handler; }
-void usb_disconnect(void) {}
+void usb_disconnect(void)
+{
+    if (usb_started)
+        return;
+    printf("usb_disconnect without a clock\n");
+    fflush(stdout);
+    exit(3);
+}
 void usb_midi_flush(void) { usb_in_tail = usb_in_head; }
+static int usb_discard, tunes_discarding, tunes_not_discarding;
+void usb_midi_discard(int on) { usb_discard = on; }
 int usb_midi_read(uint8_t packet[4])
 {
-    if (usb_in_tail == usb_in_head)
+    if (!usb_started || usb_in_tail == usb_in_head)
         return 0;
     memcpy(packet, usb_in[usb_in_tail], 4);
     usb_in_tail = (usb_in_tail + 1) % RING;
@@ -209,6 +237,10 @@ int usb_midi_read(uint8_t packet[4])
 int usb_midi_write(const uint8_t *packets, int count)
 {
     static const uint8_t lengths[16] = {0, 0, 2, 3, 3, 1, 2, 3, 3, 3, 3, 3, 2, 2, 3, 1};
+    if (!usb_started) {
+        advance_cycles(CYCLES_PER_MS);
+        return 0;
+    }
     for (int i = 0; i < count; i++)
         for (int k = 0; k < lengths[packets[4 * i] & 15] && out_count < (int)sizeof out_bytes; k++)
             out_bytes[out_count++] = packets[4 * i + 1 + k];
@@ -309,6 +341,11 @@ int tuning_valid(void) { return tuned; }
 int tuning_run(void)
 {
     tuned = 1;
+    writes_at_tune = eeprom_writes;
+    if (usb_discard)
+        tunes_discarding++;
+    else
+        tunes_not_discarding++;
     advance_cycles(25000u * CYCLES_PER_MS); // about 25 s, in which the display stays as it is
     return TUNING_ROWS;
 }
@@ -323,9 +360,55 @@ uint16_t tuning_note_cv(int row, float note)
 
 void update_mode_enter(void)
 {
+    eeprom_save(); // the chip keeps what was written, whatever happens next
     printf("update mode\n");
     fflush(stdout);
     exit(0);
+}
+
+// --- the crash record: startup.c isn't built here, so this file stands in for what it does at a crash ---
+
+volatile fault_record_t fault_record;
+
+void fault_provoke(void)
+{
+    eeprom_save();
+    printf("fault provoked\n");
+    fflush(stdout);
+    exit(0);
+}
+
+// As if the last run crashed. The values reach every bit of the five-byte encoding.
+static void fake_crash(uint32_t streak)
+{
+    fault_record.magic = FAULT_MAGIC;
+    fault_record.exception = 3;
+    fault_record.streak = streak;
+    fault_record.pc = 0x08012345u;
+    fault_record.lr = 0x0801ABCDu;
+    fault_record.exc_return = 0xFFFFFFE9u;
+    fault_record.cfsr = 0x00008200u;
+    fault_record.hfsr = 0x40000000u;
+    fault_record.mmfar = 0xFEDCBA98u;
+    fault_record.bfar = 0x30000000u;
+    fault_record.check = fault_checksum(&fault_record);
+}
+
+static int fault_store_on(const char *kind, uint32_t exception)
+{
+    static uint32_t ram[16];
+    for (uint32_t i = 0; i < 16; i++)
+        ram[i] = 0x08000000u + i;
+    uintptr_t start = (uintptr_t)ram, end = (uintptr_t)(ram + 16), frame = start + 16;
+    if (!strcmp(kind, "top"))
+        frame = end - 32; // room for the frame, just
+    else if (!strcmp(kind, "full"))
+        frame = end - 28;
+    else if (!strcmp(kind, "below"))
+        frame = start - 32;
+    else if (!strcmp(kind, "odd"))
+        frame = start + 18;
+    return fault_store(&fault_record, frame, start, end, exception, 0xFFFFFFF9u, 1, 2, 3, 4);
 }
 
 // --- the fiber the firmware runs in ---
@@ -397,7 +480,7 @@ static int parse_hex(const char *text, uint8_t *out, int max)
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        fprintf(stderr, "usage: pro800sim <eeprom file> [--untuned]\n");
+        fprintf(stderr, "usage: pro800sim <eeprom file> [--untuned] [--no-crystal] [--fault|--fault-old|--fault-bad]\n");
         return 2;
     }
     eeprom_path = argv[1];
@@ -407,9 +490,20 @@ int main(int argc, char **argv)
             memset(eeprom, 0, EEPROM_SIZE);
         fclose(f);
     }
-    for (int i = 2; i < argc; i++)
+    for (int i = 2; i < argc; i++) {
         if (!strcmp(argv[i], "--untuned"))
             tuned = 0;
+        else if (!strcmp(argv[i], "--no-crystal"))
+            no_crystal = 1;
+        else if (!strcmp(argv[i], "--fault"))
+            fake_crash(1);
+        else if (!strcmp(argv[i], "--fault-old"))
+            fake_crash(0);
+        else if (!strcmp(argv[i], "--fault-bad")) {
+            fake_crash(1);
+            fault_record.pc ^= 1;
+        }
+    }
 
     for (int i = 0; i < POT_COUNT; i++)
         sim_pots[i] = 2048;
@@ -472,6 +566,13 @@ int main(int argc, char **argv)
             for (int i = 0; i < GATE_COUNT; i++)
                 printf("%u ", gate_values[i]);
             printf("\n");
+        } else if (!strncmp(line, "midistat", 8)) {
+            printf("%d %d %d %d %d\n", (usb_in_head - usb_in_tail + RING) % RING, (din_in_head - din_in_tail + RING) % RING,
+                   usb_discard, tunes_discarding, tunes_not_discarding);
+        } else if (!strncmp(line, "writes", 6)) {
+            printf("%d %d\n", eeprom_writes, writes_at_tune);
+        } else if (sscanf(line, "faultstore %7s %d", text, &a) == 2) {
+            printf("%d\n", fault_store_on(text, (uint32_t)a));
         } else if (!strncmp(line, "save", 4)) {
             eeprom_save();
             printf("ok\n");

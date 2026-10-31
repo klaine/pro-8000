@@ -1687,7 +1687,10 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
 - **The service can lose a port** (2026-10-31): after `update-mode` the bootloader was on the bus (`1397:1260`, usbaudio
   bound, no problem code) but `ports` showed no "PRO 800" for minutes, and a cable replug didn't bring it either. An
   elevated `Restart-Service midisrv` did, at once. So when the USB check finds the synth and the port is missing,
-  restart the service (needs admin) before suspecting the synth.
+  restart the service (needs admin) before suspecting the synth. **Or keep a dead one** (the same day, 7 h after that
+  flash): "PRO 800" was listed and opened without error, the synth was on the bus as `125F` the whole time, but `version`
+  got no reply and a 20 s `listen` nothing; a power-cycle of the synth (a fresh enumeration) brought the replies back,
+  with the service untouched. So no reply from a port that opens isn't the synth either: re-enumerate first.
 - **`install` runs its MIDI steps as child processes**, each finding the ports afresh. The USB check doesn't use MIDI
   (`CM_Get_Device_ID_ListW`, present devices). A long-running process may keep a stale device list across a
   re-enumeration, as CoreMIDI does; this way it doesn't matter whether WinMM does.
@@ -1776,7 +1779,7 @@ From the GitHub issues (#14, #15, #1). VALUE and `PAnL` tried on the synth; the 
   and a power cycle; names; the scale snapping pitch; and that every text in the name tables has glyphs. Firmware
   state the display can't show is read through the host SysEx (settings, parameters, routes, the engine probe, CVs).
 - The manual's envelope table said 150 and 310 ms at half; the curve gives 154 and 311, so the manual says that now.
-- **The editor's Range column, rings and "where" strings against the firmware** (`WebRanges`, 27 tests, needs `node`): the
+- **The editor's Range column, rings and "where" strings against the firmware** (`WebRanges`, 31 tests, needs `node`): the
   page's own `swingUnit()`, `routeSwing()`, `swingWhere()`, `modRange()` and `format()` are cut out of `index.html` and
   run in Node, and each destination gets a route from FIX (always 1) in the simulator, measured on the CVs in the
   destination's own unit: pitch A / B / both at five depths (the squared curve, cents under a semitone), cutoff, the
@@ -1789,7 +1792,11 @@ From the GitHub issues (#14, #15, #1). VALUE and `PAnL` tried on the synth; the 
   attack, its "where" endpoint against the knob's display value or the measured time, all have to agree; the rings'
   spans in knob turns too. A static test checks `swingUnit()`'s constants and `DEST_SCALE` against `synth.c`'s
   `#define`s. Not measured: Morph and the macros. Found nothing wrong in the page; found that a single-wire route
-  (volume, detune, levels) does nothing until the layer has played a note, which is how `last_voice` works.
+  (volume, detune, levels) does nothing until the layer has played a note, which is how `last_voice` works. A rate
+  measurement's window has to come from the simulator's clock (`now()`): a probe runs 5 passes of its own, which
+  inflated a 40 ms window by an eighth before `lfo_rate()` read the clock. From 0.9.4 the synced case is measured too:
+  LFO 1 synced at 1/4 runs 2 Hz with no clock (120 BPM), and FIX +50 into its rate gives the page's 1/16 within 1 %
+  (`lfo_rate_long()`, ten 40 ms windows); the Range cell's main/under texts and `noteValue()`'s names are pinned.
 - **Bugs it found on its first runs, fixed:**
   - **The patch loaded at boot lost its knobs.** `synth_update()`'s first pass copies the panel into both layers until the
     knobs are primed, and at boot that ran after `load_patch()`: the patch's buttons and routes stayed, its knob values
@@ -1907,7 +1914,12 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
   reads ±, a 0-to-1 source one way (the depth's sign), FIX a fixed offset; into the VCA and the volume a 0-to-1 source
   counts down from full and FIX down by its depth. `swingWhere()` adds where that takes the knob from where it stands
   for a cutoff (Hz), a free LFO rate (Hz) and a stage time or glide (seconds); the cells repaint with the knobs, and
-  the new-route row previews its range before it's added.
+  the new-route row previews its range before it's added. **0.9.4** (asked for: octaves aren't intuitive for a rate):
+  an LFO rate's cell leads with the rates it reaches (`paintRange()`), the octaves under them. Free: Hz with no end stop,
+  as the engine multiplies without one (the old string clamped to the knob's travel). Synced: note values from
+  `noteValue()`, the knob's division ÷ 2^octaves named as the nearest straight, dotted or triplet value (`~` when more
+  than 2 % off, bars from a bar up), where it showed nothing. A fixed offset reads as one value, for a cutoff and a
+  time too.
 - The knobs' rings: with two or more sources on one knob, `modRange()` groups the routes by source (`parts`) and
   `dial()` draws a thinner arc per source under the ticks (radii 23.5, 21.9, 20.3, 18.7, width 1.2, opacity .5; past
   four sources the fourth arc takes the rest), outer to inner in route order, and the combined arc moved from under

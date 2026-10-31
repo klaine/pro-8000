@@ -573,14 +573,20 @@ static const uint16_t scale_masks[SCALE_COUNT] = { // bit n: n semitones above t
     0xFFF, 0xAB5, 0x5AD, 0x6AD, 0x5AB, 0xAD5, 0x6B5, 0x9AD, 0x295, 0x4A9, 0x4E9, 0x555, 0xFFF,
 };
 
+static int in_scale(int note)
+{
+    int n = (note - scale_root) % 12; // pitch modulation can take it far below 0
+    return scale_masks[scale] >> (n < 0 ? n + 12 : n) & 1;
+}
+
 // The nearest pitch in the scale (semitones, MIDI note numbers)
 static float quantize(float pitch)
 {
     int centre = (int)(pitch + 0.5f), best = centre;
     for (int d = 0; d <= 6; d++) {
         int up = centre + d, down = centre - d;
-        if (scale_masks[scale] >> ((up - scale_root + 120) % 12) & 1) { best = up; break; }
-        if (scale_masks[scale] >> ((down - scale_root + 120) % 12) & 1) { best = down; break; }
+        if (in_scale(up)) { best = up; break; }
+        if (in_scale(down)) { best = down; break; }
     }
     return (float)best;
 }
@@ -775,6 +781,7 @@ void synth_apply_patch(const patch_t *patch)
             osc_tune_modes[l][osc] = (patch->osc_tune[l] >> (2 * osc)) & 3;
         for (int r = 0; r < ROUTES; r++) {
             route_t x = patch->routes[l][r];
+            x.depth = x.depth < -99 ? -99 : x.depth > 99 ? 99 : x.depth;
             routes[l][r] = x.source < SRC_COUNT && x.dest < DEST_COUNT ? x : (route_t){0};
         }
         for (int w = 0; w < 2; w++)
@@ -820,7 +827,7 @@ void synth_apply_patch(const patch_t *patch)
     keytrack_switch_seen = controls_keytrack();
     for (int l = 0; l < LAYERS; l++)
         for (int k = 0; k < 2; k++)
-            macro_offset[l][k] = patch->macro_offset[l][k] < -99 ? -99 : patch->macro_offset[l][k];
+            macro_offset[l][k] = patch->macro_offset[l][k] < -99 ? -99 : patch->macro_offset[l][k] > 99 ? 99 : patch->macro_offset[l][k];
     layer_mode = patch->layer_mode < LAYER_MODE_COUNT ? (layer_mode_t)patch->layer_mode : LAYER_OFF;
     layer1_voices = patch->layer_voices < VOICE_COUNT ? patch->layer_voices : 0;
     layer_link = patch->layer_link & LINK_ALL;
@@ -1836,9 +1843,16 @@ static int summed_wire(int dest)
     return (dest >= DEST_A_LEVEL && dest <= DEST_LFO_TO_PW) || dest == DEST_LFO2_TO_PW || dest == DEST_VOLUME;
 }
 
+// Layer l's most recently played voice, or -1: a change of the voice split can leave it on the other layer
+static int recent_voice(int l)
+{
+    int v = last_voice[l];
+    return v >= 0 && layer_of(v) == l ? v : -1;
+}
+
 static int newest_layer(void)
 {
-    int a = last_voice[0], b = last_voice[1];
+    int a = recent_voice(0), b = recent_voice(1);
     return b < 0 ? 0 : a < 0 ? 1 : (int32_t)(voices[b].started - voices[a].started) > 0;
 }
 
@@ -2036,8 +2050,8 @@ void synth_update(float dt)
     for (int l = 0; l < LAYERS; l++) {
         for (int d = 0; d < DEST_COUNT; d++)
             last_mod[l][d] = 0;
-        if (last_voice[l] >= 0 && (!one_layer() || l == 0))
-            evaluate_routes(l, last_voice[l], last_mod[l], 0);
+        if (recent_voice(l) >= 0)
+            evaluate_routes(l, recent_voice(l), last_mod[l], 0);
     }
 
     // the knob values as heard: morphed towards the morph target by the Morph destination
@@ -2093,7 +2107,7 @@ void synth_update(float dt)
     const float *shared = eff[0];
     float pw_depth = clamp01(clamp01(lp[0].depth) * sw(SWITCH_LFO_PW) + shared_mod[DEST_LFO_TO_PW]);
     float pw2_depth = clamp01(lp[0].depth2 * (float)((lfo2_dests[0] & LFO2_TO_PW) != 0) + shared_mod[DEST_LFO2_TO_PW]);
-    const voice_t *recent = &voices[last_voice[0] >= 0 ? last_voice[0] : 0];
+    const voice_t *recent = &voices[recent_voice(0) >= 0 ? recent_voice(0) : 0];
     float lfo_pw = (lfo_value(LFO_ID(0, 0), -1, (lfo_shape_t)lfo_shape[0][0]) * pw_depth * recent->lfo_gain[0]
                     + lfo_value(LFO_ID(0, 1), -1, (lfo_shape_t)lfo_shape[0][1]) * pw2_depth * recent->lfo_gain[1])
                  * LFO_PW_DEPTH;

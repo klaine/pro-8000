@@ -9,5 +9,7 @@ volatile uint32_t *sim_reg(uint32_t address);
 
 #undef REG
 #define REG(addr) (*sim_reg(addr))
+#undef NVIC_IPR
+#define NVIC_IPR(irq) (*(volatile uint8_t *)sim_reg(0xE000E400u + (irq))) // a byte register, which REG() doesn't cover
 
 #endif

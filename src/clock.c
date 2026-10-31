@@ -45,11 +45,13 @@ int clock_init(void)
     DWT_CTRL |= 1; // cycle counter on
 
     RCC_CR |= RCC_CR_HSEON;
-    for (int i = 0; !(RCC_CR & RCC_CR_HSERDY); i++)
+    for (int i = 0; !(RCC_CR & RCC_CR_HSERDY); i++) {
+        IWDG_KR = IWDG_KR_REFRESH; // a dead crystal takes this whole wait, most of a second on HSI
         if (i == HSE_STARTUP_LOOPS) {
             RCC_CR &= ~RCC_CR_HSEON;
-            return 0; // stay on HSI
+            return 0; // stay on HSI, without the 48 MHz USB needs: main() leaves USB off
         }
+    }
 
     RCC_PLLCFGR = PLL_M | PLL_N << 6 | PLL_P_DIV2 << 16 | PLL_SRC_HSE | PLL_Q << 24 | PLL_R << 28;
     RCC_CR |= RCC_CR_PLLON;
