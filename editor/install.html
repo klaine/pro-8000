@@ -1,0 +1,897 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRO-8000 Installer</title>
+<style>
+  /* The editor's dark panel, one column */
+  :root {
+    color-scheme: dark;
+    --bg: #161719; --panel: #232427; --panel-2: #2b2c30; --edge: #3a3b40; --well: #121315;
+    --text: #e9e7e2; --dim: #9a9ca2; --accent: #ff4a36; --accent-soft: rgba(255, 74, 54, .14);
+    --ok: #6cc596; --warn: #ff8a80; --amber: #f2b35e;
+    --sans: "Inter", "Helvetica Neue", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); }
+  body { -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  a { color: inherit; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; justify-content: space-between;
+           padding: 18px 16px 14px; max-width: 720px; margin: 0 auto; }
+  .logo { font: 800 22px/1 var(--sans); letter-spacing: .26em; text-decoration: none; }
+  .logo b { color: var(--accent); }
+  header nav { display: flex; gap: 16px; font-size: 14px; color: var(--dim); }
+  main { max-width: 720px; margin: 0 auto; padding: 0 16px 32px; display: grid; gap: 14px; }
+  section { background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; padding: 16px 18px; }
+  h1 { font-size: 24px; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  p { margin: 0 0 10px; }
+  p:last-child { margin-bottom: 0; }
+  .dim { color: var(--dim); }
+  .small { font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button { padding: 8px 14px; border-radius: 7px; border: 1px solid var(--edge); background: var(--panel-2); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #66686f; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #180806; font-weight: 650; }
+  #state { font-weight: 600; }
+  #state.ok { color: var(--ok); }
+  #state.bad { color: var(--warn); }
+  .tasks { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+  .task { display: block; padding: 12px 14px; border: 1px solid var(--edge); border-radius: 8px; background: var(--well); cursor: pointer; }
+  .task:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .task b { display: block; }
+  .task input { position: absolute; opacity: 0; }
+  .task:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .option { display: grid; grid-template-columns: 20px 1fr; gap: 2px 8px; padding: 7px 0; cursor: pointer; }
+  .option input { margin: 4px 0 0; accent-color: var(--accent); }
+  .option span { display: block; }
+  .option:has(input:disabled) { opacity: .5; cursor: default; }
+  .group { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--edge); }
+  .group:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+  .group > b { display: block; margin-bottom: 2px; }
+  .note { margin: 6px 0 0 28px; font-size: 13px; }
+  .note.ok { color: var(--ok); } .note.bad { color: var(--warn); } .note.warn { color: var(--amber); }
+  .changes { margin: 0 0 12px; padding: 0 0 0 20px; }
+  .changes li.danger { color: var(--warn); font-weight: 600; }
+  ol.steps { list-style: none; margin: 0; padding: 0; }
+  ol.steps li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; padding: 5px 0; color: var(--dim); }
+  ol.steps li::before { content: "○"; text-align: center; }
+  ol.steps li.active { color: var(--text); font-weight: 600; }
+  ol.steps li.active::before { content: "●"; color: var(--accent); }
+  ol.steps li.done { color: var(--text); }
+  ol.steps li.done::before { content: "✓"; color: var(--ok); }
+  ol.steps li.failed { color: var(--warn); }
+  ol.steps li.failed::before { content: "✕"; }
+  progress { width: 100%; height: 8px; accent-color: var(--accent); margin-top: 8px; }
+  #progress-text { min-height: 1.5em; font-variant-numeric: tabular-nums; }
+  .ask { border-color: var(--accent); background: var(--accent-soft); }
+  .ask ol { margin: 0 0 12px; padding-left: 22px; }
+  .bad-box { border-color: var(--warn); }
+  .ok-box { border-color: var(--ok); }
+  details summary { cursor: pointer; color: var(--dim); }
+  #log { margin: 8px 0 0; max-height: 260px; overflow: auto; padding: 10px; border-radius: 6px; background: var(--well);
+         font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  footer { max-width: 720px; margin: 0 auto; padding: 0 16px 28px; font-size: 12px; color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="https://klaine.github.io/pro-8000/">PRO<b>·</b>8000</a>
+  <nav><a href="./">Editor</a><a href="https://github.com/klaine/pro-8000/blob/main/MANUAL.md#updating-recovery-and-going-back-to-stock">Manual</a></nav>
+</header>
+<main>
+  <section>
+    <h1>Installer</h1>
+    <p class="dim">Installs PRO-8000 on a Behringer PRO-800 over USB, sets up its patch memory, or takes it back to the stock firmware. Works in Chrome or Edge on a computer.</p>
+    <div class="row">
+      <button class="primary" id="connect">Connect to the synth</button>
+      <span id="state" class="dim">Not connected</span>
+    </div>
+    <p class="small dim" style="margin-top:10px">Before you start, connect the synth by USB and quit SynthTribe and anything else that uses MIDI, including MIDI patchbays and other MIDI pages in any browser: a single message from one of them makes the bootloader refuse an update. Editor tabs in this browser step aside by themselves.</p>
+  </section>
+
+  <section id="choose" hidden>
+    <div class="tasks">
+      <label class="task"><input type="radio" name="task" value="install"><b id="task-install-title">Install PRO-8000</b><span class="small dim">Firmware, patch memory and the preset bank</span></label>
+      <label class="task"><input type="radio" name="task" value="stock"><b>Back to stock</b><span class="small dim">Stock firmware 1.4.6 from a file you provide</span></label>
+    </div>
+  </section>
+
+  <section id="options-install" hidden>
+    <div class="group">
+      <b>Firmware</b>
+      <label class="option"><input type="checkbox" id="do-flash"><span><span id="flash-label">Flash the firmware</span><span class="small dim" id="flash-sub"></span></span></label>
+      <p class="note" id="firmware-note"></p>
+      <div class="row" style="margin:6px 0 0 28px"><button id="firmware-open" class="small">Use another file…</button></div>
+    </div>
+    <div class="group">
+      <b>Patch memory</b>
+      <p class="small dim" id="memory-now"></p>
+      <label class="option"><input type="radio" name="memory" value="keep"><span>Leave it as it is<span class="small dim" style="display:block">Patches and tuning stay.</span></span></label>
+      <label class="option"><input type="radio" name="memory" value="format"><span>Initialise it<span class="small dim" style="display:block">Every slot becomes empty, sequences included. Tuning stays. Needed when coming from stock.</span></span></label>
+      <label class="option"><input type="radio" name="memory" value="image"><span>Restore a saved memory image<span class="small dim" style="display:block">Writes a 128 kB <code>.bin</code> from this synth back and checks it.</span></span></label>
+      <div class="row" id="image-row-install" style="margin:6px 0 0 28px" hidden><button class="small image-open">Choose the image…</button></div>
+      <p class="note" id="image-note-install"></p>
+    </div>
+    <div class="group">
+      <b>Sounds</b>
+      <label class="option"><input type="checkbox" id="do-presets"><span>Install the preset bank<span class="small dim" id="presets-sub" style="display:block"></span></span></label>
+    </div>
+  </section>
+
+  <section id="options-stock" hidden>
+    <div class="group">
+      <b>Stock firmware file</b>
+      <p class="small dim">Behringer's firmware can't be shared from this site, so it comes from your computer. SynthTribe downloads it when you run its Update once, even if the update stalls. On a Mac it's in <code>~/Library/Caches/com.behringer.synthtribe/fsCachedData/</code>: a file of about 169 kB with a random name. Copy it somewhere and open it here; in Finder, Cmd+Shift+G goes to that folder. On Windows SynthTribe leaves no file: format the patch memory in the editor, then let SynthTribe flash stock itself (see the manual).</p>
+      <div class="row"><button id="stock-open">Choose the file…</button></div>
+      <p class="note" id="stock-note" style="margin-left:0"></p>
+    </div>
+    <div class="group" id="stock-memory">
+      <b>Patch memory</b>
+      <p class="small dim" id="stock-memory-now"></p>
+      <label class="option"><input type="radio" name="stock-memory" value="format"><span>Empty it<span class="small dim" style="display:block">Stock can't read PRO-8000's patches. The 100 factory sounds stay in the memory, and stock's factory reset brings them back.</span></span></label>
+      <label class="option"><input type="radio" name="stock-memory" value="image"><span>Write back the image from this synth<span class="small dim" style="display:block">Brings back your stock patches and settings, from an image saved before PRO-8000 changed them.</span></span></label>
+      <div class="row" id="image-row-stock" style="margin:6px 0 0 28px" hidden><button class="small image-open">Choose the image…</button></div>
+      <p class="note" id="image-note-stock"></p>
+      <label class="option" id="stock-keep"><input type="radio" name="stock-memory" value="keep"><span>Leave it as it is<span class="small dim" style="display:block">It holds no PRO-8000 data, so stock can read it.</span></span></label>
+    </div>
+  </section>
+
+  <section id="backup-section" hidden>
+    <label class="option"><input type="checkbox" id="do-save"><span>Save a memory image first<span class="small dim" style="display:block">A 128 kB file of the whole patch memory, which this page can write back. Coming from stock, it's your only copy of your stock patches.</span></span></label>
+  </section>
+
+  <section id="review" hidden>
+    <h2>What will happen</h2>
+    <ul class="changes" id="changes"></ul>
+    <label class="option" id="confirm-row" hidden><input type="checkbox" id="confirm"><span>I understand that the red items can't be undone</span></label>
+    <div class="row" style="margin-top:8px"><button class="primary" id="start">Start</button><span class="small" id="start-why"></span></div>
+  </section>
+
+  <section id="run" hidden>
+    <h2 id="run-title">Working</h2>
+    <p class="small dim">Keep this tab open and the synth on. The screen stays awake while it runs.</p>
+    <ol class="steps" id="steps"></ol>
+    <progress id="progress" max="1" value="0" hidden></progress>
+    <div class="small dim" id="progress-text"></div>
+  </section>
+
+  <section class="ask" id="ask" hidden>
+    <h2 id="ask-title"></h2>
+    <div id="ask-body"></div>
+    <div class="row"><button id="ask-cancel">Cancel</button><span class="small dim">This page carries on by itself once the synth is ready.</span></div>
+  </section>
+
+  <section id="result" hidden>
+    <h2 id="result-title"></h2>
+    <div id="result-body"></div>
+    <div class="row" style="margin-top:10px"><button id="again">Start over</button><button id="image-again" hidden>Download the memory image again</button></div>
+  </section>
+
+  <details><summary class="small">Details: what was sent and answered</summary><div id="log"></div></details>
+</main>
+<footer>PRO-8000 is wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your hardware. Flashing unofficial firmware may void the synth's warranty. Not affiliated with Behringer or Music Tribe. Tested on one synth, on a Mac.</footer>
+<input type="file" id="file-firmware" accept=".syx" hidden><input type="file" id="file-stock" hidden><input type="file" id="file-image" accept=".bin" hidden>
+
+<script src="sound-plan.js"></script>
+<script>
+const HEADER = [0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00];
+const STOCK_TESTED = { sha: "0f7b1af2a4c15eda917e56a13dba97228641cafc67359409dce9856892ea5e18", version: "1.4.6" };
+const IMAGE_SIZE = 0x20000, PATCH_COUNT = 128, GLOBAL_ADDRESS = 0x1F400, GLOBAL_MAGIC = [0x50, 0x38, 0x47, 0x31]; // "P8G1", src/store.c
+// The bootloader takes up to 9640 B/s; the same pace and erase wait as `pro800 flash`
+const FLASH_RATE = 3000, ERASE_WAIT = 3000;
+
+const $ = id => document.getElementById(id);
+const radio = name => (document.querySelector(`input[name="${name}"]:checked`) || {}).value;
+const setRadio = (name, value) => { const r = document.querySelector(`input[name="${name}"][value="${value}"]`); if (r) r.checked = true; };
+const hex = a => Array.from(a, b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+function log(text) { const el = $("log"), t = new Date().toTimeString().slice(0, 8); el.textContent += `${t}  ${text}\n`; el.scrollTop = el.scrollHeight; }
+
+// A failure the page can explain; `help` says what to do about it
+class Stop extends Error { constructor(message, help) { super(message); this.help = help; } }
+const UPDATE_HELP = "Quit SynthTribe and anything else that uses MIDI, and close MIDI patchbays and other MIDI pages in any browser. Then switch the synth off, "
+  + "hold buttons 0 and 7, switch it on, and press Try again. The bootloader can't be overwritten, so this can always be tried again.";
+
+// Timers from a worker: a page's own timers slow to a crawl when its tab is in the background, and flashing takes minutes
+const timerWorker = new Worker(URL.createObjectURL(new Blob(["onmessage = e => setTimeout(() => postMessage(e.data[0]), e.data[1])"])));
+const sleeping = new Map();
+let sleepId = 0;
+timerWorker.onmessage = e => { const wake = sleeping.get(e.data); sleeping.delete(e.data); wake(); };
+const sleep = ms => new Promise(wake => { sleeping.set(++sleepId, wake); timerWorker.postMessage([sleepId, ms]); });
+
+// --- MIDI ---
+let access = null, input = null, output = null, waiters = [], portEpoch = 0, portChangedAt = 0, replies = null;
+
+function bindPorts() {
+  if (!access) return;
+  const find = list => Array.from(list.values()).find(p => p.state === "connected" && p.name && p.name.includes("PRO 800"));
+  const i = find(access.inputs), o = find(access.outputs);
+  if (input && input !== i) input.onmidimessage = null;
+  input = i || null; output = o || null;
+  if (input) input.onmidimessage = onMessage;
+}
+function onMessage(e) {
+  const m = Array.from(e.data);
+  if (m[0] !== 0xF0 || m.length < HEADER.length + 2 || HEADER.some((b, i) => m[i] !== b)) return;
+  const d = m.slice(HEADER.length, -1);
+  if (replies) replies.push(d);
+  for (const w of waiters)
+    if (w.prefix.every((b, i) => d[i] === b)) { waiters = waiters.filter(x => x !== w); w.resolve(d); return; }
+}
+function sendRaw(bytes) {
+  if (!output) return false;
+  try { output.send(bytes); return true; } catch (e) { log(`send failed: ${e.message}`); return false; }
+}
+const send = data => sendRaw([...HEADER, ...data, 0xF7]);
+function request(data, prefix, ms = 1500) {
+  return new Promise(resolve => {
+    const w = { prefix, resolve };
+    waiters.push(w);
+    if (!send(data)) { waiters = waiters.filter(x => x !== w); resolve(null); return; }
+    sleep(ms).then(() => { if (waiters.includes(w)) { waiters = waiters.filter(x => x !== w); resolve(null); } });
+  });
+}
+const ack = (data, ms = 3000) => request(data, [0x7F, data[0]], ms);
+async function retry(tries, attempt) { for (let i = 0; i < tries; i++) { const r = await attempt(); if (r) return r; } return null; }
+
+// macOS can drop the port and set it up again right after the device appears: wait until it stays. False if it never does.
+async function portSteady(seconds = 25) {
+  const end = performance.now() + seconds * 1000;
+  while (performance.now() < end) {
+    bindPorts();
+    if (output && input && performance.now() - portChangedAt >= 3000) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
+// What's on the other end of the port. All three answer the version request (the bootloader with the last update's
+// version) unless another program's messages have upset the bootloader, and a page can't see the USB product id.
+// So the kind comes from who answers what: only our firmware reads the EEPROM (79), only stock sends its system
+// settings (77 7E 03), and anything else counts as the bootloader. Sending an update is safe if that's wrong: only the
+// bootloader answers its header, and the flash stops without that answer.
+async function identify() {
+  bindPorts();
+  if (!output || !input) return { kind: "none" };
+  const v = await retry(3, () => request([0x08, 0x00], [0x09, 0x00], 1000));
+  if (!v) return { kind: "bootloader", quiet: true };
+  const version = v.slice(2).join(".");
+  const a = [GLOBAL_ADDRESS >> 14 & 0x7F, GLOBAL_ADDRESS >> 7 & 0x7F, GLOBAL_ADDRESS & 0x7F];
+  const ours = await retry(2, () => request([0x79, ...a, 4], [0x79, ...a, 4], 1000));
+  if (ours) {
+    const magic = [0, 1, 2, 3].map(i => ours[7 + 2 * i] << 4 | ours[8 + 2 * i]);
+    return { kind: "pro8000", version, memory: GLOBAL_MAGIC.every((b, i) => magic[i] === b) ? "ours" : "fresh" };
+  }
+  if (await retry(2, () => request([0x77, 0x7E, 0x03], [0x78, 0x7E, 0x03], 1200))) return { kind: "stock", version };
+  return { kind: "bootloader", version };
+}
+
+function stateText(s) {
+  if (s.kind === "pro8000") return `Running PRO-8000 ${s.version}`;
+  if (s.kind === "stock") return `Running the stock firmware ${s.version}`;
+  if (s.quiet) return "Not answering. If it's tuning, wait 30 seconds and press Look again. If the display shows boot, it's in the bootloader, but something else may be using MIDI: quit it first.";
+  if (s.kind === "bootloader") return "In the bootloader, ready for a firmware";
+  return "No PRO-800 found. Connect it by USB and switch it on.";
+}
+const usable = s => ["pro8000", "stock", "bootloader"].includes(s.kind);
+
+// --- files ---
+// A .syx as its messages, checked as `pro800 flash` checks it: a PRO-800 update made by PRO800_update_gen
+async function parseUpdate(buffer) {
+  const data = new Uint8Array(buffer), messages = [];
+  let start = -1;
+  for (let i = 0; i < data.length; i++) {
+    const b = data[i];
+    if (b === 0xF0) { if (start >= 0) throw new Error("it has a broken SysEx message"); start = i; }
+    else if (start < 0) throw new Error("it isn't a SysEx file");
+    else if (b === 0xF7) { messages.push(data.subarray(start, i + 1)); start = -1; }
+    else if (b & 0x80) throw new Error("it has a broken SysEx message");
+  }
+  if (start >= 0) throw new Error("its last message is cut off");
+  const startsWith = (m, kind) => [...HEADER, kind].every((b, i) => m[i] === b);
+  if (messages.length < 2 || !startsWith(messages[0], 0x0A) || !messages.slice(1).every(m => startsWith(m, 0x0B)))
+    throw new Error("it isn't a PRO-800 firmware update");
+  const name = String.fromCharCode(...messages[0].subarray(24, 41));
+  if (name !== "BEHRINGER PRO 800" || messages[0].length <= 44) throw new Error("it isn't a PRO-800 firmware update");
+  const version = Array.from(messages[0].subarray(42, 45));
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return { messages, version: version.join("."), major: version[0], bytes: data.length,
+           sha: hex(new Uint8Array(digest)).replace(/ /g, "").toLowerCase() };
+}
+const hasGlobalBlock = image => GLOBAL_MAGIC.every((b, i) => image[GLOBAL_ADDRESS + i] === b);
+function timestamp() { return new Date().toISOString().slice(0, 10); }
+function download(name, bytes) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  a.download = name; a.click();
+}
+
+// --- the page's state ---
+let state = { kind: "none" }, slots = null, running = false, cancelAsk = null, chosenFresh = true;
+let firmware = null, firmwareProblem = "", stockFile = null, imageFile = null, bank = null, bankProblem = "", savedImage = null;
+const bankList = () => bank ? (Array.isArray(bank) ? bank : bank.presets) : [];
+const bankRange = () => { const s = bankList().map(p => p.slot); return `P${Math.min(...s)}-P${Math.max(...s)}`; };
+const presetSlots = () => new Set(bankList().map(p => p.slot - 1));
+
+async function readSlots() {
+  slots = null;
+  if (state.kind !== "pro8000") return;
+  const list = [];
+  for (let n = 0; n < PATCH_COUNT; n++) {
+    const d = await request([0x5E, n >> 7, n & 0x7F], [0x5E, n >> 7, n & 0x7F], 2000);
+    if (!d) return;
+    list.push(d[3]); // 0 empty, 1 ours, 2 stock format
+  }
+  slots = list;
+}
+const slotsOf = kind => slots ? slots.filter(k => k === kind).length : 0;
+const slotsFull = () => slots ? slots.filter(k => k !== 0).length : 0; // stock data reads as stock or damaged records
+function memoryText() {
+  if (state.kind === "stock") return "It holds your stock patches. PRO-8000 can't read them, so it needs initialising, and an image keeps a copy.";
+  if (state.kind === "bootloader") return "It can't be read from the bootloader. If you are coming from stock, choose Initialise. If this is PRO-8000, you can leave it.";
+  if (!slots) return "";
+  if (state.memory === "fresh") return "It still holds the stock firmware's data, your stock patches included: PRO-8000 hasn't taken it over yet.";
+  const damaged = PATCH_COUNT - slotsOf(0) - slotsOf(1);
+  return `${slotsOf(1)} patches, ${slotsOf(0)} empty slots` + (damaged ? `, ${damaged} damaged.` : ".");
+}
+
+async function refresh() {
+  if (running) return;
+  $("state").textContent = "Looking for the synth…"; $("state").className = "dim";
+  const s = await identify();
+  if (running) return;
+  state = s;
+  log(`state: ${stateText(s)}`);
+  $("state").textContent = stateText(s);
+  $("state").className = usable(s) ? "ok" : "bad";
+  await readSlots();
+  // after a failed run the synth may well be somewhere else, but what the user chose still stands
+  if (chosenFresh) { applyDefaults(); chosenFresh = false; }
+  render();
+}
+
+// What a first install wants, and what leaves a working PRO-8000 alone
+function applyDefaults() {
+  if (!radio("task")) setRadio("task", "install");
+  const first = state.kind === "stock" || (state.kind === "pro8000" && state.memory === "fresh");
+  setRadio("memory", first ? "format" : "keep");
+  $("do-presets").checked = first && !!bank;
+  $("do-flash").checked = !(state.kind === "pro8000" && firmware && state.version === firmware.version);
+  setRadio("stock-memory", state.kind === "pro8000" && state.memory === "fresh" ? "keep" : "format");
+  syncSave();
+}
+function syncSave() {
+  $("do-save").checked = radio("task") === "install"
+    ? radio("memory") === "format" && (state.kind === "stock" || (state.kind === "pro8000" && slotsOf(0) < PATCH_COUNT))
+    : state.kind === "pro8000" && radio("stock-memory") !== "keep";
+}
+
+function note(id, text, kind = "") { const el = $(id); el.textContent = text; el.className = `note ${kind}`; el.hidden = !text; }
+
+function render() {
+  const ready = usable(state) && !running;
+  $("choose").hidden = !ready;
+  const task = radio("task");
+  const install = ready && task === "install", stock = ready && task === "stock";
+  $("options-install").hidden = !install; $("options-stock").hidden = !stock;
+  if (firmware) $("task-install-title").textContent = `Install PRO-8000 ${firmware.version}`;
+
+  // install
+  const running8000 = state.kind === "pro8000";
+  const forced = !running8000; // stock or the bootloader: the memory steps need PRO-8000, so it goes on first
+  $("do-flash").disabled = forced;
+  if (forced) $("do-flash").checked = true;
+  $("flash-label").textContent = firmware ? `Flash PRO-8000 ${firmware.version}` : "Flash the firmware";
+  $("flash-sub").textContent = running8000 && firmware && state.version === firmware.version ? " (already running this version)" : "";
+  $("flash-sub").style.display = "inline";
+  note("firmware-note", firmwareProblem, "bad");
+  $("memory-now").textContent = memoryText();
+  $("image-row-install").hidden = radio("memory") !== "image";
+  $("image-row-stock").hidden = radio("stock-memory") !== "image";
+  const flashing = $("do-flash").checked;
+  document.querySelectorAll('input[name="memory"]').forEach(r => { r.disabled = false; });
+  $("do-presets").disabled = !bank || radio("memory") === "image";
+  if ($("do-presets").disabled) $("do-presets").checked = false;
+  $("presets-sub").textContent = bank
+    ? `${bankList().length} sounds into ${bankRange()}. It takes a few minutes. The other slots stay as they are.`
+    : bankProblem;
+
+  // stock
+  const fromPro8000 = state.kind === "pro8000";
+  $("stock-memory").hidden = !fromPro8000;
+  if (stock && fromPro8000) {
+    $("stock-memory-now").textContent = memoryText();
+    const fresh = state.memory === "fresh";
+    $("stock-keep").hidden = !fresh;
+    if (!fresh && radio("stock-memory") === "keep") setRadio("stock-memory", "format");
+  }
+
+  const memoryOp = install ? radio("memory") : stock && fromPro8000 ? radio("stock-memory") : "keep";
+  const canSave = running8000 || (install && flashing);
+  $("backup-section").hidden = !ready || !canSave;
+  if (!canSave) $("do-save").checked = false;
+  const imageNote = install ? "image-note-install" : "image-note-stock";
+  if (memoryOp === "image" && imageFile) {
+    const notStock = stock && hasGlobalBlock(imageFile.bytes);
+    note(imageNote, notStock ? `${imageFile.name} holds PRO-8000 data, so stock can't read it. Use the image saved before PRO-8000 changed the memory.`
+      : `${imageFile.name}: 128 kB`, notStock ? "bad" : "ok");
+    if (notStock) imageFile.refused = true; else delete imageFile.refused;
+  } else note(imageNote, "");
+  renderReview(ready, install, stock, memoryOp);
+}
+
+function plan(install, stock, memoryOp) {
+  const steps = [];
+  const flash = file => {
+    steps.push({ label: state.kind === "bootloader" ? "Check the bootloader" : "Restart the synth into its bootloader", run: enterBootloader });
+    steps.push({ label: `Flash firmware ${file.version} (about ${Math.ceil(file.bytes / FLASH_RATE + ERASE_WAIT / 1000)} s)`, run: () => flashFirmware(file) });
+    steps.push({ label: `Wait for firmware ${file.version} to start`, run: () => waitFirmware(file) });
+  };
+  const memory = () => {
+    if ($("do-save").checked) steps.push({ label: "Save a memory image", run: saveImage });
+    if (memoryOp === "format") steps.push({ label: "Empty the patch memory", run: formatMemory });
+    if (memoryOp === "image") steps.push({ label: `Write ${imageFile ? imageFile.name : "the image"} and check it`, run: writeImage });
+  };
+  if (install) {
+    if ($("do-flash").checked && firmware) flash(firmware);
+    memory();
+    if ($("do-presets").checked) steps.push({ label: `Install ${bankList().length} presets into ${bankRange()}`, run: installPresets });
+  } else if (stock) {
+    if (state.kind === "pro8000") memory();
+    if (stockFile) flash(stockFile);
+  }
+  return steps;
+}
+
+function renderReview(ready, install, stock, memoryOp) {
+  $("review").hidden = !ready || (!install && !stock);
+  if ($("review").hidden) return;
+  const items = [], danger = [];
+  let why = "";
+  if (install) {
+    if ($("do-flash").checked) {
+      if (!firmware) why = "No firmware to flash: choose a file.";
+      else items.push(state.kind === "stock" ? `Replaces the stock firmware with PRO-8000 ${firmware.version}. The way back is on this page.`
+        : state.kind === "bootloader" ? `Flashes PRO-8000 ${firmware.version}.`
+        : `Flashes PRO-8000 ${firmware.version}. Any changes to the current sound that you haven't saved are lost.`);
+    }
+    if ($("do-save").checked) items.push("Saves a memory image: you'll choose where when you press Start.");
+    if (radio("memory") === "format") danger.push(state.kind === "bootloader" ? "Empties every patch slot, whatever is in them."
+      : state.kind === "stock" || state.memory === "fresh" ? "Replaces your stock patches with empty slots." : `Empties all ${PATCH_COUNT} slots (${slotsFull()} hold patches).`);
+    if (radio("memory") === "image") {
+      danger.push("Overwrites the whole patch memory with the image, tuning included.");
+      if (!imageFile) why = "Choose the image first.";
+    }
+    if ($("do-presets").checked) {
+      const hit = radio("memory") === "format" || !slots ? 0 : [...presetSlots()].filter(n => slots[n]).length;
+      if (hit) danger.push(`Replaces the ${hit} patches in ${bankRange()} with presets.`);
+      else if (state.kind === "bootloader" && radio("memory") !== "format") danger.push(`Replaces whatever is in ${bankRange()} with presets.`);
+      else items.push(`Installs ${bankList().length} presets into ${bankRange()}.`);
+    }
+    if (!items.length && !danger.length && !why) why = "Nothing to do: choose something above.";
+    if (state.kind !== "pro8000" && radio("memory") === "image" && $("do-flash").checked === false) why = "The memory can only be written while PRO-8000 runs.";
+  } else {
+    if (!stockFile) why = "Choose the stock firmware file first.";
+    else items.push(`Replaces the firmware with stock ${stockFile.version}.`);
+    if ($("do-save").checked) items.push("Saves a memory image: you'll choose where when you press Start.");
+    if (state.kind === "pro8000") {
+      if (memoryOp === "format") danger.push(`Empties all ${PATCH_COUNT} slots (${slotsFull()} hold patches). Stock's factory reset then brings back its 100 factory sounds.`);
+      if (memoryOp === "image") {
+        danger.push("Overwrites the whole patch memory with the image.");
+        if (!imageFile) why = "Choose the image first.";
+        else if (imageFile.refused) why = "That image can't go back to stock.";
+      }
+    }
+    if (state.kind === "bootloader") items.push("The memory can't be touched from the bootloader. If it holds PRO-8000 patches, stock will show them as damaged until you run stock's factory reset.");
+    if (state.kind === "stock" && stockFile) items.push("The synth already runs stock: this only flashes it again.");
+  }
+  $("changes").innerHTML = "";
+  for (const t of items) $("changes").append(Object.assign(document.createElement("li"), { textContent: t }));
+  for (const t of danger) $("changes").append(Object.assign(document.createElement("li"), { textContent: t, className: "danger" }));
+  $("confirm-row").hidden = !danger.length;
+  if (!danger.length) $("confirm").checked = false;
+  $("start").textContent = install ? "Start" : "Go back to stock";
+  $("start").disabled = !!why || (danger.length > 0 && !$("confirm").checked);
+  $("start-why").textContent = why;
+  $("start-why").className = "small dim";
+}
+
+// --- asking the user: shown while the page keeps watching the synth ---
+function showAsk(title, lines) {
+  $("ask-title").textContent = title;
+  $("ask-body").innerHTML = "";
+  const ol = document.createElement("ol");
+  for (const l of lines) ol.append(Object.assign(document.createElement("li"), { textContent: l }));
+  $("ask-body").append(ol);
+  $("ask").hidden = false;
+  $("ask").scrollIntoView({ block: "center", behavior: "smooth" });
+}
+const BOOT_LINES = ["Switch the synth off.", "Hold buttons 0 and 7.", "Switch it on, still holding them.",
+  "When the display shows boot and stays there, let go."];
+// Waits for a kind of firmware after asking; each time the port comes and goes it looks again
+async function askAndWait(title, lines, wanted, why) {
+  showAsk(title, lines);
+  let cancelled = false, seen = portEpoch;
+  cancelAsk = () => { cancelled = true; };
+  try {
+    for (;;) {
+      if (cancelled) throw new Stop("Cancelled.", why);
+      await sleep(400);
+      if (portEpoch === seen) continue;
+      if (!await portSteady(30)) continue;
+      seen = portEpoch;
+      if (cancelled) throw new Stop("Cancelled.", why);
+      const s = await identify();
+      log(`after asking: ${stateText(s)}`);
+      if (s.kind === wanted) return s;
+      if (usable(s)) showAsk(title, [`The synth came up ${s.kind === "bootloader" ? "in the bootloader" : "running its firmware"}, not what's needed here. Try again:`, ...lines]);
+    }
+  } finally { cancelAsk = null; $("ask").hidden = true; }
+}
+
+// --- steps ---
+function progress(done, total, text) {
+  $("progress").hidden = total === 0;
+  $("progress").max = total || 1; $("progress").value = done;
+  $("progress-text").textContent = text || "";
+}
+
+async function enterBootloader() {
+  if (state.kind === "bootloader") return;
+  for (let attempt = 0; attempt < 3; attempt++) { // the stock firmware sometimes misses a SysEx message
+    const seen = portEpoch;
+    log("update mode requested (03 30)");
+    send([0x03, 0x30]);
+    const end = performance.now() + 6000;
+    while (performance.now() < end && portEpoch === seen) await sleep(200);
+    if (portEpoch !== seen) break;
+  }
+  await sleep(500);
+  if (await portSteady(25)) {
+    const s = await identify();
+    log(`after update mode: ${stateText(s)}`);
+    if (s.kind === "bootloader") { state = s; return; }
+  }
+  state = await askAndWait("Put the synth in its bootloader", BOOT_LINES, "bootloader",
+    "Nothing was flashed, and the firmware on the synth is as it was.");
+}
+
+async function flashFirmware(file) {
+  const fail = message => new Stop(message, UPDATE_HELP);
+  const says = (...want) => replies.some(d => want.every((b, i) => d[i] === b));
+  const error = () => replies.find(d => d[0] === 0x01 && d[1] === 0x00 && d[2] !== 0x00);
+  replies = [];
+  try {
+    const [header, ...blocks] = file.messages;
+    progress(0, file.bytes, "Erasing the old firmware…");
+    if (!sendRaw(header)) throw fail("The synth's port went away before the update started.");
+    await sleep(ERASE_WAIT);
+    for (let t = 0; t < 7000 && !says(0x03, 0x31); t += 250) await sleep(250);
+    if (!says(0x03, 0x31)) throw fail("The bootloader didn't accept the update, so nothing was written. Something else is probably talking to the synth.");
+    log("bootloader accepted the header (03 31)");
+    let sent = header.length, target = performance.now();
+    for (const block of blocks) {
+      if (!sendRaw(block)) throw fail("The USB connection dropped during the update.");
+      sent += block.length;
+      target += block.length / FLASH_RATE * 1000;
+      await sleep(Math.max(0, target - performance.now()));
+      const e = error();
+      if (e) { log(`bootloader error: ${hex(e)}`); throw fail(`The bootloader refused a block (${hex(e.slice(0, 3))}). Something else is probably talking to the synth.`); }
+      progress(sent, file.bytes, `${Math.round(sent / 1024)} of ${Math.round(file.bytes / 1024)} kB`);
+    }
+    for (let t = 0; t < 6000 && !says(0x01, 0x00, 0x00); t += 250) await sleep(250);
+    const e = error();
+    if (e || !says(0x01, 0x00, 0x00)) throw fail(e ? `The bootloader rejected the update (${hex(e.slice(0, 3))}).` : "The bootloader didn't confirm the update.");
+    log("bootloader confirmed the update (01 00 00)");
+    state = { kind: "restarting" };
+  } finally { replies = null; }
+}
+
+async function waitFirmware(file) {
+  const wanted = file.major === 0 ? "pro8000" : "stock";
+  progress(0, 0, wanted === "pro8000" ? "It restarts and may tune itself first, about 30 s." : "It restarts.");
+  const watch = async seconds => {
+    const end = performance.now() + seconds * 1000;
+    while (performance.now() < end) {
+      await sleep(1500);
+      bindPorts();
+      if (!output || !input || performance.now() - portChangedAt < 3000) continue;
+      if (!await request([0x08, 0x00], [0x09, 0x00], 1000)) continue;
+      const s = await identify();
+      if (s.kind === wanted) return s;
+    }
+    return null;
+  };
+  let s = await watch(60);
+  if (!s) s = await askAndWaitFor(wanted);
+  if (s.version !== file.version) throw new Stop(`The synth runs firmware ${s.version}, not the ${file.version} that was flashed.`, UPDATE_HELP);
+  state = s;
+  log(`running: ${stateText(s)}`);
+  progress(0, 0, "");
+}
+function askAndWaitFor(wanted) {
+  return askAndWait("Restart the synth", ["Switch the synth off and on, without holding any buttons.",
+    "If the display stays on boot or shows noFW, the update didn't take: cancel, then press Try again."], wanted,
+    "The firmware may not have started. Check the display, then press Try again if it shows boot or noFW.");
+}
+
+async function readImage() {
+  const image = new Uint8Array(IMAGE_SIZE);
+  for (let at = 0; at < IMAGE_SIZE; at += 48) {
+    const n = Math.min(48, IMAGE_SIZE - at), a = [at >> 14 & 0x7F, at >> 7 & 0x7F, at & 0x7F];
+    const d = await retry(2, () => request([0x79, ...a, n], [0x79, ...a, n], 2000));
+    if (!d) throw new Stop(`The synth stopped answering while the memory was read, at ${at} bytes.`, "Nothing was changed. Check the USB cable and press Try again.");
+    for (let i = 0; i < n; i++) image[at + i] = d[7 + 2 * i] << 4 | d[8 + 2 * i];
+    if (at % 4800 === 0) progress(at, IMAGE_SIZE, `${Math.round(at / 1024)} of 128 kB`);
+  }
+  progress(0, 0, "");
+  return image;
+}
+
+// Where the image goes is chosen at Start, because a browser only opens that dialog right after a click, and a wipe
+// mustn't go ahead on a download that may have been blocked.
+let imageTarget = null;
+async function saveImage() {
+  const image = await readImage();
+  if (imageTarget) {
+    try {
+      const w = await imageTarget.createWritable();
+      await w.write(image);
+      await w.close();
+    } catch (e) { throw new Stop(`The image couldn't be saved: ${e.message}`, "The memory wasn't changed. Press Try again."); }
+  } else download(imageName(), image);
+  savedImage = image;
+  log(`saved a memory image (${image.length} bytes)`);
+}
+const imageName = () => `pro800-memory-${timestamp()}.bin`;
+
+async function formatMemory() {
+  const d = await request([0x5B], [0x5B], 60000);
+  if (!d || d[3]) throw new Stop(d ? "The memory reported a write error during the format." : "The synth didn't answer the format.", "Press Try again. If it keeps failing, use the editor's Patches tab to see what the memory holds.");
+  log("memory formatted");
+}
+
+async function writeImage() {
+  const image = imageFile.bytes;
+  const help = "The memory may be part written. Keep the synth on, check the USB cable and press Try again.";
+  for (let at = 0; at < IMAGE_SIZE; at += 48) {
+    const chunk = Array.from(image.subarray(at, at + 48));
+    if (!await retry(2, () => ack([0x5A, at >> 14 & 0x7F, at >> 7 & 0x7F, at & 0x7F, chunk.length, ...chunk.flatMap(b => [b >> 4, b & 15])], 2000)))
+      throw new Stop(`Writing the image failed at ${at} bytes.`, help);
+    if (at % 4800 === 0) progress(at, IMAGE_SIZE, `Writing: ${Math.round(at / 1024)} of 128 kB`);
+  }
+  const back = await readImage();
+  const wrong = back.findIndex((b, i) => b !== image[i]);
+  if (wrong >= 0) throw new Stop(`The memory doesn't match the image, from byte ${wrong}.`, help);
+  log("image written and read back: it matches");
+}
+
+async function installPresets() {
+  const list = bankList(), help = "Press Try again and start it with only the preset bank ticked: it starts over and replaces what's there.";
+  const d = await request([0x54], [0x54], 2000);
+  if (!d) throw new Stop("The synth didn't send its settings.", help);
+  const n = d[1], settable = SETTINGS.length - READ_ONLY;
+  const has = set => { const i = SET_ID[set]; return i >= settable || i < n - READ_ONLY; };
+  const left = new Set();
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i], slot = p.slot - 1, plan = planSound(p, has);
+    for (const m of plan.messages)
+      if (!await ack(m)) throw new Stop(`P${p.slot}: the synth didn't take a message (${m[0].toString(16)}).`, help);
+    if (!await ack([0x5D, slot >> 7, slot & 0x7F])) throw new Stop(`Saving P${p.slot} failed.`, help);
+    const name = Array.from(String(p.name || "").slice(0, 16)).map(c => c.charCodeAt(0)).filter(c => c >= 0x20 && c < 0x7F);
+    if (name.length) await ack([0x59, slot >> 7, slot & 0x7F, ...name]);
+    plan.warnings.forEach(w => left.add(w.replace(/^"([^"]*)".*/, "$1")));
+    progress(i + 1, list.length, `P${p.slot} ${p.name || ""}`);
+  }
+  // read back: every slot holds a patch of ours, under its name
+  for (const p of list) {
+    const slot = p.slot - 1, r = await request([0x5E, slot >> 7, slot & 0x7F], [0x5E, slot >> 7, slot & 0x7F], 2000);
+    if (!r || r[3] !== 1 || String.fromCharCode(...r.slice(4)) !== String(p.name || "").slice(0, 16)) throw new Stop(`P${p.slot} didn't read back as "${p.name}".`, help);
+  }
+  await ack([0x5C, 0, list[0].slot - 1]); // start on the bank's first sound rather than its last
+  log(`presets installed and read back: ${list.length}` + (left.size ? `; this firmware hasn't got: ${[...left].join(", ")}` : ""));
+  progress(0, 0, "");
+}
+
+// --- running it ---
+const installerChannel = "BroadcastChannel" in window ? new BroadcastChannel("pro800-installer") : null;
+if (installerChannel) installerChannel.onmessage = e => { if (e.data === "ask" && running) installerChannel.postMessage("busy"); };
+window.addEventListener("beforeunload", e => { if (running) e.preventDefault(); });
+
+function resultBox(kind, title, paragraphs, keepImage) {
+  $("result").className = kind === "ok" ? "ok-box" : "bad-box";
+  $("result").hidden = false;
+  $("result-title").textContent = title;
+  $("result-body").innerHTML = "";
+  for (const p of paragraphs) $("result-body").append(p instanceof Node ? p : Object.assign(document.createElement("p"), { textContent: p }));
+  $("image-again").hidden = !keepImage;
+  $("result").scrollIntoView({ block: "center", behavior: "smooth" });
+}
+function list(items) {
+  const ol = document.createElement("ol");
+  ol.style.margin = "0 0 10px"; ol.style.paddingLeft = "22px";
+  for (const t of items) ol.append(Object.assign(document.createElement("li"), { textContent: t }));
+  return ol;
+}
+
+async function start() {
+  const task = radio("task"), install = task === "install", stock = task === "stock";
+  const memoryOp = install ? radio("memory") : state.kind === "pro8000" ? radio("stock-memory") : "keep";
+  const presets = install && $("do-presets").checked;
+  // check everything that can be checked before the synth is touched
+  if (presets) {
+    try { bankList().forEach(p => planSound(p, () => true)); }
+    catch (e) { resultBox("bad", "The preset bank has a problem", [`${e.message}. Nothing was changed.`]); return; }
+  }
+  imageTarget = null; savedImage = null;
+  if ($("do-save").checked && window.showSaveFilePicker) {
+    try { imageTarget = await showSaveFilePicker({ suggestedName: imageName(), types: [{ description: "Memory image", accept: { "application/octet-stream": [".bin"] } }] }); }
+    catch (e) { if (e.name === "AbortError") return; log(`save dialog: ${e.message}`); }
+  }
+  const steps = plan(install, stock, memoryOp);
+  if (!steps.length) return;
+
+  running = true;
+  if (installerChannel) installerChannel.postMessage("busy");
+  await sleep(1200); // a poll another tab has already sent is answered and gone
+  let wake = null;
+  try { wake = await navigator.wakeLock.request("screen"); } catch (e) {}
+  for (const id of ["choose", "options-install", "options-stock", "backup-section", "review", "result"]) $(id).hidden = true;
+  $("run").hidden = false; $("run-title").textContent = install ? "Installing" : "Going back to stock";
+  $("steps").innerHTML = "";
+  const rows = steps.map(s => $("steps").appendChild(Object.assign(document.createElement("li"), { innerHTML: "<span></span>" })));
+  steps.forEach((s, i) => { rows[i].firstChild.textContent = s.label; });
+  let failed = null;
+  for (let i = 0; i < steps.length; i++) {
+    rows[i].className = "active";
+    log(`step: ${steps[i].label}`);
+    try { await steps[i].run(); rows[i].className = "done"; progress(0, 0, ""); }
+    catch (e) {
+      rows[i].className = "failed"; failed = e; progress(0, 0, "");
+      log(`failed: ${e.message}`);
+      if (!(e instanceof Stop)) console.error(e);
+      break;
+    }
+  }
+  if (wake) wake.release().catch(() => {});
+  running = false;
+  if (installerChannel) installerChannel.postMessage("idle");
+  if (failed) {
+    $("again").textContent = "Try again";
+    resultBox("bad", "It stopped", [failed.message, failed.help || "Press Try again to look at the synth again."], !!savedImage);
+    return;
+  }
+  $("run-title").textContent = "Done";
+  chosenFresh = true;
+  $("again").textContent = "Start over";
+  finish(install, memoryOp, presets);
+}
+
+function finish(install, memoryOp, presets) {
+  const paragraphs = [];
+  const editor = document.createElement("p");
+  if (install) {
+    paragraphs.push(`The synth is running PRO-8000 ${state.version}.`);
+    if (memoryOp === "image") paragraphs.push("Switch the synth off and on now, so it reads the memory you just wrote.");
+    if (state.memory === "fresh" && !presets && memoryOp === "keep") paragraphs.push("Its memory still holds the stock firmware's data, which PRO-8000 shows as damaged slots. Initialise it here when you're ready, after saving an image if you want your stock patches back one day.");
+    if (presets) paragraphs.push(`${bankList().length} presets are in ${bankRange()}, and the synth is on the first of them.`);
+    editor.innerHTML = 'Next: the <a href="./">editor</a>. Its Patches tab can also copy the 100 factory sounds into empty slots.';
+    paragraphs.push(editor);
+    resultBox("ok", $("do-flash").checked ? "Installed" : "Done", paragraphs, !!savedImage);
+  } else {
+    paragraphs.push(`The synth is running the stock firmware ${state.version}. Check that it plays: it should show a patch number such as A-13.`);
+    paragraphs.push("Finish on the synth:");
+    const steps = ["Press Tune and let it finish. It takes longer than PRO-8000's Tune, going voice by voice."];
+    if (memoryOp === "format") steps.push("Press Settings, then 0, then 0 again to confirm the factory reset. Don't switch off during it. The 100 factory sounds come back in the first 100 slots.",
+      "The reset also returns the system settings to their defaults. The MIDI channel goes back to DIPS, so set it again if your MIDI source plays on one channel.");
+    paragraphs.push(list(steps));
+    if (savedImage) paragraphs.push("Only PRO-8000 can read your saved image: keep it if you might come back. This page can write it back after installing PRO-8000 again.");
+    resultBox("ok", "Back on stock", paragraphs, !!savedImage);
+  }
+}
+
+// --- wiring ---
+$("connect").onclick = connect;
+async function connect() {
+  if (!navigator.requestMIDIAccess) { $("state").textContent = "This browser has no WebMIDI: use Chrome or Edge on a computer."; $("state").className = "bad"; return; }
+  try {
+    access = await navigator.requestMIDIAccess({ sysex: true });
+    let timer = null;
+    access.onstatechange = e => {
+      if (!e.port.name || !e.port.name.includes("PRO 800")) return;
+      portEpoch++; portChangedAt = performance.now();
+      log(`port ${e.port.type} ${e.port.state}`);
+      bindPorts();
+      clearTimeout(timer);
+      if (!running) timer = setTimeout(refresh, 3500);
+    };
+    $("connect").textContent = "Look again";
+    await refresh();
+  } catch (e) {
+    $("state").textContent = `MIDI access was refused: ${e.message}. Allow MIDI for this page and try again.`; $("state").className = "bad";
+  }
+}
+
+document.querySelectorAll('input[name="task"], input[name="memory"], input[name="stock-memory"]').forEach(r => r.addEventListener("change", () => {
+  $("confirm").checked = false;
+  syncSave();
+  render();
+}));
+for (const id of ["do-flash", "do-presets", "do-save", "confirm"]) $(id).addEventListener("change", render);
+$("start").onclick = start;
+$("again").onclick = () => { $("result").hidden = true; $("run").hidden = true; $("confirm").checked = false; refresh(); };
+$("image-again").onclick = () => download(imageName(), savedImage);
+$("ask-cancel").onclick = () => { if (cancelAsk) cancelAsk(); };
+
+$("firmware-open").onclick = () => $("file-firmware").click();
+$("stock-open").onclick = () => $("file-stock").click();
+document.querySelectorAll(".image-open").forEach(b => { b.onclick = () => $("file-image").click(); });
+$("file-firmware").onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const f = await parseUpdate(await file.arrayBuffer());
+    if (f.major !== 0) throw new Error(`it's firmware ${f.version}, a stock version: use Back to stock`);
+    firmware = f; firmwareProblem = "";
+    $("do-flash").checked = true;
+  } catch (err) { firmwareProblem = `${file.name}: ${err.message}.`; }
+  render();
+};
+$("file-stock").onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  stockFile = null;
+  try {
+    const f = await parseUpdate(await file.arrayBuffer());
+    if (f.major === 0) throw new Error(`it's PRO-8000 ${f.version}, not the stock firmware`);
+    stockFile = f;
+    if (f.sha === STOCK_TESTED.sha) note("stock-note", `${file.name}: stock firmware ${f.version}, the exact file this page was tested with.`, "ok");
+    else note("stock-note", `${file.name}: a stock firmware update, version ${f.version}, but not the ${STOCK_TESTED.version} file this page was tested with. It should work; the bootloader checks it as it arrives.`, "warn");
+  } catch (err) { note("stock-note", `${file.name}: ${err.message}.`, "bad"); }
+  render();
+};
+$("file-image").onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const noteId = radio("task") === "install" ? "image-note-install" : "image-note-stock";
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.length === PATCH_COUNT * 768) { imageFile = null; render(); note(noteId, `${file.name} is the editor's Back up everything file, not a memory image. Restore it in the editor: Patches tab, Restore everything.`, "bad"); return; }
+  if (bytes.length !== IMAGE_SIZE) { imageFile = null; render(); note(noteId, `${file.name} isn't a memory image: it should be exactly 128 kB.`, "bad"); return; }
+  imageFile = { name: file.name, bytes };
+  render();
+};
+
+async function loadBundled() {
+  try {
+    const r = await fetch("firmware.syx", { cache: "no-cache" });
+    if (!r.ok) throw new Error(r.status);
+    firmware = await parseUpdate(await r.arrayBuffer());
+    if (firmware.major !== 0) throw new Error("not PRO-8000");
+  } catch (e) { firmware = null; firmwareProblem = "No firmware next to this page: choose a .syx from the releases (or run scripts/build.sh, then scripts/web.sh)."; }
+  try {
+    const r = await fetch("presets.json", { cache: "no-cache" });
+    if (!r.ok) throw new Error(r.status);
+    bank = await r.json();
+    if (!bankList().length) throw new Error("empty");
+  } catch (e) { bank = null; bankProblem = "No preset bank next to this page (start it with scripts/web.sh)."; }
+  log(`firmware beside the page: ${firmware ? firmware.version : "none"}; presets: ${bank ? bankList().length : "none"}`);
+}
+
+loadBundled().then(() => {
+  render();
+  // connect by itself when the browser already allows MIDI with SysEx for this site
+  if (navigator.permissions) navigator.permissions.query({ name: "midi", sysex: true })
+    .then(p => { if (p.state === "granted") connect(); }).catch(() => {});
+});
+</script>
+</body>
+</html>
