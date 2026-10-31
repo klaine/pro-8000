@@ -29,6 +29,14 @@ typedef enum {
     OSC_TUNE_MODE_COUNT
 } oscillator_tune_mode_t;
 
+typedef enum {
+    LFO_FREQ_AB,
+    LFO_FREQ_A,
+    LFO_FREQ_B,
+    LFO_TO_VCA,
+    LFO_FREQ_DEST_COUNT
+} lfo_freq_dest_t;
+
 void synth_init(void);
 void synth_note_on(uint8_t note, uint8_t velocity, int channel); // channel 0-15
 // The per-channel layer modes: the voice a MIDI channel (0-15) plays, or -1 (none, or MPE's master channel), and
@@ -144,6 +152,11 @@ void synth_set_morph(int target, const patch_t *data);
 // puts the LFO knobs in pickup.
 int synth_lfo_select(void);
 void synth_set_lfo_select(int which);
+int synth_lfo1_freq_dest(void);
+void synth_set_lfo1_freq_dest(int dest);
+// LFO2's pitch target is per layer, stored with its existing destination bits.
+int synth_lfo2_freq_dest(int layer);
+void synth_set_lfo2_freq_dest(int layer, int dest);
 int synth_lfo_shape(int layer, int which); // lfo_shape_t
 void synth_set_lfo_shape(int layer, int which, int shape);
 // LFO 2's routing (LFO2_TO_* bits) per layer. Toggle: a routing button was toggled while LFO 2 is selected; flips

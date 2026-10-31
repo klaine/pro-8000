@@ -11,8 +11,9 @@
 //   30  keyboard tracking, drift, morph target + 1 (0 = none), scale | root << 4, voice modes, bend range, detune + 1
 //   37  layer 1's voices in the two-layer modes (1-7, 0 = automatic; 0.9.0), 38 the oscillators' tuning modes[2]
 //       (per layer, so 38-39: A bits 0-1, B bits 2-3; 0 = semitones, as before; 0.9.2)
-//   40  switches (u16)            bit s = switch s engaged
-//   42  LFO 2 destinations[2], 44 cycling envelopes[2], 46 step counts[2][2], 50 step patterns[2][2] (u16),
+//   40  switches (u16)            bit s = switch s engaged; bits 13-14: LFO 1 frequency destination
+//   42  LFO 2 destinations[2] (bits 0-2 routes, bits 3-4 frequency target), 44 cycling envelopes[2],
+//       46 step counts[2][2], 50 step patterns[2][2] (u16),
 //   58  synced cycling[2][4] (0 free, else clock division + 1), 66 LFO shapes[2][2], 70 macro offsets[2][2]
 //       (int8, 0.8.1), 74 envelope key-up triggers[2], 76 DAHDSR envelopes[2] (a bit per envelope), 78 envelope
 //       curves[2] (2 bits per envelope), 80 envelope delays[2][4], 88 holds[2][4] (0-99; all 0.9.0)
@@ -281,7 +282,9 @@ int store_load_patch(int n, patch_t *patch)
     patch->route_both[1] = get16(b + OFF_ROUTE_BOTH + 2);
     for (int l = 0; l < 2; l++)
         patch->osc_tune[l] = b[OFF_OSC_TUNE + l] & 0x0F;
-    patch->switches = get16(b + OFF_SWITCHES);
+    uint16_t switches = get16(b + OFF_SWITCHES);
+    patch->switches = switches & ~(3u << 13);
+    patch->lfo1_freq_dest = (uint8_t)(switches >> 13 & 3);
     for (int l = 0; l < 2; l++) {
         patch->lfo2_dests[l] = b[OFF_LFO2_DESTS + l];
         patch->env_cycle[l] = b[OFF_CYCLE + l];
@@ -349,7 +352,7 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_UP_CYCLES] = 1;
     for (int l = 0; l < 2; l++)
         b[OFF_OSC_TUNE + l] = patch->osc_tune[l] & 0x0F;
-    put16(b + OFF_SWITCHES, patch->switches);
+    put16(b + OFF_SWITCHES, (uint16_t)(patch->switches | (patch->lfo1_freq_dest & 3u) << 13));
     for (int l = 0; l < 2; l++) {
         b[OFF_LFO2_DESTS + l] = patch->lfo2_dests[l];
         b[OFF_CYCLE + l] = patch->env_cycle[l];

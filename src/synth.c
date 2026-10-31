@@ -107,6 +107,7 @@
 #define DRIFT_CUTOFF_SEMITONES 1.0f
 
 #define LAYERS 2
+#define LFO2_FREQ_DEST_SHIFT 3
 
 typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_RELEASE, ENV_HOLD, ENV_REST, ENV_DELAY } env_stage_t;
 
@@ -150,6 +151,7 @@ typedef struct {
     float pitch_a, pitch_b;        // oscillator A's and B's offsets from it
     float pitch_slow;              // the slower routes into pitch A + B (scale quantize takes them with the LFOs)
     float to_pitch[2], to_filter[2]; // LFO 1 / LFO 2 depths into pitch and cutoff
+    float to_vca[2]; // LFO 1 / LFO 2 to the VCA
     float pmod_env;                // filter envelope → oscillator A, at full level
     float cutoff_rest, cutoff_env; // the cutoff besides the envelope, LFOs and fast routes, and the envelope amount
     float vca_slow;                // the slower routes into the VCA gain
@@ -197,6 +199,7 @@ static int shift;      // Shift held or latched: the non-ADSR knobs are frozen
 static int keytrack_switch_seen = -1; // the keytrack switch's last position: a patch's value holds until it moves
 static int8_t macro_offset[LAYERS][2];
 static int lfo_select;      // which LFO the LFO knobs, the shape button and the routing buttons edit: 0 or 1
+static uint8_t lfo1_freq_dest;
 static uint8_t lfo_shape[LAYERS][2]; // lfo_shape_t, per layer and LFO
 static uint8_t lfo2_dests[LAYERS];   // LFO2_TO_* bits
 static uint8_t env_cycle[LAYERS];    // ENV_CYCLE_* bits
@@ -399,6 +402,14 @@ void synth_set_lfo_select(int which)
     unlatch(param_of_pot(POT_LFO_AMOUNT));
 }
 
+int synth_lfo1_freq_dest(void) { return lfo1_freq_dest; }
+
+void synth_set_lfo1_freq_dest(int dest)
+{
+    if (dest >= 0 && dest < LFO_FREQ_DEST_COUNT)
+        lfo1_freq_dest = (uint8_t)dest;
+}
+
 int synth_lfo_shape(int layer, int which) { return lfo_shape[layer][which]; }
 
 void synth_set_lfo_shape(int layer, int which, int shape)
@@ -479,9 +490,20 @@ void synth_set_env_curve(int layer, int bits)
     env_curve[layer] = (uint8_t)bits;
 }
 
-int synth_lfo2_dests(int layer) { return lfo2_dests[layer]; }
+int synth_lfo2_dests(int layer) { return lfo2_dests[layer] & 7; }
 
-void synth_set_lfo2_dests(int layer, int bits) { lfo2_dests[layer] = (uint8_t)(bits & 7); }
+void synth_set_lfo2_dests(int layer, int bits)
+{
+    lfo2_dests[layer] = (uint8_t)((lfo2_dests[layer] & (3u << LFO2_FREQ_DEST_SHIFT)) | (bits & 7));
+}
+
+int synth_lfo2_freq_dest(int layer) { return (lfo2_dests[layer] >> LFO2_FREQ_DEST_SHIFT) & 3; }
+
+void synth_set_lfo2_freq_dest(int layer, int dest)
+{
+    if (layer >= 0 && layer < LAYERS && dest >= 0 && dest < LFO_FREQ_DEST_COUNT)
+        lfo2_dests[layer] = (uint8_t)((lfo2_dests[layer] & 7) | (dest << LFO2_FREQ_DEST_SHIFT));
+}
 
 int synth_lfo2_toggle(int s)
 {
@@ -765,6 +787,7 @@ void synth_hold_switch(int s)
 void synth_apply_patch(const patch_t *patch)
 {
     synth_all_off();
+    synth_set_lfo1_freq_dest(patch->lfo1_freq_dest);
     for (int l = 0; l < LAYERS; l++) {
         for (int i = 0; i < POT_COUNT; i++)
             if (i != POT_MASTER_VOL)
@@ -779,7 +802,7 @@ void synth_apply_patch(const patch_t *patch)
         }
         for (int w = 0; w < 2; w++)
             lfo_shape[l][w] = patch->lfo_shape[l][w] < LFO_SHAPE_COUNT ? patch->lfo_shape[l][w] : 0;
-        lfo2_dests[l] = patch->lfo2_dests[l] & 7;
+        lfo2_dests[l] = patch->lfo2_dests[l] & 0x1F;
         env_cycle[l] = patch->env_cycle[l] & 15;
         env_trigger[l] = patch->env_trigger[l] & 15;
         env_dahdsr[l] = patch->env_dahdsr[l] & 15;
@@ -878,6 +901,7 @@ void synth_capture_patch(patch_t *patch)
     for (int s = 0; s < SWITCH_COUNT; s++)
         if ((s <= SWITCH_UNISON || s == SWITCH_SYNC) && sw((switch_t)s)) // the latching buttons only
             patch->switches |= 1u << s;
+    patch->lfo1_freq_dest = lfo1_freq_dest;
     patch->keytrack = (uint8_t)keytrack_setting;
     for (int l = 0; l < LAYERS; l++)
         for (int k = 0; k < 2; k++)
@@ -1882,7 +1906,7 @@ static void voice_slow(int v, float dt);
 static env_rates_t rates[LAYERS][4]; // amp, filter, Env 3, Env 4
 static float lfo_knob[LAYERS][2], lfo_octaves[LAYERS][2];
 static float keytrack_amount; // 0, 0.5, 1
-static int lfo_to_pitch, lfo_to_filter; // the LFO routing buttons
+static int lfo_to_pitch, lfo_to_filter, lfo_to_vca; // LFO 1 destination switch state
 // and what the ticks can skip: a layer with no fast route (fast_route()), and one whose routes never read Env 3 / 4
 static uint8_t fast_routes[LAYERS], uses_env34[LAYERS];
 // Each LFO's value this tick, for the voices sharing its phase (per-voice phases are read per voice)
@@ -1911,7 +1935,7 @@ static void voice_cvs(int v, int cutoff, int pitch)
     if (fast_routes[l])
         evaluate_routes(l, v, mod, 1);
     float lfo = 0, lfo2 = 0;
-    if (cutoff || pitch) {
+    if (cutoff || pitch || x->to_vca[0] > 0.0f || x->to_vca[1] > 0.0f) {
         lfo = lfo_voice_phases(0) ? lfo_read(l, 0, v) : lfo_now[l][0];
         lfo2 = lfo_voice_phases(1) ? lfo_read(l, 1, v) : lfo_now[l][1];
         lfo *= x->lfo_gain[0];
@@ -1922,19 +1946,29 @@ static void voice_cvs(int v, int cutoff, int pitch)
                    + mod[DEST_CUTOFF] * MOD_CUTOFF_SEMITONES + x->cutoff_env * x->filter.level;
         sh_set(CV_FIL1 + v, tuning_note_cv(TUNING_ROW_FILTER + v, note));
     }
-    float gain = x->amp.level * clamp01(1.0f + x->vca_slow + mod[DEST_VCA]);
+    float gain = x->amp.level * clamp01(1.0f + x->vca_slow + mod[DEST_VCA]
+                                      + lfo * x->to_vca[0] + lfo2 * x->to_vca[1]);
     sh_set(CV_AMP1 + v, gain > 0 ? cv_from(VCA_THRESHOLD + (1.0f - VCA_THRESHOLD) * gain) : 0);
     if (pitch) {
-        float pitch_mod = lfo * x->to_pitch[0] + lfo2 * x->to_pitch[1] + x->pitch_slow
-                        + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
+        float lfo1_pitch = lfo * x->to_pitch[0], lfo2_pitch = lfo2 * x->to_pitch[1];
+        float pitch_mod = x->pitch_slow + mod[DEST_PITCH] * MOD_PITCH_SEMITONES;
         float pitch_mod_a = pitch_mod, pitch_mod_b = pitch_mod;
+        if (lfo1_freq_dest == LFO_FREQ_AB || lfo1_freq_dest == LFO_FREQ_A)
+            pitch_mod_a += lfo1_pitch;
+        if (lfo1_freq_dest == LFO_FREQ_AB || lfo1_freq_dest == LFO_FREQ_B)
+            pitch_mod_b += lfo1_pitch;
+        int lfo2_target = synth_lfo2_freq_dest(lfo_layer(l, 1));
+        if (lfo2_target == LFO_FREQ_AB || lfo2_target == LFO_FREQ_A)
+            pitch_mod_a += lfo2_pitch;
+        if (lfo2_target == LFO_FREQ_AB || lfo2_target == LFO_FREQ_B)
+            pitch_mod_b += lfo2_pitch;
         int fixed_a = osc_tune_modes[l][0] == OSC_TUNE_FIXED;
         int fixed_b = osc_tune_modes[l][1] == OSC_TUNE_FIXED;
         if (scale) {
             float anchor_a = fixed_a ? q->coarse_a : (float)x->note;
             float anchor_b = fixed_b ? q->coarse_b : (float)x->note;
-            pitch_mod_a = quantize(anchor_a + pitch_mod) - anchor_a;
-            pitch_mod_b = quantize(anchor_b + pitch_mod) - anchor_b;
+            pitch_mod_a = quantize(anchor_a + pitch_mod_a) - anchor_a;
+            pitch_mod_b = quantize(anchor_b + pitch_mod_b) - anchor_b;
         }
         float pitch_adjust = x->pitch_base - x->pitch;
         float a = (fixed_a ? x->pitch_a + pitch_adjust : x->pitch_base + x->pitch_a) + pitch_mod_a
@@ -2018,7 +2052,9 @@ void synth_update(float dt)
     read_panel(dt);
 
     int pmod_freq_a = sw(SWITCH_PMOD_FREQ_A);
-    lfo_to_pitch = sw(SWITCH_LFO_FREQ);
+    int lfo1_freq_enabled = sw(SWITCH_LFO_FREQ);
+    lfo_to_pitch = lfo1_freq_enabled && lfo1_freq_dest != LFO_TO_VCA;
+    lfo_to_vca = lfo1_freq_enabled && lfo1_freq_dest == LFO_TO_VCA;
     lfo_to_filter = sw(SWITCH_LFO_FILTER);
 
     // routes evaluated for each layer's most recently played voice: the single-wire destinations, and the rate of
@@ -2168,9 +2204,13 @@ static void voice_slow(int v, float dt)
         float depth = clamp01(q->depth + mod[DEST_LFO_AMOUNT]);
         float depth2 = clamp01(q->depth2 + mod[DEST_LFO2_AMOUNT]);
         x->to_pitch[0] = clamp01(depth * lfo_to_pitch + mod[DEST_LFO_TO_PITCH]) * LFO_PITCH_SEMITONES;
+        x->to_vca[0] = depth * (float)lfo_to_vca;
         x->to_filter[0] = clamp01(depth * lfo_to_filter + mod[DEST_LFO_TO_FILTER]) * LFO_FILTER_SEMITONES;
-        x->to_pitch[1] = clamp01(depth2 * (float)((lfo2_dests[lfo_layer(l, 1)] & LFO2_TO_PITCH) != 0) + mod[DEST_LFO2_TO_PITCH])
-                       * LFO_PITCH_SEMITONES;
+        int lfo2_layer = lfo_layer(l, 1), lfo2_target = synth_lfo2_freq_dest(lfo2_layer);
+        int lfo2_pitch_enabled = (lfo2_dests[lfo2_layer] & LFO2_TO_PITCH) != 0;
+        x->to_pitch[1] = clamp01(depth2 * (float)(lfo2_pitch_enabled && lfo2_target != LFO_TO_VCA)
+                     + mod[DEST_LFO2_TO_PITCH]) * LFO_PITCH_SEMITONES;
+        x->to_vca[1] = depth2 * (float)(lfo2_pitch_enabled && lfo2_target == LFO_TO_VCA);
         x->to_filter[1] = clamp01(depth2 * (float)((lfo2_dests[lfo_layer(l, 1)] & LFO2_TO_FILTER) != 0)
                                   + mod[DEST_LFO2_TO_FILTER]) * LFO_FILTER_SEMITONES;
         x->pmod_env = (q->pmod_env + mod[DEST_PMOD_ENV]) * PMOD_ENV_SEMITONES;

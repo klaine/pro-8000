@@ -278,10 +278,12 @@ the filter, or to pitch for octave jumps (LFO → Freq at full depth is ±12 sem
 **Rate:** LFO FREQ, 0.05-51 Hz. **Depth:** LFO AMOUNT, on a squared curve so small values are fine. The mod wheel
 adds to LFO 1's depth.
 
-**Routing:** for LFO 1, the LFO → Freq / Filter / PW buttons work as printed. For LFO 2, select it and press the
-same buttons. The display shows the result, e.g. `Fr.on` or `FL.oF`. LFO 1's routing stays as it was, and the
-buttons' positions keep showing LFO 1's routing. LFO → PW is one wire, so it takes layer 1's LFOs. Pitch ±12
-semitones and filter ±48 at full depth.
+**Routing:** with either LFO selected, the FREQ A-B switch enables its selected frequency destination. Switching it
+off advances the destination: FREQ A-B, FREQ A, FREQ B, VCA. Switch it on to activate the displayed destination;
+while on, VALUE cycles destinations both ways for two seconds after the switch moves. LFO 1's target is shared;
+LFO 2's target is per layer. The destination is saved with the patch, and older patches default to FREQ A-B. LFO 2's
+Filter / PW destinations and the LFO 1 Filter / PW switches work as before. LFO → PW is one wire, so it takes layer
+1's LFOs. Pitch ±12 semitones and filter ±48 at full depth.
 
 **Sync** (Settings → key 1, `SYnC`, or `SYn2` for LFO 2): `FrEE` or `CLoC`. With the clock, LFO FREQ chooses a
 division (shown while turning): `8bAr`, `4bAr`, `2bAr`, `1bAr`, `1-2`, `1-4d`, `1-4`, `1-4t`, `1-8d`, `1-8`,

@@ -24,7 +24,7 @@ typedef struct {
     uint8_t osc_tune[2];                  // per layer: oscillator A mode | oscillator B mode << 2
     uint8_t lfo_sync[2], lfo_trigger[2]; // LFO 1, LFO 2
     uint8_t lfo_shape[2][2];             // [layer][LFO 1, LFO 2], lfo_shape_t
-    uint8_t lfo2_dests[2];               // per layer, LFO2_TO_* bits
+    uint8_t lfo2_dests[2];               // per layer: LFO2_TO_* bits, frequency target in bits 3-4
     uint8_t env_cycle[2];                // per layer, ENV_CYCLE_* bits
     uint8_t bend_range;                  // 1-12 semitones; 0 = not stored (2)
     uint8_t detune;                      // unison detune cents + 1; 0 = not stored (14)
@@ -32,6 +32,7 @@ typedef struct {
     uint16_t step_pattern[2][2];         // [layer][LFO 1, LFO 2]: bit n = step n on
     uint8_t step_count[2][2];            // 1..16; 0 = not stored (before 0.6.3): the default pattern
     uint16_t switches; // bit s: switch s engaged (controls_on() sense), for the latching buttons
+    uint8_t lfo1_freq_dest;              // stored in switches bits 13-14; AB, A, B, VCA
     uint8_t drift;     // 0-99
     uint8_t morph;     // the morph target patch + 1; 0 = none
     uint8_t scale;     // scale | root << 4

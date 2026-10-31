@@ -605,9 +605,13 @@ static void show_edit_layer(void)
 // for a moment after it VALUE steps through them both ways.
 static uint32_t shape_until; // ms_ticks until which VALUE picks the shape; 0 = not
 static int shape_steps;
+static uint32_t freq_dest_until;
+static int freq_dest_steps, freq_dest_lfo, freq_dest_layer;
+static const char *const freq_dest_names[LFO_FREQ_DEST_COUNT] = {"FrAB", "Fr.A", "Fr.B", "VCA"};
 
 static void step_lfo_shape(int step)
 {
+    freq_dest_until = 0;
     int which = synth_lfo_select(), layer = synth_lfo_edit_layer(which);
     int shape = (synth_lfo_shape(layer, which) + step + LFO_SHAPE_COUNT) % LFO_SHAPE_COUNT;
     synth_set_lfo_shape(layer, which, shape);
@@ -615,6 +619,37 @@ static void step_lfo_shape(int step)
     display_until = ms_ticks + 2000;
     shape_until = display_until;
     shape_steps = 0;
+}
+
+static int lfo_freq_dest(int which, int layer)
+{
+    return which ? synth_lfo2_freq_dest(layer) : synth_lfo1_freq_dest();
+}
+
+static void set_lfo_freq_dest(int which, int layer, int dest)
+{
+    if (which)
+        synth_set_lfo2_freq_dest(layer, dest);
+    else
+        synth_set_lfo1_freq_dest(dest);
+}
+
+static void show_lfo_freq_dest(int which, int layer)
+{
+    freq_dest_lfo = which;
+    freq_dest_layer = layer;
+    display_text(freq_dest_names[lfo_freq_dest(which, layer)]);
+    display_until = ms_ticks + 2000;
+    shape_until = 0;
+    freq_dest_until = display_until;
+    freq_dest_steps = 0;
+}
+
+static void step_lfo_freq_dest(int which, int layer, int step)
+{
+    int dest = (lfo_freq_dest(which, layer) + step + LFO_FREQ_DEST_COUNT) % LFO_FREQ_DEST_COUNT;
+    set_lfo_freq_dest(which, layer, dest);
+    show_lfo_freq_dest(which, layer);
 }
 
 // MOD ASSIGN (the Arp Assign button), in three stages. Press: SrC. The source: a number key, a touch of a knob that
@@ -1525,6 +1560,24 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         return;
     if (kind == CONTROL_SWITCH && index == SWITCH_LFO_SHAPE)
         step_lfo_shape(1);
+    if (kind == CONTROL_SWITCH && index == SWITCH_LFO_FREQ) {
+        int which = synth_lfo_select(), layer = which ? synth_lfo_edit_layer(which) : 0;
+        int enabled = which ? synth_lfo2_toggle(index) : synth_switch(SWITCH_LFO_FREQ);
+        if (!enabled)
+            step_lfo_freq_dest(which, layer, 1); // switching off selects the next destination; on activates it
+        else
+            show_lfo_freq_dest(which, layer);
+    }
+    if (kind == CONTROL_ENCODER && freq_dest_until && (int32_t)(ms_ticks - freq_dest_until) < 0
+        && synth_lfo_select() == freq_dest_lfo
+        && (!freq_dest_lfo ? synth_switch(SWITCH_LFO_FREQ)
+                           : synth_lfo_edit_layer(freq_dest_lfo) == freq_dest_layer
+                             && (synth_lfo2_dests(freq_dest_layer) & LFO2_TO_PITCH))) {
+        freq_dest_steps += (int)value;
+        if (freq_dest_steps >= 4 || freq_dest_steps <= -4)
+            step_lfo_freq_dest(freq_dest_lfo, freq_dest_layer, freq_dest_steps > 0 ? 1 : -1);
+        return;
+    }
     if (kind == CONTROL_ENCODER && shape_until && (int32_t)(ms_ticks - shape_until) < 0) {
         shape_steps += (int)value;
         if (shape_steps >= 4 || shape_steps <= -4)
@@ -1551,7 +1604,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         }
     }
     if (kind == CONTROL_SWITCH && synth_lfo_select()
-        && (index == SWITCH_LFO_FREQ || index == SWITCH_LFO_FILTER || index == SWITCH_LFO_PW)) {
+        && (index == SWITCH_LFO_FILTER || index == SWITCH_LFO_PW)) {
         char text[] = "Fr.on";
         if (index == SWITCH_LFO_FILTER)
             text[1] = 'L';
