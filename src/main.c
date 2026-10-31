@@ -189,6 +189,11 @@ static int tune_requested;
 // digits pick a patch (1-128) and VALUE steps through them; REC, then the slot, then REC saves;
 // PERF loads the init sound.
 static int current_patch, preset_mode, saving, typed_digits, typed_value, encoder_patch_steps;
+static uint32_t encoder_patch_at; // when VALUE last moved a patch: the shorter the gap, the further it moves
+// VALUE's patch, loaded once the turn rests: a load blocks the loop about 25 ms, and the encoder is polled there, so
+// loading every step of a fast turn would lose its transitions.
+static int turned_patch = -1;
+#define TURNED_REST_MS 80
 static patch_t compare_copy; // Shift + Rec: the edit while the stored patch sounds
 static int comparing, undo_valid;
 // The sustain pedal, per layer (bits: in channel mode each channel's pedal holds its own layer), and the keys let go
@@ -295,7 +300,7 @@ static void undo_swap_back(void)
     preset_mode = undo_state.preset_mode;
     display_led(LED_PRESET, preset_mode);
     if (preset_mode)
-        store_set_last(current_patch, 1);
+        store_set_last(current_patch);
     undo_state = undo_swap; // pressed again: redo
 }
 
@@ -307,11 +312,12 @@ static void init_patch(void);
 static int load_patch(int n)
 {
     patch_t patch;
+    turned_patch = -1;
     if (!store_load_patch(n, &patch)) {
         if (store_slot_kind(n) == SLOT_EMPTY) {
             init_patch();
             current_patch = n;
-            store_set_last(n, 1);
+            store_set_last(n);
             display_until = 0;
             show_patch(n);
             return 1;
@@ -333,7 +339,7 @@ static int load_patch(int n)
     preset_mode = 1;
     display_led(LED_PRESET, 1);
     show_patch(n);
-    store_set_last(n, 1);
+    store_set_last(n);
     return 1;
 }
 
@@ -380,8 +386,7 @@ static void manual_mode(void)
     preset_mode = 0;
     display_led(LED_PRESET, 0);
     display_text("PAnL");
-    display_until = ms_ticks + 1000;
-    store_set_last(current_patch, 0);
+    display_until = 0;
 }
 
 static int save_patch(int n)
@@ -396,7 +401,7 @@ static int save_patch(int n)
     current_patch = n;
     preset_mode = 1;
     display_led(LED_PRESET, 1);
-    store_set_last(n, 1);
+    store_set_last(n);
     return 1;
 }
 
@@ -1142,7 +1147,7 @@ static void idle_display(void)
     else if (saving || preset_mode)
         show_patch(current_patch);
     else
-        display_clear();
+        display_text("PAnL");
 }
 
 // Which envelope (0 amp, 1 filter, 2 Env 3, 3 Env 4: the ENV_CYCLE_* bit order) and stage (0 attack, 1 decay,
@@ -1329,6 +1334,110 @@ static void typed_check(uint32_t now)
     }
 }
 
+static void turned_load(void)
+{
+    int n = turned_patch;
+    if (n >= 0 && !load_patch(n)) {
+        current_patch = n; // a damaged slot: show it, keep the sound
+        show_patch(n);
+    }
+}
+
+// A knob's value as the display shows it. Above POT_COUNT (a controller's LFO 2 or Env 3 / 4 parameter): 0-99.
+static void pot_value_text(int index, int layer, float knob, char *text)
+{
+    int env, stage;
+    if (index >= POT_COUNT) {
+        int v = (int)(knob * 99.0f + 0.5f);
+        text[0] = ' ';
+        text[1] = ' ';
+        text[2] = v >= 10 ? (char)('0' + v / 10) : ' ';
+        text[3] = (char)('0' + v % 10);
+        text[4] = 0;
+    } else if (index == POT_LFO_FREQ && lfo_sync[synth_lfo_select()] == LFO_SYNC_CLOCK) {
+        const char *name = lfo_division_name(lfo_division(knob));
+        int n = 0;
+        while (name[n] && n < 4) {
+            text[n] = name[n];
+            n++;
+        }
+        text[n] = 0;
+    } else if (env_knob(index, &env, &stage) && synth_env_share(env, stage, knob) >= 0) {
+        int share = (int)(synth_env_share(env, stage, knob) * 100.0f + 0.5f); // percent of the synced cycle
+        text[0] = ' ';
+        text[1] = share >= 100 ? '1' : ' ';
+        text[2] = share >= 10 ? (char)('0' + share / 10 % 10) : ' ';
+        text[3] = (char)('0' + share % 10);
+        text[4] = 0;
+    } else if (env_knob(index, &env, &stage) && synth_env_tempo_step(env, stage, knob) >= 0) {
+        const char *name = synth_env_note_name(synth_env_tempo_step(env, stage, knob)); // a note value
+        int n = 0;
+        while (name[n] && n < 4) {
+            text[n] = name[n];
+            n++;
+        }
+        text[n] = 0;
+    } else if (env_knob_time(index, knob) >= 0) {
+        format_time(env_knob_time(index, knob), text);
+    } else if (index == POT_FREQ_A || index == POT_FREQ_B) {
+        int osc = index == POT_FREQ_A ? 0 : 1;
+        float pitch = synth_knob_tune_value(layer, osc, knob);
+        oscillator_tune_mode_t mode = synth_osc_tune_mode(layer, osc);
+        if (mode == OSC_TUNE_FIXED)
+            format_quantity(440.0f * fast_exp2((pitch - 69.0f) / 12.0f), text);
+        else if (mode == OSC_TUNE_OCTAVE)
+            format_signed(pitch / 12.0f, text); // octaves
+        else
+            format_signed(pitch, text);
+    } else if (index == POT_FINE) {
+        format_signed((float)synth_knob_cents(knob), text);
+    } else if (index == POT_MASTER_TUNE) { // Macro 1
+        float m = synth_knob_macro(knob) * 99.0f;
+        format_signed((float)(int)(m < 0 ? m - 0.5f : m + 0.5f), text);
+    } else if (index == POT_FIL_ENV_AMT) {
+        format_signed(synth_knob_env_amount(knob), text); // semitones
+    } else if (index == POT_PMOD_FIL_ENV) {
+        format_quantity(synth_knob_pmod(knob), text); // semitones
+    } else if (index == POT_CUTOFF) {
+        format_quantity(synth_knob_cutoff_hz(knob), text); // Hz; with a point from 1 kHz on: kHz
+    } else if (index == POT_LFO_FREQ) {
+        format_quantity(lfo_rate_hz(knob), text); // Hz
+    } else if (index == POT_GLIDE) {
+        if (synth_knob_glide_s(knob) > 0)
+            format_time(synth_knob_glide_s(knob), text);
+        else
+            text[0] = 'O', text[1] = 'F', text[2] = 'F', text[3] = 0;
+    } else {
+        int v = (int)(knob * 99.0f + 0.5f);
+        text[0] = ' ';
+        text[1] = ' ';
+        text[2] = v >= 10 ? (char)('0' + v / 10) : ' ';
+        text[3] = (char)('0' + v % 10);
+        text[4] = 0;
+    }
+}
+
+// A controller's value on the display, as its knob shows it. The controller can stream and a redraw stalls the loop up
+// to 3.5 ms, so the main loop shows the latest, at most 20 times a second, unless the panel is using the display.
+static int cc_shown_param = -1, cc_shown_layer;
+static float cc_shown_value;
+static uint32_t cc_shown_at;
+
+static void cc_show(uint32_t now)
+{
+    if (cc_shown_param < 0 || (int32_t)(now - cc_shown_at) < 50)
+        return;
+    int param = cc_shown_param;
+    cc_shown_param = -1;
+    if (report_mode || menu_open || saving || recording || assigning || browsing || comparing || typed_digits)
+        return;
+    char text[8];
+    pot_value_text(param, cc_shown_layer, cc_shown_value, text);
+    display_text(text);
+    display_until = now + 1000;
+    cc_shown_at = now;
+}
+
 static void control_event(control_kind_t kind, int index, int32_t value)
 {
     static const led_t button_led[BUTTON_COUNT] = {
@@ -1342,6 +1451,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         report_event(kind, index, value);
         return;
     }
+    if (kind != CONTROL_ENCODER)
+        turned_load(); // whatever comes next acts on the patch VALUE turned to
     if (typed_digits && kind == CONTROL_BUTTON && value && index > BUTTON_9 && !(index == BUTTON_REC && saving)) {
         typed_digits = 0; // any other button drops a number being typed; Rec in a save takes it as the slot
         idle_display();
@@ -1578,68 +1689,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         int pending = synth_pot_pending(index);
         float knob = pending ? synth_pot_value(index) : synth_knob_snap(index, (float)value / 4095.0f);
         char text[8];
-        int env, stage;
-        if (index == POT_LFO_FREQ && lfo_sync[synth_lfo_select()] == LFO_SYNC_CLOCK) {
-            const char *name = lfo_division_name(lfo_division(knob));
-            int n = 0;
-            while (name[n] && n < 4) {
-                text[n] = name[n];
-                n++;
-            }
-            text[n] = 0;
-        } else if (env_knob(index, &env, &stage) && synth_env_share(env, stage, knob) >= 0) {
-            int share = (int)(synth_env_share(env, stage, knob) * 100.0f + 0.5f); // percent of the synced cycle
-            text[0] = ' ';
-            text[1] = share >= 100 ? '1' : ' ';
-            text[2] = share >= 10 ? (char)('0' + share / 10 % 10) : ' ';
-            text[3] = (char)('0' + share % 10);
-            text[4] = 0;
-        } else if (env_knob(index, &env, &stage) && synth_env_tempo_step(env, stage, knob) >= 0) {
-            const char *name = synth_env_note_name(synth_env_tempo_step(env, stage, knob)); // a note value
-            int n = 0;
-            while (name[n] && n < 4) {
-                text[n] = name[n];
-                n++;
-            }
-            text[n] = 0;
-        } else if (env_knob_time(index, knob) >= 0) {
-            format_time(env_knob_time(index, knob), text);
-        } else if (index == POT_FREQ_A || index == POT_FREQ_B) {
-            int osc = index == POT_FREQ_A ? 0 : 1;
-            float pitch = synth_knob_tune_value(synth_edit_layer(), osc, knob);
-            oscillator_tune_mode_t mode = synth_osc_tune_mode(synth_edit_layer(), osc);
-            if (mode == OSC_TUNE_FIXED)
-                format_quantity(440.0f * fast_exp2((pitch - 69.0f) / 12.0f), text);
-            else if (mode == OSC_TUNE_OCTAVE)
-                format_signed(pitch / 12.0f, text); // octaves
-            else
-                format_signed(pitch, text);
-        } else if (index == POT_FINE) {
-            format_signed((float)synth_knob_cents(knob), text);
-        } else if (index == POT_MASTER_TUNE) { // Macro 1
-            float m = synth_knob_macro(knob) * 99.0f;
-            format_signed((float)(int)(m < 0 ? m - 0.5f : m + 0.5f), text);
-        } else if (index == POT_FIL_ENV_AMT) {
-            format_signed(synth_knob_env_amount(knob), text); // semitones
-        } else if (index == POT_PMOD_FIL_ENV) {
-            format_quantity(synth_knob_pmod(knob), text); // semitones
-        } else if (index == POT_CUTOFF) {
-            format_quantity(synth_knob_cutoff_hz(knob), text); // Hz; with a point from 1 kHz on: kHz
-        } else if (index == POT_LFO_FREQ) {
-            format_quantity(lfo_rate_hz(knob), text); // Hz
-        } else if (index == POT_GLIDE) {
-            if (synth_knob_glide_s(knob) > 0)
-                format_time(synth_knob_glide_s(knob), text);
-            else
-                text[0] = 'O', text[1] = 'F', text[2] = 'F', text[3] = 0;
-        } else {
-            int v = (int)(knob * 99.0f + 0.5f);
-            text[0] = ' ';
-            text[1] = ' ';
-            text[2] = v >= 10 ? (char)('0' + v / 10) : ' ';
-            text[3] = (char)('0' + v % 10);
-            text[4] = 0;
-        }
+        pot_value_text(index, synth_edit_layer(), knob, text);
         if (pending) {
             int n = 0;
             while (text[n])
@@ -1738,16 +1788,19 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     if (kind == CONTROL_ENCODER && !menu_open && (preset_mode || saving)) {
         encoder_patch_steps += (int)value;
         if (encoder_patch_steps >= 4 || encoder_patch_steps <= -4) {
-            int n = (current_patch + (encoder_patch_steps > 0 ? 1 : PATCH_COUNT - 1)) % PATCH_COUNT;
+            uint32_t gap = ms_ticks - encoder_patch_at;
+            int step = gap < 30 ? 8 : gap < 60 ? 4 : gap < 120 ? 2 : 1;
+            int from = turned_patch >= 0 ? turned_patch : current_patch;
+            int n = (from + (encoder_patch_steps > 0 ? step : PATCH_COUNT - step)) % PATCH_COUNT;
+            encoder_patch_at = ms_ticks;
             encoder_patch_steps = 0;
             typed_digits = 0;
-            if (saving) {
+            display_until = 0;
+            if (saving)
                 current_patch = n;
-                show_patch(n);
-            } else if (!load_patch(n)) {
-                current_patch = n; // a damaged slot: show it, keep the sound
-                show_patch(n);
-            }
+            else
+                turned_patch = n;
+            show_patch(n);
         }
     }
     if (kind == CONTROL_ENCODER && menu_open && menu_page >= 0) {
@@ -1965,7 +2018,7 @@ static void run_tuning(void)
     tuning_run();
     synth_init();
     drop_stale_midi();
-    idle_display(); // the patch's number, the open menu's page, or blank in manual mode
+    idle_display(); // the patch's number, the open menu's page, or PAnL in manual mode
 }
 
 static void enter_update_mode(void)
@@ -2387,10 +2440,10 @@ static void handle_sysex(const uint8_t *message, int length)
 }
 
 // MIDI CCs → parameters of the layer the channel plays (layer 2 for channel 2 in channel mode), else the edit layer.
-// Also CC 64 sustain pedal (bank select is ignored: one bank).
+// Also CC 64 sustain pedal (bank select is ignored: one bank). CC 74 is Timbre, per voice in MPE, so cutoff has 79.
 static const struct { uint8_t cc, param; } cc_map[] = {
     {14, POT_FREQ_A}, {15, POT_FREQ_B}, {16, POT_FINE}, {17, POT_A_PW}, {18, POT_B_PW}, {19, POT_A_LEVEL},
-    {20, POT_B_LEVEL}, {21, POT_NOISE}, {74, POT_CUTOFF}, {71, POT_RESONANCE}, {22, POT_FIL_ENV_AMT},
+    {20, POT_B_LEVEL}, {21, POT_NOISE}, {79, POT_CUTOFF}, {71, POT_RESONANCE}, {22, POT_FIL_ENV_AMT},
     {23, POT_FIL_ATT}, {24, POT_FIL_DEC}, {25, POT_FIL_SUS}, {26, POT_FIL_REL}, {73, POT_AMP_ATT}, {75, POT_AMP_DEC},
     {70, POT_AMP_SUS}, {72, POT_AMP_REL}, {5, POT_GLIDE}, {76, POT_LFO_FREQ}, {77, POT_LFO_AMOUNT},
     {27, PARAM_LFO2_RATE}, {28, PARAM_LFO2_AMOUNT}, {29, POT_PMOD_FIL_ENV}, {30, POT_PMOD_OSC_B},
@@ -2441,6 +2494,13 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
             }
         return;
     }
+    if (cc == 0 || cc == 32) // bank select: one bank
+        return;
+    if (cc == synth_cc_number(0) || cc == synth_cc_number(1)) {
+        synth_cc_source(cc == synth_cc_number(0) ? 0 : 1, value, synth_channel_layers(channel));
+        if (cc != 1 && cc != 74)
+            return;
+    }
     if (cc == 74) { // timbre: the channel's voice in the per-channel modes, else the layers it plays
         int pv = synth_channel_voice(channel);
         if (pv >= 0)
@@ -2449,17 +2509,13 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
             synth_timbre(value, synth_channel_layers(channel));
         return;
     }
-    if (cc == 0 || cc == 32) // bank select: one bank
-        return;
-    if (cc == synth_cc_number(0) || cc == synth_cc_number(1)) {
-        synth_cc_source(cc == synth_cc_number(0) ? 0 : 1, value, synth_channel_layers(channel));
-        if (cc != 1 && cc != 74)
-            return;
-    }
     for (unsigned i = 0; i < sizeof cc_map / sizeof cc_map[0]; i++)
         if (cc_map[i].cc == cc) {
             int layer = synth_layer_mode() == LAYER_CHANNEL ? channel == 1 : synth_edit_layer();
             synth_set_param(layer, cc_map[i].param, (float)value / 127.0f);
+            cc_shown_param = cc_map[i].param;
+            cc_shown_layer = layer;
+            cc_shown_value = (float)value / 127.0f;
             return;
         }
 }
@@ -2705,11 +2761,9 @@ int main(void)
     }
     if (store_ready()) {
         current_patch = store_last_patch();
-        if (store_preset_mode()) {
-            for (uint32_t start = ms_ticks; !controls_ready() && ms_ticks - start < 200;)
-                controls_poll(ms_ticks, 0); // read every knob once, so the patch's pickup starts from them
-            load_patch(current_patch);
-        }
+        for (uint32_t start = ms_ticks; !controls_ready() && ms_ticks - start < 200;)
+            controls_poll(ms_ticks, 0); // read every knob once, so the patch's pickup starts from them
+        load_patch(current_patch);
     }
     usb_midi_realtime(realtime);
     din_init(realtime);
@@ -2782,6 +2836,9 @@ int main(void)
             show_shift_value();
             display_until = now + 1500;
         }
+        if (turned_patch >= 0 && (int32_t)(now - encoder_patch_at) >= TURNED_REST_MS)
+            turned_load();
+        cc_show(now);
         if (assign_press_at && (int32_t)(now - assign_press_at) >= 600) {
             assign_press_at = 0;
             assign_hold();

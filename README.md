@@ -25,6 +25,8 @@ chip's memory layout, and the packer that turns a firmware image into an update 
   the stock PRO-800 can't, with interactive figures and recipes.
 - [The WebMIDI editor](https://klaine.github.io/pro-8000/editor/): every control, the mod matrix, patches and the
   sequencer from the browser (Chrome or Edge, with the synth on USB), and sounds in and out as JSON.
+- [The installer](https://klaine.github.io/pro-8000/editor/install.html): flashes the firmware, sets up the patch memory
+  and goes back to stock, from the same browsers.
 
 The user manual is [MANUAL.md](MANUAL.md).
 
@@ -239,7 +241,7 @@ attack, -12 semitones, or a clock division.
 | Memory | Holds |
 |---|---|
 | Flash, sectors 0-3 | The bootloader, write-protected and never touched |
-| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 79 kB in 0.9.3; the bootloader erases sectors 4 and 5 on every update |
+| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 79 kB in 0.9.4; the bootloader erases sectors 4 and 5 on every update |
 | EEPROM `0x00000`-`0x17FFF` | 128 patches, 768 bytes each: both layers' knobs and settings, 32 mod routes, a name and the step sequence with its own checksum |
 | EEPROM, after the patches | The stock factory bank, exactly where the stock firmware left it (importable); the global block (CC numbers, clock source and tempo); the tuning tables |
 
@@ -325,13 +327,13 @@ release, initialises the patch memory and installs the preset bank if you want, 
 file you provide. From the command line:
 
 ```bash
-build/pro800 install build/pro800-0.9.3.syx --yes
+build/pro800 install build/pro800-0.9.4.syx --yes
 ```
 
 On Windows (Python 3.8 or later, nothing to install; quit SynthTribe and close any editor page first):
 
 ```bash
-python tools/pro800.py install pro800-0.9.3.syx --yes
+python tools/pro800.py install pro800-0.9.4.syx --yes
 ```
 
 `python tools/pro800.py help` lists the commands, the same as `build/pro800`'s without the audio recording ones.

@@ -2,7 +2,7 @@
 // firmware):
 //   0x00000-0x17FFF  128 patches, 768 bytes each: the patch and its step sequence
 //   0x19000-0x1F3FF  the stock factory bank, left as it is
-//   0x1F400          global block: format, last patch, preset or manual mode, the CC A / B source numbers
+//   0x1F400          global block: format, last patch, the CC A / B source numbers
 //   0x1F500-0x1FBFF  the autotune tables (tuning.c)
 #ifndef STORE_H
 #define STORE_H
@@ -90,7 +90,6 @@ int store_save_sequence(int n);
 // Writes the global block, marking the EEPROM as ours.
 int store_finish_import(void);
 int store_last_patch(void);
-int store_preset_mode(void);
-void store_set_last(int patch, int preset_mode); // written only when it changed
+void store_set_last(int patch); // written only when it changed
 
 #endif

@@ -1,6 +1,6 @@
 # PRO-8000: user manual
 
-For PRO-8000 0.9.3, an alternative firmware for the Behringer PRO-800, flashed through the synth's own bootloader.
+For PRO-8000 0.9.4, an alternative firmware for the Behringer PRO-800, flashed through the synth's own bootloader.
 It's an independent project, not affiliated with Behringer or Music Tribe. It exists because Music Tribe, Behringer's
 parent company, published [PRO800-Firmware-Packer](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer):
 the main-board
@@ -116,7 +116,10 @@ web page's MIDI router).
 | 15 | FREQ B | 23-26 | Filter A / D / S / R | 31 | M TUNE (Macro 1) |
 | 16 | FINE | 27 / 28 | LFO 2 rate / amount | 70 / 72 / 73 / 75 | Amp S / R / A / D |
 | 17 / 18 | PW A / B | 71 | Resonance | 76 / 77 | LFO 1 rate / amount |
-| 19 / 20 | Level A / B | 74 | Cutoff | 85-88, 89-90 + 102-103 | Env 3, Env 4 A / D / S / R |
+| 19 / 20 | Level A / B | 79 | Cutoff | 85-88, 89-90 + 102-103 | Env 3, Env 4 A / D / S / R |
+
+The display shows a controller's value as it shows its knob's, except while Settings, a save or MOD ASSIGN is using it.
+CC 74 is the `Timbre` mod source, not a knob; before 0.9.4 this table named it for cutoff, which it never reached.
 
 ### Voice modes, drift, scale, morph
 
@@ -144,15 +147,18 @@ keep them).
 
 - **Load:** in preset mode (Preset LED on), type the number: a third digit, or a pause of 3 seconds, or a number
   that no further digit could keep within 1-128 ends it (`7` then `2` loads P72 at once; `1`, `2` waits for a third
-  digit). Or turn VALUE to step through them. An empty slot loads the init sound (the display keeps the slot number), ready to
-  build and save there with Rec, Rec (Shift + Perf brings back the sound before). Boot loads the last patch.
+  digit). Or turn VALUE to step through them: the faster it turns, the further it goes (up to 8 slots a step), and the
+  patch loads when the turn rests. An empty slot loads the init sound (the display keeps the slot number), ready to
+  build and save there with Rec, Rec (Shift + Perf brings back the sound before). Boot loads the last patch, whichever
+  mode you left it in (P1 on a freshly formatted memory).
 - **Edit:** a loaded patch's knobs are in pickup (with pickup off: until you move them) and its buttons keep their
   stored state until you press them.
-  Press Preset for manual mode, where the whole panel is live as it is.
+  Press Preset for manual mode, where the whole panel is live as it is. The display shows `PAnL` there, as it shows
+  the slot in preset mode; a knob's value appears over it for a second.
 - **Save:** press Rec (it blinks), choose a slot by number or with VALUE, then press Rec again (`donE`). You don't
   have to wait after typing: `5`, Rec saves to P5 at once. Preset cancels. The patch's name follows the sound into an empty slot.
 - **Init:** Perf loads a plain sound. Rec saves it anywhere.
-- **Names, export, backup, the factory bank:** on the web page (Patches tab).
+- **Names, export, backup and restore, the factory bank:** on the web page (Patches tab).
 - **Filling the slots after installing:** the firmware starts with no patches of its own, and slots that still hold
   the stock firmware's data show `nonE`. Saving a patch or installing a bank is enough for the synth to start on your
 last patch from then on; the other slots stay as they are. On the web page's Patches tab: **Format the patch memory** (every slot
@@ -719,9 +725,9 @@ envelope cycles), the Device cheat sheet describes that build's panel, and the s
 
 | Tab | What it does |
 |---|---|
-| **Sound** | On top, the synth's own faceplate: oscillators, poly-mod, LFO-MOD (with a rotary for LFO 1's nine shapes), noise, glide, filter (its Env select switch is the keyboard-tracking switch, as on the synth: down, middle and up make the four ADSR knobs edit the filter envelope, Env 3 or Env 4; it follows the synth's switch, and a click holds until you move that), amplifier, Macro 1 (M TUNE) and volume, with knurled knobs and bat-lever switches laid out as on the synth. Values show under the pointer, or always with the Values switch. A red arc around a knob is its modulation range: how far the edit layer's mod routes can move it from where it stands (both ways for sources that swing either side of the middle, one way for 0-to-1 sources); hover for the routes. Each oscillator section shows its waveform (as measured at the output: the enabled waves added at their own levels and pulse width, the saw falling), the filter section its response curve (above its knobs) and the envelope its ADSR knobs are editing, and the amplifier its envelope; under each envelope picture are its Mode menu (ADSR / DAHDSR / cycle / synced cycle), Trigger menu (key down / key up), Timing menu (seconds / note values), Curve menu, Delay and Hold knobs (DAHDSR), Cycles knob (cycling) and ⇆ to copy it from the other layer (in the filter section they follow the Env select switch). Below it, "Beyond the panel": Env 3 and Env 4 (picture, Mode, knobs, ⇆), LFO 1 and LFO 2 (shape, rate, amount, delay and fade, sync, retrigger, Cycles knob for a one shot, routing, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape; LFO 1's rate, amount, shape and routing are also on the faceplate), voice settings (layers, filter keytracking, voice mode and note priority, drift, scale and root, morph, Mutate, bend, detune), the mod matrix (with a knob for each macro's offset: its ring is what the routes into the macro can add, the text beside it what feeds and what it drives) and the sequencer. Drag a knob up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch; click the patch's name there to rename it (Enter or clicking away saves it to the slot, Escape leaves it). Layer 1 / Layer 2 are in the header; knobs, depth bars and the mod matrix edit that layer. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. Amber knobs are shared by both layers (mixer levels, noise, resonance, PW A / B, poly-mod osc B, volume). |
+| **Sound** | On top, the synth's own faceplate: oscillators, poly-mod, LFO-MOD (with a rotary for LFO 1's nine shapes), noise, glide, filter (its Env select switch is the keyboard-tracking switch, as on the synth: down, middle and up make the four ADSR knobs edit the filter envelope, Env 3 or Env 4; it follows the synth's switch, and a click holds until you move that), amplifier, Macro 1 (M TUNE) and volume, with knurled knobs and bat-lever switches laid out as on the synth. Values show under the pointer, or always with the Values switch. A red arc around a knob is its modulation range: how far the edit layer's mod routes can move it from where it stands (both ways for sources that swing either side of the middle, one way for 0-to-1 sources); when two or more sources move one knob, each gets a thinner arc of its own under the scale, outer to inner in the routes' order, with the combined arc outside the scale; hover for the routes and what each adds in real units. Each oscillator section shows its waveform (as measured at the output: the enabled waves added at their own levels and pulse width, the saw falling), the filter section its response curve (above its knobs) and the envelope its ADSR knobs are editing, and the amplifier its envelope; under each envelope picture are its Mode menu (ADSR / DAHDSR / cycle / synced cycle), Trigger menu (key down / key up), Timing menu (seconds / note values), Curve menu, Delay and Hold knobs (DAHDSR), Cycles knob (cycling) and ⇆ to copy it from the other layer (in the filter section they follow the Env select switch). Below it, "Beyond the panel": Env 3 and Env 4 (picture, Mode, knobs, ⇆), LFO 1 and LFO 2 (shape, rate, amount, delay and fade, sync, retrigger, Cycles knob for a one shot, routing, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape; LFO 1's rate, amount, shape and routing are also on the faceplate), voice settings (layers, filter keytracking, voice mode and note priority, drift, scale and root, morph, Mutate, bend, detune), the mod matrix (each route's Range in the destination's own units: semitones or cents of pitch, semitones of cutoff, octaves of an LFO rate, a × factor on a time, per cent of a level, and for a cutoff, a rate or a time where that takes the knob from where it stands; with a knob for each macro's offset: its ring is what the routes into the macro can add, the text beside it what feeds and what it drives) and the sequencer. Drag a knob up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch; click the patch's name there to rename it (Enter or clicking away saves it to the slot, Escape leaves it). Layer 1 / Layer 2 are in the header; knobs, depth bars and the mod matrix edit that layer. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. Amber knobs are shared by both layers (mixer levels, noise, resonance, PW A / B, poly-mod osc B, volume). |
 | **Device cheat sheet** | How to reach everything this firmware adds from the synth's own panel: the remapped buttons, the display, patches, layers, LFOs, envelopes, mod assign with its source keys and destinations, the settings menu, MIDI and recovery, and what's web-only. |
-| **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 128 as a `.bin`. **In one go:** format the patch memory, copy the whole factory bank into the empty slots, or install the preset bank (66 sounds into P1-P66, from the page's own copy, or a bank file such as the release's `pro8000-presets-<version>.json`; a bank pasted or opened in the JSON box installs too), each after a confirmation. Empty slots are hidden unless "show empty slots" is ticked. **Sound as JSON:** the current sound as JSON in the preset files' format (`presets/README.md`: knobs 0-99, buttons, settings, routes, LFO step patterns, the sequence, the morph target, by the `pro800` tool's names): show it in the text box, copy it, or download it as a `.json` file. Paste JSON into the box (or open a `.json` file, such as one of `presets/`) to load it into the sound: it starts from the init sound and sets what the JSON names, after checking every name and range, and settings the connected firmware hasn't got are left out with a note. Then save it into a slot with its name. A file from here installs with `presets/install.sh` too. Copy factory sounds into empty slots. |
+| **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 128 as a `.bin` and restore that file over every slot. **In one go:** format the patch memory, copy the whole factory bank into the empty slots, or install the preset bank (66 sounds into P1-P66, from the page's own copy, or a bank file such as the release's `pro8000-presets-<version>.json`; a bank pasted or opened in the JSON box installs too), each after a confirmation. Empty slots are hidden unless "show empty slots" is ticked. **Sound as JSON:** the current sound as JSON in the preset files' format (`presets/README.md`: knobs 0-99, buttons, settings, routes, LFO step patterns, the sequence, the morph target, by the `pro800` tool's names): show it in the text box, copy it, or download it as a `.json` file. Paste JSON into the box (or open a `.json` file, such as one of `presets/`) to load it into the sound: it starts from the init sound and sets what the JSON names, after checking every name and range, and settings the connected firmware hasn't got are left out with a note. Then save it into a slot with its name. A file from here installs with `presets/install.sh` too. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. The browser remembers the router's input and its clock box, and routes again whenever that input is there (after a reload, or when it's plugged back in); choose (off) to forget it. |
 | **System** | Firmware version, timing, autotune and the tuning tables, and knob pickup on or off (0.9.3). |
 | **Panel mapping** | The developer tools used to map the panel. |
@@ -739,7 +745,7 @@ build/pro800 patch rename A07 Warm Pad
 build/pro800 factory import 12 B00
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.9.3.syx --yes
+build/pro800 install build/pro800-0.9.4.syx --yes
 ```
 
 ## Updating, recovery and going back to stock
@@ -781,7 +787,7 @@ so read its note first.
 
 **1. Save your PRO-8000 sounds (optional).** Open the [web editor](https://klaine.github.io/pro-8000/editor/) in Chrome
 or Edge, go to the Patches tab and click **Back up everything**. Only PRO-8000 can read this file, so it is useful only
-if you come back to PRO-8000 later.
+if you come back to PRO-8000 later: **Restore everything** on the same tab writes it back.
 
 **2. Fix the patch memory.** Choose one route. Leave the synth switched on, running PRO-8000.
 

@@ -864,6 +864,7 @@ $("file-image").onchange = async e => {
   if (!file) return;
   const noteId = radio("task") === "install" ? "image-note-install" : "image-note-stock";
   const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.length === PATCH_COUNT * 768) { imageFile = null; render(); note(noteId, `${file.name} is the editor's Back up everything file, not a memory image. Restore it in the editor: Patches tab, Restore everything.`, "bad"); return; }
   if (bytes.length !== IMAGE_SIZE) { imageFile = null; render(); note(noteId, `${file.name} isn't a memory image: it should be exactly 128 kB.`, "bad"); return; }
   imageFile = { name: file.name, bytes };
   render();

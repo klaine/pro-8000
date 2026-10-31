@@ -1710,9 +1710,44 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   `routes`, `timing`, `tuning`, `check`, `panel`, `eeprom`), anything that changes the synth, `update-mode`, `flash` and
   `install`. Nothing on macOS or Linux.
 
+## Boot, PAnL, VALUE through the patches, controllers on the display (0.9.4, 2026-10-30)
+
+From the GitHub issues (#14, #15, #1). Built; **not yet run on the synth** when this was written.
+
+- **Boot always loads the last patch** (#14). 0.9.3 stayed in manual mode if that's what you left, so after a format
+  or a first install the sound came from the knobs and `MANUAL.md`'s "Boot loads the last patch" wasn't true. The mode
+  is no longer stored: `store_set_last()` lost its argument and the global block's byte 6 is written as 1, so going
+  back to 0.9.3 boots on a patch too. Memory still in stock's format has no global block and starts in manual mode.
+- **`PAnL` is manual mode's idle display** (#15), not a one-second message before a blank display that looked switched
+  off. #15 asked for it until the first edit; tried on the synth, the blank after that first value looked just as off,
+  so a value now gives way to `PAnL` as it gives way to the slot number in preset mode.
+- **VALUE through the patches accelerates** (#1): a cycle moves 8 patches under 30 ms since the last, 4 under 60, 2
+  under 120, else 1. The thresholds are a first guess; tune them on the synth. **The load now waits for the turn to rest**
+  (`TURNED_REST_MS`, 80 ms, or the next control event): a load blocks about 25 ms and the encoder is polled in the
+  same loop, so loading every step lost transitions on a fast turn, which is likely most of why it felt slow. Picking a
+  slot in a save accelerates too; it never loaded.
+- **Controllers show on the display** as their knob does (#1, `pot_value_text()` shared with the knobs; LFO 2 and Env
+  3 / 4 as 0-99). The main loop shows the latest at most 20 times a second, since a controller can stream and a redraw
+  stalls the loop up to 3.5 ms, and not while Settings, a save, a recording, MOD ASSIGN, Browse, compare or a typed
+  number has the display. A filter-envelope controller formats by the selected envelope's timing (display only).
+- **CC 79 is cutoff now.** `cc_map` and `MANUAL.md` said CC 74, but `control_change()` took 74 as Timbre first, so it
+  never reached cutoff; MPE needs 74 as Timbre. The CC A / B check moved ahead of it, so CC A or B set to 74 works as
+  that source as well (its `cc != 74` test could never run before).
+- **Restore everything** on the editor's Patches tab (reported by a user): Back up everything has written a 98,304-byte
+  `.bin` since 0.8.0, and nothing took it back; the installer wants a 131,072-byte image and just called it wrong, now
+  it names the file and sends you to the editor. The page checks the size and every record's checksum, refuses memory
+  still in the stock format (raw writes wouldn't write the global block), then writes only the slots that differ and
+  reads each back, so a retry picks up where it stopped. It uses the same 79 / 5A SysEx as Export and Import, so it
+  works with older firmware too. Tested in Node with the page's handlers against a simulated EEPROM holding a real
+  backup (differing slots, identical memory, wrong size, damaged record, no patches, stock memory, declining, a failed
+  write and its retry, a failed read-back); not yet run in a browser against the synth.
+
 ## Backlog
 
-- `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer; a web button to install the bank.
+- `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer.
+- From the GitHub issues: a CC or NRPN for every parameter, with NRPN on the display (#12, #1; the reporter asks for
+  it once the firmware has settled), release velocity as a mod source (#8: `key_off()` drops it), the
+  Settings and Performance menus on a long press (#2, with Perf's init below), a one-press save (#1).
 - Audition the preset bank on the synth and tune levels and cutoffs.
 - Compare stock and PRO-8000 tuning. Stock's Tune takes clearly longer than ours (about 25 s) and, by ear on 2026-10-30,
   goes voice by voice through notes in different octaves, then PW and filters. Ours measures each oscillator and filter
@@ -1744,10 +1779,9 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 **Panel**
 
 - Sequencer transport and step recording from the panel (web-only today).
-- Compare / undo: hold Preset to hear the stored patch; make Perf's init a hold or double press.
+- Make Perf's init a hold or double press.
 - Scroll the patch name across the display on load; show the pickup direction (top / bottom segment); a velocity
-  and aftertouch amount page in Settings; layer copy (Seq 1 + Seq 2); Tune progress on the display; a panic
-  combination; hold a Settings key to reset it.
+  and aftertouch amount page in Settings; Tune progress on the display; hold a Settings key to reset it.
 - Patch names from the keypad (multi-tap); today the web page or `pro800 patch rename`.
 
 **Features**
@@ -1795,3 +1829,23 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 5. Port the p600fw synth core (voices 6 → 8, add noise CV), then add the bitimbral mode and LFO sync.
 6. Build the per-voice modulation path as a general mod matrix, then add MPE and the 8-channel mono mode
    on top of it.
+
+## Real-unit ranges in the mod matrix and per-source rings on the knobs (2026-10-31)
+
+- The web page's Mod matrix got a Range column: `routeSwing()` turns a route into what it can add in the
+  destination's own units, from the engine's constants (`synth.c`): pitch 24 semitones at 99 with the squared depth
+  (cents below a semitone), cutoff 96, filter env amount 72, poly-mod env amount 48, LFO → pitch 12 and → filter 48
+  semitones of LFO depth, PW ±50 %, detune ±50 cents, the LFO amounts, LFO → PW, VCA, volume and morph in per cent,
+  LFO rates in octaves (4 at 99), stage times and glide as a factor (2^(4 × mod): ÷4 to ×4 at 50), the rest (levels,
+  noise, resonance, poly-mod B, sustain, macros) in the knob's 0-99. A source that swings either side of the middle
+  reads ±, a 0-to-1 source one way (the depth's sign), FIX a fixed offset; into the VCA and the volume a 0-to-1 source
+  counts down from full and FIX down by its depth. `swingWhere()` adds where that takes the knob from where it stands
+  for a cutoff (Hz), a free LFO rate (Hz) and a stage time or glide (seconds); the cells repaint with the knobs, and
+  the new-route row previews its range before it's added.
+- The knobs' rings: with two or more sources on one knob, `modRange()` groups the routes by source (`parts`) and
+  `dial()` draws a thinner arc per source under the ticks (radii 23.5, 21.9, 20.3, 18.7, width 1.2, opacity .5; past
+  four sources the fourth arc takes the rest), outer to inner in route order, and the combined arc moved from under
+  the ticks (22.2, width 3.2) to just outside them (25.7, width 2), so it reads on top. The dial's title lists the
+  routes in ring order with their ranges; the macro knobs do the same for their inputs. Checked offline in the desktop
+  app's browser with injected routes (five sources on the cutoff, two on Osc A, FIX and velocity into the VCA, LFO 1
+  into the amp attack, random into glide); not yet against the synth.

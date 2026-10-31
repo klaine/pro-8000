@@ -1,7 +1,7 @@
 // Patch EEPROM layout (128 kB, from 0.8.0 / format 2; the stock image in backup/ is the way back to stock firmware):
 //   0x00000-0x17FFF  128 patch records of 768 bytes, each a patch and its step sequence
 //   0x19000-0x1F3FF  the stock factory bank (100 patches of 256 bytes), left as it is, for importing
-//   0x1F400          global block: format, last patch, preset or manual mode, the CC A / B numbers, the MIDI channel
+//   0x1F400          global block: format, last patch, the CC A / B numbers, the MIDI channel
 //   0x1F500-0x1FBFF  the autotune tables (tuning.c)
 //
 // Patch record (768 bytes, little-endian), two halves with their own checksums so the sequence can be written alone:
@@ -98,7 +98,7 @@
 static struct {
     int valid;
     uint16_t last_patch;
-    uint8_t preset_mode, format, cc[2], clock_source, midi_channel, no_pickup;
+    uint8_t format, cc[2], clock_source, midi_channel, no_pickup;
     uint16_t bpm; // ×10
 } global;
 
@@ -122,7 +122,7 @@ static int write_global(void)
     uint8_t b[20] = {0};
     put32(b, GLOBAL_MAGIC);
     put16(b + 4, global.last_patch);
-    b[6] = global.preset_mode;
+    b[6] = 1; // preset mode until 0.9.3, whose boot read it; 0.9.4 always boots on the last patch
     b[7] = FORMAT;
     b[8] = global.cc[0];
     b[9] = global.cc[1];
@@ -146,7 +146,6 @@ static int format_patches(void)
         if (!eeprom_write(a, zeros, sizeof zeros))
             return 0;
     global.last_patch = 0;
-    global.preset_mode = 0;
     return write_global();
 }
 
@@ -158,7 +157,6 @@ void store_init(void)
     eeprom_read(GLOBAL_ADDRESS, b, sizeof b);
     global.valid = get32(b) == GLOBAL_MAGIC && get32(b + 12) == checksum(b, 12);
     global.last_patch = global.valid ? get16(b + 4) : 0;
-    global.preset_mode = global.valid ? b[6] : 0;
     global.format = global.valid ? b[7] : 0;
     global.cc[0] = global.valid ? b[8] : 0;
     global.cc[1] = global.valid ? b[9] : 0;
@@ -553,13 +551,10 @@ int store_finish_import(void) { return write_global(); }
 
 int store_last_patch(void) { return global.last_patch; }
 
-int store_preset_mode(void) { return global.preset_mode; }
-
-void store_set_last(int patch, int preset_mode)
+void store_set_last(int patch)
 {
-    if (!global.valid || (global.last_patch == patch && global.preset_mode == preset_mode))
+    if (!global.valid || global.last_patch == patch)
         return;
     global.last_patch = (uint16_t)patch;
-    global.preset_mode = (uint8_t)preset_mode;
     write_global();
 }

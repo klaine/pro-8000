@@ -194,8 +194,9 @@
               box-shadow: 0 0 0 2px #3a2606, 0 0 0 3px #e39a1c; }
   .k-ptr { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
   /* the modulation range: an arc just inside the scale, in the panel's red */
-  .k-mod { fill: none; stroke: #ff4a36; stroke-opacity: .9; stroke-width: 3.2; stroke-linecap: round; }
-  .knob.shared .k-mod { stroke: #ffb347; }
+  .k-mod { fill: none; stroke: #ff4a36; stroke-opacity: .9; stroke-width: 2; stroke-linecap: round; }
+  .k-mod-part { fill: none; stroke: #ff4a36; stroke-opacity: .5; stroke-width: 1.2; }
+  .knob.shared .k-mod, .knob.shared .k-mod-part { stroke: #ffb347; }
   .knob .dial:hover .k-grip, .knob .dial.active .k-grip, .knob .dial:focus-visible .k-grip { stroke: #56565c; }
   .knob .dial:focus-visible { outline-offset: -2px; }
   .knob .lbl { margin-top: 1px; color: var(--silk, var(--label)); font: 800 9px/1.15 var(--sans); letter-spacing: .04em;
@@ -406,6 +407,8 @@
   .depth-cell { display: flex; gap: 6px; align-items: center; }
   .depth-cell input[type=range] { width: 140px; accent-color: var(--accent); }
   .depth-cell output { font: 12px var(--mono); width: 30px; text-align: right; }
+  td.range { font-size: 12px; white-space: nowrap; line-height: 1.25; }
+  td.range small { display: block; color: var(--dim); font-size: 11px; }
   tr.new-head td { border-top: 2px dashed var(--edge); color: var(--dim); font-size: 12px; padding-top: 10px; border-bottom: 0; }
   tr.new-head td, tr.new-route td { background: var(--bg); }
   @media (max-width: 600px) { td.actions { white-space: normal; } }
@@ -459,7 +462,7 @@
         <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
         <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
         <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span><span data-needs="pickup">; FIL ENV AMT → knob pickup <code class="lcd">P.UP</code> <code class="lcd">on</code> / <code class="lcd">OFF</code> (a quarter turn)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
-        <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live)</td></tr>
+        <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live; the display shows <code class="lcd">PAnL</code>)</td></tr>
         <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
         <tr><td><kbd>Perf</kbd></td><td>Load the init sound (one saw, filter open)</td></tr>
         <tr><td><kbd>Settings</kbd></td><td>The settings menu <code class="lcd">SEt</code> (keys 0-9 below)</td></tr>
@@ -479,7 +482,7 @@
     <section class="cs">
       <h3>Patches</h3>
       <ul>
-        <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a 3 s pause ends it), or <kbd>VALUE</kbd> steps through them (<code class="lcd">P  7</code>, <code class="lcd">P128</code>). An empty slot loads the init sound.</li>
+        <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a 3 s pause ends it), or <kbd>VALUE</kbd> steps through them, further the faster it turns, and loads when it rests (<code class="lcd">P  7</code>, <code class="lcd">P128</code>). An empty slot loads the init sound.</li>
         <li><b>Save:</b> <kbd>Rec</kbd>, two digits or <kbd>VALUE</kbd>, <kbd>Rec</kbd>. <kbd>Preset</kbd> cancels.</li>
         <li><b>Init:</b> <kbd>Perf</kbd>, then <kbd>Rec</kbd> to keep it anywhere.</li>
         <li>A patch keeps both layers, settings, routes, LFO shapes and step patterns, and its sequence. M VOL isn't stored.</li>
@@ -589,7 +592,7 @@
         <li>USB MIDI or the 5-pin MIDI IN, on any channel (SysEx over USB only)<span data-needs="midiChannel">, or the one set with <kbd>Shift</kbd> + NOISE <code class="lcd">CHnL</code> (<code class="lcd">ALL</code>, 1-16; in <code class="lcd">CHAn</code> <code class="lcd">8CH</code> <code class="lcd">nPE</code> the first of their channels)</span>. MIDI clock drives sync; Start lines up the bar, Continue picks up at Song Position. Or the internal clock (tap Sync Clock) or the SYNC IN jack: Shift + Sync Clock picks the source.</li>
         <li>Sustain (CC 64), pitch bend (range: <kbd>Settings</kbd> <kbd>7</kbd>), mod wheel, poly and channel aftertouch; in channel mode each channel's reach only its layer.</li>
         <li>Program change 0-127 picks patch 1-128; bank select is ignored.</li>
-        <li>CCs: 74 cutoff, 71 resonance, 5 glide, 14 / 15 FREQ A / B, 16 FINE, 17 / 18 PW, 19 / 20 levels, 21 noise, 22 filter env amount, 23-26 filter ADSR, 73 / 75 / 70 / 72 amp A / D / S / R, 76 / 77 LFO 1, 27 / 28 LFO 2, 29 / 30 poly-mod, 31 tune, 85-90 + 102-103 Env 3 / 4.</li>
+        <li>CCs: 79 cutoff, 71 resonance, 5 glide, 14 / 15 FREQ A / B, 16 FINE, 17 / 18 PW, 19 / 20 levels, 21 noise, 22 filter env amount, 23-26 filter ADSR, 73 / 75 / 70 / 72 amp A / D / S / R, 76 / 77 LFO 1, 27 / 28 LFO 2, 29 / 30 poly-mod, 31 tune, 85-90 + 102-103 Env 3 / 4.</li>
       </ul>
     </section>
 
@@ -618,7 +621,9 @@
       note. Macro 1 and Macro 2 are both destinations and sources (the M TUNE knob is Macro 1's own knob, added to its
       offset): route anything into a macro, then the macro into
       several destinations with their own depths; a macro moves once a pass (1-2.4 ms). Envelope stage destinations
-      scale that stage's time up to 16× either way at depth 99 (sustain adds to the level). On the panel: Arp Assign,
+      scale that stage's time up to 16× either way at depth 99 (sustain adds to the level). Range is what the route can
+      add, in the destination's own units: ± for a source that swings either side of the middle, one way for a 0-to-1
+      source; for a cutoff, an LFO rate or a time, also where that takes the knob from where it stands. On the panel: Arp Assign,
       then a source (a number key, a touch of an LFO or ADSR knob, or scroll with VALUE), then a destination (touch
       its knob or LFO button, or scroll and press Arp Assign), VALUE for the depth; hold Arp Assign to browse the routes.
       <span data-needs="routeBoth">In the two-layer modes, Both plays a route on both layers' voices with one slot and one
@@ -627,12 +632,13 @@
     <div class="row"><span class="dim small">the layer you're editing</span>
       <button id="matrix-refresh">Refresh</button><span class="msg" id="matrix-msg"></span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Source</th><th>Destination</th><th>Depth</th><th class="both-cell">Layers</th><th></th></tr></thead>
+      <thead><tr><th>Source</th><th>Destination</th><th>Depth</th><th>Range</th><th class="both-cell">Layers</th><th></th></tr></thead>
       <tbody id="routes"></tbody>
-      <tfoot><tr class="new-head"><td colspan="5">New route: pick a source, a destination and a depth, then
+      <tfoot><tr class="new-head"><td colspan="6">New route: pick a source, a destination and a depth, then
         Add route. It does nothing until it's added.</td></tr>
         <tr class="new-route"><td><select id="new-source"></select></td><td><select id="new-dest"></select></td>
         <td><div class="depth-cell"><input type="range" id="new-depth" min="-99" max="99" value="50"><output id="new-depth-out">50</output></div></td>
+        <td class="range" id="new-range"></td>
         <td class="both-cell"></td>
         <td class="actions"><button class="primary" id="add-route">Add route</button></td></tr></tfoot>
     </table></div>
@@ -644,13 +650,16 @@
     <h2>Patches</h2>
     <p class="hint">128 patches (P1-P128, program change 0-127), each with its own sequence. Saving takes the sound as it is now on the synth.
       Names travel with the sound; rename by typing in the name and pressing Enter (or click the loaded patch's name on the screen at the top). Export saves one patch as a
-      768-byte .p8p file (with its sequence), which Import writes back into any slot.</p>
+      768-byte .p8p file (with its sequence), which Import writes back into any slot. Back up everything saves all 128
+      as one .bin, which Restore everything writes back over every slot.</p>
     <div class="row">
       <button id="scan">Rescan</button>
       <button id="init-sound">Load the init sound</button>
       <label><input type="checkbox" id="show-empty"> show empty slots</label>
       <button id="backup-all" title="all 128 patches with their sequences: the first 96 kB of the EEPROM">Back up everything (.bin)</button>
+      <button id="restore-all" title="a file from Back up everything, over all 128 slots; asks first">Restore everything (.bin)…</button>
       <input type="file" id="import-file" accept=".p8p,application/octet-stream" hidden>
+      <input type="file" id="restore-file" accept=".bin,application/octet-stream" hidden>
       <span class="msg" id="patch-msg"></span>
     </div>
     <p class="hint">Fill the patch memory in one go (each asks first). After installing from the stock firmware the
@@ -1385,10 +1394,13 @@ const DEST_SCALE = { 0: 24 / 72, 1: 24 / 72, 2: 24 / 72, 3: 96 / 120, 4: 0.5, 5:
   16: 1, 18: 0.4, 19: 1, 20: 0.4, 41: 0.4, 43: 1 }; // stages: 4 octaves of 12
 const BIPOLAR_SOURCES = new Set([1, 11, 9, 10, 12, 13, 14, 15, 20, 26, 27]);
 const SQUARED_DESTS = new Set([0, 1, 2]);
+const FIXED_SOURCE = 25;
 const routeOf = (source, dest) => [...layerRoutes, ...otherRoutes].find(x => x.source === source && x.dest === dest);
+// The knob's whole range (lo, hi), each source's share of it (parts, in route order) and the routes as text
 function modRange(knob) {
-  const r = { lo: 0, hi: 0, who: [] };
+  const r = { lo: 0, hi: 0, who: [], parts: [] };
   if (!layerRoutes) return r;
+  const bySource = new Map();
   for (const { source, dest, depth } of [...layerRoutes, ...otherRoutes]) {
     const knobs = DEST_KNOBS[dest];
     if (!knobs || !knobs.includes(knob) || !depth) continue;
@@ -1398,10 +1410,68 @@ function modRange(knob) {
     const span = d * scale;
     // into the VCA or the volume a 0..1 source counts down from full, and FIX turns it down by its depth
     const down = (dest === 9 || dest === 43) && !BIPOLAR_SOURCES.has(source);
-    if (BIPOLAR_SOURCES.has(source)) { r.lo += span; r.hi += span; } else if (down || depth < 0) r.lo += span; else r.hi += span;
-    r.who.push(`${SOURCES[source]} ${depth > 0 ? "+" : ""}${depth}`);
+    let p = bySource.get(source);
+    if (!p) bySource.set(source, p = { lo: 0, hi: 0, who: [] });
+    if (BIPOLAR_SOURCES.has(source)) { p.lo += span; p.hi += span; } else if (down || depth < 0) p.lo += span; else p.hi += span;
+    const sw = routeSwing(source, dest, depth);
+    p.who.push(`${SOURCES[source] || "source " + source} ${depth > 0 ? "+" : ""}${depth} → ${DESTS[dest]}${sw ? ` (${sw.text})` : ""}`);
   }
+  for (const p of bySource.values()) { r.lo += p.lo; r.hi += p.hi; r.parts.push(p); r.who.push(...p.who); }
   return r;
+}
+// --- a route's reach in its destination's own units ---
+const timeDest = d => d === 41 || (d >= 25 && d <= 40 && (d - 25) % 4 !== 2); // stage times and glide: × 2^(4 × mod)
+const rateDest = d => d === 18 || d === 20;                                      // LFO rates: 2^(4 × mod)
+const factor = oct => { const f = 2 ** oct; return f < 9.95 ? +f.toFixed(1) : Math.round(f); };
+// a destination's swing at depth 99 and how to print a value in its units (the engine's constants, synth.c)
+function swingUnit(dest) {
+  const st = x => (Math.abs(x) < 9.95 ? +x.toFixed(1) : Math.round(x)) + " st";
+  const pct = x => Math.round(x) + " %";
+  if (dest <= 2) return [24, x => Math.abs(x) < 0.995 ? Math.round(x * 100) + " ct" : st(x)];
+  if (dest === 3) return [96, st];
+  if (dest === 4) return [72, st];                                  // filter envelope amount: the sweep it adds
+  if (dest === 5) return [48, st];                                  // poly-mod envelope amount
+  if (dest === 7 || dest === 21) return [12, st];                   // LFO → pitch: vibrato depth
+  if (dest === 8 || dest === 22) return [48, st];                   // LFO → filter
+  if (dest === 14 || dest === 15) return [50, pct];                 // pulse width
+  if (dest === 42) return [50, x => Math.round(x) + " ct"];         // unison detune
+  if ([6, 9, 17, 19, 23, 24, 43].includes(dest)) return [100, pct]; // LFO amounts and → PW, VCA, volume, morph
+  if (rateDest(dest)) return [4, x => +x.toFixed(1) + " oct"];
+  if (timeDest(dest)) return [4, x => x < 0 ? "÷" + factor(-x) : "×" + factor(x)];
+  return [99, x => String(Math.round(x))];                          // levels, noise, resonance, poly-mod B, sustain, macros: 0-99
+}
+// What a route can add to its destination: {lo, hi, text}. A source that swings either side of the middle gives ±,
+// a 0-to-1 source one way (the depth's sign), FIX a fixed offset; into the VCA or the volume a 0-to-1 source counts
+// down from full (FIX: down by the depth). Pitch depths are squared; times and rates are multiplied.
+function routeSwing(source, dest, depth) {
+  if (!depth || dest >= DESTS.length) return null;
+  const [full, fmt] = swingUnit(dest);
+  let d = depth / 99;
+  if (SQUARED_DESTS.has(dest)) d *= Math.abs(d);
+  const m = d * full, bip = BIPOLAR_SOURCES.has(source), down = (dest === 9 || dest === 43) && !bip;
+  let lo, hi;
+  if (bip) { lo = -Math.abs(m); hi = Math.abs(m); }
+  else if (source === FIXED_SOURCE) lo = hi = down ? -Math.abs(m) : m;
+  else { const x = down ? -m : m; lo = Math.min(x, 0); hi = Math.max(x, 0); }
+  const mul = timeDest(dest), s = x => !x ? (mul ? "×1" : "0") : (x > 0 && !mul ? "+" : "") + fmt(x);
+  const text = lo === hi ? s(hi) : !mul && lo === -hi ? "±" + fmt(hi) : `${s(lo)} to ${s(hi)}`;
+  return { lo, hi, text };
+}
+// Where that takes the knob from where it stands, when the unit is a frequency or a time: "1.2 kHz – 4.6 kHz"
+function swingWhere(dest, sw) {
+  const knobs = DEST_KNOBS[dest];
+  if (!params || !sw || !knobs || knobs.length !== 1) return "";
+  const i = knobs[0], v = params[i], at = x => format(i, Math.min(1, Math.max(0, v + x)));
+  if (dest === 3) return `${at(sw.lo / 120)} – ${at(sw.hi / 120)}`;                 // 120 semitones of travel
+  if (rateDest(dest))                                                                 // 10 octaves of travel
+    return settings && settings[dest === 20 ? "lfo2Sync" : "lfo1Sync"] ? "" : `${at(sw.lo / 10)} – ${at(sw.hi / 10)}`;
+  if (timeDest(dest)) {
+    let t;
+    if (dest === 41) t = v < 0.02 ? 0 : 0.002 * 2 ** (v * 10);
+    else { const [bit, stage] = ENV_KNOB[i]; if (cycleSync(bit) || envTempo(bit)) return ""; t = envTime(stage, v, cycling(bit)); }
+    return t > 0 ? `${seconds(t * 2 ** sw.lo)} – ${seconds(t * 2 ** sw.hi)}` : "";
+  }
+  return "";
 }
 function depthText(dests, d) {
   const signed = x => (x > 0 ? "+" : "") + x;
@@ -1590,6 +1660,9 @@ function adjustable(e, get, set, reset, { vertical = true, span = 200, unit = 0 
 
 // The knob face: a knurled black knob with a white pointer, in a printed scale (0-10, -5..+5 when bipolar) or, for a
 // selector, its named positions. turn(u) points it at u (0..1); mark(k) lights selector position k.
+// The modulation range: the combined arc just outside the scale's ticks (RING_R) and, with two or more sources on
+// the knob, a thinner arc per source under the ticks, outer to inner in route order (PART_RINGS at most).
+const RING_R = 25.7, PART_RINGS = 4, PART_R0 = 23.5, PART_STEP = 1.6;
 function dial(scale) {
   const s = svgEl("svg", { viewBox: "0 3 80 62", "aria-hidden": "true" });
   const names = Array.isArray(scale) ? scale : null, n = names ? names.length : 11;
@@ -1608,8 +1681,9 @@ function dial(scale) {
     }
   }
   const ptr = svgEl("line", { class: "k-ptr", x1: 40, y1: 33, x2: 40, y2: 22.5 });
+  const parts = Array.from({ length: PART_RINGS }, () => svgEl("path", { class: "k-mod-part" }));
   const ring = svgEl("path", { class: "k-mod" }); // the modulation range around the value, as an arc
-  s.append(ring, g, svgEl("circle", { class: "k-grip", cx: 40, cy: 38, r: 17 }), svgEl("circle", { class: "k-cap", cx: 40, cy: 38, r: 13 }), ptr);
+  s.append(...parts, ring, g, svgEl("circle", { class: "k-grip", cx: 40, cy: 38, r: 17 }), svgEl("circle", { class: "k-cap", cx: 40, cy: 38, r: 13 }), ptr);
   const arc = (u0, u1, r) => {
     const a0 = (-135 + u0 * 270) * Math.PI / 180, a1 = (-135 + u1 * 270) * Math.PI / 180;
     const [x0, y0] = [40 + r * Math.sin(a0), 38 - r * Math.cos(a0)], [x1, y1] = [40 + r * Math.sin(a1), 38 - r * Math.cos(a1)];
@@ -1619,10 +1693,18 @@ function dial(scale) {
     svg: s,
     turn: u => ptr.setAttribute("transform", `rotate(${(-135 + u * 270).toFixed(1)} 40 38)`),
     mark: k => texts.forEach((t, j) => t && t.classList.toggle("on", j === k)),
-    // the range the mod routes can move the value over: lo..hi in knob units around u (none: hidden)
-    range: (u, lo, hi) => {
-      const a = Math.max(0, u - lo), b = Math.min(1, u + hi);
-      ring.setAttribute("d", b - a > 0.002 ? arc(a, b, 22.2) : "");
+    // the range the mod routes can move the value over: lo..hi in knob units around u (none: hidden), and each
+    // source's own share (list: [{lo, hi}]) when there are several; past PART_RINGS sources the last arc takes the rest
+    range: (u, lo, hi, list = []) => {
+      const draw = (p, x, r) => {
+        const a = x ? Math.max(0, u - x.lo) : 0, b = x ? Math.min(1, u + x.hi) : 0;
+        p.setAttribute("d", x && b - a > 0.002 ? arc(a, b, r) : "");
+      };
+      draw(ring, { lo, hi }, RING_R);
+      const shown = list.length > 1 ? list.slice(0, PART_RINGS) : [];
+      if (list.length > PART_RINGS)
+        shown[PART_RINGS - 1] = list.slice(PART_RINGS - 1).reduce((s, x) => ({ lo: s.lo + x.lo, hi: s.hi + x.hi }), { lo: 0, hi: 0 });
+      parts.forEach((p, k) => draw(p, shown[k], PART_R0 - PART_STEP * k));
     },
   };
 }
@@ -1646,9 +1728,9 @@ function knob(i, text) {
     const n = I(), u = params[n];
     d.turn(u);
     const m = modRange(n);
-    d.range(u, m.lo, m.hi);
+    d.range(u, m.lo, m.hi, m.parts);
     dl.classList.toggle("modded", m.lo + m.hi > 0);
-    dl.title = m.who.length ? "modulated by " + m.who.join(", ") : "";
+    dl.title = m.who.length ? `modulated by${m.parts.length > 1 ? " (rings, outer to inner):" : ""} ` + m.who.join(", ") : "";
     val.textContent = format(n, u);
     dl.setAttribute("aria-valuetext", val.textContent);
     if (typeof i === "function") e.title = label(n);
@@ -2798,16 +2880,20 @@ function macroKnob(k) {
     const u = get();
     d.turn(u); val.textContent = show(u);
     let lo = 0, hi = 0;
-    const ins = [], outs = [];
+    const ins = [], outs = [], parts = new Map(); // each source's share of the ring
     for (const r of layerRoutes || []) {
       if (r.dest === 44 + k) {
-        ins.push(`${SOURCES[r.source]} ${signed(r.depth)}`);
+        const sw = routeSwing(r.source, r.dest, r.depth);
+        ins.push(`${SOURCES[r.source]} ${signed(r.depth)}${sw ? ` (${sw.text})` : ""}`);
         const span = Math.abs(r.depth) / 99 / 2; // a full-depth input moves the macro by 1: half the knob's travel
-        if (BIPOLAR_SOURCES.has(r.source)) { lo += span; hi += span; } else if (r.depth > 0) hi += span; else lo += span;
+        let p = parts.get(r.source);
+        if (!p) parts.set(r.source, p = { lo: 0, hi: 0 });
+        if (BIPOLAR_SOURCES.has(r.source)) { p.lo += span; p.hi += span; } else if (r.depth > 0) p.hi += span; else p.lo += span;
       }
       if (r.source === 26 + k) outs.push(`${DESTS[r.dest]} ${signed(r.depth)}`);
     }
-    d.range(u, lo, hi);
+    for (const p of parts.values()) { lo += p.lo; hi += p.hi; }
+    d.range(u, lo, hi, [...parts.values()]);
     dl.classList.toggle("modded", lo + hi > 0);
     wires.replaceChildren(h("span", {}, ins.length ? "fed by " + ins.join(", ") : "no inputs: the knob alone"),
       h("span", {}, outs.length ? "→ " + outs.join(", ") : "→ nothing yet"));
@@ -3195,7 +3281,9 @@ const options = (list, skip) => list.map((t, i) => i === skip ? "" :
   `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");
 document.getElementById("new-source").innerHTML = options(SOURCES, 0);
 document.getElementById("new-dest").innerHTML = options(DESTS, -1);
-document.getElementById("new-depth").oninput = e => document.getElementById("new-depth-out").textContent = e.target.value;
+document.getElementById("new-depth").oninput = e => { document.getElementById("new-depth-out").textContent = e.target.value; paintNewRange(); };
+document.getElementById("new-source").onchange = document.getElementById("new-dest").onchange = paintNewRange;
+paintNewRange();
 
 async function setRoute(layer, src, dest, depth) {
   const d = depth + 99;
@@ -3224,12 +3312,15 @@ function renderRoutes(force) {
     tr.innerHTML = `<td><select class="s">${options(SOURCES, 0)}</select></td>
       <td><select class="d">${options(DESTS, -1)}</select> ${WIRE.has(dest) ? '<span class="tag">wire</span>' : ""}${own ? "" : ` <span class="tag">layer ${layer + 1}'s</span>`}</td>
       <td><div class="depth-cell"><input type="range" min="-99" max="99" value="${depth}"><output>${depth}</output></div></td>
+      <td class="range"></td>
       <td class="both-cell"><button type="button" class="chip both" aria-pressed="${both}" title="this route plays on both layers' voices, each reading its own velocity, envelopes and LFOs. It takes one slot, on the layer it was made on. A wire destination counts once, from the newest note">Both</button></td>
       <td class="actions"><button class="del">Remove</button></td>`;
     tr.querySelector(".s").value = src; tr.querySelector(".d").value = dest;
     const range = tr.querySelector("input"), out = tr.querySelector("output");
+    tr._paintRange = () => paintRange(tr.querySelector(".range"), src, dest, +range.value || 0);
+    tr._paintRange();
     let timer = 0;
-    range.oninput = () => { out.textContent = range.value; clearTimeout(timer);
+    range.oninput = () => { out.textContent = range.value; tr._paintRange(); clearTimeout(timer);
       timer = setTimeout(() => setRoute(layer, src, dest, +range.value || 0), 40); };
     range.onchange = () => { if (+range.value === 0) loadRoutes(); };
     const move = async () => {
@@ -3249,10 +3340,24 @@ function renderRoutes(force) {
     tr.querySelector(".del").onclick = async () => { await setRoute(layer, src, dest, 0); loadRoutes(); };
     body.appendChild(tr);
   }
-  if (!body.children.length) body.innerHTML = `<tr><td colspan="5" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
+  if (!body.children.length) body.innerHTML = `<tr><td colspan="6" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
   document.getElementById("add-route").disabled = used >= 16;
   paintAll(); // the macro knobs' rings and wiring follow the routes
 }
+// A Range cell: the route's reach in the destination's units and, for a cutoff, a rate or a time, where that takes
+// the knob from where it stands (which follows the knob, so the cells are repainted with the knobs)
+function paintRange(cell, src, dest, depth) {
+  const sw = routeSwing(src, dest, depth);
+  cell.replaceChildren(sw ? sw.text : "–", h("small", {}, sw ? swingWhere(dest, sw) : ""));
+}
+function paintNewRange() { // hoisted: the new-route row's handlers above call it
+  paintRange(document.getElementById("new-range"), +document.getElementById("new-source").value,
+    +document.getElementById("new-dest").value, +document.getElementById("new-depth").value);
+}
+paints.push(() => {
+  for (const tr of document.getElementById("routes").children) if (tr._paintRange) tr._paintRange();
+  paintNewRange();
+});
 // The Both column: only in the two-layer modes; entering or leaving one changes which routes play here
 let bothShown = false;
 paints.push(() => {
@@ -3557,8 +3662,56 @@ document.getElementById("backup-all").onclick = async () => {
     all.push(...bytes);
     if (n % 10 === 9) msg("patch-msg", `backing up… ${n + 1} / 128`);
   }
-  download(`pro800-patches-${new Date().toISOString().slice(0, 10)}.bin`, all);
+  const now = new Date(), two = x => String(x).padStart(2, "0"); // local time, no colons: Windows refuses them in a name
+  download(`pro800-patches-${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}.bin`, all);
   msg("patch-msg", "backup downloaded (128 patches with their sequences, 98304 bytes)", "ok");
+};
+// Back up everything's file into the slots: only the slots that differ, each read back. A slot in neither of our two
+// forms (a backup taken with stock data left in it) goes back as it was. On memory still in the stock format the writes
+// wouldn't make it ours (only a save or a format writes the global block), so that asks for a format first.
+document.getElementById("restore-all").onclick = () => {
+  if (!offline()) document.getElementById("restore-file").click();
+};
+document.getElementById("restore-file").onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const all = Array.from(new Uint8Array(await file.arrayBuffer()));
+  if (all.length !== 128 * 768) {
+    msg("patch-msg", `${file.name} isn't from Back up everything (exactly 98304 bytes; a 128 kB memory image goes through the installer)`, "bad");
+    return;
+  }
+  let ours = 0, empty = 0, other = 0;
+  for (let n = 0; n < 128; n++) {
+    const record = all.slice(n * 768, (n + 1) * 768);
+    if (String.fromCharCode(...record.slice(0, 4)) === "P8P2") {
+      if (!recordChecksumOk(record)) { msg("patch-msg", `${file.name} is damaged: ${slotLabel(n)}'s checksum doesn't match. Nothing was written.`, "bad"); return; }
+      ours++;
+    } else if (record.slice(0, 512).every(b => !b)) empty++;
+    else other++;
+  }
+  if (!ours) { msg("patch-msg", `${file.name} holds no PRO-8000 patches. Nothing was written.`, "bad"); return; }
+  await scanSlots();
+  if (slots.length < 128) return;
+  if (slots.some(x => x.kind === 2) && !slots.some(x => x.kind === 1)) {
+    msg("patch-msg", "The memory is still in the stock format: press Format the patch memory first, then restore", "bad"); return;
+  }
+  if (!confirm(`Replace every slot with ${file.name} (${ours} patches, ${empty} empty${other ? `, ${other} in another format` : ""})? What's in the slots now is overwritten: use Back up everything first if you want to keep it.`)) return;
+  let written = 0;
+  for (let n = 0; n < 128; n++) {
+    const want = all.slice(n * 768, (n + 1) * 768), same = b => b && b.every((x, i) => x === want[i]);
+    const have = await readBytes(n * 768, 768);
+    if (!have) { msg("patch-msg", `Read failed at ${slotLabel(n)}: the slots before it are restored. Try again, it picks up from there.`, "bad"); return; }
+    if (!same(have)) {
+      if (!await writeBytes(n * 768, want) || !same(await readBytes(n * 768, 768))) {
+        msg("patch-msg", `Write failed at ${slotLabel(n)}: the slots before it are restored. Try again, it picks up from there.`, "bad"); return;
+      }
+      written++;
+    }
+    if (n % 10 === 9) msg("patch-msg", `restoring… ${n + 1} / 128`);
+  }
+  await scanSlots();
+  msg("patch-msg", `restored ${file.name}: ${written} slots changed, the others already matched. The sound playing stays until you load a patch.`, "ok");
 };
 
 // factory bank
