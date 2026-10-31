@@ -1738,7 +1738,9 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     if (kind == CONTROL_ENCODER && !menu_open && (preset_mode || saving)) {
         encoder_patch_steps += (int)value;
         if (encoder_patch_steps >= 4 || encoder_patch_steps <= -4) {
-            int n = (current_patch + (encoder_patch_steps > 0 ? 1 : PATCH_COUNT - 1)) % PATCH_COUNT;
+            int step = shift_held ? 10 : 1;
+            int delta = encoder_patch_steps > 0 ? step : PATCH_COUNT - step;
+            int n = (current_patch + delta) % PATCH_COUNT;
             encoder_patch_steps = 0;
             typed_digits = 0;
             if (saving) {

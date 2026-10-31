@@ -40,7 +40,7 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |
 | Sync Clock | The clock: tap the tempo (its LED blinks on the beat of whichever clock is in use), hold it to restart the bar, Shift + press to cycle the clock source. |
 | LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`, `nOIS`. |
-| VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. |
+| VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. In preset mode, hold Sync Source while turning it to step ±10 slots. |
 | Seq 1 / Seq 2 | Choose the layer the knobs edit (LED); hold one while turning FREQ A or B to change that oscillator's tuning mode. |
 | Arp Up-Dn | Choose LFO 1 or LFO 2 for the LFO knobs, the shape button and the LFO routing buttons (LED lit = LFO 2). |
 | Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning). |
