@@ -48,6 +48,12 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   like the Swift tool (same checks, pacing and erase wait), so quit SynthTribe and close WebMIDI pages first: under Windows
   MIDI Services they stay connected and every program sees every reply (NOTES). The stock firmware answers only `version`,
   `backup` and `listen`.
+- `python tools/test_panel.py [-k name]`: the user-interaction tests, no synth needed, a few seconds. Builds the real firmware
+  with zig cc for this computer (`tools/sim/hw.c` is the hardware; `src/controls.c`, `display.c`, `main.c`, `synth.c` and the
+  rest run unchanged, `tools/sim/sim_regs.h` only redirects `REG()`) and drives it through knobs, buttons, VALUE and MIDI, one
+  millisecond a main-loop pass. Every test checks what the display or LEDs show; expected values come from `MANUAL.md`. A
+  change to the panel or the display gets a test here. A power cycle is a new process on the same EEPROM file. `WebRanges`
+  runs the editor's mod-range code in `node` against routes measured on the simulator's CVs (skipped without node).
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
 - The installer page `tools/web/install.html` (http://localhost:8800/install.html, on the site `editor/install.html`):
@@ -69,6 +75,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 
 - `tools/pro800.swift`: the USB MIDI tool (one file, CoreMIDI + AVFoundation).
 - `tools/pro800.py`: the same tool in Python for Windows (one file, WinMM through ctypes); `tools/test_pro800.py` tests it.
+- `tools/test_panel.py`, `tools/sim/`: the firmware on the host with simulated hardware, and the tests that use its panel.
 - `src/`: `startup.c` (vector table, reset handler that cleans up after the bootloader), `link.ld`
   (app at `0x08010000`, max 128 kB: flash sector 4 and half of sector 5), `regs.h` (the registers we use; no vendor headers), drivers, `main.c`.
 - `docs/`: the source of the two published guides (`index.html`, `how-it-works.html`, `sound-design.html`;

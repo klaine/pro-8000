@@ -1684,6 +1684,10 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   SynthTribe has it open too, and every program sees every reply. `midiOutLongMsg` is done in 0.2 ms, before the bytes
   are on the wire, and a version request's reply comes back in 1-5 ms. So the pacing has to be ours, as on macOS, and
   closing waits 50 ms. Without the service a port would open only once, hence the one connection per process.
+- **The service can lose a port** (2026-10-31): after `update-mode` the bootloader was on the bus (`1397:1260`, usbaudio
+  bound, no problem code) but `ports` showed no "PRO 800" for minutes, and a cable replug didn't bring it either. An
+  elevated `Restart-Service midisrv` did, at once. So when the USB check finds the synth and the port is missing,
+  restart the service (needs admin) before suspecting the synth.
 - **`install` runs its MIDI steps as child processes**, each finding the ports afresh. The USB check doesn't use MIDI
   (`CM_Get_Device_ID_ListW`, present devices). A long-running process may keep a stale device list across a
   re-enumeration, as CoreMIDI does; this way it doesn't matter whether WinMM does.
@@ -1706,13 +1710,20 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   messages, SysEx, a broken SysEx dropped with its buffer returned, an empty buffer not returned, and the Move's real active
   sensing. `flash --dry-run` on the published 0.9.3 file: 376 messages, 95,547 bytes, version 0.9.3 in the header. Everything
   else against the simulated synth of `tools/test_pro800.py`, built from `src/main.c`'s replies.
+- **`flash` tested on the real synth** (0.9.4, 2026-10-31, synth already in the bootloader): `03 31` after the header,
+  `01 00 00` after block 379, the synth came back as `1397:125F` and `version` answered 0.9.4. Two attempts before it
+  broke with `midiOutLongMsg failed: Undefined external error. (1)` at blocks 162 and 209, and the second one also showed a
+  version reply (`09 00 00 00 00`) after the header that nothing on our side asked for: an editor tab left open in Chrome
+  was polling the bootloader's port (the known interference above). So on Windows that interference shows as WinMM
+  refusing a send, not only as the bootloader's `01 00 07`. A 20 s `listen` that shows nothing before a flash rules it
+  out; after one, the bootloader takes a fresh header without a power-cycle.
 - **Not tested on the real synth:** the commands that need our firmware (`settings`, `state`, `engine`, `seq`, `patches`,
-  `routes`, `timing`, `tuning`, `check`, `panel`, `eeprom`), anything that changes the synth, `update-mode`, `flash` and
+  `routes`, `timing`, `tuning`, `check`, `panel`, `eeprom`), anything else that changes the synth, `update-mode` and
   `install`. Nothing on macOS or Linux.
 
 ## Boot, PAnL, VALUE through the patches, controllers on the display (0.9.4, 2026-10-30)
 
-From the GitHub issues (#14, #15, #1). Built; **not yet run on the synth** when this was written.
+From the GitHub issues (#14, #15, #1). VALUE and `PAnL` tried on the synth; the rest through `tools/test_panel.py`.
 
 - **Boot always loads the last patch** (#14). 0.9.3 stayed in manual mode if that's what you left, so after a format
   or a first install the sound came from the knobs and `MANUAL.md`'s "Boot loads the last patch" wasn't true. The mode
@@ -1741,6 +1752,61 @@ From the GitHub issues (#14, #15, #1). Built; **not yet run on the synth** when 
   works with older firmware too. Tested in Node with the page's handlers against a simulated EEPROM holding a real
   backup (differing slots, identical memory, wrong size, damaged record, no patches, stock memory, declining, a failed
   write and its retry, a failed read-back); not yet run in a browser against the synth.
+
+## The firmware on a computer: panel tests (`tools/test_panel.py`, 0.9.4, 2026-10-31)
+
+- **How:** the real `main.c`, `synth.c`, `lfo.c`, `seq.c`, `store.c`, `display.c` and `controls.c` built for the host with zig cc, no
+  source changed. `sim_regs.h` is force-included and redefines `REG()` after `regs.h`, so every register access goes to
+  `sim_reg()`. Writing the watchdog is the top of a pass: the firmware runs in a fiber (Windows) or ucontext and comes back
+  there, so `main()`'s endless loop needs no change. One pass is one millisecond exactly, so runs repeat to the
+  millisecond. `hw.c` includes `controls.c` for its pin and key tables and feeds the ADC, GPIO and key RAM, so debounce,
+  the 40 ms key scan, hysteresis and the mux scan are the real ones. Stubbed: `sh.c`, `dac.c`, `tune.c`, `tuning.c`, USB, DIN,
+  the EEPROM (a file, so a power cycle is a new process on it), the HT16K33 (its RAM is what tests read).
+- **What it can't tell:** anything analog or timing on the hardware (a pass here is a flat 1 ms), USB, the bootloader.
+- **What the 265 tests cover** (a class each): boot on formatted, stock-format and untuned memory; manual mode; typing a
+  slot; VALUE through the patches; saving; init, undo and compare; a damaged slot; every knob's display value and the
+  envelope table; pickup after a load, a layer, LFO or envelope switch and with pickup off; Shift's secondaries and
+  buttons; every Settings page, value and sub-page; the LFO controls; keyboard tracking; layers, links and voices per
+  layer; MOD ASSIGN's sources, destinations, depths, scrolling and Browse; step recording and its steps; the clock
+  sources, tap, SYNC IN and the beat LED; Tune; controllers on the display; two things at once (a load, a controller or a
+  knob while a menu, a save, MOD ASSIGN or a typed number has the display); the envelope page; the face buttons; MIDI
+  (pedal, all notes off, the channel set, channel, 8CH and MPE modes, bend, DIN, the version and update-mode SysEx);
+  voice modes and unison; key-up, DAHDSR and cycling envelopes on the VCA; the sequencer playing, once, under the
+  pedal, saved with the patch; everything the manual says a patch stores, round-tripped through a save, the init sound
+  and a power cycle; names; the scale snapping pitch; and that every text in the name tables has glyphs. Firmware
+  state the display can't show is read through the host SysEx (settings, parameters, routes, the engine probe, CVs).
+- The manual's envelope table said 150 and 310 ms at half; the curve gives 154 and 311, so the manual says that now.
+- **The editor's Range column, rings and "where" strings against the firmware** (`WebRanges`, 27 tests, needs `node`): the
+  page's own `swingUnit()`, `routeSwing()`, `swingWhere()`, `modRange()` and `format()` are cut out of `index.html` and
+  run in Node, and each destination gets a route from FIX (always 1) in the simulator, measured on the CVs in the
+  destination's own unit: pitch A / B / both at five depths (the squared curve, cents under a semitone), cutoff, the
+  filter and poly-mod envelope amounts (semitones, `hw.c`'s CV is 256 a semitone around note 64 so ±96 fits), the LFO
+  amounts and LFO → pitch / filter / PW for both LFOs (a step LFO with one step on is a constant 1), the VCA and the
+  volume counting down (FIX by its depth, velocity from full), levels, noise, resonance and poly-mod B in knob units,
+  pulse width as a share of the knob's travel, the LFO rates from the probe's phase advance (octaves), the amp and
+  filter attack, decay and glide times as a factor (linear curves, so the times measure exactly), sustain as a level,
+  unison detune in cents. The page's number, its text (with its rounding) and, for the cutoff, the LFO rate and the
+  attack, its "where" endpoint against the knob's display value or the measured time, all have to agree; the rings'
+  spans in knob turns too. A static test checks `swingUnit()`'s constants and `DEST_SCALE` against `synth.c`'s
+  `#define`s. Not measured: Morph and the macros. Found nothing wrong in the page; found that a single-wire route
+  (volume, detune, levels) does nothing until the layer has played a note, which is how `last_voice` works.
+- **Bugs it found on its first runs, fixed:**
+  - **The patch loaded at boot lost its knobs.** `synth_update()`'s first pass copies the panel into both layers until the
+    knobs are primed, and at boot that ran after `load_patch()`: the patch's buttons and routes stayed, its knob values
+    became wherever the knobs stood, with no pickup. Very likely the old P66 report ("sounding wrong after start-up until
+    reloaded", filter snap gone), not yet confirmed on the synth. `synth_apply_patch()` now primes them first. #14 made every
+    boot hit this, so it matters more than it did.
+  - Boot's version showed for one pass, and an older layout's mark never at all: the load replaced them. They get 1.5 s now.
+  - `ForM`, `rSEq`, `SEqA`-`SEqd` and `FIX` had a blank digit: the font had no M, q or X. Added a small q and X (as H, as
+    `FIHd` does); `ForM` became `Forn`. A test now checks every string in `main.c`'s and `lfo.c`'s tables has glyphs.
+  - Shift + Rec's `no` (manual mode, or an empty slot) stayed until something else wrote the display.
+  - After boot, Shift + Perf "undid" the boot's own load into manual mode: the load armed the undo.
+  - A first Shift press within 400 ms of boot latched: `shift_tap_at` started at 0.
+  - A patch load (program change, the host) wrote the slot over an open menu, MOD ASSIGN or a number being typed, and it
+    stayed; Preset wrote `PAnL` over an open menu. `load_patch()` and `manual_mode()` go through `idle_display()`, which
+    also shows a number being typed.
+  - A program change during a save replaced the sound about to be stored, and moved the slot. It's ignored until the save ends.
+  - The host's save moved the current slot without showing it. A controller's value now stays 1.5 s, as a knob's does.
 
 ## Backlog
 

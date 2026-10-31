@@ -801,6 +801,16 @@ void synth_apply_patch(const patch_t *patch)
         latched[i] = i == POT_MASTER_VOL;
         pickup_side[i] = 0;
     }
+    // The load at start-up comes before the engine's first pass, which would copy the panel over this patch: both
+    // layers start from the panel only while nothing is loaded yet
+    if (!pots_primed && controls_ready()) {
+        for (int i = 0; i < POT_COUNT; i++) {
+            float raw = (float)controls_pot(i) / 4095.0f;
+            panel[i] = synth_knob_snap(i, raw);
+            pot_reading[i] = raw;
+        }
+        pots_primed = 1;
+    }
     for (int s = 0; s < SWITCH_COUNT; s++) {
         switch_value[s] = (patch->switches >> s) & 1;
         switch_at_load[s] = (uint8_t)controls_on((switch_t)s);

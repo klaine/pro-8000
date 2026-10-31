@@ -305,6 +305,7 @@ static void undo_swap_back(void)
 }
 
 static void init_patch(void);
+static void idle_display(void); // what the display shows when nothing transient is on it
 
 // Loads slot n. An empty slot gives the init sound there (so it starts from scratch, and REC saves it in place), with
 // the slot's number on the display like any other (PERF's InIt is for PERF); a slot that isn't one of ours shows nonE
@@ -319,7 +320,7 @@ static int load_patch(int n)
             current_patch = n;
             store_set_last(n);
             display_until = 0;
-            show_patch(n);
+            idle_display();
             return 1;
         }
         display_text("nonE");
@@ -338,7 +339,8 @@ static int load_patch(int n)
     current_patch = n;
     preset_mode = 1;
     display_led(LED_PRESET, 1);
-    show_patch(n);
+    display_until = 0;
+    idle_display(); // the slot, or what a menu or MOD ASSIGN shows while it stays open
     store_set_last(n);
     return 1;
 }
@@ -385,8 +387,8 @@ static void manual_mode(void)
     synth_manual();
     preset_mode = 0;
     display_led(LED_PRESET, 0);
-    display_text("PAnL");
     display_until = 0;
+    idle_display(); // PAnL, or what an open menu shows
 }
 
 static int save_patch(int n)
@@ -640,7 +642,6 @@ static int assign_source_taken; // the source is settled; until then VALUE scrol
 // It counts as a destination only after resting a second.
 static int assign_source_pot = -1;
 static uint32_t assign_source_pot_at;
-static void idle_display(void); // what the display shows when nothing transient is on it
 static int browsing, browse_index, browse_frame = -1;
 static uint32_t browse_rest_at; // when VALUE last moved in browsing (+ 800 ms): from then the route's parts cycle
 static uint32_t assign_press_at; // ms_ticks when Arp Assign went down, 0 = up or the hold has fired
@@ -925,7 +926,7 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
 static int shift_held, shift_latched;
 static uint32_t sync_press_at; // the Sync Clock button: when it went down (0 = up, or the hold has fired)
 static int adsr_pot_index(int pot) { return (pot >= POT_AMP_REL && pot <= POT_AMP_ATT) || (pot >= POT_FIL_REL && pot <= POT_FIL_ATT); }
-static uint32_t shift_tap_at;
+static uint32_t shift_tap_at = (uint32_t)-1000; // long ago: a first press just after boot isn't a second tap
 static int shift_pot_last[POT_COUNT];
 static float shift_acc[POT_COUNT];
 static uint32_t shift_value_at; // when to show the secondary's value (after its name)
@@ -1144,7 +1145,10 @@ static void idle_display(void)
         display_text("SEt");
     else if (recording)
         display_text("rSEq");
-    else if (saving || preset_mode)
+    else if (typed_digits && (saving || preset_mode)) {
+        char text[6] = {'P', ' ', typed_digits == 2 ? (char)('0' + typed_value / 10) : ' ', (char)('0' + typed_value % 10), 0};
+        display_text(text);
+    } else if (saving || preset_mode)
         show_patch(current_patch);
     else
         display_text("PAnL");
@@ -1434,7 +1438,7 @@ static void cc_show(uint32_t now)
     char text[8];
     pot_value_text(param, cc_shown_layer, cc_shown_value, text);
     display_text(text);
-    display_until = now + 1000;
+    display_until = now + 1500; // as a knob's
     cc_shown_at = now;
 }
 
@@ -1576,8 +1580,10 @@ static void control_event(control_kind_t kind, int index, int32_t value)
                 comparing = 1;
                 display_text("CoNP");
                 display_until = 0;
-            } else
+            } else {
                 display_text("no");
+                display_until = ms_ticks + 1000;
+            }
             return;
         case BUTTON_PERF: // undo the last load or init
             if (undo_valid) {
@@ -2319,6 +2325,8 @@ static void handle_sysex(const uint8_t *message, int length)
     if (data_length == 3 && (data[0] == 0x5C || data[0] == 0x5D)) {
         int slot = data[1] << 7 | data[2];
         if (slot < PATCH_COUNT && (data[0] == 0x5C ? load_patch(slot) : save_patch(slot))) {
+            if (!report_mode)
+                idle_display(); // saving moves the current slot too
             reply[n++] = 0x7F;
             reply[n++] = data[0];
         }
@@ -2659,7 +2667,7 @@ static void handle_midi(void)
             key_off(p[2], p[1] & 0x0F);
             break;
         case 0xC: // program change 0-127: patch 1-128
-            if (p[2] < PATCH_COUNT)
+            if (p[2] < PATCH_COUNT && !saving) // a save in progress keeps the sound it's about to store
                 load_patch(p[2]);
             break;
         case 0xB:
@@ -2755,15 +2763,19 @@ int main(void)
     clock_source = store_clock_source();
     clock_bpm = (float)store_bpm_tenths() / 10.0f;
     clock_period = (uint32_t)((float)system_hz * 60.0f / (clock_bpm * 24.0f));
-    if (store_formatted()) {
-        display_text("ForM"); // an older layout of ours was wiped: every slot is empty now
-        display_update();
-    }
     if (store_ready()) {
         current_patch = store_last_patch();
         for (uint32_t start = ms_ticks; !controls_ready() && ms_ticks - start < 200;)
             controls_poll(ms_ticks, 0); // read every knob once, so the patch's pickup starts from them
-        load_patch(current_patch);
+        if (load_patch(current_patch)) {
+            undo_valid = 0; // nothing of the user's to bring back yet
+            show_version(); // the load showed the slot: the version gets its time first
+            display_until = ms_ticks + 1500;
+        }
+    }
+    if (store_formatted()) {
+        display_text("Forn"); // an older layout of ours was wiped: every slot is empty now (n stands in for m)
+        display_until = ms_ticks + 1500;
     }
     usb_midi_realtime(realtime);
     din_init(realtime);

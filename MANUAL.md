@@ -47,7 +47,7 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Preset | Preset mode (a patch loaded) ↔ manual mode (the panel is live). |
 | Rec | Save (blinks, choose the slot, Rec again). Hold Rec and press Seq 1: record sequence steps from MIDI (`rSEq`, see Sequencer). |
 | Perf | Load the init sound: one sawtooth, filter open. |
-| Settings | Opens the settings menu (keys 1-5). |
+| Settings | Opens the settings menu (keys 0-9). |
 | Tune | Autotune (about 25 s, silent). |
 
 The display shows a knob's value while you turn it, in real units where it has one:
@@ -105,7 +105,8 @@ web page's MIDI router).
 
 - **Sustain pedal** (CC 64): keys let go while it's down keep sounding (and keep a sequence running) until it's
   released.
-- **Program change** 0-127 picks patch 1-128 (an empty one: the init sound). Bank select is ignored.
+- **Program change** 0-127 picks patch 1-128 (an empty one: the init sound). Bank select is ignored. During a save it's
+  ignored, so the sound you're storing stays.
 - **Controllers** set knobs on the layer the channel plays (layer 2 for channel 2 in channel mode), else the layer
   you're editing; the knob then picks up as after loading a patch:
 
@@ -337,8 +338,8 @@ point (` 1.25`, ` 12.5`).
 
 | Knob position | 0 | 10 % | 25 % | 50 % | 75 % | 100 % |
 |---|---|---|---|---|---|---|
-| Attack | instant | 3 ms | 17 ms | 150 ms | 1.25 s | 10 s |
-| Decay, release | 3 ms | 9 ms | 37 ms | 310 ms | 2.5 s | 20 s |
+| Attack | instant | 3 ms | 17 ms | 154 ms | 1.25 s | 10 s |
+| Decay, release | 3 ms | 9 ms | 37 ms | 311 ms | 2.5 s | 20 s |
 
 Decay and release times are how long the fall takes to reach −60 dB, so a release showing 2 s is gone at 2 s.
 The attack has the concave shape of an analog envelope: it shoots up first and eases into the top. Decay and

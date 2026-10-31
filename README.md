@@ -349,6 +349,7 @@ has stalled on a Mac (3.2.4) but seems to work on Windows (2.6.7).
 | `src/` | The firmware: drivers (DAC, S&H, panel, controls, EEPROM, USB MIDI, 5-pin MIDI in, tuning comparator), the engine (`synth.c`, `lfo.c`, `mod.h`), patch storage (`store.c`) and `main.c` (panel UI, SysEx). |
 | `tools/pro800.swift` | The command-line tool (macOS, CoreMIDI). |
 | `tools/pro800.py` | The same tool for Windows (Python, no build); `tools/test_pro800.py` tests it against a simulated synth. |
+| `tools/test_panel.py`, `tools/sim/` | The firmware itself on a computer with simulated hardware; tests what the display and LEDs show as the panel and MIDI are used. |
 | `tools/web/` | The WebMIDI editor (one HTML file) and the panel map. |
 | `docs/` | The guides on the GitHub Pages site; `scripts/pages.sh` builds them, with the editor, onto the `pages` branch. |
 | `reference/`, `backup/` | Third-party material and the synth's own backups, not in git. |
