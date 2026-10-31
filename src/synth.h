@@ -80,6 +80,8 @@ void synth_poly_pressure(uint8_t note, uint8_t value, int layers); // per voice:
 // Reads the panel, advances glide and drift by dt seconds, works out what the ticks build on (synth_tick()), and sets
 // every CV and gate.
 void synth_update(float dt);
+// Read the physical panel into the pickup baseline before applying a boot patch.
+void synth_prime_panel(void);
 // The fast path, run between the parts of the CV refresh: advances the envelopes and LFOs by dt and sets the VCA CVs,
 // the cutoff CVs when `cutoff` and the pitch CVs of `pitch_voices` (a bitmask), with the envelopes, LFOs and the
 // routes from them into pitch, cutoff and the VCA as they are now. synth_update() works out the rest once a pass.

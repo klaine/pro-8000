@@ -2705,10 +2705,12 @@ int main(void)
     }
     if (store_ready()) {
         current_patch = store_last_patch();
-        if (store_preset_mode()) {
-            for (uint32_t start = ms_ticks; !controls_ready() && ms_ticks - start < 200;)
-                controls_poll(ms_ticks, 0); // read every knob once, so the patch's pickup starts from them
-            load_patch(current_patch);
+        for (uint32_t start = ms_ticks; !controls_ready() && ms_ticks - start < 200;)
+            controls_poll(ms_ticks, 0); // read every knob once before establishing the pickup baseline
+        synth_prime_panel();
+        if (!load_patch(current_patch)) {
+            init_patch();
+            store_set_last(current_patch, 1);
         }
     }
     usb_midi_realtime(realtime);

@@ -145,7 +145,8 @@ keep them).
 - **Load:** in preset mode (Preset LED on), type the number: a third digit, or a pause of 3 seconds, or a number
   that no further digit could keep within 1-128 ends it (`7` then `2` loads P72 at once; `1`, `2` waits for a third
   digit). Or turn VALUE to step through them. An empty slot loads the init sound (the display keeps the slot number), ready to
-  build and save there with Rec, Rec (Shift + Perf brings back the sound before). Boot loads the last patch.
+  build and save there with Rec, Rec (Shift + Perf brings back the sound before). Boot loads the last patch even if the
+  previous session was in manual mode; the physical knobs start in pickup.
 - **Edit:** a loaded patch's knobs are in pickup (with pickup off: until you move them) and its buttons keep their
   stored state until you press them.
   Press Preset for manual mode, where the whole panel is live as it is.

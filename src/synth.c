@@ -1754,6 +1754,12 @@ static void read_panel(float dt)
     }
 }
 
+void synth_prime_panel(void)
+{
+    if (controls_ready())
+        read_panel(0.0f);
+}
+
 static float source_value(const voice_t *x, int voice, int layer, int source)
 {
     switch (source) {
