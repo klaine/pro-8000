@@ -189,6 +189,7 @@ static int tune_requested;
 // digits pick a patch (1-128) and VALUE steps through them; REC, then the slot, then REC saves;
 // PERF loads the init sound.
 static int current_patch, preset_mode, saving, typed_digits, typed_value, encoder_patch_steps;
+static int manual_banner;
 static patch_t compare_copy; // Shift + Rec: the edit while the stored patch sounds
 static int comparing, undo_valid;
 // The sustain pedal, per layer (bits: in channel mode each channel's pedal holds its own layer), and the keys let go
@@ -322,6 +323,7 @@ static int load_patch(int n)
     }
     record_end(0);
     seq_stop();
+    manual_banner = 0;
     undo_remember();
     synth_apply_patch(&patch);
     if (!store_load_sequence(n))
@@ -363,6 +365,7 @@ static void init_patch(void)
     undo_remember();
     record_end(0);
     seq_clear();
+    manual_banner = 0;
     synth_apply_patch(&patch);
     synth_set_morph(0, 0);
     for (int i = 0; i <= PATCH_NAME; i++)
@@ -380,7 +383,9 @@ static void manual_mode(void)
     preset_mode = 0;
     display_led(LED_PRESET, 0);
     display_text("PAnL");
-    display_until = ms_ticks + 1000;
+    display_until = 0;
+    show_value_at = 0;
+    manual_banner = 1;
     store_set_last(current_patch, 0);
 }
 
@@ -1341,6 +1346,14 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     if (report_mode) {
         report_event(kind, index, value);
         return;
+    }
+    if (manual_banner && (kind == CONTROL_POT || kind == CONTROL_SWITCH)) {
+        manual_banner = 0;
+        if (kind == CONTROL_SWITCH) {
+            display_clear();
+            display_until = 0;
+            show_value_at = 0;
+        }
     }
     if (typed_digits && kind == CONTROL_BUTTON && value && index > BUTTON_9 && !(index == BUTTON_REC && saving)) {
         typed_digits = 0; // any other button drops a number being typed; Rec in a save takes it as the slot

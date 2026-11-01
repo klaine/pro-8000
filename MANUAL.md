@@ -44,7 +44,7 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Seq 1 / Seq 2 | Choose the layer the knobs edit (LED); hold one while turning FREQ A or B to change that oscillator's tuning mode. |
 | Arp Up-Dn | Choose LFO 1 or LFO 2 for the LFO knobs, the shape button and the LFO routing buttons (LED lit = LFO 2). |
 | Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning). |
-| Preset | Preset mode (a patch loaded) ↔ manual mode (the panel is live). |
+| Preset | Preset mode (a patch loaded) ↔ manual mode (the panel is live; `PAnL` stays on screen until a knob or panel switch changes). |
 | Rec | Save (blinks, choose the slot, Rec again). Hold Rec and press Seq 1: record sequence steps from MIDI (`rSEq`, see Sequencer). |
 | Perf | Load the init sound: one sawtooth, filter open. |
 | Settings | Opens the settings menu (keys 1-5). |
