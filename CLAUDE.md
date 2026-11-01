@@ -68,7 +68,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   registers, built as `build/sim/usbharness` (USB itself stays stubbed in the simulator): a change to `usb.c` gets a test
   there. It checks the driver's register writes against the model, not the chip. `WebRanges` runs the editor's mod-range code in
   `node` against routes measured on the simulator's CVs; `WebInstaller`, `WebReconnect`, `WebRestore`, `WebSaveInASlot`,
-  `WebMarkingTheMemory` and `WebSmallThings` run the pages' code in `node` against fake ports or the simulated firmware (all
+  `WebMarkingTheMemory`, `WebSmallThings` and `WebVelocityKnobs` run the pages' code in `node` against fake ports or the simulated firmware (all
   skipped without node), and `PresetBundle` checks `presets/lib/bundle.py`.
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode --yes`, then `flash ... --yes`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).

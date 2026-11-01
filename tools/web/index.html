@@ -156,6 +156,13 @@
   .face .env-tools select { padding: 2px 5px; font-size: 11px; background: #0b0b0c; min-width: 58px; }
   .face .env-tools .chip { padding: 2px 7px; font-size: 10.5px; white-space: nowrap; }
   .ps-amp > .pflex { flex: 1; }
+  /* a section's Velocity knob, first in its envelope row in the filter and the amp, so the two rows keep lining up */
+  .pflex > .knob { flex: none; }
+  .ps-flt .pflex > .knob { margin-bottom: 11.5px; } /* the height of the caption under the filter's envelope knobs */
+  /* a depth the knob can't reach: it rests at its end and the number stays in sight */
+  .knob.out .val { color: #ff4a36; }
+  .face:not(.values) .knob.out .val { visibility: visible; color: #ff4a36; }
+  .face:not(.values) .knob.out .lbl { visibility: hidden; }
   .face .ps-flt > canvas.viz.flt { flex: none; width: calc(100% - 8px); min-width: 0; height: 58px; align-self: center; margin: 2px 0 0; }
   .ps-flt { flex-direction: column; align-items: stretch; justify-content: space-around; }
   .prow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); justify-items: center; align-items: end; gap: 2px; }
@@ -608,7 +615,7 @@
 
     <section class="cs cs-wide">
       <h3>On the web page only</h3>
-      <p class="small">The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key)<span data-needs="lfoRestart">, and whether its steps or your keys restart the LFOs</span> ·<span data-needs="routeBoth"> a mod route on both layers (Both, in the two-layer modes) ·</span>
+      <p class="small">A Velocity knob in the faceplate's filter and amp sections, each the edit layer's route to the cutoff or the VCA, as the mod matrix lists it. The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key)<span data-needs="lfoRestart">, and whether its steps or your keys restart the LFOs</span> ·<span data-needs="routeBoth"> a mod route on both layers (Both, in the two-layer modes) ·</span>
         LFO step patterns · scale and root · morph target and source · note priority · Mutate · mod routes from Seq A-D
         and to Morph · patch names, export, the factory bank · copying an LFO or envelope from the other layer.</p>
     </section>
@@ -629,7 +636,9 @@
       then a source (a number key, a touch of an LFO or ADSR knob, or scroll with VALUE), then a destination (touch
       its knob or LFO button, or scroll and press Arp Assign), VALUE for the depth; hold Arp Assign to browse the routes.
       <span data-needs="routeBoth">In the two-layer modes, Both plays a route on both layers' voices with one slot and one
-      depth; each voice reads its own velocity, envelopes and LFOs. It shows on the other layer too, marked, and edits from there.</span></p>
+      depth; each voice reads its own velocity, envelopes and LFOs. It shows on the other layer too, marked, and edits from there.
+      It adds to the other layer's own routes: the init sound has its velocity routes on each layer, so take the other layer's off first for one shared response.</span>
+      The faceplate's two Velocity knobs are this table's Velocity → Cutoff and Velocity → VCA on the layer you're editing: either place edits the same route.</p>
     <div class="row macros" id="macros"></div>
     <div class="row"><span class="dim small">the layer you're editing</span>
       <button id="matrix-refresh">Refresh</button><span class="msg" id="matrix-msg"></span></div>
@@ -1445,6 +1454,7 @@ const STEPS_SHAPE = 7;
 const LFO_SOURCE = [1, 11];
 const LFO_TARGETS = [["VCA", [9]], ["Cutoff", [3]], ["Pitch A", [0]], ["Pitch B", [1]], ["PWM", [14, 15]]];
 let layerRoutes = null; // the edit layer's routes: [{layer, slot, source, dest, depth, both}]
+let routesLayer = null; // the layer layerRoutes was read from (paramsLayer moves first, on a change of layer)
 let otherRoutes = [];   // the other layer's routes that play on this one too (same form)
 const ROUTES = 16;      // per layer, src/mod.h
 const routesFull = () => `All ${ROUTES} mod routes of layer ${paramsLayer + 1} are in use`;
@@ -1482,7 +1492,9 @@ function modRange(knob) {
     const down = (dest === 9 || dest === 43) && !BIPOLAR_SOURCES.has(source);
     let p = bySource.get(source);
     if (!p) bySource.set(source, p = { lo: 0, hi: 0, who: [] });
-    if (BIPOLAR_SOURCES.has(source)) { p.lo += span; p.hi += span; } else if (down || depth < 0) p.lo += span; else p.hi += span;
+    if (BIPOLAR_SOURCES.has(source)) { p.lo += span; p.hi += span; }
+    else if (down && depth < 0 && source !== FIXED_SOURCE) { /* no reach of its own: routeSwing() */ }
+    else if (down || depth < 0) p.lo += span; else p.hi += span;
     const sw = routeSwing(source, dest, depth);
     p.who.push(`${SOURCES[source] || "source " + source} ${depth > 0 ? "+" : ""}${depth} → ${DESTS[dest]}${sw ? ` (${sw.text})` : ""}`);
   }
@@ -1512,9 +1524,11 @@ function swingUnit(dest) {
 }
 // What a route can add to its destination: {lo, hi, text}. A source that swings either side of the middle gives ±,
 // a 0-to-1 source one way (the depth's sign), FIX a fixed offset; into the VCA or the volume a 0-to-1 source counts
-// down from full (FIX: down by the depth). Pitch depths are squared; times and rates are multiplied.
+// down from full (FIX: down by the depth); at a negative depth it counts up, and the gain is already full, so it has no
+// reach of its own (it only takes back some of another route's drop). Pitch depths are squared; times and rates are multiplied.
 function routeSwing(source, dest, depth) {
   if (!depth || dest >= DESTS.length) return null;
+  if ((dest === 9 || dest === 43) && depth < 0 && !BIPOLAR_SOURCES.has(source) && source !== FIXED_SOURCE) return { lo: 0, hi: 0, text: "none on its own" };
   const [full, fmt] = swingUnit(dest);
   let d = depth / 99;
   if (SQUARED_DESTS.has(dest)) d *= Math.abs(d);
@@ -1719,14 +1733,14 @@ function adjustable(e, get, set, reset, { vertical = true, span = 200, unit = 0 
     ev.preventDefault();
     e.focus({ preventScroll: true });
     e.setPointerCapture(ev.pointerId);
-    start = { x: ev.clientX, y: ev.clientY, u: get() };
+    start = { x: ev.clientX, y: ev.clientY, u: get(), layer: paramsLayer };
     e.classList.add("active");
   });
   e.addEventListener("pointermove", ev => {
-    if (!start) return;
+    if (!start || start.layer !== paramsLayer) return; // the layer changed under the drag: start.u is the other layer's value
     const d = vertical ? start.y - ev.clientY : ev.clientX - start.x;
     set(start.u + d / (ev.shiftKey ? span * 6 : span));
-    if (ev.shiftKey) start = { x: ev.clientX, y: ev.clientY, u: get() };
+    if (ev.shiftKey) start = { x: ev.clientX, y: ev.clientY, u: get(), layer: start.layer };
   });
   const end = () => { start = null; e.classList.remove("active"); };
   e.addEventListener("pointerup", end);
@@ -2945,6 +2959,83 @@ function settingKnob(key, label, title, show = u => String(Math.round(u * 99))) 
     clearTimeout(timer); timer = setTimeout(() => setSetting(id, Math.round(u * 99)), 60);
   }, show, 0, title);
 }
+// A Velocity knob on the faceplate: the depth of the edit layer's route Velocity → dest, the very route the mod matrix
+// lists, read from layerRoutes and written with setRoute, so nothing is kept here but the few milliseconds' position of
+// a turn the synth hasn't confirmed yet. min is -99 or 0. On a 0 to 99 knob a negative route rests at the bottom and is
+// shown as it is, and stays as it is until the knob moves up, or a double-click takes it off. A route is the layer's
+// own: a filter or envelope link doesn't reach it, and another layer's both-layers route is only mentioned.
+const SRC_VELOCITY = 4, DEST_CUTOFF = 3, DEST_VCA = 9;
+// What a Velocity knob last put on the status line: a later turn that works takes it away, as it isn't true any more.
+// Someone else's message may have replaced it by then; only the knob's own goes.
+let velocitySaid = null;
+const velocityStatus = (text, cls) => { const s = document.getElementById("status"); s.textContent = velocitySaid = text; s.className = cls; };
+function velocityUnsay() {
+  const s = document.getElementById("status");
+  if (velocitySaid !== null && s.textContent === velocitySaid) { s.textContent = ""; showFirmware(); s.className = s.textContent ? "ok" : ""; }
+  velocitySaid = null;
+}
+function velocityKnob(dest, name, min, about) {
+  const span = 99 - min, d = dial(min < 0 ? "bi" : "uni"), val = h("span", { class: "val" }, "–");
+  const dl = h("div", { class: "dial", role: "slider", "aria-label": name }, d.svg);
+  const e = h("div", { class: "knob vel", title: about }, dl, h("span", { class: "lbl" }, "Velocity"), val);
+  const pos = depth => (Math.max(min, depth) - min) / span, depthAt = u => Math.round(min + u * span);
+  const signed = x => (x > 0 ? "+" : "") + x, known = () => !!layerRoutes && routesLayer === paramsLayer;
+  const mine = () => known() ? layerRoutes.filter(r => r.source === SRC_VELOCITY && r.dest === dest) : [];
+  const route = () => mine()[0];
+  const truth = () => (route() || { depth: 0 }).depth;
+  let local = null, at = 0, localLayer = null, moved = false, timer = 0, turn = 0;
+  const held = () => local !== null && localLayer === paramsLayer && Date.now() - at < 1500;
+  const get = () => held() ? local : pos(truth());
+  const depth = () => held() && moved ? depthAt(local) : truth();
+  const show = x => { const sw = routeSwing(SRC_VELOCITY, dest, x); return x ? `${signed(x)} (${sw.text})` : "off"; };
+  const go = (u, reset) => {
+    if (offline() || !known()) return;
+    u = Math.min(1, Math.max(0, u));
+    if (!held()) moved = false;
+    const x = depthAt(u), on = route(), layer = paramsLayer;
+    if (!reset && !moved && x === depthAt(pos(truth()))) { local = u; at = Date.now(); localLayer = layer; return; } // hasn't left where it points
+    if (x && !on && layerRoutes.length >= ROUTES) { // the slots are taken: it stays where the truth is
+      local = null;
+      velocityStatus(`${routesFull()} (Mod matrix, below)`, "bad");
+      paintAll();
+      return;
+    }
+    local = u; at = Date.now(); localLayer = layer; moved = true;
+    const thisTurn = ++turn, extra = mine().length - 1;
+    touch(name, show(x));
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const ok = await setRoute(layer, SRC_VELOCITY, dest, x);
+      if (!x) for (let k = 0; k < extra; k++) await setRoute(layer, SRC_VELOCITY, dest, 0); // a hand-made record's other copies
+      await refreshLayerRoutes(); // the matrix and the rings follow
+      if (thisTurn !== turn) return; // turned again meanwhile: its own write will settle it
+      local = null;
+      if (!ok) velocityStatus(layerRoutes.length >= ROUTES ? `${routesFull()} (Mod matrix, below)` : "The synth didn't take that route", "bad");
+      else if (!x && on && on.both && routesBothShown()) velocityStatus(`${name} is off on layer ${layer + 1}, and its Both mark went with it`, "");
+      else velocityUnsay();
+      paintAll();
+    }, 60);
+  };
+  adjustable(dl, get, u => go(u), () => go(min < 0 ? .5 : 0, true));
+  dl.addEventListener("focus", () => { if (known()) touch(name, show(depth())); });
+  paints.push(() => {
+    if (!known()) return; // on a change of layer, until its routes are in
+    const x = depth(), on = route(), two = routesBothShown(), other = two && otherRoutes.find(r => r.source === SRC_VELOCITY && r.dest === dest);
+    d.turn(get());
+    const out = x < min, notes = [];
+    const copies = mine().length;
+    val.textContent = (x ? signed(x) : "off") + (copies > 1 ? ` ×${copies}` : "") + (on && on.both && two ? " both" : "") + (other ? ` +L${other.layer + 1}` : "");
+    dl.setAttribute("aria-valuetext", val.textContent);
+    e.classList.toggle("out", out);
+    if (copies > 1) notes.push(`Layer ${paramsLayer + 1} has this route ${copies} times, which only a hand-made record can: the engine plays them all, the knob turns the first, and 0 takes them all off.`);
+    if (out) notes.push(`Layer ${paramsLayer + 1} has this route at ${signed(x)}. A negative depth does nothing here on its own, so the knob rests at 0 and leaves it alone until you turn it up, which replaces it.`);
+    if (on && on.both && two) notes.push(`Marked Both: this one route plays on both layers' voices, so turning it changes both. 0 takes it and the mark away.`);
+    if (other) notes.push(`Layer ${other.layer + 1}'s own route at ${signed(other.depth)} also plays on this layer (Both); this knob doesn't touch it. See the mod matrix.`);
+    if (paramsLayer === 1 && linkOn(dest === DEST_CUTOFF ? LINK_FILTER : 1)) notes.push("Links don't take routes: this is layer 2's own.");
+    e.title = [about, ...notes].join(" ");
+  });
+  return e;
+}
 // Macro 1 and 2 of the edit layer as knobs: the knob is the macro's offset (−99..+99, the setting macro<layer><k>;
 // Shift + CUTOFF / RESONANCE on the panel), the ring is what its input routes can add, and the text beside it says
 // what feeds the macro and what it drives.
@@ -3113,13 +3204,16 @@ function buildPanel() {
         lever3("Keyboard tracking", ["FULL", "HALF", "OFF"], () => settings ? 2 - settings.keytrack : undefined, k => {
           touch("Keyboard tracking", ["Off", "Half", "Full"][2 - k]); setSetting(SET_ID.keytrack, 2 - k);
         }, "how far the cutoff follows the key; on the synth, the switch (a loaded patch's value holds until it moves)")),
-      h("div", { class: "grp" },
-        pflex(prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))),
-          h("div", { class: "env-side" }, viz("env", (g, w, ht) => drawEnv(selectedEnv()[1])(g, w, ht)), envTools(selectedEnv))),
-        envCaption)),
+      pflex(
+        velocityKnob(DEST_CUTOFF, "Velocity → Cutoff", -99, "How far a harder note opens the filter (negative: closes it), -99 to +99: velocity × depth / 99 × 96 semitones above the Cutoff knob, so at +20 velocity 127 adds about 19. With the Cutoff knob at the top a low note hears it all the same, as keyboard tracking takes its cutoff down; above about middle C it needs the knob down. It's the edit layer's route in the mod matrix below: 0 removes it, turning adds it, a double-click takes it off."),
+        h("div", { class: "grp" }, prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))), envCaption),
+        h("div", { class: "env-side" }, viz("env", (g, w, ht) => drawEnv(selectedEnv()[1])(g, w, ht)), envTools(selectedEnv)))),
     h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Macro 1"), power),
-    ps("amp", "Amplifier", pflex(prow(knob(P.AMP_ATT, "Attack"), knob(P.AMP_DEC, "Decay"), knob(P.AMP_SUS, "Sustain"), knob(P.AMP_REL, "Release")),
-      h("div", { class: "env-side" }, viz("env", drawEnv(1)), envTools(ENVS[1])))),
+    ps("amp", "Amplifier",
+      pflex(
+        velocityKnob(DEST_VCA, "Velocity → VCA", 0, "How much softer a soft note plays, 0 to 99: level = 1 - (1 - velocity) × depth, so at 70 velocity 127 plays at full and 64 at about 0.65. It's the edit layer's route in the mod matrix below: 0 removes it, turning up adds it, a double-click takes it off."),
+        prow(knob(P.AMP_ATT, "Attack"), knob(P.AMP_DEC, "Decay"), knob(P.AMP_SUS, "Sustain"), knob(P.AMP_REL, "Release")),
+        h("div", { class: "env-side" }, viz("env", drawEnv(1)), envTools(ENVS[1])))),
     h("div", { class: "loose loose-vol" }, knob(P.VOL, "Volume")));
   // what the editor adds, below
   const matrix = document.querySelector("#tab-matrix section");
@@ -3194,6 +3288,7 @@ async function refreshLayerRoutes() {
   };
   const other = routesBothShown() && routeBothMask(1 - layer) ? await ask([0x57, 1 - layer], [0x57, 1 - layer], 1000) : null;
   layerRoutes = parse(d, layer);
+  routesLayer = layer;
   otherRoutes = other ? parse(other, 1 - layer).filter(r => r.both) : [];
   paintAll();
   renderRoutes();
@@ -3386,14 +3481,26 @@ async function setRouteBoth(route, on) {
   await setSetting(SET_ID[key], on ? rawSettings[key] | bit : rawSettings[key] & ~bit);
 }
 // The edit layer's routes as a table, then the other layer's that play here too: rebuilt when they change, but not
-// under a control that's being used
-let routesShown = null;
+// under a control that's being used. That's a slider held down, a moment after its move, while its write and re-read are
+// on their way, and a moment after a menu's opened (a rebuild would shut it; nothing says when it's closed unpicked).
+// Focus doesn't say it: a slider keeps the focus after the mouse lets go, for as long as nothing else is clicked, and the
+// rows have to follow MOD ASSIGN and a change of layer all the same. A rebuild puts the focus back.
+let routesShown = null; // the list the rows were built from; null once a slider has moved one away from it
+let routeRowHeld = false, routeRowBusyUntil = 0;
+const ROUTE_ROW_HOLD = 1500, ROUTE_MENU_HOLD = 10000;
+for (const type of ["pointerup", "pointercancel", "blur"]) window.addEventListener(type, () => { routeRowHeld = false; });
+const routeRowInUse = () => routeRowHeld || Date.now() < routeRowBusyUntil;
+const ROW_CONTROLS = ["input", ".s", ".d", ".both", ".del"];
 function renderRoutes(force) {
   const body = document.getElementById("routes");
   if (!layerRoutes) return;
   const key = paramsLayer + ":" + routesBothShown() + JSON.stringify([layerRoutes, otherRoutes]);
-  if (!force && (key === routesShown || body.contains(document.activeElement))) return;
+  if (!force && (key === routesShown || routeRowInUse())) return;
   routesShown = key;
+  let focused = null, refocus = null;
+  if (document.activeElement && body.contains(document.activeElement))
+    for (const tr of body.children) for (const control of ROW_CONTROLS)
+      if (tr.querySelector(control) === document.activeElement) focused = { row: tr._route, control };
   body.innerHTML = "";
   let used = 0;
   for (const route of [...layerRoutes, ...otherRoutes]) {
@@ -3412,9 +3519,13 @@ function renderRoutes(force) {
     tr._paintRange = () => paintRange(tr.querySelector(".range"), src, dest, +range.value || 0);
     tr._paintRange();
     let timer = 0;
-    range.oninput = () => { out.textContent = range.value; tr._paintRange(); clearTimeout(timer);
-      timer = setTimeout(() => setRoute(layer, src, dest, +range.value || 0), 40); };
-    range.onchange = () => { if (+range.value === 0) loadRoutes(); };
+    tr._route = `${layer}:${src}:${dest}`;
+    if (focused && focused.row === tr._route) refocus = tr.querySelector(focused.control);
+    range.addEventListener("pointerdown", () => { routeRowHeld = true; });
+    tr.querySelector(".s").onpointerdown = tr.querySelector(".d").onpointerdown = () => { routeRowBusyUntil = Date.now() + ROUTE_MENU_HOLD; };
+    range.oninput = () => { routesShown = null; routeRowBusyUntil = Date.now() + ROUTE_ROW_HOLD; out.textContent = range.value; tr._paintRange(); clearTimeout(timer);
+      timer = setTimeout(async () => { await setRoute(layer, src, dest, +range.value || 0); refreshLayerRoutes(); }, 40); }; // the knobs and rings follow
+    range.onchange = () => { routeRowHeld = false; if (+range.value === 0) loadRoutes(); };
     const move = async () => {
       const s2 = +tr.querySelector(".s").value, d2 = +tr.querySelector(".d").value;
       await setRoute(layer, src, dest, 0);
@@ -3433,6 +3544,7 @@ function renderRoutes(force) {
     body.appendChild(tr);
   }
   if (!body.children.length) body.innerHTML = `<tr><td colspan="6" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
+  if (refocus) refocus.focus({ preventScroll: true });
   document.getElementById("add-route").disabled = used >= 16;
   paintAll(); // the macro knobs' rings and wiring follow the routes
 }

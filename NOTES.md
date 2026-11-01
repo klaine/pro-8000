@@ -2129,6 +2129,79 @@ and everything that builds on the init sound come first below, the editor's knob
   `test_everything_comes_back` expect `INIT_ROUTES` where they expected `[]`.
 - **It has not run on the synth.** The timings measured earlier "on the init sound" (above) were without these two routes per voice;
   they're slow routes, evaluated once a pass, and haven't been measured. Neither have the knobs: nothing here has touched a port.
+- **The editor's two knobs** (`velocityKnob()` in `index.html`). A Velocity knob in the faceplate's filter section (Velocity → Cutoff,
+  -99 to +99) and amp section (Velocity → VCA, 0 to 99). Each is the depth of the edit layer's route: it reads `layerRoutes`, writes with
+  `setRoute()` (56), and holds nothing but the position of a turn the synth hasn't confirmed. The matrix, the rings and the knob read the
+  same list, so they agree whichever changed it, MOD ASSIGN included (the page's poll brings that in). No new firmware, SysEx or version
+  check: Velocity is source 4, the cutoff 3 and the VCA 9 in the first firmware with routes (29e8b88), and 56 and 57 are as they were; a
+  test runs the knob on a short 57 reply with 8 slots, as that firmware's table was.
+  - **Where:** first in each section's envelope row, so Velocity sits under Cutoff and straight above the amp's. To keep those rows the
+    same, the filter's caption ("Filter envelope", "Env 3" ..) now runs under its four ADSR knobs rather than under the display too.
+    Measured in a browser on a scratch copy with `requestMIDIAccess` stubbed out, at widths 1720, 1600, 1440, 1281, 1280, 800, 641, 640 and
+    375: the two Velocity knobs and the two ADSR rows share their left edges and tops at every width, and the page doesn't scroll sideways.
+    What it costs: a section under about 525 px can't hold five knobs and the envelope display side by side, so the display goes under the
+    knobs. That's the page's widths from 1281 to about 1450, 641 to about 710, and about 570 and under (worked out from the measured
+    widths): 163 px tall instead of 124 for the amp. At 375 the Velocity knob takes a line of its own over the ADSR row. The rest of the faceplate's layout, breakpoints included, is unchanged.
+  - **A turn:** debounced 60 ms like `settingKnob()`, so a drag sends once it rests. Unlike `settingKnob()` its hold lets go when the
+    write and the re-read after it are back, so a change anywhere right after a turn shows at once; the 1.5 s stays as the limit when
+    nothing answers. A later turn during a write keeps the hold (`turn`), a poll's answer doesn't move a knob that's being turned, and the
+    hold is per layer. The write goes to the layer the turn was made on, even if the layer changes inside the 60 ms.
+  - **On a change of layer** `refreshParams()` moves `paramsLayer` first and reads that layer's routes several requests later. New
+    `routesLayer` says whose `layerRoutes` is: until they match, the knob keeps what it showed and ignores a turn, as an empty list couldn't say
+    whose it was.
+  - **A full table:** with no route to turn and 16 in use, the status line says so at once (nothing's sent, since the firmware just
+    wouldn't answer for 1.5 s) and the knob doesn't move. If the panel filled the last slot behind the page's back, the unanswered 56 does the same, after
+    the re-read; no answer with a slot free says "The synth didn't take that route".
+  - **A negative Velocity → VCA route** (the matrix can make one). On its own it does nothing, but it isn't quite nothing: measured, beside
+    the wheel into the VCA it takes back part of that route's drop (`VelocityOnTheEngine`). So the knob shows it as it is: resting at 0, the
+    number in red in place of the label even without Values, the reason in its title. A click, a drag or a key downward writes nothing. Turning up replaces
+    it, and a double-click removes it, both being the person's own act.
+  - **A double-click goes to 0**, not to the init sound's depth as other knobs' defaults do: a third copy of those depths would undo the
+    two named constants in `main.c`, and off is what the double-click on the other model knobs does.
+  - **Both:** the knob edits the edited layer's own route only. If that route is marked Both it reads `+40 both`, its depth moves for both
+    layers' voices, and at 0 the firmware drops the mark with the route: the status line says so and it comes back as this layer's alone.
+    The other layer's Both route on the same destination reads `+L1` / `+L2` beside this layer's depth and in the title, and isn't touched,
+    though the matrix's row for it can be. Neither shows outside the two-layer modes, where the bit does nothing. A first try showed a removed route as still
+    marked until the next poll, as `routeBothMask()` reads `rawSettings`: a Both route's removal now re-reads the settings first.
+  - **Links** don't reach routes: the engine reads a voice's routes by its own layer (`VelocityOnTheEngine` measures layer 2's route
+    under layer 1's cutoff knob), so a linked layer 2 keeps its own Velocity routes, the knob isn't marked `linked` and its title says so.
+  - **The matrix's depth slider** now re-reads the routes after its write, so the knob and the rings follow at once rather than at the next
+    poll; `renderRoutes()` still doesn't rebuild the row while the slider's in use, which no longer means "has the focus" (below).
+- **Tests:** `WebVelocityKnobs` (38): the page's own knob, `adjustable()`, `dial()`, `refreshLayerRoutes()`, `renderRoutes()`, `modRange()`,
+  settings and layer changes on a small fake DOM (`VELOCITY_DOM`), against the simulated firmware, with the two knobs built from the very
+  expressions in `buildPanel()`; `VelocityOnTheEngine` (3). Each of the 41 was seen to fail with one of 56 temporary reverts, and every file
+  was restored and its hash compared. The layout itself isn't in a test beyond "first in the envelope row"; it was looked at, as above.
+  `InitRoutes.test_layer_2_plays_them_too`, from the step before, played note 40, which on a split is layer 1: it now plays 72, and
+  also checks that layer 1's routes aren't what it's hearing. Counts as of this bullet: test_panel 538, test_pro800 133.
+- **The reviewers' findings on all this**, each checked first on the simulator with the page's own code (the tests below, run on the page before the
+  fixes), the same day, also not on the synth:
+  - **Velocity → cutoff isn't silent with the knob at the top.** The brief, the first version of this section and MANUAL said it was. `cutoff_rest` is
+    the knob plus keytrack × (pitch - 60), the knob's top is note 132 and init's keytrack is 1.0, so the CV moves the route's whole 19.2 semitones between velocity
+    1 and 127 at every note (measured at 24, 36, 60 and 96, no end stop). In note space, worked out, not heard: note 36 was 4.2 kHz at any velocity and is now
+    4.2 to 13 kHz, note 24 is 2.1 to 6.4 kHz, and note 60 and up start at 16.7 kHz. So **the new init's low notes are brighter than the old init's** with the knob untouched.
+    The decision stands as it was asked for (depth 20, knob at the top); the owner should hear it. MANUAL and the knob's title say so now.
+    A measurement on the synth that shouldn't depend on velocity has to take both routes off, on each layer it plays: `route 1 velocity vca 0` and `route 1 velocity
+    cutoff 0`. **CLAUDE.md's rule still names only the first, and `play --velocity 127` as the way to compare with older measurements**, which holds for the level but not for
+    a low note's timbre: CLAUDE.md was left for the owner to change.
+  - **Both on init's own route doubles it on the other layer**, as a Both route adds to that layer's own copy: measured on a split at velocity 64, layer 2 goes from 0.80 to 0.60 and layer 1 stays.
+    That's how Both has always worked; what's new is that init gives it a twin to add to. Left in the engine, said in MANUAL, the cheat sheet and `sound-design.html`.
+  - **With layers off, taking layer 1's routes off leaves layer 2's** in the saved patch, where they play once it has two layers. It follows from "per layer"; left so, and
+    said in MANUAL. Nothing on the panel or the page points it out at that moment.
+  - **An older page or `plan.py` on this firmware still leaks**: `planSound()` as committed sends 5F and removes nothing, so every preset would get two routes per layer, a list-order `both` bit lands on
+    the wrong slot, and a sixteen-route preset stops with a message the synth didn't take. No fix is possible from here: a firmware can't tell which page is talking, and the routes are the decision. So **the page and
+    this firmware have to be published together**, which `scripts/pages.sh` does as one site; until that push (none for now), the published editor doesn't go with a 0.9.4 built here. It's in MANUAL. No test: the old page isn't in the tree.
+  - **The matrix followed the focus, not the use.** `renderRoutes()` skipped a rebuild while anything in the table had the focus, and a slider keeps it after the mouse lets go, so after
+    a drag MOD ASSIGN or a panel layer change left the knob and the matrix disagreeing until something else was clicked. In use now means: a slider held (window `pointerup`, `pointercancel`, `blur`, or the slider's
+    own `change`), 1.5 s after a slider's move (write and re-read on their way), and 10 s after pressing a source or destination menu, as a rebuild would shut it and nothing says when one closes unpicked. Outside those a rebuild happens, and puts the
+    focus back on the same control of the same route. A menu opened from the keyboard gets no hold: a route changed behind its back shuts it.
+  - **A slider edit back to the depth last built left the row wrong for good**, as `routesShown` was only set on a rebuild, so the re-read matched it. A slider's move now clears `routesShown`, so the next rebuild always happens. One rebuild more after every slider drag, once its hold ends.
+  - **A negative 0-to-1 route on the VCA or the volume read "0 to +40 %".** Measured, it adds nothing alone. `routeSwing()` now says "none on its own" for it (the knob's screen, the Range cell) and `modRange()` draws no ring on the volume knob, whose
+    title still lists it. The volume's clamp is the same code as the VCA's (`clamp01(1 + mod)`), read rather than measured.
+  - **The knob's status line outlived what it said.** A later turn that works now takes away the knob's own message, back to `showFirmware()`'s line; anyone else's stays.
+  - **A route stored twice** can only come from a hand-made record (every write overwrites the first match, JSON and the matrix's menus included). The knob reads the first with `×2`, says so in its title, turns the first, and 0 now takes them all off.
+  - **A drag across a layer change** wrote the first layer's starting depth to the second at the next pixel. `adjustable()` now remembers the layer a drag began on and ignores the pointer after a change, for every knob, since `knob()` and `settingKnob()` had the same gap; only the Velocity knobs have a test for it.
+  - **Tests:** three in `InitRoutes`, two in `VelocityOnTheEngine`, seventeen in `WebVelocityKnobs`, each seen to fail with its fix reverted and every file restored and its hash compared. The driver's `touch` now keeps what it was told, and `showFirmware` can be replaced. Nothing here has touched a port: it's the simulator and the page's code on a fake DOM. The matrix's part was also run once in a real browser (the desktop app's), on a scratch copy of the page with `requestMIDIAccess` stubbed out and `layerRoutes` set by hand: the hold through `pointerdown` and `pointerup`, the rebuild with the focus put back, a menu's hold and the "none on its own" cell behave there as on the fake DOM, with nothing on the console. That copy is offline, so its knobs didn't paint and weren't looked at, and a real mouse drag wasn't tried. Counts as of this bullet: test_panel 560, test_pro800 133.
+
 ## Real-unit ranges in the mod matrix and per-source rings on the knobs (2026-10-31)
 
 - The web page's Mod matrix got a Range column: `routeSwing()` turns a route into what it can add in the

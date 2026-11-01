@@ -103,6 +103,7 @@ BUTTON.update({n: 10 + i for i, n in enumerate(["PRESET", "PERF", "SETTINGS", "T
 CV_AMP1, CV_FIL1, CV_NOISE, CV_PW_A = 24, 16, 36, 38
 VELOCITY, VCA, CUTOFF = pro800.SOURCE_NAMES.index("velocity"), pro800.DEST_NAMES.index("vca"), pro800.DEST_NAMES.index("cutoff")
 INIT_ROUTES = [(VELOCITY, VCA, 70), (VELOCITY, CUTOFF, 20)]  # src/main.c, init_patch(); MANUAL, the mod matrix
+KNOB_START = [(VELOCITY, VCA, 40), (VELOCITY, CUTOFF, 20)]  # where the knob tests begin: their setUp sets it, whatever init holds
 
 
 class Synth:
@@ -1064,6 +1065,18 @@ class InitRoutes(PanelTest):
         self.s.setting("layers", 1)  # split: from the split note up is layer 2
         self.assertAlmostEqual(self.voice(64, note=40)[0], 1, delta=0.002)
         self.assertAlmostEqual(self.voice(64, note=72)[0], 0.65, delta=0.005)
+
+    def test_the_manual_and_the_knobs_title_say_what_happens(self):
+        manual = source("MANUAL.md")
+        init = manual[manual.index("- **Init:**"):manual.index("- **Names, export")]
+        self.assertNotIn("heard once", init, "low notes hear it with the knob at the top")
+        self.assertIn("keyboard tracking", init)
+        self.assertIn("layers off", init)
+        self.assertIn("older", init, "a page or installer from before these routes")
+        page = source("tools", "web", "index.html")
+        knob = page[page.index('velocityKnob(DEST_CUTOFF, "Velocity'):page.index('velocityKnob(DEST_VCA, "Velocity')]
+        self.assertNotIn("once the Cutoff knob is down", knob)
+        self.assertIn("low note", knob)
 
     # a patch from before
     def test_a_saved_patch_gets_none_added(self):
@@ -3381,19 +3394,22 @@ def js_block(text, start):
     return "\n".join(out)
 
 
+RANGE_BLOCKS = ["const P = {", "const ENVS = [", "const ENV_KNOB = {};", "for (const [, bit, ...knobs] of ENVS)", "function cycling(",
+                "const envIndex", "function cycleSync(", "const envOf", "function cycleShares(", "function cycleShare(", "const knobTime",
+                "function envTime(", "const envFlag", "const QUARTERS", "const envTempo", "const noteStep", "const noteName", "const noteSeconds",
+                "const DIVISIONS", "function seconds(", "function lfoHz(", "function format(", "const DEST_KNOBS", "const DEST_SCALE",
+                "const BIPOLAR_SOURCES", "const FIXED_SOURCE", "const SQUARED_DESTS", "const timeDest", "const rateDest", "const factor",
+                "function swingUnit(", "function routeSwing(", "function swingWhere(", "const SOURCES", "const DESTS", "function modRange(",
+                "function hertz(", "function noteValue(", "function paintRange("]
+
+
 def page_ranges():
     """What tools/web/index.html works out for routes, rings and the 'where' strings, from its own code in Node."""
     global PAGE_RANGES
     if PAGE_RANGES is not None:
         return PAGE_RANGES
     page = source("tools", "web", "index.html")
-    blocks = ["const P = {", "const ENVS = [", "const ENV_KNOB = {};", "for (const [, bit, ...knobs] of ENVS)", "function cycling(",
-              "const envIndex", "function cycleSync(", "const envOf", "function cycleShares(", "function cycleShare(", "const knobTime",
-              "function envTime(", "const envFlag", "const QUARTERS", "const envTempo", "const noteStep", "const noteName", "const noteSeconds",
-              "const DIVISIONS", "function seconds(", "function lfoHz(", "function format(", "const DEST_KNOBS", "const DEST_SCALE",
-              "const BIPOLAR_SOURCES", "const FIXED_SOURCE", "const SQUARED_DESTS", "const timeDest", "const rateDest", "const factor",
-              "function swingUnit(", "function routeSwing(", "function swingWhere(", "const SOURCES", "const DESTS", "function modRange(",
-              "function hertz(", "function noteValue(", "function paintRange("]
+    blocks = RANGE_BLOCKS
     script = "let settings = null, params = null, paramsLayer = 0, layerRoutes = null, otherRoutes = [];\nconst feature = () => false;\n"
     script += "const h = (tag, attrs, ...kids) => ({ tag, text: kids.join('') });\nconst cell = { replaceChildren(...kids) { this.kids = kids; } };\n"
     script += "\n".join(js_block(page, b) for b in blocks)
@@ -6485,6 +6501,1016 @@ class PresetRoutes(PanelTest):
         self.assertEqual(installer_page.count("0x5F"), 0)
         self.assertEqual(shared.count("[0x5F]"), 1)
         self.assertEqual((page.count("planSound("), installer_page.count("planSound(")), (2, 2), "Load JSON and the bank; the install and its check")
+
+
+# --- the faceplate's Velocity knobs in Node: the page's own code on a small fake DOM ---
+
+VELOCITY_DOM = r"""
+class El {
+  constructor(tag) {
+    Object.assign(this, { tag, kids: [], attrs: {}, on: {}, className: "", style: {}, dataset: {}, text: "", nodeType: 1, q: {}, html: "" });
+    const el = this;
+    this.classList = { add: c => el.setClass(c, true), remove: c => el.setClass(c, false), toggle: (c, on) => el.setClass(c, on), contains: c => el.classes().includes(c) };
+  }
+  classes() { return [...this.className.split(" "), ...(this.attrs.class || "").split(" ")].filter(Boolean); }
+  setClass(c, on) { const l = this.className.split(" ").filter(x => x && x !== c); if (on) l.push(c); this.className = l.join(" "); }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return this.attrs[k]; }
+  addEventListener(name, f) { (this.on[name] = this.on[name] || []).push(f); }
+  fire(name, ev = {}) { for (const f of this.on[name] || []) f({ preventDefault() {}, button: 0, pointerId: 1, clientX: 0, clientY: 0, shiftKey: false, ...ev }); }
+  append(...k) { this.kids.push(...k); }
+  appendChild(k) { this.kids.push(k); return k; }
+  replaceChildren(...k) { this.kids = k; }
+  get children() { return this.kids; }
+  set innerHTML(v) { this.html = v; this.kids = []; this.q = {}; }
+  get innerHTML() { return this.html; }
+  set textContent(v) { this.text = String(v); }
+  get textContent() { return this.text; }
+  focus() { document.activeElement = this; this.fire("focus"); }
+  setPointerCapture() {}
+  contains(x) { return x === this || [...this.kids, ...Object.values(this.q)].some(k => k && k.contains && k.contains(x)); }
+  querySelector(sel) {
+    if (!this.q[sel]) {
+      this.q[sel] = new El(sel);
+      if (sel === "input") this.q[sel].value = (this.html.match(/type="range"[^>]*value="(-?\d+)"/) || [])[1];
+    }
+    return this.q[sel];
+  }
+  find(cls) {
+    if (this.classes().includes(cls)) return this;
+    for (const k of this.kids) { const hit = k && k.find && k.find(cls); if (hit) return hit; }
+    return null;
+  }
+}
+const byId = {};
+const document = { activeElement: null, createElement: t => new El(t), createElementNS: (_, t) => new El(t), getElementById: id => byId[id] || (byId[id] = new El("#" + id)) };
+"""
+
+VELOCITY_DRIVER = r"""
+let settings = null, params = null, paramsLayer = 0, layerRoutes = null, routesLayer = null, otherRoutes = [], rawSettings = null;
+let patchNameFor = -1, patchName = "", seqFor = null, midiChannelSeen = null, betweenLayers = null, skew = 0;
+const realNow = Date.now.bind(Date);
+Date.now = () => realNow() + skew;
+let touched = null; // what the screen says about the control last touched
+const window = new El("window");
+const editedAt = {}, paints = [], paintAll = () => { for (const f of paints) f(); }, touch = (label, value) => { touched = value; paintAll(); };
+let showFirmware = () => {};
+const paintFeatures = () => {}, slotInfo = async () => null, refreshSequence = async () => {}, followChannel = () => {};
+const paintSettings = paintAll;
+const refreshButtons = async () => { if (betweenLayers) { const f = betweenLayers; betweenLayers = null; await f(); } }, refreshSteps = async () => {};
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function settle() { // until nothing is due: the 60 ms before a write, and every request answered
+  let quiet = 0, seen = sent.length;
+  while (quiet < 6) {
+    await sleep(20);
+    if (sent.length !== seen || answers.length) { seen = sent.length; quiet = 0; } else quiet++;
+  }
+}
+const status = () => document.getElementById("status");
+const writes = () => sent.filter(m => m[0] === 0x56);
+const state = k => ({ u: (parseFloat(k.find("k-ptr").getAttribute("transform").slice(7)) + 135) / 270, val: k.find("val").text, out: k.classList.contains("out"), title: k.title });
+const rows = () => byId.routes.kids.filter(tr => tr.q[".s"]).map(tr => [+tr.q[".s"].value, +tr.q[".d"].value, +tr.q["input"].value]);
+const down = k => { const d = k.find("dial"); d.focus(); d.fire("pointerdown", { clientY: 0 }); };
+const move = (k, px) => k.find("dial").fire("pointermove", { clientY: -px });
+const up = k => k.find("dial").fire("pointerup");
+const key = (k, name, shift) => k.find("dial").fire("keydown", { key: name, shiftKey: shift });
+async function drag(k, px) { down(k); move(k, px); up(k); await settle(); }
+const reach = { vca: 200 / 99, cutoff: 200 / 198 }; // pixels of drag to a step of depth
+async function setLayer(n) { await setSetting(SET_ID.editLayer, n); await refreshParams(); } // what the layer buttons do
+async function poll() { await refreshSettings(); await refreshParams(); }                    // what the page does every 900 ms
+const firmwareMs = ms => new Promise(r => { answers.push(r); process.stdout.write(`WAIT ${ms}\n`); });
+async function readRoutes(layer) {
+  const d = await ask([0x57, layer], [0x57, layer]), list = [];
+  for (let r = 0; r < ROUTES; r++) if (d[2 + 4 * r]) list.push({ layer, slot: r, source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, both: false });
+  return list;
+}
+"""
+
+VELOCITY_PAGE = None
+
+
+def velocity_page():
+    """Everything of index.html's that the knobs touch, cut out of it, with what they don't need stubbed."""
+    global VELOCITY_PAGE
+    if VELOCITY_PAGE is not None:
+        return VELOCITY_PAGE
+    page = source("tools", "web", "index.html")
+    blocks = RANGE_BLOCKS + ["const ROUTES", "const routesFull", "const routeBothMask", "const LINK_FILTER", "const twoLayers", "const linkOn", "const routesBothShown",
+                             "const FEATURES", "const feature", "const missingFeatures", "function linkedView(", "function linkedWrites(", "const paramLink",
+                             "async function setRoute(", "async function setRouteBoth(", "async function refreshLayerRoutes(", "async function setSetting(",
+                             "async function refreshSettings(", "async function refreshParams(", "const WIRE", "const options", "let routeRowHeld", "const ROUTE_ROW_HOLD",
+                             'for (const type of ["pointerup"', "const routeRowInUse", "const ROW_CONTROLS", "function renderRoutes(", "async function loadRoutes(",
+                             "function adjustable(", "const RING_R", "function dial(", "const SRC_VELOCITY", "let velocitySaid", "const velocityStatus", "function velocityUnsay(", "function velocityKnob(",
+                             "const LFO_SOURCE", "async function readParams(", "async function copyParams(", "const set7D", "async function copyLfo("]
+    code = "\n".join(js_block(page, b) for b in blocks)
+    a = page.index("\nconst h = (tag")
+    dom = page[a:page.index("\n// --- the screen", a)]
+    knobs = re.findall(r"^\s*(velocityKnob\(DEST_\w+, .*\)),$", page, re.M)
+    assert len(knobs) == 2, knobs
+    harness = ASK_THE_SIMULATOR.replace("const offline = () => 0,", "let online = true;\nconst offline = () => online ? 0 : 1,")
+    assert "online" in harness
+    VELOCITY_PAGE = (source("tools", "web", "sound-plan.js") + VELOCITY_DOM + harness + VELOCITY_DRIVER + dom + "\n" + code + f"""
+const cutoff = {knobs[0]}, vca = {knobs[1]};
+let routesShown = null;
+async function start() {{ await refreshSettings(); await refreshParams(); sent.length = 0; }}
+""")
+    return VELOCITY_PAGE
+
+
+@unittest.skipUnless(NODE, "needs node to run the page's code")
+class WebVelocityKnobs(PanelTest):
+    """The faceplate's two Velocity knobs: the page's own code (its knob, adjustable(), dial(), refreshLayerRoutes(), renderRoutes(),
+    modRange(), settings and layer changes) on a small fake DOM, talking to the simulated firmware. MOD ASSIGN is the panel's."""
+
+    def setUp(self):
+        super().setUp()
+        for layer in (0, 1):  # about the knob, not init's depth (InitRoutes has that): a depth it can turn both ways
+            self.s.request(0x56, layer, VELOCITY, VCA, (40 + 99) >> 7, (40 + 99) & 0x7F)
+
+    def run_page(self, body, synth=None):
+        return run_node(velocity_page() + NODE_DRIVER % ("await start();\n" + body), synth or self.s)
+
+    def route(self, layer, source, dest, depth):
+        self.s.request(0x56, layer, source, dest, (depth + 99) >> 7, (depth + 99) & 0x7F)
+
+    def fill(self, keep=()):
+        """All 16 slots of layer 1 taken, with these of the init sound's destinations kept."""
+        for dest in (VCA, CUTOFF):
+            if dest not in keep:
+                self.route(0, VELOCITY, dest, 0)
+        self.s.rest()
+        free = 16 - len(self.s.routes(0))
+        for dest in [d for d in range(46) if d not in (VCA, CUTOFF)][:free]:
+            self.route(0, 1, dest, 5)
+        self.assertEqual(len(self.s.routes(0)), 16)
+
+    # reading
+    def test_they_read_the_init_sounds_routes(self):
+        out = self.run_page("report({ vca: state(vca), cutoff: state(cutoff), writes: writes() });")
+        self.assertEqual((out["vca"]["val"], out["cutoff"]["val"]), ("+40", "+20"))
+        self.assertAlmostEqual(out["vca"]["u"], 40 / 99, delta=0.002)
+        self.assertAlmostEqual(out["cutoff"]["u"], (20 + 99) / 198, delta=0.002)
+        self.assertFalse(out["vca"]["out"] or out["cutoff"]["out"])
+        self.assertEqual(out["writes"], [], "reading writes nothing")
+
+    def test_no_route_reads_off(self):
+        self.s.no_routes()
+        out = self.run_page("report({ vca: state(vca), cutoff: state(cutoff) });")
+        self.assertEqual((out["vca"]["val"], out["cutoff"]["val"]), ("off", "off"))
+        self.assertAlmostEqual(out["vca"]["u"], 0, delta=0.002)
+        self.assertAlmostEqual(out["cutoff"]["u"], 0.5, delta=0.002, msg="bipolar: 0 is the middle")
+
+    def test_each_section_has_its_own_with_its_range_and_a_title(self):
+        page = source("tools", "web", "index.html")
+        filter_part = page[page.index('ps("flt", "Filter"'):page.index('h("div", { class: "loose loose-tune" }')]
+        amp_part = page[page.index('ps("amp", "Amplifier"'):page.index('h("div", { class: "loose loose-vol" }')]
+        self.assertRegex(filter_part, r'velocityKnob\(DEST_CUTOFF, "Velocity → Cutoff", -99, "[^"]*semitones[^"]*"\)')
+        self.assertRegex(amp_part, r'velocityKnob\(DEST_VCA, "Velocity → VCA", 0, "[^"]*0\.65[^"]*"\)')
+        self.assertNotIn("velocityKnob", page[page.index("function buildPanel"):page.index('ps("flt", "Filter"')])
+        for part in (filter_part, amp_part):
+            self.assertRegex(part, r"pflex\(\s*velocityKnob\(", "first in the envelope row, so the two sections' rows keep lining up")
+        out = self.run_page("report({ vca: vca.find('lbl').kids, cutoff: cutoff.find('lbl').kids, classes: vca.className, label: vca.find('dial').getAttribute('aria-label') });")
+        self.assertEqual((out["vca"], out["cutoff"]), (["Velocity"], ["Velocity"]))
+        self.assertNotIn("shared", out["classes"], "per layer: not the amber of a shared knob")
+        self.assertEqual(out["label"], "Velocity → VCA")
+
+    # writing
+    def test_a_turn_writes_the_edit_layers_route(self):
+        out = self.run_page("""
+        await drag(vca, 30 * reach.vca); const a = state(vca);
+        await drag(cutoff, -50 * reach.cutoff); const b = state(cutoff);
+        report({ a, b, writes: writes() });
+        """)
+        self.assertEqual((out["a"]["val"], out["b"]["val"]), ("+70", "-30"))
+        self.assertEqual(self.s.routes(0), [(VELOCITY, VCA, 70), (VELOCITY, CUTOFF, -30)], "in their slots")
+        self.assertEqual(self.s.routes(1), KNOB_START, "the other layer's stay")
+        self.assertEqual(out["writes"], [[0x56, 0, VELOCITY, VCA, 1, 169 - 128], [0x56, 0, VELOCITY, CUTOFF, 0, 69]], "setRoute's message, byte for byte")
+
+    def test_a_drag_sends_once_it_rests(self):
+        out = self.run_page("""
+        down(vca);
+        for (let px = 1; px <= 40; px++) move(vca, px);
+        const during = [state(vca).val, writes().length];
+        up(vca);
+        await settle();
+        report({ during, after: state(vca).val, writes: writes() });
+        """)
+        self.assertEqual(out["during"], ["+60", 0], "the knob moves at once; nothing's sent while it moves")
+        self.assertEqual(len(out["writes"]), 1, "like settingKnob: the last position")
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 60))
+
+    def test_fine_steps_add_up(self):
+        """Shift + an arrow is under one depth step: they have to add up rather than round away."""
+        out = self.run_page("""
+        for (let k = 0; k < 6; k++) key(vca, "ArrowUp", true);
+        await settle();
+        report({ val: state(vca).val });
+        """)
+        self.assertEqual(out["val"], "+41")
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 41))
+
+    def test_zero_removes_and_turning_creates(self):
+        out = self.run_page("""
+        await drag(vca, -40 * reach.vca); const a = state(vca);
+        await drag(cutoff, -20 * reach.cutoff); const b = state(cutoff);
+        const gone = writes().length;
+        await drag(vca, 25 * reach.vca); const c = state(vca);
+        await drag(cutoff, -25 * reach.cutoff); const d = state(cutoff);
+        report({ a, b, c, d, gone });
+        """)
+        self.assertEqual((out["a"]["val"], out["b"]["val"]), ("off", "off"))
+        self.assertEqual((out["c"]["val"], out["d"]["val"]), ("+25", "-25"))
+        self.assertEqual(self.s.routes(0), [(VELOCITY, VCA, 25), (VELOCITY, CUTOFF, -25)])
+        self.assertEqual(self.s.routes(1), KNOB_START)
+        self.assertEqual(out["gone"], 2)
+
+    def test_zero_really_takes_the_route_away(self):
+        self.run_page("await drag(vca, -40 * reach.vca); report({});")
+        self.s.rest()
+        self.assertEqual(self.s.routes(0), KNOB_START[1:])
+        self.run_page("await drag(cutoff, -20 * reach.cutoff); report({});")
+        self.s.rest()
+        self.assertEqual(self.s.routes(0), [])
+
+    def test_the_vca_knob_stops_at_0_and_the_cutoff_knob_at_both_ends(self):
+        out = self.run_page("""
+        await drag(vca, -400); const low = state(vca);
+        await drag(cutoff, 400); const high = state(cutoff);
+        await drag(cutoff, -900); const under = state(cutoff);
+        await drag(vca, 900); const top = state(vca);
+        report({ low, high, under, top });
+        """)
+        self.assertEqual([out[k]["val"] for k in ("low", "high", "under", "top")], ["off", "+99", "-99", "+99"])
+        self.assertEqual(sorted(self.s.routes(0)), sorted([(VELOCITY, VCA, 99), (VELOCITY, CUTOFF, -99)]))
+
+    def test_a_double_click_takes_it_off(self):
+        out = self.run_page("""
+        vca.find("dial").fire("dblclick"); cutoff.find("dial").fire("dblclick");
+        await settle();
+        report({ vca: state(vca), cutoff: state(cutoff) });
+        """)
+        self.assertEqual((out["vca"]["val"], out["cutoff"]["val"]), ("off", "off"))
+        self.assertAlmostEqual(out["cutoff"]["u"], 0.5, delta=0.002)
+        self.s.rest()
+        self.assertEqual(self.s.routes(0), [])
+
+    # all 16 slots
+    def test_a_full_table_says_so_and_the_knob_stays_true(self):
+        self.fill()
+        before = self.s.routes(0)
+        out = self.run_page("""
+        await drag(vca, 30 * reach.vca); const a = state(vca);
+        const said = status().text, cls = status().className;
+        status().text = "";
+        await drag(cutoff, 30 * reach.cutoff);
+        report({ a, c: state(cutoff), said, cls, again: status().text, writes: writes() });
+        """)
+        self.assertEqual((out["a"]["val"], out["c"]["val"]), ("off", "off"))
+        self.assertAlmostEqual(out["a"]["u"], 0, delta=0.002)
+        self.assertAlmostEqual(out["c"]["u"], 0.5, delta=0.002)
+        self.assertIn("All 16 mod routes of layer 1 are in use", out["said"])
+        self.assertEqual(out["cls"], "bad")
+        self.assertIn("All 16", out["again"])
+        self.assertEqual(out["writes"], [], "it knows without asking")
+        self.assertEqual(self.s.routes(0), before)
+
+    def test_a_table_that_filled_behind_the_pages_back(self):
+        """The page saw a free slot; the panel took it. The firmware doesn't answer, and the knob goes back."""
+        self.fill()
+        self.route(0, 1, 0, 0)  # one free when the page reads them
+        out = self.run_page("""
+        await ask([0x56, 0, 1, 0, 0, 104], [0x7F, 0x56]);
+        await drag(vca, 30 * reach.vca);
+        report({ state: state(vca), said: status().text, count: writes().length });
+        """)
+        self.assertEqual(out["state"]["val"], "off")
+        self.assertAlmostEqual(out["state"]["u"], 0, delta=0.002)
+        self.assertIn("All 16 mod routes", out["said"])
+        self.assertEqual(out["count"], 2, "the panel's stand-in and the knob's")
+
+    def test_a_route_that_exists_can_still_be_turned_with_the_table_full(self):
+        self.fill(keep=(VCA, CUTOFF))
+        out = self.run_page("""
+        await drag(vca, 10 * reach.vca); const a = state(vca);
+        await drag(vca, -50 * reach.vca); const b = state(vca);
+        await drag(vca, 15 * reach.vca); const c = state(vca);
+        report({ a, b, c, said: status().text });
+        """)
+        self.assertEqual([out[k]["val"] for k in "abc"], ["+50", "off", "+15"], "taking it off frees the slot it comes back to")
+        self.assertEqual(out["said"], "")
+        self.assertIn((VELOCITY, VCA, 15), self.s.routes(0))
+
+    # the layer
+    def test_a_layer_change_follows(self):
+        self.route(1, VELOCITY, VCA, 77)
+        self.route(1, VELOCITY, CUTOFF, -12)
+        out = self.run_page("""
+        const one = [state(vca).val, state(cutoff).val];
+        await setLayer(1);
+        const two = [state(vca).val, state(cutoff).val];
+        await drag(vca, -7 * reach.vca);
+        const edited = state(vca).val;
+        await setLayer(0);
+        report({ one, two, edited, back: [state(vca).val, state(cutoff).val], writes: writes() });
+        """)
+        self.assertEqual(out["one"], ["+40", "+20"])
+        self.assertEqual(out["two"], ["+77", "-12"])
+        self.assertEqual(out["edited"], "+70")
+        self.assertEqual(out["back"], ["+40", "+20"])
+        self.assertEqual(self.s.routes(0), KNOB_START, "only the edit layer's")
+        self.assertEqual(self.s.routes(1), [(VELOCITY, VCA, 70), (VELOCITY, CUTOFF, -12)])
+
+    def test_a_turn_stays_on_the_layer_it_was_made_on(self):
+        """Layer 2 comes up inside the 60 ms before the write: layer 1 still gets it, and layer 2's knob doesn't show it."""
+        self.route(1, VELOCITY, VCA, 77)
+        out = self.run_page("""
+        const theirs = await readRoutes(1);
+        down(vca); move(vca, 20 * reach.vca); up(vca);
+        const moved = state(vca).val;
+        paramsLayer = 1; layerRoutes = theirs; routesLayer = 1; paintAll();
+        const there = state(vca).val;
+        await settle();
+        report({ moved, there, after: state(vca).val });
+        """)
+        self.assertEqual(out["moved"], "+60")
+        self.assertEqual(out["there"], "+77", "not the other layer's turn")
+        self.assertEqual(out["after"], "+77")
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 60))
+        self.assertEqual(self.s.routes(1)[0], (VELOCITY, VCA, 77))
+
+    def test_a_drag_begun_on_one_layer_doesnt_write_to_the_other(self):
+        """The panel's layer buttons, with the mouse held on the knob: where the drag began was the first layer's depth."""
+        self.route(1, VELOCITY, VCA, 77)
+        out = self.run_page("""
+        down(vca);
+        await setLayer(1);
+        sent.length = 0;
+        move(vca, 1); move(vca, 30);
+        const during = state(vca).val;
+        await settle();
+        const dropped = writes();
+        up(vca);
+        await drag(vca, 3 * reach.vca); // a new drag starts from what the layer has
+        report({ during, dropped, after: state(vca).val });
+        """)
+        self.assertEqual(out["during"], "+77")
+        self.assertEqual(out["dropped"], [])
+        self.assertEqual(out["after"], "+80")
+        self.assertEqual(self.s.routes(0), KNOB_START)
+        self.assertEqual(self.s.routes(1)[0], (VELOCITY, VCA, 80))
+
+    def test_a_fine_drag_keeps_the_layer_it_began_on(self):
+        """Shift starts the drag anew at each move: that mustn't take it to the new layer."""
+        self.route(1, VELOCITY, VCA, 77)
+        out = self.run_page("""
+        down(vca);
+        vca.find("dial").fire("pointermove", { clientY: -60, shiftKey: true });
+        vca.find("dial").fire("pointermove", { clientY: -120, shiftKey: true });
+        const fine = state(vca).val;
+        await settle();
+        await setLayer(1);
+        sent.length = 0;
+        vca.find("dial").fire("pointermove", { clientY: -180, shiftKey: true });
+        up(vca);
+        await settle();
+        report({ fine, val: state(vca).val, writes: writes() });
+        """)
+        self.assertEqual(out["fine"], "+50", "on the layer it began on, one fine move after another adds up")
+        self.assertEqual(out["val"], "+77")
+        self.assertEqual(out["writes"], [])
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 50))
+        self.assertEqual(self.s.routes(1)[0], (VELOCITY, VCA, 77))
+
+    def test_between_a_layer_change_and_its_routes_nothing_is_written(self):
+        """refreshParams() moves paramsLayer first and reads the routes last: the old list isn't the new layer's."""
+        self.route(1, VELOCITY, VCA, 77)
+        out = self.run_page("""
+        let inside = null;
+        betweenLayers = async () => {
+          sent.length = 0;
+          const shown = state(vca).val;
+          await drag(vca, 20 * reach.vca);
+          inside = { shown, writes: writes(), val: state(vca).val, layer: paramsLayer };
+        };
+        await setLayer(1);
+        report({ inside, after: state(vca).val });
+        """)
+        self.assertEqual(out["inside"]["layer"], 1)
+        self.assertEqual(out["inside"]["shown"], "+40", "it keeps what it showed until the routes are in")
+        self.assertEqual(out["inside"]["writes"], [])
+        self.assertEqual(out["after"], "+77")
+        self.assertEqual(self.s.routes(0), KNOB_START)
+
+    # the matrix, the rings and the knob are one thing
+    def test_a_knob_turn_repaints_the_matrix_and_the_ring(self):
+        out = self.run_page("""
+        const before = { rows: rows(), ring: modRange(P.CUTOFF).hi };
+        await drag(cutoff, 40 * reach.cutoff);
+        const turned = { rows: rows(), ring: modRange(P.CUTOFF).hi };
+        await drag(vca, -40 * reach.vca);
+        const removed = rows();
+        await drag(vca, 11 * reach.vca);
+        await drag(cutoff, -160 * reach.cutoff);
+        report({ before, turned, removed, created: rows(), ring: [modRange(P.CUTOFF).lo, modRange(P.CUTOFF).hi] });
+        """)
+        self.assertEqual(out["before"]["rows"], [[VELOCITY, VCA, 40], [VELOCITY, CUTOFF, 20]])
+        self.assertAlmostEqual(out["before"]["ring"], 20 / 99 * 96 / 120, delta=0.001)
+        self.assertEqual(out["turned"]["rows"], [[VELOCITY, VCA, 40], [VELOCITY, CUTOFF, 60]])
+        self.assertAlmostEqual(out["turned"]["ring"], 60 / 99 * 96 / 120, delta=0.001)
+        self.assertEqual(out["removed"], [[VELOCITY, CUTOFF, 60]])
+        self.assertEqual(sorted(out["created"]), sorted([[VELOCITY, VCA, 11], [VELOCITY, CUTOFF, -99]]))
+        self.assertAlmostEqual(out["ring"][0], 96 / 120, delta=0.001, msg="a negative route's ring goes down")
+        self.assertEqual(out["ring"][1], 0)
+
+    def test_a_matrix_edit_repaints_the_knob(self):
+        out = self.run_page("""
+        // the slider: no refresh of the row under it, the knob and the firmware follow
+        const tr = byId.routes.kids[0], range = tr.q["input"];
+        document.activeElement = range;
+        range.value = "55"; range.oninput();
+        await settle();
+        const slid = [state(vca).val, modRange(P.CUTOFF).hi, byId.routes.kids[0] === tr];
+        document.activeElement = null;
+        // a cutoff ring and knob from the same place
+        const row2 = byId.routes.kids[1];
+        document.activeElement = row2.q["input"];
+        row2.q["input"].value = "-33"; row2.q["input"].oninput();
+        await settle();
+        const slid2 = [state(cutoff).val, modRange(P.CUTOFF).lo];
+        document.activeElement = null;
+        await loadRoutes();
+        // Remove
+        await byId.routes.kids[0].q[".del"].onclick();
+        await settle();
+        const removed = state(vca).val;
+        // a new route, as Add route does
+        await setRoute(0, 4, 9, 33); await loadRoutes();
+        const added = state(vca).val;
+        // moved to another source: not the velocity route any more
+        const moved = byId.routes.kids.find(r => +r.q[".d"].value === 9);
+        moved.q[".s"].value = "5"; await moved.q[".s"].onchange();
+        await settle();
+        report({ slid, slid2, removed, added, left: state(vca).val, cut: state(cutoff).val });
+        """)
+        self.assertEqual(out["slid"][0], "+55")
+        self.assertTrue(out["slid"][2], "the row under the slider isn't rebuilt")
+        self.assertEqual(out["slid2"][0], "-33")
+        self.assertAlmostEqual(out["slid2"][1], 33 / 99 * 96 / 120, delta=0.001)
+        self.assertEqual(out["removed"], "off")
+        self.assertEqual(out["added"], "+33")
+        self.assertEqual(out["left"], "off")
+        self.assertEqual(out["cut"], "-33")
+
+    def test_mod_assign_on_the_synth_reaches_the_knob(self):
+        s = self.s
+
+        class Panel:
+            """A request 0E stands for the person at the synth, in the middle of the page's run."""
+            @staticmethod
+            def request(*data):
+                if data[0] != 0x0E:
+                    return s.request(*data)
+                s.press("ASSIGN")
+                s.press("4")
+                s.pot("AMP_SUS", 0.3)
+                s.pot("AMP_SUS", 0.35)
+                s.turn(5)
+                s.press("ASSIGN")
+                return b""
+
+        out = self.run_page("""
+        const before = state(vca).val;
+        await ask([0x0E], [0x0E]);
+        await poll();
+        report({ before, after: state(vca), rows: rows() });
+        """, Panel)
+        depth = dict((r[1], r[2]) for r in s.routes(0))[VCA]
+        self.assertEqual(out["before"], "+40")
+        self.assertNotEqual(depth, 40, "the panel changed it")
+        self.assertEqual(out["after"]["val"], f"{depth:+d}")
+        self.assertAlmostEqual(out["after"]["u"], max(depth, 0) / 99, delta=0.002)
+        self.assertIn([VELOCITY, VCA, depth], out["rows"])
+
+    # focus stays on a slider after the mouse lets go, in Chrome for as long as nothing else is clicked
+    SLIDE = """
+        const tr = byId.routes.kids[0], range = tr.q["input"];
+        range.fire("pointerdown");
+        document.activeElement = range;
+        range.value = "55"; range.oninput();
+        await settle();
+        window.fire("pointerup");
+        sent.length = 0;
+        """
+
+    def test_the_matrix_follows_mod_assign_with_focus_left_on_a_slider(self):
+        out = self.run_page(self.SLIDE + """
+        await ask([0x56, 0, 4, 9, 0, 99 + 77], [0x7F, 0x56]); // as MOD ASSIGN would
+        skew = 2000;
+        await poll();
+        const row = byId.routes.kids[0];
+        report({ knob: state(vca).val, rows: rows(), rebuilt: row !== tr, focused: document.activeElement === row.q["input"] });
+        """)
+        self.assertEqual(out["knob"], "+77")
+        self.assertEqual(out["rows"], [[VELOCITY, VCA, 77], [VELOCITY, CUTOFF, 20]])
+        self.assertTrue(out["rebuilt"])
+        self.assertTrue(out["focused"], "the rebuilt row's slider has the focus back")
+
+    def test_the_matrix_follows_a_layer_change_with_focus_left_on_a_slider(self):
+        self.route(1, VELOCITY, VCA, 77)
+        out = self.run_page(self.SLIDE + """
+        skew = 2000;
+        await setLayer(1);
+        const row = byId.routes.kids[0], knob = state(vca).val, list = rows();
+        row.q["input"].value = "70"; row.q["input"].oninput();
+        await settle();
+        report({ knob, list, writes: writes() });
+        """)
+        self.assertEqual(out["knob"], "+77")
+        self.assertEqual(out["list"], [[VELOCITY, VCA, 77], [VELOCITY, CUTOFF, 20]], "layer 2's rows")
+        self.assertEqual(out["writes"], [[0x56, 1, VELOCITY, VCA, 1, 169 - 128]], "and they write to layer 2")
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 55))
+        self.assertEqual(self.s.routes(1)[0], (VELOCITY, VCA, 70))
+
+    def test_a_row_being_held_isnt_rebuilt_until_it_lets_go(self):
+        out = self.run_page("""
+        const tr = byId.routes.kids[0], range = tr.q["input"];
+        range.fire("pointerdown");
+        document.activeElement = range;
+        range.value = "55"; range.oninput();
+        await settle();
+        await ask([0x56, 0, 4, 9, 0, 99 + 77], [0x7F, 0x56]);
+        skew = 2000;
+        await poll();
+        const during = [byId.routes.kids[0] === tr, tr.q["input"].value];
+        window.fire("pointerup");
+        await poll();
+        report({ during, rows: rows() });
+        """)
+        self.assertEqual(out["during"], [True, "55"], "held long past the slider's last move")
+        self.assertEqual(out["rows"][0], [VELOCITY, VCA, 77])
+
+    def test_a_slider_lets_go_with_its_change_too(self):
+        """If the pointer's release went astray: a slider's change event is the release as well."""
+        out = self.run_page("""
+        const tr = byId.routes.kids[0], range = tr.q["input"];
+        range.fire("pointerdown");
+        range.value = "55"; range.oninput();
+        await settle();
+        range.onchange();
+        await ask([0x56, 0, 4, 9, 0, 99 + 77], [0x7F, 0x56]);
+        skew = 2000;
+        await poll();
+        report({ rows: rows() });
+        """)
+        self.assertEqual(out["rows"][0], [VELOCITY, VCA, 77])
+
+    def test_an_open_menu_isnt_rebuilt_for_a_while(self):
+        """A rebuild would shut a route's source or destination menu. Nothing tells a page when one is closed without a pick, so
+        the hold has an end, and the rows catch up then."""
+        out = self.run_page("""
+        const tr = byId.routes.kids[0];
+        tr.q[".s"].onpointerdown();
+        await ask([0x56, 0, 4, 9, 0, 99 + 77], [0x7F, 0x56]);
+        await poll();
+        const open = [byId.routes.kids[0] === tr, state(vca).val];
+        skew = 11000;
+        await poll();
+        report({ open, rows: rows() });
+        """)
+        self.assertEqual(out["open"], [True, "+77"], "the knob doesn't wait")
+        self.assertEqual(out["rows"][0], [VELOCITY, VCA, 77])
+
+    def test_a_rebuild_elsewhere_doesnt_take_the_focus(self):
+        out = self.run_page("""
+        vca.find("dial").focus();
+        const dial = document.activeElement;
+        await ask([0x56, 0, 4, 9, 0, 99 + 77], [0x7F, 0x56]);
+        await poll();
+        report({ same: document.activeElement === dial, rows: rows() });
+        """)
+        self.assertTrue(out["same"])
+        self.assertEqual(out["rows"][0], [VELOCITY, VCA, 77])
+
+    def test_a_slider_edit_then_back_to_the_depth_last_built(self):
+        """The rows were built at 40, the slider made it 30, the knob made it 40 again: the list reads as it did when they were built."""
+        out = self.run_page(self.SLIDE.replace('"55"', '"30"') + """
+        document.activeElement = null;
+        await drag(vca, 10 * reach.vca);
+        const knob = state(vca).val;
+        skew = 2000;
+        await poll();
+        report({ knob, rows: rows() });
+        """)
+        self.assertEqual(out["knob"], "+40")
+        self.assertEqual(out["rows"][0], [VELOCITY, VCA, 40])
+
+    def test_the_same_with_mod_assign_going_back(self):
+        out = self.run_page(self.SLIDE.replace('"55"', '"30"') + """
+        await ask([0x56, 0, 4, 9, 0, 99 + 40], [0x7F, 0x56]);
+        skew = 2000;
+        await poll();
+        report({ knob: state(vca).val, rows: rows() });
+        """)
+        self.assertEqual(out["knob"], "+40")
+        self.assertEqual(out["rows"][0], [VELOCITY, VCA, 40])
+
+    # a depth the knob can't reach
+    def test_a_negative_vca_route_shows_and_is_left_alone(self):
+        self.route(0, VELOCITY, VCA, -40)
+        before = self.s.routes(0)
+        out = self.run_page("""
+        const a = state(vca);
+        down(vca); up(vca);                                  // a click
+        down(vca); move(vca, -30); move(vca, -90); up(vca);  // down past the bottom
+        key(vca, "ArrowDown", false);
+        vca.find("dial").fire("wheel", { deltaY: 100 });
+        await settle();
+        await poll();
+        report({ a, b: state(vca), rows: rows(), writes: writes() });
+        """)
+        for k in ("a", "b"):
+            self.assertEqual(out[k]["val"], "-40", "as it is")
+            self.assertTrue(out[k]["out"], "marked, so the number stays in sight")
+            self.assertAlmostEqual(out[k]["u"], 0, delta=0.002, msg="the knob at its end")
+            self.assertIn("does nothing here on its own", out[k]["title"])
+        self.assertEqual(out["writes"], [], "not rewritten")
+        self.assertEqual(self.s.routes(0), before)
+        self.assertIn([VELOCITY, VCA, -40], out["rows"], "the matrix says the same")
+
+    def test_a_negative_routes_readout_claims_no_reach(self):
+        """VelocityOnTheEngine measures it: on its own it adds nothing. So neither the knob's screen nor the matrix's Range cell
+        can say "0 to +40 %", with the title beside it saying nothing happens."""
+        self.route(0, VELOCITY, VCA, -40)
+        out = self.run_page("""
+        vca.find("dial").focus();
+        const screen = touched, cell = byId.routes.kids[0].q[".range"].kids[0];
+        await ask([0x56, 0, 4, 43, 0, 99 - 40], [0x7F, 0x56]);
+        await refreshLayerRoutes();
+        const volume = modRange(P.VOL);
+        report({ screen, cell, vca: routeSwing(4, 9, -40), volume: routeSwing(4, 43, -40), ring: [volume.lo, volume.hi], who: volume.who,
+                 up: routeSwing(4, 9, 40).text, fixed: routeSwing(25, 9, -40).text, cutoff: routeSwing(4, 3, -40).text });
+        """)
+        self.assertEqual(out["screen"], "-40 (none on its own)")
+        self.assertEqual(out["cell"], "none on its own")
+        self.assertEqual((out["vca"]["lo"], out["vca"]["hi"]), (0, 0))
+        self.assertEqual(out["volume"]["text"], "none on its own", "synth.c treats the master volume the same")
+        self.assertEqual(out["ring"], [0, 0], "no ring on the volume knob")
+        self.assertEqual(len(out["who"]), 1, "but its title still lists the route")
+        self.assertEqual(out["up"], "-40 % to 0", "the depths that do something read as they did")
+        self.assertEqual(out["fixed"], "-40 %", "FIX turns it down whichever the sign")
+        self.assertEqual(out["cutoff"], "-39 st to 0", "a negative route on the cutoff does close it")
+
+    def test_the_mark_for_a_depth_out_of_reach_keeps_the_number_in_sight(self):
+        page = source("tools", "web", "index.html")
+        self.assertRegex(page, r"\.face:not\(\.values\) \.knob\.out \.val \{ visibility: visible;")
+        self.assertRegex(page, r"\.face:not\(\.values\) \.knob\.out \.lbl \{ visibility: hidden;")
+
+    def test_turning_up_replaces_a_negative_route(self):
+        self.route(0, VELOCITY, VCA, -40)
+        out = self.run_page("""
+        down(vca); move(vca, 30 * reach.vca); const moved = state(vca); up(vca);
+        await settle();
+        report({ moved, after: state(vca) });
+        """)
+        self.assertEqual(out["moved"]["val"], "+30")
+        self.assertEqual(out["after"]["val"], "+30")
+        self.assertFalse(out["after"]["out"])
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 30))
+
+    def test_a_double_click_removes_a_negative_route(self):
+        self.route(0, VELOCITY, VCA, -40)
+        out = self.run_page("""vca.find("dial").fire("dblclick"); await settle(); report({ after: state(vca) });""")
+        self.assertEqual(out["after"]["val"], "off")
+        self.s.rest()
+        self.assertEqual(self.s.routes(0), KNOB_START[1:])
+
+    def test_a_negative_cutoff_route_is_in_reach(self):
+        self.route(0, VELOCITY, CUTOFF, -33)
+        out = self.run_page("report({ cutoff: state(cutoff) });")
+        self.assertEqual(out["cutoff"]["val"], "-33")
+        self.assertFalse(out["cutoff"]["out"])
+        self.assertAlmostEqual(out["cutoff"]["u"], 66 / 198, delta=0.002)
+
+    # both layers, links
+    def both_on_layer_1(self, slot=0):
+        self.s.setting("layers", 2)  # stack
+        self.s.setting("route-both 1 (0-7)", 1 << slot)
+
+    def test_a_both_route_is_one_route_and_says_so(self):
+        self.both_on_layer_1()
+        out = self.run_page("""
+        const a = state(vca);
+        await drag(vca, 10 * reach.vca);
+        report({ a, b: state(vca), other: state(cutoff) });
+        """)
+        self.assertEqual(out["a"]["val"], "+40 both")
+        self.assertIn("Marked Both", out["a"]["title"])
+        self.assertEqual(out["b"]["val"], "+50 both", "its depth moves and it stays marked")
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 50))
+        self.assertEqual(self.s.settings()["route-both 1 (0-7)"], 1)
+        self.assertEqual(self.s.routes(1), KNOB_START, "layer 2's own route isn't this one")
+        self.assertEqual(out["other"]["val"], "+20", "not marked")
+
+    # what the status line says
+    def test_a_later_turn_takes_the_both_message_away(self):
+        self.both_on_layer_1()
+        out = self.run_page("""
+        await drag(vca, -40 * reach.vca);
+        const said = status().text;
+        await drag(vca, 10 * reach.vca);
+        report({ said, after: status().text, cls: status().className, val: state(vca).val });
+        """)
+        self.assertIn("Both mark", out["said"])
+        self.assertEqual(out["after"], "", "the route is live again: the message isn't true any more")
+        self.assertEqual(out["val"], "+10 both")
+
+    def test_a_turn_that_works_takes_the_full_table_message_away(self):
+        self.fill()
+        out = self.run_page("""
+        await drag(vca, 30 * reach.vca);
+        const said = [status().text, status().className];
+        await ask([0x56, 0, 1, 4, 0, 99], [0x7F, 0x56]); // a slot comes free
+        await poll();
+        await drag(vca, 30 * reach.vca);
+        report({ said, after: [status().text, status().className], val: state(vca).val });
+        """)
+        self.assertIn("All 16", out["said"][0])
+        self.assertEqual(out["said"][1], "bad")
+        self.assertEqual(out["val"], "+30")
+        self.assertEqual(out["after"], ["", ""])
+
+    def test_the_status_line_comes_back_to_the_firmware(self):
+        """On the real page the line under the message is "Connected: firmware x"."""
+        self.both_on_layer_1()
+        out = self.run_page("""
+        await drag(vca, -40 * reach.vca);
+        const line = status();
+        showFirmware = () => { line.textContent = "Connected: firmware 0.9.4"; };
+        await drag(vca, 10 * reach.vca);
+        report({ after: [line.text, line.className] });
+        """)
+        self.assertEqual(out["after"], ["Connected: firmware 0.9.4", "ok"])
+
+    def test_a_turn_leaves_anyone_elses_message_alone(self):
+        self.both_on_layer_1()
+        out = self.run_page("""
+        await drag(vca, -40 * reach.vca);
+        status().textContent = "Renamed P3"; status().className = "ok";
+        await drag(vca, 10 * reach.vca);
+        report({ after: [status().text, status().className] });
+        """)
+        self.assertEqual(out["after"], ["Renamed P3", "ok"])
+
+    def test_the_other_layers_both_route_is_only_mentioned(self):
+        self.both_on_layer_1()
+        self.route(1, VELOCITY, VCA, 0)
+        out = self.run_page("""
+        await setLayer(1);
+        const a = state(vca);
+        await drag(vca, 25 * reach.vca);
+        report({ a, b: state(vca), rows: rows() });
+        """)
+        self.assertEqual(out["a"]["val"], "off +L1", "layer 2 has none of its own")
+        self.assertIn("Layer 1's own route at +40 also plays on this layer", out["a"]["title"])
+        self.assertAlmostEqual(out["a"]["u"], 0, delta=0.002)
+        self.assertEqual(out["b"]["val"], "+25 +L1", "its own, beside it")
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 40), "layer 1's untouched")
+        self.assertIn((VELOCITY, VCA, 25), self.s.routes(1))
+
+    def test_one_layer_mode_doesnt_mention_both(self):
+        self.s.setting("route-both 1 (0-7)", 1)
+        out = self.run_page("report({ vca: state(vca) });")
+        self.assertEqual(out["vca"]["val"], "+40", "the bit waits, and does nothing in one layer")
+        self.assertNotIn("Both", out["vca"]["title"])
+
+    def test_links_dont_take_a_route(self):
+        self.s.setting("layers", 2)
+        self.s.setting("link", 64 | 1)  # the filter, the amp envelope
+        out = self.run_page("""
+        await setLayer(1);
+        const a = [state(vca), state(cutoff)];
+        await drag(vca, 10 * reach.vca);
+        await drag(cutoff, 10 * reach.cutoff);
+        report({ a, b: [state(vca).val, state(cutoff).val], linked: vca.classList.contains("linked") });
+        """)
+        for knob_ in out["a"]:
+            self.assertIn("this is layer 2's own", knob_["title"])
+        self.assertEqual(out["b"], ["+50", "+30"])
+        self.assertFalse(out["linked"])
+        self.assertEqual(self.s.routes(0), KNOB_START, "layer 1's stay")
+        self.assertEqual(self.s.routes(1), [(VELOCITY, VCA, 50), (VELOCITY, CUTOFF, 30)])
+
+    def test_linked_or_not_layer_1_says_nothing_about_links(self):
+        self.s.setting("layers", 2)
+        self.s.setting("link", 64 | 1)
+        out = self.run_page("report({ vca: state(vca) });")
+        self.assertNotIn("layer 2's own", out["vca"]["title"])
+
+    # a route stored twice: only a hand-made record has one, as every write overwrites the first match
+    def twice(self):
+        self.store_patch(9)
+        self.s.close()
+        rewrite_record(self.path, 9, (246, VELOCITY), (247, CUTOFF), (248, 30))  # store.c: routes at 240, three bytes each
+        self.s = Synth(self.path)
+        self.s.ms(1600)
+        self.assertEqual(self.s.settings()["patch"], 8)
+        self.assertEqual(self.s.routes(0), KNOB_START + [(VELOCITY, CUTOFF, 30)])
+
+    def test_a_route_stored_twice_turns_the_first(self):
+        self.twice()
+        out = self.run_page("await drag(cutoff, 5 * reach.cutoff); report({ val: state(cutoff).val });")
+        self.assertEqual(out["val"], "+25 ×2")
+        self.assertEqual(self.s.routes(0), [(VELOCITY, VCA, 40), (VELOCITY, CUTOFF, 25), (VELOCITY, CUTOFF, 30)])
+
+    # the rest
+    def test_offline_it_does_nothing(self):
+        out = self.run_page("""
+        online = false;
+        sent.length = 0;
+        await drag(vca, 30 * reach.vca);
+        key(vca, "ArrowUp", false);
+        vca.find("dial").fire("dblclick");
+        await settle();
+        report({ state: state(vca), sent });
+        """)
+        self.assertEqual(out["sent"], [])
+        self.assertEqual(out["state"]["val"], "+40")
+        self.assertAlmostEqual(out["state"]["u"], 40 / 99, delta=0.002)
+        self.assertEqual(self.s.routes(0), KNOB_START)
+
+    def test_a_refresh_during_a_drag_doesnt_move_it(self):
+        out = self.run_page("""
+        const stale = layerRoutes;
+        down(vca);
+        move(vca, 30 * reach.vca);
+        layerRoutes = stale; paintAll();                      // a poll's answer, from before the turn
+        const during = state(vca);
+        await settle();                                       // the write and the refresh after it, the pointer still down
+        const rested = state(vca).val;
+        move(vca, 40 * reach.vca);                            // on from where the drag began
+        const onward = state(vca).val;
+        up(vca);
+        await settle();
+        report({ during, rested, onward, after: state(vca).val });
+        """)
+        self.assertEqual(out["during"]["val"], "+70")
+        self.assertAlmostEqual(out["during"]["u"], 70 / 99, delta=0.002)
+        self.assertEqual(out["rested"], "+70")
+        self.assertEqual(out["onward"], "+80")
+        self.assertEqual(out["after"], "+80")
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 80))
+
+    def test_a_second_turn_during_a_write_isnt_undone(self):
+        """The first write's answer comes in while the knob has moved on: it must not snap back to what the first one said."""
+        out = self.run_page("""
+        down(vca);
+        move(vca, 30 * reach.vca);
+        for (let k = 0; k < 2000 && !writes().length; k++) await sleep(1); // the first write is on its way
+        move(vca, 40 * reach.vca);
+        const seen = new Set();
+        for (let k = 0; k < 1000 && writes().length < 2; k++) { seen.add(state(vca).val); await sleep(2); }
+        up(vca);
+        await settle();
+        report({ seen: [...seen], after: state(vca).val, writes: writes().length });
+        """)
+        self.assertEqual(out["seen"], ["+80"])
+        self.assertEqual(out["after"], "+80")
+        self.assertEqual(out["writes"], 2)
+        self.assertEqual(self.s.routes(0)[0], (VELOCITY, VCA, 80))
+
+    def test_a_panel_change_after_a_turn_isnt_held_off(self):
+        """Once the synth has confirmed a turn the knob holds nothing back: the next change anywhere shows at once."""
+        out = self.run_page("""
+        await drag(vca, 10 * reach.vca);
+        await ask([0x56, 0, 4, 9, 0, 99 + 12], [0x7F, 0x56]);
+        await refreshLayerRoutes();
+        report({ val: state(vca).val });
+        """)
+        self.assertEqual(out["val"], "+12")
+
+    def test_no_answer_goes_back_to_the_truth_and_says_so(self):
+        out = self.run_page("""
+        deaf = true;
+        await drag(vca, 30 * reach.vca);
+        const a = state(vca);
+        deaf = false;
+        await refreshLayerRoutes();
+        report({ a, said: status().text, b: state(vca) });
+        """)
+        self.assertEqual(out["a"]["val"], "+40")
+        self.assertEqual(out["said"], "The synth didn't take that route", "not a full table")
+        self.assertEqual(self.s.routes(0), KNOB_START)
+
+    def test_a_turn_that_gets_no_answer_lets_go_after_the_hold(self):
+        """The hold can't outlast its 1.5 s, whatever happens to the write."""
+        out = self.run_page("""
+        down(vca); move(vca, 30 * reach.vca);
+        const held = state(vca).val;
+        skew = 1600; paintAll();
+        const later = state(vca).val;
+        up(vca);
+        skew = 0;
+        await settle();
+        report({ held, later });
+        """)
+        self.assertEqual((out["held"], out["later"]), ("+70", "+40"))
+
+    def test_old_firmware_needs_no_check(self):
+        """Velocity, the VCA, the cutoff, 56 and 57 are as they were in the first firmware with routes (29e8b88), whose table had 8
+        slots and a shorter 57 reply. The knob asks for no feature or version."""
+        page = source("tools", "web", "index.html")
+        code = js_block(page, "function velocityKnob(")
+        self.assertNotRegex(code, r"feature\(|firmwareVersion|data-needs")
+        s = self.s
+
+        class EightSlots:
+            @staticmethod
+            def request(*data):
+                reply = s.request(*data)
+                if data[0] != 0x57:
+                    return reply
+                start = reply.index(pro800.SYSEX_HEADER + bytes(data[:2]))
+                return reply[start:start + pro800.HEADER_SIZE + 2 + 8 * 4] + b"\xF7"
+
+        out = self.run_page("""
+        await drag(vca, 10 * reach.vca);
+        report({ vca: state(vca).val, cutoff: state(cutoff).val, count: layerRoutes.length, rows: rows().length });
+        """, EightSlots)
+        self.assertEqual(out, {"vca": "+50", "cutoff": "+20", "count": 2, "rows": 2})
+
+    def test_the_cheat_sheet_says_so(self):
+        page = source("tools", "web", "index.html")
+        sheet = page[page.index('id="tab-device"'):page.index('id="tab-matrix"')]
+        self.assertIn("Velocity knob", sheet)
+
+
+class VelocityOnTheEngine(PanelTest):
+    """What the editor's Velocity knobs say about the engine, measured: a negative route on the VCA and the links."""
+
+    def route(self, layer, source_, dest, depth):
+        self.s.request(0x56, layer, source_, dest, (depth + 99) >> 7, (depth + 99) & 0x7F)
+
+    def voice(self, velocity, note=60):
+        self.s.ms(50)
+        self.s.note(note, velocity)
+        self.s.ms(100)
+        voices = self.s.gated()
+        cvs = self.s.cvs()
+        out = (cvs[24 + voices[0]] / 65535 - 0.07) / 0.93, cvs[16 + voices[0]] / CV_PER_SEMITONE  # tools/sim/hw.c, synth.c: VCA_THRESHOLD
+        self.s.midi(0x80, note, 0)
+        self.s.ms(1500)
+        return out
+
+    def test_a_negative_velocity_route_does_nothing_on_its_own(self):
+        self.route(0, VELOCITY, VCA, -40)
+        self.assertAlmostEqual(self.voice(64)[0], 1, delta=0.002)
+        self.assertAlmostEqual(self.voice(1)[0], 1, delta=0.002)
+
+    def test_both_on_the_init_sounds_route_adds_to_the_other_layers_own(self):
+        """Layer 2 has its own copy, and a Both route doesn't replace it: the two add up. MANUAL, A route on both layers."""
+        one, two = 1 - (1 - 64 / 127) * 70 / 99, 1 - 2 * (1 - 64 / 127) * 70 / 99
+        self.s.setting("layers", 1)  # split: from the split note up is layer 2
+        self.assertAlmostEqual(self.voice(64, note=40)[0], one, delta=0.002)
+        self.assertAlmostEqual(self.voice(64, note=72)[0], one, delta=0.002)
+        self.s.setting("route-both 1 (0-7)", 1)
+        self.assertAlmostEqual(self.voice(64, note=40)[0], one, delta=0.002)
+        self.assertAlmostEqual(self.voice(64, note=72)[0], two, delta=0.002, msg="twice the drop")
+        self.route(1, VELOCITY, VCA, 0)
+        self.assertAlmostEqual(self.voice(64, note=72)[0], one, delta=0.002, msg="without its own: one response, shared")
+
+    def test_the_docs_say_both_adds_to_the_other_layers_own(self):
+        manual = source("MANUAL.md")
+        self.assertIn("init sound", manual[manual.index("### A route on both layers"):manual.index("### Ideas to try")])
+        design = source("docs", "sound-design.html")
+        self.assertIn("init sound", design[design.index("A route can be set to Both"):design.index("That's what lets a single route")])
+
+    def test_beside_another_route_it_takes_some_of_that_ones_drop_back(self):
+        """Why the knob's title says "on its own", and why it doesn't throw the route away."""
+        wheel = 5
+        self.route(0, VELOCITY, VCA, 0)
+        self.route(0, wheel, VCA, 50)  # the wheel at 0: down by 50/99
+        alone = self.voice(64)[0]
+        self.route(0, VELOCITY, VCA, -40)
+        beside = self.voice(64)[0]
+        self.assertAlmostEqual(alone, 1 - 50 / 99, delta=0.003)
+        self.assertAlmostEqual(beside, 1 - 50 / 99 + (1 - 64 / 127) * 40 / 99, delta=0.003)
+
+    def test_a_filter_link_leaves_layer_2_its_own_route(self):
+        self.s.setting("layers", 1)  # split: from the split note up is layer 2
+        self.s.setting("link", 64)
+        self.s.param(0, "cutoff", 0x2000)
+        self.s.ms(400)
+        with_ = self.voice(127, note=72)[1]
+        self.route(1, VELOCITY, CUTOFF, 0)
+        without = self.voice(127, note=72)[1]
+        self.assertAlmostEqual(with_ - without, 20 / 99 * 96, delta=0.05, msg="layer 2's route, under layer 1's knob")
+        self.route(0, VELOCITY, CUTOFF, 0)
+        self.assertAlmostEqual(self.voice(127, note=72)[1], without, delta=0.02, msg="layer 1's route isn't layer 2's")
+
+
+def velocity_about(page, dest):
+    """The title of a faceplate Velocity knob."""
+    return re.search(r'velocityKnob\(' + dest + r', "[^"]*", -?\d+, "([^"]*)"\)', page).group(1)
 
 
 class PresetBundle(unittest.TestCase):
