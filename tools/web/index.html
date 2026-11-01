@@ -507,6 +507,7 @@
         <li><kbd>LFO Shape</kbd>: <code class="lcd">trI</code> <code class="lcd">PULS</code> <code class="lcd">SA.UP</code> <code class="lcd">SA.dn</code> <code class="lcd">SInE</code> <code class="lcd">S-H</code> <code class="lcd">drFt</code> <code class="lcd">StEP</code> <code class="lcd">nOIS</code></li>
         <li>LFO 2 routing: select it, press LFO → Freq / Filter / PW <code class="lcd">Fr.on</code> <code class="lcd">FL.oF</code>. The button positions keep showing LFO 1.</li>
         <li>Sync: <kbd>Settings</kbd> <kbd>1</kbd> <code class="lcd">SYnC</code>/<code class="lcd">SYn2</code> → <code class="lcd">FrEE</code> <code class="lcd">CLoC</code>. With the clock, LFO FREQ picks <code class="lcd">8bAr</code> … <code class="lcd">1-32</code>.</li>
+        <li>Delay and fade: Shift + LFO FREQ <code class="lcd">dLY</code> / Shift + LFO AMOUNT <code class="lcd">FAdE</code>, 0-99: off, 20 ms to 5 s. With the clock, its delay and fade are note values too: <code class="lcd">0</code>, <code class="lcd">1-32</code> … <code class="lcd">8bAr</code> at the tempo, 120 BPM before any clock (0.9.4).</li>
         <li>Retrigger: <kbd>Settings</kbd> <kbd>2</kbd> <code class="lcd">trIG</code>/<code class="lcd">trI2</code> → <code class="lcd">FrEE</code> <code class="lcd">1St</code> <code class="lcd">EACH</code> <code class="lcd">PoLY</code> (per voice) <span data-needs="lfoOneShot"><code class="lcd">1Sht</code> (one shot) <code class="lcd">1S.Po</code> (one shot per voice)</span>.</li>
         <li data-needs="lfoOneShot">One shot: every key restarts it, it runs its cycles (<kbd>2</kbd> again: <code class="lcd">Cn.1</code>/<code class="lcd">Cn.2</code>, 1-99) and holds the last value. A delay (Shift + LFO FREQ) holds the start back.</li>
       </ol>
@@ -2255,8 +2256,8 @@ function lfoSection(which) {
     shotOptions.forEach(o => { o.hidden = !feature("lfoOneShot"); });
     cycles.hidden = !settings || settings[`lfo${n}Trigger`] < ONE_SHOT_TRIGGER || !feature("lfoOneShot");
   });
-  const fade = [settingKnob(`lfoDelay${n}`, "Delay", `LFO ${n} waits this long after a note starts (per voice; both layers)`, fadeText),
-                settingKnob(`lfoFade${n}`, "Fade in", `then fades in over this long (per voice; both layers)`, fadeText)];
+  const fade = [settingKnob(`lfoDelay${n}`, "Delay", `LFO ${n} waits this long after a note starts (per voice; both layers). With Sync on the clock, a note value (firmware 0.9.4 or later)`, fadeText(n)),
+                settingKnob(`lfoFade${n}`, "Fade in", `then fades in over this long (per voice; both layers). With Sync on the clock, a note value (firmware 0.9.4 or later)`, fadeText(n))];
   // LFO 1's routing is the LFO-MOD destination switches on the panel (shared by both layers)
   const panelRouting = [["Pitch", 7], ["Filter", 10], ["PW", 6]].map(([t, sw]) => led(t, () => buttons && buttons[sw], async on => {
     if (offline() || !buttons) return;
@@ -2991,9 +2992,15 @@ document.getElementById("macros").replaceChildren(macroKnob(0), macroKnob(1));
 function driftKnob() {
   return settingKnob("drift", "Drift", "each voice's pitch and cutoff wander slowly at random (up to 15 cents and a semitone)");
 }
-// LFO delay and fade, 0-99 → 0, 20 ms .. about 5 s (lfo_seconds() in the firmware)
+// LFO delay and fade, 0-99 → 0, 20 ms .. about 5 s (lfo_time() in the firmware). With the LFO synced, from 0.9.4, a note
+// value: no setting marks that firmware, and an older one still acts in seconds, so it's the version (x.y.z, single digits) that tells
 const fadeSeconds = u => { const v = Math.round(u * 99); return v ? 0.02 * Math.pow(2, v * 8 / 99) : 0; };
-const fadeText = u => { const s = fadeSeconds(u); return !s ? "off" : s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(1)} s`; };
+const lfoNoteTimes = n => !!settings && !!settings[`lfo${n}Sync`] && +firmwareVersion.split(".").join("") >= 94;
+const fadeText = n => u => {
+  if (lfoNoteTimes(n)) { const s = noteStep(Math.round(u * 99) / 99); return s ? noteName(s) : "off"; }
+  const s = fadeSeconds(u);
+  return !s ? "off" : s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(1)} s`;
+};
 function morphControls() {
   const target = h("select", { title: "the patch this one morphs towards (its knobs)" });
   const fill = () => {

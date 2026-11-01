@@ -38,11 +38,12 @@ static inline int lfo_voice_phases(int which)
 {
     return lfo_trigger[which] == LFO_TRIGGER_PER_VOICE || lfo_trigger[which] == LFO_TRIGGER_ONE_SHOT_VOICE;
 }
-// Per LFO, 0-99: a delay after a note starts before it fades in, and the fade's length (0 = none; lfo_seconds()).
+// Per LFO, 0-99: a delay after a note starts before it fades in, and the fade's length. 0 = none, else 0.02 s at 1 up to
+// about 5 s at 99; while the LFO is synced, a note value instead (lfo_note_step(): 0, 1/32 .. 8 bars), at the tempo now.
 extern uint8_t lfo_delay[2], lfo_fade[2];
-float lfo_seconds(uint8_t value); // 0 for 0, else 0.02 s at 1 up to about 5 s at 99
-// The LFO's gain for a voice `age` seconds after its note started: 0 through the delay, then up to 1 over the fade
-float lfo_fade_gain(int which, float age);
+// The LFO's gain for a voice `age` seconds after its note started: 0 through the delay, then up to 1 over the fade. `was`: its
+// gain the pass before, 0 at a new note; while the LFO is synced the gain doesn't fall below it (lfo.c).
+float lfo_fade_gain(int which, float age, float was);
 
 // MIDI realtime, called from the USB or DIN interrupt: timing clock (24 per quarter note, `cycles` = cycle counter at
 // arrival), start (the next timing clock is the downbeat), continue (from the song position, if one came, else from
@@ -77,6 +78,10 @@ const char *lfo_division_name(int division); // 4 display characters
 float lfo_division_quarters(int division);   // its length in quarter notes
 // Seconds per quarter note from the MIDI clock (the last tempo once it stops; 120 BPM before any clock).
 float lfo_quarter_seconds(void);
+// A time as a note value, for an LFO's delay and fade and an envelope's stages
+int lfo_note_step(float knob);       // a knob (or a 0-99 value / 99) as a step: 0, or 1 = 1/32 .. 15 = 8 bars
+float lfo_note_seconds(int step);    // that step's time at the tempo now
+const char *lfo_note_name(int step); // "0", "1-32" .. "8bAr"
 float lfo_beat_phase(void); // 0..1 through the current quarter note (the clock position), for a beat light
 const char *lfo_shape_name(lfo_shape_t shape); // for the display
 

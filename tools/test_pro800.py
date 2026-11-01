@@ -302,6 +302,16 @@ class SwiftParity(unittest.TestCase):
         self.assertEqual(pro800.SETTING_NAMES.index("lfo-restart"), 86)
         self.assertEqual(pro800.SETTING_NAMES[91:], ["env-select", "preset-mode", "patch", "morph"])
 
+    def test_lfo_note_times_read_the_same(self):
+        """Swift can't run here: the same formula, version and condition as pro800.py's, read off the source."""
+        self.assertIn('let step = min(Int(Double(v) / 99 * 15 + 0.5), 15)', self.swift)
+        self.assertIn('return v == 0 ? "off" : "\\(v) (\\(step == 0 ? "off" : divisionNames[15 - step]))"', self.swift)
+        self.assertIn('return Array(reply.dropFirst(sysexHeader.count + 2).dropLast()).lexicographicallyPrecedes([0, 9, 4]) == false', self.swift)
+        self.assertIn('let v = reply.dropFirst(sysexHeader.count + 2).dropLast()', self.swift, "where `version` reads it from")
+        self.assertIn('case 32...35: text = notes && synced[(i - 32) / 2] ? lfoNoteText(v)', self.swift)
+        self.assertIn('let synced = [0, 5].map { count > $0 && (Int(b[1 + 2 * $0]) << 7 | Int(b[2 + 2 * $0])) == 1 }', self.swift)
+        self.assertIn('let notes = synced.contains(true) && lfoNoteTimes(midi)', self.swift)
+
     def test_commands_match_both_ways(self):
         commands = set(re.findall(r'^case "([a-z0-9-]+)":', self.swift, re.M))
         self.assertTrue(commands)
@@ -423,6 +433,49 @@ class ReadOnly(unittest.TestCase):
         self.assertIn("morph                P2\n", out)
         self.assertIn("patch                P7\n", out)
         self.assertNotIn("pickup", out)
+
+    def test_a_synced_lfos_delay_and_fade_are_note_values(self):
+        synth = FakeSynth(firmware=(0, 9, 4))
+        s = synth.settings
+        s[0], s[32], s[33], s[34], s[35] = 1, 60, 2, 60, 0  # LFO 1 on the clock, LFO 2 free
+        out, code = run(synth, "settings")
+        self.assertEqual(code, 0)
+        for line in ("lfo-delay            60 (1/4)", "lfo-fade             2 (off)", "lfo2-delay           60 (0.58 s)", "lfo2-fade            off"):
+            self.assertIn(line + "\n", out)
+        s[0], s[5], s[35] = 0, 1, 99  # the other way round
+        out, _ = run(synth, "settings")
+        for line in ("lfo-delay            60 (0.58 s)", "lfo-fade             2 (0.02 s)", "lfo2-delay           60 (1/4)", "lfo2-fade            99 (8bar)"):
+            self.assertIn(line + "\n", out)
+
+    def test_the_note_values_steps(self):
+        synth = FakeSynth(firmware=(0, 9, 4))
+        synth.settings[0] = 1
+        for value, text in ((0, "off"), (3, "3 (off)"), (4, "4 (1/32)"), (56, "56 (1/4T)"), (57, "57 (1/4)"), (62, "62 (1/4)"), (63, "63 (1/4.)"), (99, "99 (8bar)")):
+            with self.subTest(value=value):
+                synth.settings[32] = value
+                self.assertIn(f"lfo-delay            {text}\n", run(synth, "settings")[0])
+
+    def test_firmware_before_0_9_4_still_acts_in_seconds(self):
+        for firmware in ((0, 9, 3), (0, 8, 9)):
+            synth = FakeSynth(firmware=firmware)
+            synth.settings[0], synth.settings[32] = 1, 60
+            self.assertIn("lfo-delay            60 (0.58 s)\n", run(synth, "settings")[0])
+            self.assertIn(request_bytes(0x08, 0x00), synth.sent)
+
+    def test_later_firmware_keeps_the_note_values(self):
+        for firmware in ((0, 9, 5), (1, 0, 0)):
+            synth = FakeSynth(firmware=firmware)
+            synth.settings[5], synth.settings[34] = 1, 60
+            self.assertIn("lfo2-delay           60 (1/4)\n", run(synth, "settings")[0])
+
+    def test_with_no_lfo_synced_the_version_isnt_asked(self):
+        self.synth.settings[32] = 60
+        self.assertIn("lfo-delay            60 (0.58 s)\n", run(self.synth, "settings")[0])
+        self.assertNotIn(request_bytes(0x08, 0x00), self.synth.sent)
+
+    def test_the_settings_of_a_firmware_with_too_few_for_the_sync(self):
+        self.synth.settings = [1, 0, 0]
+        self.assertEqual(run(self.synth, "settings")[1], 0)
 
     def test_params(self):
         self.synth.params[1][24] = 16383

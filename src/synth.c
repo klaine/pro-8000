@@ -71,6 +71,7 @@
 #define PMOD_ENV_SEMITONES    48.0f // poly-mod filter envelope → frequency A, at maximum (squared: 50 % = 12)
 #define LFO_PITCH_SEMITONES   12.0f
 #define LFO_FILTER_SEMITONES  48.0f
+#define LFO_AGE_MAX           400.0f // seconds: past an LFO's longest delay + fade, 8 bars each at the clock's slowest (10 BPM)
 #define LFO_PW_DEPTH          0.45f
 // PW knob → CV: the pulse is high for 1.149 × CV − 0.0094 of the cycle (measured through the Move, 0.9.0) and gone
 // from about CV 0.88 (0.86 on voice 6), so the knob's 0..1 maps to 5..95 % of the cycle, 50 a square
@@ -154,7 +155,7 @@ typedef struct {
     float cutoff_rest, cutoff_env; // the cutoff besides the envelope, LFOs and fast routes, and the envelope amount
     float vca_slow;                // the slower routes into the VCA gain
     float lfo_octaves[2];          // rate modulation of this voice's own LFO phases
-    float lfo_age, lfo_gain[2];    // seconds since the note started, and each LFO's delay / fade gain for it now
+    float lfo_age, lfo_gain[2];    // seconds since the note started (up to LFO_AGE_MAX), and each LFO's delay / fade gain for it now
     float bend;                    // per-voice pitch bend, -1..1 (the per-channel layer modes)
     float timbre;                  // CC 74, 0..1 (a mod source)
     float macro[2];                // the macros' values for this voice, -1..1 (routes into DEST_MACRO1 / 2)
@@ -1397,25 +1398,12 @@ float synth_env_extra_time(int value) { return knob_time((float)value / 99.0f, 0
 // Stage times in note values: envelope e of `layer` takes them (not while it cycles synced: its shares rule)
 static int tempo_env(int layer, int e) { return env_tempo[layer] >> e & 1 && !(env_cycle[layer] >> e & 1 && env_sync[layer][e]); }
 
-int synth_env_note_step(float knob)
-{
-    int i = (int)(knob * (float)LFO_DIVISIONS + 0.5f); // 0, then 1/32 .. 8 bars
-    return i < 0 ? 0 : i > LFO_DIVISIONS ? LFO_DIVISIONS : i;
-}
-
-const char *synth_env_note_name(int step) { return step <= 0 ? "0" : lfo_division_name(LFO_DIVISIONS - step); }
-
-float synth_env_note_seconds(int step)
-{
-    return step <= 0 ? 0 : lfo_division_quarters(LFO_DIVISIONS - step) * lfo_quarter_seconds();
-}
-
 int synth_env_tempo_step(int env, int stage, float knob)
 {
     int layer = env_layer(edit_layer, env);
     if (!tempo_env(layer, env) || (stage == 2 && !(env_cycle[layer] >> env & 1)))
         return -1; // seconds, or the sustain level
-    return synth_env_note_step(knob);
+    return lfo_note_step(knob);
 }
 
 // A synced cycle's shares of its period, from the knobs as weights (attack, hold = SUS, fall = DEC, rest = REL)
@@ -1440,8 +1428,8 @@ static void env_rates(env_rates_t *r, const float *p, int layer, int e)
     r->key_up = (int)(key_up_envs(layer) >> e & 1);
     r->count = cycle ? env_count[layer][e] : 0;
     int notes = tempo_env(layer, e);
-#define STAGE_TIME(stage, knob, cyc) (notes ? synth_env_note_seconds(synth_env_note_step(knob)) : synth_env_time(stage, knob, cyc))
-#define EXTRA_TIME(value) (notes ? synth_env_note_seconds(synth_env_note_step((float)(value) / 99.0f)) : synth_env_extra_time(value))
+#define STAGE_TIME(stage, knob, cyc) (notes ? lfo_note_seconds(lfo_note_step(knob)) : synth_env_time(stage, knob, cyc))
+#define EXTRA_TIME(value) (notes ? lfo_note_seconds(lfo_note_step((float)(value) / 99.0f)) : synth_env_extra_time(value))
     r->attack = stage_rate(STAGE_TIME(0, p[att], cycle),
                            linear ? 1.0f : curve == ENV_CURVE_SWELL ? SWELL_OCTAVES : 1.585f); // log2(3)
     r->decay_s = STAGE_TIME(1, p[dec], cycle);
@@ -1984,10 +1972,11 @@ void synth_tick(float dt, int cutoff, unsigned pitch_voices)
         for (int w = 0; w < 2; w++)
             if (lfo_voice_phases(w))
                 lfo_update_voice(LFO_ID(lfo_layer(l, w), w), v, dt, x->lfo_octaves[w]);
-        if (x->lfo_age < 100.0f)
+        int new_note = x->lfo_age <= 0; // the note paths set it to 0, and nothing else does
+        if (x->lfo_age < LFO_AGE_MAX)
             x->lfo_age += dt;
-        x->lfo_gain[0] = lfo_fade_gain(0, x->lfo_age);
-        x->lfo_gain[1] = lfo_fade_gain(1, x->lfo_age);
+        x->lfo_gain[0] = lfo_fade_gain(0, x->lfo_age, new_note ? 0 : x->lfo_gain[0]);
+        x->lfo_gain[1] = lfo_fade_gain(1, x->lfo_age, new_note ? 0 : x->lfo_gain[1]);
         env_t *envs[4] = {&x->amp, &x->filter, &x->env3, &x->env4};
         for (int e = 0; e < (uses_env34[l] ? 4 : 2); e++) { // Env 3 / 4 wait where they are until a route reads them
             if (!x->env_modded) {

@@ -163,7 +163,7 @@
     <ul>
       <li><strong>Sync</strong> (<kbd>Settings</kbd> → <kbd>1</kbd>): free-running from 0.05 to 51 Hz, or locked to the clock: MIDI clock from USB or the 5-pin socket, the firmware's own clock (tap the tempo on <kbd>Sync Clock</kbd>), or the SYNC IN jack. Locked, LFO FREQ picks one of 15 divisions from <span class="led">8bAr</span> down to <span class="led">1-32</span>, including dotted and triplet values. MIDI Start, or holding Sync Clock, lines it up with the bar.</li>
       <li><strong>Retrigger</strong> (<kbd>Settings</kbd> → <kbd>2</kbd>): when the LFO's cycle restarts. The most interesting one is <span class="led">PoLY</span>: every voice runs its own LFO, started by its own note. <span class="led">1Sht</span> and <span class="led">1S.Po</span> are one shots: the LFO runs a count of cycles from the key (1 to 99; press <kbd>2</kbd> again for <span class="led">Cn.1</span>) and holds where it ended, an extra envelope with an LFO's shapes. <span class="led">1S.Po</span> gives each note its own.</li>
-      <li><strong>Delay and fade-in</strong> (Shift + LFO FREQ, Shift + LFO AMOUNT): the LFO waits after a note starts and then fades in, per voice, from 20 ms to about 5 s. Vibrato that arrives late, with no route needed.</li>
+      <li><strong>Delay and fade-in</strong> (Shift + LFO FREQ, Shift + LFO AMOUNT): the LFO waits after a note starts and then fades in, per voice, from 20 ms to about 5 s, or from 1/32 to 8 bars when it's synced to the clock. Vibrato that arrives late, with no route needed.</li>
     </ul>
     <p>Pick a shape and a retrigger mode below. Three notes start at different moments (▼) and are held, then released; a new note follows.</p>
   </div>

@@ -20,6 +20,13 @@
 // before it starts, or a delay longer than its cycles would hide them all. With the clock the rate follows the tempo
 // and the phase starts at the key, as with every retrigger. In per-voice one shot the shared phase is a one shot too,
 // restarted by every key, for what can only read one phase (pulse width).
+//
+// Delay and fade: a value of 0-99, in seconds when the LFO runs free. Synced they are note values on the scale the
+// envelopes use (lfo_note_step()), read live, so a tempo change takes effect at once: 120 BPM before any clock, the last
+// tempo when it stops. The value's only stored form is 0-99, so turning the sync on reinterprets it (lfo_time()). The
+// tempo is an average that moves with every tick, and the end of 8 bars moves with it by far more than the time between
+// two ticks, so a synced gain never falls during a note: it opens once, and a slower tempo or a larger value counts from
+// the next key. Free, the gain keeps nothing from one pass to the next, as it always has.
 #include "lfo.h"
 #include "clock.h"
 #include "fastmath.h"
@@ -40,14 +47,23 @@ lfo_trigger_t lfo_trigger[2];
 uint8_t lfo_cycles[2] = {1, 1};
 uint8_t lfo_delay[2], lfo_fade[2];
 
-float lfo_seconds(uint8_t value) { return value ? 0.02f * fast_exp2((float)value * (8.0f / 99)) : 0; }
+// A delay or fade value as a time when free: 0 for 0, else 0.02 s at 1 up to about 5 s at 99
+static float free_time(uint8_t value) { return value ? 0.02f * fast_exp2((float)value * (8.0f / 99)) : 0; }
 
-float lfo_fade_gain(int which, float age)
+// And now: synced, a note value at the tempo now
+static float lfo_time(int which, uint8_t value)
 {
-    if (!lfo_delay[which] && !lfo_fade[which])
+    return lfo_sync[which] == LFO_SYNC_CLOCK ? lfo_note_seconds(lfo_note_step((float)value / 99.0f)) : free_time(value);
+}
+
+float lfo_fade_gain(int which, float age, float was)
+{
+    float delay = lfo_time(which, lfo_delay[which]), fade = lfo_time(which, lfo_fade[which]);
+    if (delay <= 0 && fade <= 0) // free: both values 0. Synced, also those that round to no note value
         return 1.0f;
-    float t = age - lfo_seconds(lfo_delay[which]), fade = lfo_seconds(lfo_fade[which]);
-    return t <= 0 ? 0 : fade <= 0 || t >= fade ? 1.0f : t / fade;
+    float t = age - delay;
+    float gain = t <= 0 ? 0 : fade <= 0 || t >= fade ? 1.0f : t / fade;
+    return lfo_sync[which] == LFO_SYNC_CLOCK && gain < was ? was : gain;
 }
 uint16_t lfo_pattern[LFO_COUNT] = {LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN, LFO_DEFAULT_PATTERN};
 uint8_t lfo_step_count[LFO_COUNT] = {LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS, LFO_DEFAULT_STEPS};
@@ -72,7 +88,8 @@ typedef struct {
     float phase;
     float held, next; // random values, -1..1
     float noise, noise_from, noise_to; // the noise shape: 0..1 between two random values
-    float wait;    // a one shot: seconds of the LFO's delay still to go
+    float wait;    // a one shot: the LFO's delay in free seconds at the key, whatever its sync then; 0 once it's over
+    float waited;  // and the seconds it has waited so far
     uint8_t cycle; // a one shot: the cycles it has finished
 } phase_t;
 
@@ -111,7 +128,7 @@ static void restart(phase_t *p)
 {
     p->phase = 0;
     p->cycle = 0;
-    p->wait = 0;
+    p->wait = p->waited = 0;
     new_cycle(p);
 }
 
@@ -144,9 +161,13 @@ static int one_shot(int which)
 // A one shot's `step` cycles, `dt` seconds of them: after the delay, up to the end of its last cycle
 static void advance_shot(phase_t *p, int which, float dt, float step)
 {
-    if (p->wait > 0) {
-        p->wait -= dt;
-        return;
+    if (p->wait > 0) { // synced, the delay is read live, as lfo_fade_gain() reads it; free, it's the seconds at the key
+        float delay = lfo_sync[which] == LFO_SYNC_CLOCK ? lfo_time(which, lfo_delay[which]) : p->wait;
+        if (p->waited < delay) {
+            p->waited += dt;
+            return;
+        }
+        p->wait = 0;
     }
     if (p->phase >= 1.0f)
         return;
@@ -266,6 +287,19 @@ float lfo_division_quarters(int division) { return divisions[division].quarters;
 
 float lfo_quarter_seconds(void) { return tick_interval > 0 ? tick_interval * TICKS_PER_QUARTER : 0.5f; }
 
+int lfo_note_step(float knob)
+{
+    int i = (int)(knob * (float)LFO_DIVISIONS + 0.5f); // 0, then 1/32 .. 8 bars
+    return i < 0 ? 0 : i > LFO_DIVISIONS ? LFO_DIVISIONS : i;
+}
+
+const char *lfo_note_name(int step) { return step <= 0 ? "0" : lfo_division_name(LFO_DIVISIONS - step); }
+
+float lfo_note_seconds(int step)
+{
+    return step <= 0 ? 0 : lfo_division_quarters(LFO_DIVISIONS - step) * lfo_quarter_seconds();
+}
+
 float lfo_beat_phase(void)
 {
     float q = position / TICKS_PER_QUARTER;
@@ -284,7 +318,7 @@ void lfo_note_on(int lfo, int voice, int first)
         restart(&lfos[lfo].shared);
     restart(&lfos[lfo].voice[voice]);
     if (shot)
-        lfos[lfo].shared.wait = lfos[lfo].voice[voice].wait = lfo_seconds(lfo_delay[lfo / 2]);
+        lfos[lfo].shared.wait = lfos[lfo].voice[voice].wait = free_time(lfo_delay[lfo / 2]);
 }
 
 int lfo_probe(uint8_t *out)
@@ -305,13 +339,13 @@ void lfo_key_on(int lfo, int first)
     int shot = one_shot(lfo / 2);
     if (shot || trigger == LFO_TRIGGER_EVERY_KEY || (trigger == LFO_TRIGGER_FIRST_KEY && first)) {
         restart(&lfos[lfo].shared);
-        lfos[lfo].shared.wait = shot ? lfo_seconds(lfo_delay[lfo / 2]) : 0;
+        lfos[lfo].shared.wait = shot ? free_time(lfo_delay[lfo / 2]) : 0;
     }
     if (!lfo_voice_phases(lfo / 2))
         return;
     for (int v = 0; v < VOICE_COUNT; v++) {
         restart(&lfos[lfo].voice[v]);
-        lfos[lfo].voice[v].wait = shot ? lfo_seconds(lfo_delay[lfo / 2]) : 0;
+        lfos[lfo].voice[v].wait = shot ? free_time(lfo_delay[lfo / 2]) : 0;
     }
 }
 

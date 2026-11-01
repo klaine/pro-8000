@@ -1582,7 +1582,7 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   sine, square, ramp down -1; ramp up +1; steps the last step; S&H the held value; drift the `next` it reached; noise
   frozen where it was (`noise_advance()` is skipped). Restart uses `new_cycle()`, so drift goes on from where it stopped.
   Leaving one shot mode needs no cleanup: `advance()` wraps 1.0 like any other phase.
-- **The delay holds the start back** (`phase_t.wait`), set from `lfo_seconds(lfo_delay)` at note-on. Otherwise the phase runs
+- **The delay holds the start back** (`phase_t.wait`), set from the delay's time at note-on (`lfo_time()`; 2026-11-01, read live when synced). Otherwise the phase runs
   during the delay (fine for an endless LFO) and a delay longer than the cycles would fade in only the held end. The fade is
   still the age-based gain.
 - **Per voice:** `lfo_voice_phases()` replaces the `== PER_VOICE` tests. In `1S.Po` the shared phase is a one shot too,
@@ -2058,6 +2058,35 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 5. Port the p600fw synth core (voices 6 → 8, add noise CV), then add the bitimbral mode and LFO sync.
 6. Build the per-voice modulation path as a general mod matrix, then add MPE and the 8-channel mono mode
    on top of it.
+
+## A synced LFO's delay and fade in note values (0.9.4, 2026-11-01; built and simulated, not on the synth)
+
+Asked for: with an LFO in sync, its delay and fade in should be note times, like 1/32 or 2 bars.
+
+- **No new setting, no format change, no new SysEx.** `lfo_time()` (`lfo.c`) reads the stored 0-99 by the LFO's own sync: free as
+  always, synced `lfo_note_seconds(lfo_note_step(value / 99))`, the scale the envelopes' note values use (0-3 none, then 1/32 .. 8 bars).
+  Those helpers moved from `synth.c` to `lfo.c`, which sits below it, replacing `synth_env_note_*`; the envelopes call them too.
+- **Read live**, so a tempo change takes effect at once. `lfo_fade_gain()` always was. The one shot's wait was a countdown set at the key,
+  so it became `waited` counting up against the delay, read live when synced; free it still compares with the time at the key. That time is always
+  the free seconds, whatever the sync at the key, so a shot turned free during its wait goes as one free from the key, with the gain.
+- **A synced gain never falls during a note.** The tempo is an average that every tick moves, and the end of a delay moves with it: at ticks 20-22 ms apart, 4 or 8 bars
+  opened and shut up to seven times over a few hundred ms (measured on the simulator, before the fix). So `lfo_fade_gain()` takes the gain of the pass before (`was`, 0 at a new note) and,
+  synced, stays at or above it. A faster tempo or a smaller value still opens it at once, and a slower tempo still moves an end that hasn't come. A slower tempo no longer
+  shuts what has opened, which also keeps it with the one shot, whose wait was already over by then. **The price:** a larger value during a held note counts from the next key, where free mode shuts it at once.
+  Free mode keeps nothing from pass to pass, as before. Turned free mid-note, a synced note's gain goes by the free time, so it can shut until then; that's rare and ends by itself, and is left alone.
+- **A voice's `lfo_age` stopped at 100 s**, which free mode's 10 s never reached. Synced, 8 bars of delay and 8 of fade take 128 s at 30 BPM
+  and 384 s at the clock's slowest (10 BPM), so the gain would have stuck part way or never opened. It stops at 400 s now (`LFO_AGE_MAX`).
+- **The panel:** `show_shift_value()` shows `lfo_note_name()` while the LFO that was turned is synced; free stays the number 0-99, as before. It
+  goes by a new `shift_value_pot` and `shift_value_lfo`, since `shift_pot` is cleared by letting go of Shift and the value comes half a second after
+  the name: without them a quick let-go showed the number. That also fixes `ALL` and `on` / `OFF` in the same half second. Switching the sync
+  needs nothing else: the sync is looked at when the value is shown, and a value already up stays for its moment.
+- **The editor** has no setting to go by, so `lfoNoteTimes()` checks the firmware's version (from 0.9.4), for seconds on older firmware. Both tools do
+  the same in `settings`, asking the version only when an LFO is synced. **The version can't tell an earlier 0.9.4 build** from this one, since `VERSION`
+  stayed 0.9.4: a synth still on an earlier 0.9.4 shows note values and acts in seconds, until it's flashed.
+- **Existing patches change timing, by design; their stored values don't.** With a synced LFO and a delay or fade: P62 Trance Gate (fade 56: 0.46 s → 1/4T, 333 ms at
+  120 BPM), P66 BsSQ/LD.Split 1 (fade 85: 2.3 s → 2 bars, 4 s at 120 BPM), P68 Key-up WhopWhop (on the synth, not in `presets/`, so not looked at here). The presets' descriptions don't name those times.
+- **Checked** on the simulator's CVs (`LfoNoteTimes` in `tools/test_panel.py`), the page's code (`WebLfoTimes`) and the fake synth (`tools/test_pro800.py`). **It has not run on the synth**, and the Swift tool
+  hasn't been compiled (no `swiftc` here): its text is only compared with the Python's. Counts as of this section: test_panel 468, test_pro800 133.
 
 ## Real-unit ranges in the mod matrix and per-source rings on the knobs (2026-10-31)
 

@@ -7,6 +7,7 @@ import base64
 import json
 import math
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -4112,6 +4113,556 @@ class SingleWireRoutes(PanelTest):
         self.assertGreater(max(widths) - min(widths), 1000, "voice 1 is well past its delay")
 
 
+class LfoNoteTimes(PanelTest):
+    """A synced LFO's delay and fade are note values (MANUAL, Delay and fade-in), measured on the voice's pitch CV: LFO 1 is
+    a square into pitch, so the pitch sits still until the delay ends and then swings by the fade's gain either side."""
+    QUARTER = 60  # a value on the note scale's step for 1/4 (57-62)
+    NEAR_QUARTER = 58  # where a nudge up stays on it
+    SHOTS = ("one-shot", "one-shot-voice")
+    RATE_16TH = 12 / 14  # the rate knob
+    RAMP_UP, SQUARE = pro800.SHAPE_NAMES.index("ramp-up"), pro800.SHAPE_NAMES.index("square")
+    NAMES = ["1-32", "16t", "1-16", "16d", "1-8t", "1-8", "1-8d", "1-4t", "1-4", "1-4d", "1-2", "1bAr", "2bAr", "4bAr", "8bAr"]
+
+    def setUp(self):
+        super().setUp()
+        self.s.param(0, "lfo-amount", 16383)
+        self.s.param(0, "lfo-freq", round(16383 * self.RATE_16TH))
+        self.s.setting("shape 1 1", self.SQUARE)
+        self.s.set_button("LFO_FREQ", 1)
+        self.s.setting("lfo-sync", 1)
+        self.s.ms(400)  # the knobs glide to a new reading
+
+    @staticmethod
+    def free_seconds(value):
+        return 0.02 * 2 ** (value * 8 / 99)
+
+    def ticks(self, count, every):
+        for _ in range(count):
+            self.s.midi(0xF8)
+            self.s.ms(every)
+
+    def run_clock(self, every):
+        """A MIDI clock at `every` ms a tick, long enough for its tempo to settle"""
+        self.ticks(96, every)
+
+    def key(self):
+        """A key down. Returns the moment before it, and its voice."""
+        at = self.s.now()
+        self.s.note(60)
+        return at, self.s.gated()[-1]
+
+    def key_up(self):
+        self.s.note_off(60)
+        self.s.ms(100)
+
+    # Ms from the key until the pitch leaves where it starts, which is when a delay with no fade ends. `clock`: a tick every
+    # that many ms meanwhile (else a look every 5 ms).
+    def motion(self, limit=3000, clock=0):
+        at, voice = self.key()
+        start = self.s.cvs()[voice]
+        while self.s.now() - at < limit:
+            self.ticks(1, clock) if clock else self.s.ms(5)
+            if self.s.cvs()[voice] != start:
+                moved = self.s.now() - at
+                self.key_up()
+                return moved
+        self.fail(f"the pitch still hadn't moved {limit} ms after the key")
+
+    def gains(self, duration, every=5):
+        """The LFO's gain on the voice from a key down, as (ms since the key, gain): how far the pitch is from the middle,
+        against the swing at the end, which has to be full by `duration`."""
+        at, voice = self.key()
+        samples, elapsed = [], self.s.now() - at
+        while elapsed < duration:  # counted here: the simulator's clock wraps with the cycle counter, every 25 s
+            self.s.ms(every)
+            elapsed += every
+            samples.append((elapsed, self.s.cvs()[voice]))
+        full = [cv for _, cv in samples[-40:]]
+        middle, swing = (max(full) + min(full)) / 2, (max(full) - min(full)) / 2
+        self.assertGreater(swing, 1000, "the square is on the pitch at the end")
+        self.key_up()
+        return [(t, abs(cv - middle) / swing) for t, cv in samples]
+
+    def assertGainAt(self, gains, ms, expected, delta=0.06):
+        gain = min(gains, key=lambda g: abs(g[0] - ms))[1]
+        self.assertAlmostEqual(gain, expected, delta=delta, msg=f"at {ms} ms")
+
+    # --- the delay ---
+
+    def test_a_quarter_before_any_clock_is_500_ms(self):
+        self.s.setting("lfo-delay", self.QUARTER)
+        self.assertAlmostEqual(self.motion(), 500, delta=15)
+
+    def test_a_running_clock_scales_it(self):
+        self.s.setting("lfo-delay", self.QUARTER)
+        for every in (15, 40):
+            with self.subTest(ms_a_tick=every):
+                self.run_clock(every)
+                self.assertAlmostEqual(self.motion(clock=every), 24 * every, delta=every + 15)
+
+    def test_when_the_clock_stops_the_last_tempo_stays(self):
+        self.s.setting("lfo-delay", self.QUARTER)
+        self.run_clock(15)
+        self.s.ms(500)
+        self.assertAlmostEqual(self.motion(), 360, delta=15)
+
+    def test_a_tempo_change_takes_effect_at_once(self):
+        """1 bar: 2 s at the 120 BPM before any clock. A clock of 10 ms a tick comes in 200 ms after the key: 1 bar is 960 ms now."""
+        self.s.setting("lfo-delay", 79)
+        at, voice = self.key()
+        start = self.s.cvs()[voice]
+        self.s.ms(200)
+        self.assertEqual(self.s.cvs()[voice], start)
+        while self.s.cvs()[voice] == start:
+            self.assertLess(self.s.now() - at, 1500, "still at the old tempo")
+            self.ticks(1, 10)
+        self.assertAlmostEqual(self.s.now() - at, 960, delta=30)
+
+    # --- what has opened stays open until the next key ---
+
+    def watch(self, duration, spacing=None):
+        """The voice's pitch CV each ms from a key down, against where it starts: 0 while the LFO's gain is 0.
+        `spacing(ms)`: the ms from a clock tick then to the next."""
+        _, voice = self.key()
+        start = self.s.cvs()[voice]
+        out, next_tick = [], 0
+        for elapsed in range(duration):
+            if spacing and next_tick <= 0:
+                self.s.midi(0xF8)
+                next_tick = spacing(elapsed)
+            self.s.ms(1)
+            next_tick -= 1
+            out.append(self.s.cvs()[voice] - start)
+        self.key_up()
+        return out
+
+    def assertOpensOnce(self, moved, near, delta):
+        first = next((i for i, d in enumerate(moved) if d), None)
+        self.assertIsNotNone(first, "it never opened")
+        self.assertAlmostEqual(first, near, delta=delta)
+        closed = [i for i, d in enumerate(moved) if d == 0 and i > first]
+        self.assertFalse(closed, f"opened at {first} ms and shut again at {closed[:5]}")
+
+    def test_a_jittery_clock_opens_a_long_delay_once(self):
+        """Ticks 20-22 ms apart, as USB can bring them, move the averaged tempo and with it the end of 4 bars by more than a
+        tick's worth. Also with a short fade after it, which reads the same end."""
+        rng = random.Random(1)
+        jitter = lambda _=0: rng.choice((20, 21, 22))
+        for _ in range(96):
+            self.ticks(1, jitter())
+        self.s.setting("lfo-delay", 90)
+        for fade, seeds in ((0, 4), (20, 2)):
+            self.s.setting("lfo-fade", fade)
+            for run in range(seeds):
+                with self.subTest(fade=fade, run=run):
+                    self.assertOpensOnce(self.watch(8700, jitter), 8064, 300)
+
+    def test_a_slower_tempo_doesnt_close_a_delay_that_has_ended(self):
+        self.s.setting("lfo-delay", self.QUARTER)
+        self.run_clock(15)
+        self.assertOpensOnce(self.watch(1200, lambda ms: 15 if ms < 400 else 40), 360, 20)
+
+    def test_a_slower_tempo_doesnt_lower_a_fade(self):
+        """360 ms at 15 ms a tick; 960 at 40, of which the time it has run is less than it has reached. It waits, then goes on."""
+        self.s.setting("lfo-fade", self.QUARTER)
+        self.run_clock(15)
+        moved = self.watch(1100, lambda ms: 15 if ms < 200 else 40)
+        full = max(moved)
+        for side in (1, -1):  # the pitch's two sides sit a little apart, so each against itself
+            most = 0
+            for ms, d in enumerate(moved):
+                if d * side > 0:
+                    self.assertGreaterEqual(d * side, most - 0.02 * full, f"at {ms} ms")
+                    most = max(most, d * side)
+        self.assertLess(abs(moved[700]), 0.9 * full, "the slower tempo counts: it hasn't finished yet")
+        self.assertGreater(abs(moved[-1]), 0.95 * full)
+
+    def test_a_one_shot_and_its_gain_agree_on_a_slower_tempo(self):
+        """It has started and run out at 15 ms a tick, so the gain has to stay open while the tempo slows to 40."""
+        self.s.setting("lfo-delay", self.QUARTER)
+        self.shot_mode("one-shot")
+        self.run_clock(15)
+        moved = self.watch(1200, lambda ms: 15 if ms < 400 else 40)
+        self.assertEqual(set(moved[600:]), {max(moved)}, "stopped at the ramp's top, and heard")
+
+    def test_every_new_note_waits_again(self):
+        """More notes than voices, so each voice's second note goes through it too."""
+        self.s.setting("lfo-delay", 4)
+        for run in range(10):
+            with self.subTest(run=run):
+                self.assertAlmostEqual(self.motion(), 62.5, delta=15)
+
+    def test_synced_a_larger_value_counts_from_the_next_key(self):
+        self.s.setting("lfo-delay", 4)
+        at, voice = self.key()
+        start = self.s.cvs()[voice]
+        self.s.ms(200)
+        self.s.setting("lfo-delay", self.QUARTER)
+        for _ in range(60):
+            self.s.ms(5)
+            self.assertNotEqual(self.s.cvs()[voice], start, "the note had opened")
+        self.key_up()
+        self.assertAlmostEqual(self.motion(), 500, delta=15)
+
+    def test_free_a_larger_value_still_closes_a_note_that_has_opened(self):
+        """Free mode's gain keeps nothing from one pass to the next, as it always has."""
+        self.s.setting("lfo-sync", 0)
+        self.s.setting("lfo-delay", 4)  # 26 ms
+        at, voice = self.key()
+        start = self.s.cvs()[voice]
+        self.s.ms(100)
+        self.assertNotEqual(self.s.cvs()[voice], start, "it has opened")
+        self.s.setting("lfo-delay", self.QUARTER)
+        self.s.ms(100)
+        self.assertEqual(self.s.cvs()[voice], start)
+        while self.s.cvs()[voice] == start:
+            self.assertLess(self.s.now() - at, 800)
+            self.s.ms(5)
+        self.assertAlmostEqual(self.s.now() - at, self.free_seconds(self.QUARTER) * 1000, delta=15)
+
+    def test_the_values_steps(self):
+        """57 is where 1/4 starts: 56 is still 1/4T (333 ms). 62 is where it ends: 63 is 1/4. (750 ms). 4 is the first that isn't 0: 1/32."""
+        for value, ms in ((56, 333), (57, 500), (62, 500), (63, 750), (4, 62.5)):
+            with self.subTest(value=value):
+                self.s.setting("lfo-delay", value)
+                self.assertAlmostEqual(self.motion(), ms, delta=15)
+
+    def test_a_value_that_rounds_to_no_note_value_is_no_delay(self):
+        """1-3 are 20-24 ms in free mode. Synced they name no note value, so the first look after the key finds it at full."""
+        for setting, other in (("lfo-delay", "lfo-fade"), ("lfo-fade", "lfo-delay")):
+            for value in (1, 2, 3):
+                with self.subTest(setting=setting, value=value):
+                    self.s.setting(setting, value)
+                    self.s.setting(other, 0)
+                    gains = self.gains(300)
+                    self.assertLess(gains[0][0], 20)
+                    self.assertAlmostEqual(gains[0][1], 1.0, delta=0.06)
+
+    def test_the_same_value_in_free_mode_takes_the_seconds_it_always_did(self):
+        self.run_clock(15)  # a tempo that would show
+        self.s.setting("lfo-sync", 0)
+        for value in (self.QUARTER, 90):
+            with self.subTest(value=value):
+                self.s.setting("lfo-delay", value)
+                self.assertAlmostEqual(self.motion(limit=4000), self.free_seconds(value) * 1000, delta=15)
+        self.s.setting("lfo-delay", 1)
+        self.assertAlmostEqual(self.motion(), self.free_seconds(1) * 1000, delta=10)
+
+    def test_each_lfo_goes_by_its_own_sync(self):
+        """LFO 2 alone on the pitch: synced its value is a note value, whatever LFO 1 is doing, and the other way round."""
+        self.s.set_button("LFO_FREQ", 0)
+        self.s.param(0, "lfo2-amount", 16383)
+        self.s.param(0, "lfo2-rate", round(16383 * self.RATE_16TH))
+        self.s.setting("shape 1 2", self.SQUARE)
+        self.s.setting("lfo2-dests 1", 1)
+        self.s.setting("lfo2-delay", 90)
+        self.s.ms(400)
+        self.s.setting("lfo2-sync", 1)
+        self.s.setting("lfo-sync", 0)
+        self.assertAlmostEqual(self.motion(limit=9000), 8000, delta=15, msg="4 bars")
+        self.s.setting("lfo2-sync", 0)
+        self.s.setting("lfo-sync", 1)
+        self.assertAlmostEqual(self.motion(limit=4000), self.free_seconds(90) * 1000, delta=15)
+
+    # --- the fade ---
+
+    def test_the_fade_reaches_full_over_its_note_value(self):
+        self.s.setting("lfo-fade", self.QUARTER)
+        gains = self.gains(1000)
+        for ms, gain in ((125, 0.25), (250, 0.5), (375, 0.75), (480, 0.96), (520, 1.0), (800, 1.0)):
+            self.assertGainAt(gains, ms, gain)
+
+    def test_the_fade_follows_the_clock(self):
+        self.s.setting("lfo-fade", self.QUARTER)
+        self.run_clock(15)
+        gains = self.gains(1000)  # the last tempo: 360 ms
+        for ms, gain in ((90, 0.25), (180, 0.5), (270, 0.75), (380, 1.0)):
+            self.assertGainAt(gains, ms, gain)
+
+    def test_the_fade_starts_when_the_delay_ends(self):
+        self.s.setting("lfo-delay", self.QUARTER)
+        self.s.setting("lfo-fade", self.QUARTER)
+        gains = self.gains(1400)
+        for ms, gain in ((200, 0), (480, 0), (750, 0.5), (1020, 1.0)):
+            self.assertGainAt(gains, ms, gain)
+
+    def test_a_fade_in_free_mode_takes_its_seconds(self):
+        self.s.setting("lfo-sync", 0)
+        self.s.setting("lfo-fade", self.QUARTER)
+        gains = self.gains(1200)
+        full = self.free_seconds(self.QUARTER) * 1000
+        for part in (0.25, 0.5, 0.75):
+            self.assertGainAt(gains, full * part, part)
+        self.assertGainAt(gains, full + 20, 1.0)
+
+    def test_a_long_delay_and_fade_at_a_slow_tempo_still_finish(self):
+        """8 bars each at 30 BPM: 64 + 64 s, past the 100 s a voice's age used to stop at."""
+        self.s.setting("clock", 1)
+        self.s.setting("bpm", 30)
+        self.s.setting("lfo-delay", 99)
+        self.s.setting("lfo-fade", 99)
+        self.s.ms(100)
+        gains = self.gains(130000, every=61)  # 61: never in step with the square
+        self.assertGainAt(gains, 63000, 0)
+        self.assertGainAt(gains, 96000, 0.5)
+        self.assertGainAt(gains, 129000, 1.0)
+
+    # --- the one shot's wait ---
+
+    def shot_top(self, limit=1200, clock=0):
+        """Ms from the key until a one shot's ramp has run and stopped at its top. Through its wait the gain holds the pitch in
+        the middle; then it starts from the bottom."""
+        at, voice = self.key()
+        top, seen = None, 0
+        while self.s.now() - at < limit:
+            self.ticks(1, clock) if clock else self.s.ms(2)
+            cv = self.s.cvs()[voice]
+            if cv > seen:
+                seen, top = cv, self.s.now() - at
+        self.key_up()
+        return top
+
+    def shot_mode(self, mode):
+        self.s.setting("shape 1 1", self.RAMP_UP)
+        self.s.setting("lfo-trigger", pro800.TRIGGER_MODES.index(mode))
+
+    def test_a_one_shots_wait_is_the_note_value(self):
+        """500 ms, then the ramp's 1/16: 125 ms. In free mode's seconds it would be 576 + 125."""
+        self.s.setting("lfo-delay", self.QUARTER)
+        for mode in self.SHOTS:
+            with self.subTest(mode=mode):
+                self.shot_mode(mode)
+                self.assertAlmostEqual(self.shot_top(), 625, delta=20)
+
+    def test_a_one_shots_wait_follows_a_running_clock(self):
+        self.s.setting("lfo-delay", self.QUARTER)
+        self.run_clock(10)
+        for mode in self.SHOTS:
+            with self.subTest(mode=mode):
+                self.shot_mode(mode)
+                self.assertAlmostEqual(self.shot_top(limit=600, clock=10), 300, delta=30)  # 240 ms, then 60
+
+    def test_a_tempo_change_moves_a_one_shots_wait_at_once(self):
+        """1 bar, 2 s before any clock; 10 ms a tick from 200 ms after the key: 960 ms, and a 1/16 of 60."""
+        self.s.setting("lfo-delay", 79)
+        self.s.setting("shape 1 1", self.RAMP_UP)
+        self.s.setting("lfo-trigger", pro800.TRIGGER_MODES.index("one-shot"))
+        at, voice = self.key()
+        self.s.ms(200)
+        top, seen = None, 0
+        while self.s.now() - at < 1500:
+            self.ticks(1, 10)
+            cv = self.s.cvs()[voice]
+            if cv > seen:
+                seen, top = cv, self.s.now() - at
+        self.assertAlmostEqual(top, 1020, delta=40)
+
+    def assertTurnedFreeWaitsTheSeconds(self):
+        """8 bars, 16 s synced, 5.12 s free. Turned free at 100 ms, it goes as one free from the key: the gain and the ramp at
+        5.12 s, the ramp's cycle 52 ms at this knob. With the 16 s kept, the ramp would sit at its bottom until then."""
+        self.s.setting("lfo-delay", 99)
+        for mode in self.SHOTS:
+            with self.subTest(mode=mode):
+                self.shot_mode(mode)
+                self.s.setting("lfo-sync", 1)
+                at, voice = self.key()
+                start = self.s.cvs()[voice]
+                self.s.ms(100)
+                self.s.setting("lfo-sync", 0)
+                top, seen = None, start
+                while self.s.now() - at < 5600:
+                    self.s.ms(5)
+                    cv = self.s.cvs()[voice]
+                    if cv > seen:
+                        seen, top = cv, self.s.now() - at
+                self.key_up()
+                self.assertIsNotNone(top, "the ramp never rose past where it started")
+                self.assertAlmostEqual(top, self.free_seconds(99) * 1000 + 52, delta=25)
+
+    def test_a_one_shot_turned_free_during_its_wait_waits_the_seconds(self):
+        self.assertTurnedFreeWaitsTheSeconds()
+
+    def test_and_one_that_restarts_from_the_keys_under_a_sequence(self):
+        self.s.seq_set(1, division=0)
+        self.s.setting("lfo-restart", 1)
+        self.assertTurnedFreeWaitsTheSeconds()
+
+    def test_a_one_shot_waits_its_seconds_in_free_mode(self):
+        self.s.setting("lfo-sync", 0)
+        self.s.param(0, "lfo-freq", round(16383 * 0.8))  # 0.05 × 2^8 = 12.8 Hz: a cycle of 78 ms
+        self.s.ms(400)
+        self.s.setting("lfo-delay", self.QUARTER)
+        for mode in self.SHOTS:
+            with self.subTest(mode=mode):
+                self.shot_mode(mode)
+                self.assertAlmostEqual(self.shot_top(), self.free_seconds(self.QUARTER) * 1000 + 78, delta=20)
+
+    def test_a_one_shot_that_restarts_from_the_keys_under_a_sequence(self):
+        """lfo_key_on(): the keys restart the LFOs, not the steps. One long step, so the voice stays."""
+        self.s.seq_set(1, division=0)
+        self.s.setting("lfo-restart", 1)
+        self.s.setting("lfo-delay", self.QUARTER)
+        for mode in self.SHOTS:
+            with self.subTest(mode=mode):
+                self.shot_mode(mode)
+                self.assertAlmostEqual(self.shot_top(), 625, delta=20)
+
+    # --- the panel ---
+
+    def turn(self, pot):
+        """A nudge under Shift: leaves the value's display up, with Shift held"""
+        self.s.hold("SHIFT")
+        self.s.pot(pot, 0.4)
+        self.s.ms(150)  # the panel has read it: where the nudge starts from
+        self.s.pot(pot, 0.43)
+        self.s.ms(520)
+
+    def assertNudged(self, pot, setting, text):
+        self.s.setting(setting, self.NEAR_QUARTER)
+        self.turn(pot)
+        now = self.s.settings()[setting]
+        self.assertGreater(now, self.NEAR_QUARTER, "a nudge")
+        self.assertShows(text(now))
+        self.s.let_go("SHIFT")
+        self.s.ms(1600)
+
+    def note_name(self, value):
+        step = int(value / 99 * 15 + 0.5)
+        return "0" if not step else self.NAMES[step - 1]
+
+    def test_the_display_shows_the_note_value_when_synced_and_the_number_when_free(self):
+        number = lambda v: f"{v:4d}"
+        for pot, one, two in (("LFO_FREQ", "lfo-delay", "lfo2-delay"), ("LFO_AMOUNT", "lfo-fade", "lfo2-fade")):
+            with self.subTest(pot=pot):
+                self.s.setting("lfo-sync", 1)
+                self.s.setting("lfo2-sync", 0)
+                self.assertNudged(pot, one, self.note_name)
+                self.s.setting("lfo-sync", 0)
+                self.s.setting("lfo2-sync", 1)
+                self.assertNudged(pot, one, number)
+                self.s.press("ARP_UP")  # LFO 2 selected: its own sync decides
+                self.s.ms(1000)
+                self.assertNudged(pot, two, self.note_name)
+                self.s.setting("lfo-sync", 1)
+                self.s.setting("lfo2-sync", 0)
+                self.assertNudged(pot, two, number)
+                self.s.press("ARP_UP")
+                self.s.ms(1000)
+
+    def test_the_name_comes_first_and_the_ends_of_the_scale(self):
+        self.s.setting("lfo-delay", 40)
+        self.s.hold("SHIFT")
+        self.s.pot("LFO_FREQ", 0.3)
+        self.s.pot("LFO_FREQ", 0.6)
+        self.assertShows("dLY")
+        self.s.ms(520)
+        self.assertShows(self.note_name(self.s.settings()["lfo-delay"]))
+        self.s.pot("LFO_FREQ", 1.0)
+        self.assertShows("8bAr")
+        self.s.pot("LFO_FREQ", 0.5)
+        self.s.pot("LFO_FREQ", 0.0)
+        self.s.pot("LFO_FREQ", 0.5)
+        self.s.pot("LFO_FREQ", 0.0)
+        self.assertEqual(self.s.settings()["lfo-delay"], 0)
+        self.assertShows("0", "at the left, as an envelope's note value shows it; free mode's number 0 is at the right")
+
+    def test_a_value_on_the_way_to_the_first_note_value(self):
+        self.s.setting("lfo-fade", 3)
+        self.turn("LFO_AMOUNT")
+        self.assertIn(self.s.settings()["lfo-fade"], (5, 6, 7), "1/32 from 4")
+        self.assertShows("1-32")
+        self.s.pot("LFO_AMOUNT", 0.4)
+        self.s.ms(100)
+        self.assertIn(self.s.settings()["lfo-fade"], (1, 2, 3))
+        self.assertShows("0")
+
+    def test_letting_go_of_shift_at_once_still_shows_the_note_value(self):
+        self.s.setting("lfo-delay", self.NEAR_QUARTER)
+        self.s.hold("SHIFT")
+        self.s.pot("LFO_FREQ", 0.4)
+        self.s.ms(150)
+        self.s.pot("LFO_FREQ", 0.43)
+        self.s.ms(100)
+        self.assertShows("dLY")
+        self.s.let_go("SHIFT")
+        self.s.ms(450)
+        self.assertShows("1-4")
+
+    def test_a_sync_changed_meanwhile_counts_from_the_next_turn(self):
+        """Nothing else needs to happen: a value on the display stays for its moment, and the next turn looks again."""
+        self.s.setting("lfo-delay", self.NEAR_QUARTER)
+        self.turn("LFO_FREQ")
+        self.assertShows("1-4")
+        self.s.setting("lfo-sync", 0)
+        self.assertShows("1-4")
+        self.s.pot("LFO_FREQ", 0.46)
+        self.assertShows(f"{self.s.settings()['lfo-delay']:4d}")
+        self.s.setting("lfo-sync", 1)
+        self.s.pot("LFO_FREQ", 0.49)
+        self.assertShows(self.note_name(self.s.settings()["lfo-delay"]))
+        self.s.let_go("SHIFT")
+
+    def test_the_tapped_tempo_is_still_a_number(self):
+        """The display's value is a tempo here, whichever knob Shift turned last."""
+        self.s.setting("lfo-delay", self.NEAR_QUARTER)
+        self.turn("LFO_FREQ")
+        self.s.let_go("SHIFT")
+        self.s.ms(1600)
+        self.s.history()
+        for _ in range(3):
+            self.s.press("CLOCK")
+            self.s.ms(400)
+        self.s.ms(600)
+        self.assertSaw(["tAP", " 120"])
+
+    def test_saving_and_recalling_a_patch_keeps_the_values(self):
+        self.s.setting("lfo-delay", self.QUARTER)
+        self.s.setting("lfo-fade", 30)
+        self.s.setting("lfo2-delay", 7)
+        self.s.setting("lfo2-fade", 90)
+        self.store_patch(5)
+        self.s.press("PERF")
+        self.s.ms(1600)
+        self.assertEqual(self.s.settings()["lfo-delay"], 0, "the init sound replaced it")
+        self.s.press("5")
+        self.s.ms(3100)
+        st = self.s.settings()
+        self.assertEqual((st["lfo-sync"], st["lfo-delay"], st["lfo-fade"], st["lfo2-delay"], st["lfo2-fade"]), (1, self.QUARTER, 30, 7, 90))
+        self.s.setting("lfo-fade", 0)
+        self.assertAlmostEqual(self.motion(), 500, delta=15, msg="and it acts on them")
+        self.s.setting("lfo-sync", 0)
+        self.assertEqual(self.s.settings()["lfo-delay"], self.QUARTER, "the sync doesn't change what's stored")
+
+    def test_the_host_reads_back_what_it_set(self):
+        for value in (0, 3, self.QUARTER, 99):
+            self.s.setting("lfo-delay", value)
+            self.assertEqual(self.s.settings()["lfo-delay"], value)
+
+    # --- the envelopes, on the scale they've always had ---
+
+    def envelope_opens(self, clock=0):
+        """Ms from the key until the amp envelope leaves 0: its DAHDSR delay"""
+        at, voice = self.key()
+        while self.s.cvs()[CV_AMP1 + voice] == 0:
+            self.assertLess(self.s.now() - at, 3000)
+            self.ticks(1, clock) if clock else self.s.ms(5)
+        opened = self.s.now() - at
+        self.key_up()
+        self.s.ms(500)
+        return opened
+
+    def test_an_envelopes_note_values_are_as_before(self):
+        """DAHDSR delay at 1/4, in note values: the amp stays shut for 500 ms, or a quarter at the clock"""
+        self.s.setting("dahdsr 1", 1)
+        self.s.setting("env-tempo 1", 1)
+        self.s.setting("env-delay 1 amp", self.QUARTER)
+        self.s.ms(50)
+        self.assertAlmostEqual(self.envelope_opens(), 500, delta=25)
+        self.run_clock(15)
+        self.assertAlmostEqual(self.envelope_opens(clock=15), 360, delta=40)
+        self.s.setting("env-tempo 1", 0)
+        self.assertAlmostEqual(self.envelope_opens(), 374, delta=25, msg="in seconds again, on the envelope's own curve")
+
 
 class UsbDriver(unittest.TestCase):
     """The real src/usb.c against a model of the OTG core (tools/sim/usb_harness.c): the checks are in there. They cover the
@@ -5349,6 +5900,96 @@ class WebSmallThings(unittest.TestCase):
         """A lane value comes back +-1 through JSON: 7 bits against 0-99."""
         for name in ("index.html", "install.html"):
             self.assertNotRegex(source("tools", "web", name), r"(?i)lossless|round.trip|bit.exact")
+
+
+@unittest.skipUnless(NODE, "needs node to run the page's code")
+class WebLfoTimes(unittest.TestCase):
+    """The editor's LFO Delay and Fade in knobs read as the firmware connected acts: note values on a synced LFO from 0.9.4."""
+
+    def texts(self, script):
+        page = source("tools", "web", "index.html")
+        blocks = ["let firmwareVersion", "const noteStep", "const noteName", "const DIVISIONS", "const fadeSeconds", "const lfoNoteTimes", "const fadeText"]
+        prelude = "let settings = null;\n" + "\n".join(js_block(page, b) for b in blocks[:5]) + "\n" + js_block(page, blocks[5]) + "\n"
+        a = page.index("\nconst fadeText")
+        prelude += page[a:page.index("\n};\n", a) + 4]
+        return run_node(prelude + NODE_DRIVER % script)
+
+    def test_note_values_when_the_lfo_shown_is_synced(self):
+        out = self.texts("""
+        firmwareVersion = "0.9.4";
+        settings = { lfo1Sync: 1, lfo2Sync: 0 };
+        report({ one: [0, 2, 3, 4, 56, 57, 60, 62, 63, 79, 99].map(v => fadeText(1)(v / 99)), two: [0, 60].map(v => fadeText(2)(v / 99)) });
+        """)
+        self.assertEqual(out["one"], ["off", "off", "off", "1/32", "1/4T", "1/4", "1/4", "1/4", "1/4.", "1 bar", "8 bars"])
+        self.assertEqual(out["two"], ["off", "576 ms"], "each LFO's own sync")
+
+    def test_the_other_lfo_the_other_way_round(self):
+        out = self.texts("""
+        firmwareVersion = "0.9.4";
+        settings = { lfo1Sync: 0, lfo2Sync: 1 };
+        report({ one: fadeText(1)(60 / 99), two: fadeText(2)(60 / 99) });
+        """)
+        self.assertEqual((out["one"], out["two"]), ("576 ms", "1/4"))
+
+    def test_older_firmware_still_acts_in_seconds(self):
+        out = self.texts("""
+        const out = {};
+        settings = { lfo1Sync: 1, lfo2Sync: 1 };
+        for (const v of ["0.9.3", "0.8.9", "0.7.0"]) { firmwareVersion = v; out[v] = [fadeText(1)(60 / 99), fadeText(2)(90 / 99), fadeText(1)(0)]; }
+        report(out);
+        """)
+        for version in ("0.9.3", "0.8.9", "0.7.0"):
+            self.assertEqual(out[version], ["576 ms", "3.1 s", "off"], version)
+
+    def test_later_firmware_keeps_them(self):
+        out = self.texts("""
+        const out = {};
+        settings = { lfo1Sync: 1 };
+        for (const v of ["0.9.4", "0.9.5", "1.0.0"]) { firmwareVersion = v; out[v] = fadeText(1)(60 / 99); }
+        report(out);
+        """)
+        self.assertEqual(set(out.values()), {"1/4"}, out)
+
+    def test_free_and_not_connected_read_in_time(self):
+        out = self.texts("""
+        const a = [50, 60, 90].map(v => fadeText(1)(v / 99));
+        firmwareVersion = "0.9.4";
+        settings = { lfo1Sync: 0 };
+        report({ unconnected: a, free: [50, 60, 90].map(v => fadeText(1)(v / 99)) });
+        """)
+        self.assertEqual(out["unconnected"], ["329 ms", "576 ms", "3.1 s"])
+        self.assertEqual(out["free"], out["unconnected"])
+
+    def test_the_same_step_as_the_tool_for_every_value(self):
+        out = self.texts("""
+        firmwareVersion = "0.9.4";
+        settings = { lfo1Sync: 1 };
+        report({ texts: Array.from({ length: 100 }, (_, v) => fadeText(1)(v / 99)) });
+        """)
+        for value, text in enumerate(out["texts"]):
+            tool = pro800.lfo_note_text(value)
+            self.assertEqual(text.replace(" bars", "bar").replace(" bar", "bar"), "off" if "off" in tool else tool.split("(")[1].rstrip(")"), value)
+
+    def test_during_a_drag_it_names_the_value_that_is_sent(self):
+        """A drag's position isn't on the 0-99 grid. 0.0347 sends 3, which is off, though the position alone would round to 1/32;
+        56.4 of 99 sends 56, 1/4T, though the position alone would round to 1/4."""
+        out = self.texts("""
+        firmwareVersion = "0.9.4";
+        settings = { lfo1Sync: 1 };
+        report({ low: fadeText(1)(0.0347), middle: fadeText(1)(56.4 / 99) });
+        """)
+        self.assertEqual((out["low"], out["middle"]), ("off", "1/4T"))
+
+    def test_the_knobs_use_it(self):
+        page = source("tools", "web", "index.html")
+        self.assertEqual(len(re.findall(r"settingKnob\(`lfo(?:Delay|Fade)\$\{n\}`.*?, fadeText\(n\)\)", page)), 2)
+
+    def test_the_cheat_sheet_says_so(self):
+        page = source("tools", "web", "index.html")
+        sheet = page[page.index('id="tab-device"'):page.index('id="tab-matrix"')]
+        self.assertIn("With the clock, its delay and fade are note values too", sheet)
+        for name in ("1-32", "8bAr"):
+            self.assertIn(f'<code class="lcd">{name}</code>', sheet)
 
 
 class PresetBundle(unittest.TestCase):

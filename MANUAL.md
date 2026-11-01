@@ -254,6 +254,14 @@ after a note starts and then fade in, per voice, from 20 ms to about 5 s (0 = of
 routing buttons, its mod routes and LFO → PW alike, and restarts with each new note on the voice (legato keeps it).
 The setting is per LFO, shared by both layers, and saved in the patch.
 
+While the LFO is synced (`Settings` `1` on `CLoC`), both are note values instead: the same 0-99 reads as off, then 1/32 up to
+8 bars, in the 16 steps an envelope's note values use (0-3 are off, 57-62 are 1/4). They follow the tempo at once, a
+one shot's wait included: 120 BPM before any clock, the last tempo when it stops. Once a note's LFO has opened it stays open: a
+slower tempo or a larger value counts from the next key (a free LFO's larger delay shuts it at once). The display under Shift,
+the web page and `pro800 settings` show the note value (the display `0`, `1-32` .. `8bAr`). Turning the sync on or off
+changes what the stored value means and not the value, so a patch made with a synced LFO's delay or fade before 0.9.4
+keeps its number and takes a different time. The page and the tool show seconds for firmware before 0.9.4, which still acts in them.
+
 | Display | Shape |
 |---|---|
 | `trI` | Triangle |
@@ -325,7 +333,8 @@ page, the Cycles knob). Letting go of the key doesn't stop it, and it goes on to
 - **`1Sht` or `1S.Po`:** `1Sht` is one LFO that every new key restarts, so a chord's notes move together and a new note
   restarts them all. In `1S.Po` each note's LFO runs out on its own. Pulse width is one wire, so LFO → PW always follows
   the shared one shot, restarted by each key.
-- **Delay and fade** (Shift + LFO FREQ / AMOUNT): the cycles start when the delay ends, and the fade fades them in.
+- **Delay and fade** (Shift + LFO FREQ / AMOUNT): the cycles start when the delay ends, and the fade fades them in. With
+  the clock the delay is a note value, and a tempo change during the wait moves its end at once.
 - **With the clock:** a cycle lasts the division, from the key, not on the grid. MIDI Start doesn't restart a one shot.
 - **The count** does nothing in the other retrigger modes. Firmware before 0.9.3 loads a one shot patch as `FrEE`.
 
@@ -650,8 +659,8 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 |---|---|
 | Filter ATT / DEC / SUS / REL | Env 3 (with pickup, as a loaded patch's knobs) |
 | Amp ATT / DEC / SUS / REL | Env 4 (the same) |
-| LFO FREQ | The selected LFO's delay (`dLY`, 0-99: off, 20 ms to 5 s) |
-| LFO AMOUNT | The selected LFO's fade-in (`FAdE`) |
+| LFO FREQ | The selected LFO's delay (`dLY`, 0-99: off, 20 ms to 5 s; synced, it shows the note value, `0`, `1-32` .. `8bAr`) |
+| LFO AMOUNT | The selected LFO's fade-in (`FAdE`, the same) |
 | GLIDE | Drift (`drFt`, 0-99) |
 | M TUNE | Unison detune (`dEtU`, 0-50 cents) |
 | FINE | Pitch-bend range (`bEnd`, 1-12 semitones) |

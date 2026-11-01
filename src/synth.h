@@ -177,9 +177,6 @@ float synth_env_extra_time(int value);   // a delay or hold (0-99) in seconds
 // tempo, instead of seconds. Synced cycling keeps its shares of the cycle instead.
 int synth_env_tempo(int layer);
 void synth_set_env_tempo(int layer, int bits);
-int synth_env_note_step(float knob);       // a knob (or delay / hold / 99) as a step: 0, or 1 = 1/32 .. 15 = 8 bars
-float synth_env_note_seconds(int step);    // that step's time at the tempo now
-const char *synth_env_note_name(int step); // "0", "1-32" .. "8bAr"
 // For the display: the step an envelope knob (stage 0-3) at `knob` sets on the edit layer; -1 if that stage isn't a
 // note value (seconds, or the sustain level)
 int synth_env_tempo_step(int env, int stage, float knob);

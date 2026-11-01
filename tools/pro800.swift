@@ -1172,13 +1172,28 @@ func settingsData(_ reply: [UInt8]) -> [UInt8] {
     return enough(b, 1 + 2 * Int(b[0]))
 }
 
+// A synced LFO's delay or fade, from 0.9.4: a note value, 0-99 → off, then 1/32 .. 8 bars. Nothing in the settings marks
+// that firmware, and an older one still acts in seconds, so it's the version that tells.
+func lfoNoteText(_ v: Int) -> String {
+    let step = min(Int(Double(v) / 99 * 15 + 0.5), 15)
+    return v == 0 ? "off" : "\(v) (\(step == 0 ? "off" : divisionNames[15 - step]))"
+}
+
+func lfoNoteTimes(_ midi: Midi) -> Bool {
+    guard let reply = midi.request([0x08, 0x00], expect: [0x09, 0x00]) else { return false }
+    return Array(reply.dropFirst(sysexHeader.count + 2).dropLast()).lexicographicallyPrecedes([0, 9, 4]) == false
+}
+
 // pro800 settings: every setting, as the firmware has them now
 func settings() {
-    guard let reply = Midi(port: portName).request([0x54], expect: [0x54], timeout: 2) else {
+    let midi = Midi(port: portName)
+    guard let reply = midi.request([0x54], expect: [0x54], timeout: 2) else {
         fail("no reply (firmware 0.6.0 or later?)")
     }
     let b = settingsData(reply)
     let count = Int(b[0]), readOnly = 4 // env-select, preset-mode, patch, morph: always the reply's last four
+    let synced = [0, 5].map { count > $0 && (Int(b[1 + 2 * $0]) << 7 | Int(b[2 + 2 * $0])) == 1 } // lfo-sync, lfo2-sync
+    let notes = synced.contains(true) && lfoNoteTimes(midi)
     for r in 0..<count {
         // the settable ones from the start, as far as both know them; the read-only ones from the end
         let i = r >= count - readOnly ? settingNames.count - (count - r) : r
@@ -1205,7 +1220,7 @@ func settings() {
         case 27, 28: text = "\(voiceModes[safe: v & 3] ?? "?"), \(priorities[safe: v >> 2 & 3] ?? "?") note priority"
         case 30: text = scaleNames[safe: v] ?? text
         case 31: text = rootNames[safe: v] ?? text
-        case 32...35: text = v == 0 ? "off" : String(format: "%d (%.2f s)", v, 0.02 * pow(2, Double(v) * 8 / 99))
+        case 32...35: text = notes && synced[(i - 32) / 2] ? lfoNoteText(v) : v == 0 ? "off" : String(format: "%d (%.2f s)", v, 0.02 * pow(2, Double(v) * 8 / 99))
         case 36, 37: text = "CC \(v)"
         case 38...41: text = String(format: "%+d", v - 99)
         case 42: text = ["midi", "internal", "sync-in"][safe: v] ?? text
@@ -1226,7 +1241,6 @@ func settings() {
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
     }
-    let midi = Midi(port: portName)
     if let r = midi.request([0x4C], expect: [0x4C]) {
         let d = replyData(r, 1)
         let on = buttonNames.keys.sorted().filter { $0 < d.count && d[$0] != 0 }.map { buttonNames[$0]! }

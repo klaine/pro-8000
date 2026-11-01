@@ -948,6 +948,7 @@ static int shift_pot_last[POT_COUNT];
 static float shift_acc[POT_COUNT];
 static uint32_t shift_value_at; // when to show the secondary's value (after its name)
 static int shift_value, shift_pot = -1;
+static int shift_value_pot = -1, shift_value_lfo; // whose it is (-1: the tapped tempo), which outlives letting go of Shift
 
 static void shift_set(int on)
 {
@@ -979,11 +980,16 @@ static void set_pickup(int on)
     store_set_pickup(on);
 }
 
+// An LFO's delay and fade read as note values while that LFO is synced. The sync is looked at here, when it's shown: one
+// changed from the host with a value on the display leaves it there for its second and a half, and the next turn reads anew.
 static void show_shift_value(void)
 {
-    if (shift_pot == POT_NOISE && !shift_value)
+    int pot = shift_value_pot;
+    if ((pot == POT_LFO_FREQ || pot == POT_LFO_AMOUNT) && lfo_sync[shift_value_lfo] == LFO_SYNC_CLOCK)
+        display_text(lfo_note_name(lfo_note_step((float)shift_value / 99.0f)));
+    else if (pot == POT_NOISE && !shift_value)
         display_text("ALL");
-    else if (shift_pot == POT_FIL_ENV_AMT)
+    else if (pot == POT_FIL_ENV_AMT)
         display_text(shift_value ? "on" : "OFF");
     else
         display_number(shift_value);
@@ -1039,6 +1045,8 @@ static void shift_turn(int pot, int delta)
     default: synth_set_cc_number(1, value); store_set_cc_number(1, value); break;
     }
     shift_value = value;
+    shift_value_pot = pot;
+    shift_value_lfo = which;
     if (pot != shift_pot) { // its name first, then the value
         shift_pot = pot;
         display_text(table[t].name);
@@ -1122,6 +1130,7 @@ static void clock_tap(void)
     display_text("tAP");
     display_until = 0;
     shift_value = (int)(clock_bpm + 0.5f);
+    shift_value_pot = -1;
     shift_value_at = ms_ticks + 500;
 }
 
@@ -1300,7 +1309,7 @@ static void show_env_extra(void)
     char text[8];
     format_time(synth_env_extra_time(value), text);
     // in note values when the envelope's stage times are (synced cycling has no delay or hold to show)
-    display_text(synth_env_tempo(layer) >> cycle_env & 1 ? synth_env_note_name(synth_env_note_step((float)value / 99.0f))
+    display_text(synth_env_tempo(layer) >> cycle_env & 1 ? lfo_note_name(lfo_note_step((float)value / 99.0f))
                                                          : text);
     display_until = ms_ticks + 1500;
 }
@@ -1391,7 +1400,7 @@ static void pot_value_text(int index, int layer, float knob, char *text)
         text[3] = (char)('0' + share % 10);
         text[4] = 0;
     } else if (env_knob(index, &env, &stage) && synth_env_tempo_step(env, stage, knob) >= 0) {
-        const char *name = synth_env_note_name(synth_env_tempo_step(env, stage, knob)); // a note value
+        const char *name = lfo_note_name(synth_env_tempo_step(env, stage, knob)); // a note value
         int n = 0;
         while (name[n] && n < 4) {
             text[n] = name[n];

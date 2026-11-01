@@ -1438,6 +1438,18 @@ def settings_data(reply):
     return enough(b, 1 + 2 * b[0])
 
 
+# A synced LFO's delay or fade, from 0.9.4: a note value, 0-99 → off, then 1/32 .. 8 bars. Nothing in the settings marks
+# that firmware, and an older one still acts in seconds, so it's the version that tells.
+def lfo_note_text(v):
+    step = min(int(v / 99 * 15 + 0.5), 15)
+    return "off" if v == 0 else f"{v} ({'off' if step == 0 else DIVISION_NAMES[15 - step]})"
+
+
+def lfo_note_times(m):
+    reply = m.request([0x08, 0x00], expect=[0x09, 0x00])
+    return reply is not None and tuple(reply[HEADER_SIZE + 2:-1]) >= (0, 9, 4)
+
+
 # pro800 settings: every setting, as the firmware has them now
 def settings():
     m = midi()
@@ -1446,13 +1458,15 @@ def settings():
         fail("no reply (firmware 0.6.0 or later?)")
     b = settings_data(reply)
     count, read_only = b[0], 4  # env-select, preset-mode, patch, morph: always the reply's last four
+    synced = [count > r and (b[1 + 2 * r] << 7 | b[2 + 2 * r]) == 1 for r in (0, 5)]  # lfo-sync, lfo2-sync
+    notes = any(synced) and lfo_note_times(m)
     for r in range(count):
         # the settable ones from the start, as far as both know them; the read-only ones from the end
         i = len(SETTING_NAMES) - (count - r) if r >= count - read_only else r
         if r < count - read_only and i >= len(SETTING_NAMES) - read_only:
             continue
         v = b[1 + 2 * r] << 7 | b[2 + 2 * r]
-        text = setting_text(i, v)
+        text = lfo_note_text(v) if notes and 32 <= i <= 35 and synced[(i - 32) // 2] else setting_text(i, v)
         show(f"{pad(SETTING_NAMES[i], 20)} {v if text is None else text}")
     r = m.request([0x4C], expect=[0x4C])
     if r is not None:
