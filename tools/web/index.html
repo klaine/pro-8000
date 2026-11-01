@@ -905,7 +905,10 @@ function showFirmware() {
 // The installer page (install.html) asks the other tabs to let go of the synth while it runs: this page's poll in the
 // middle of an update spoils it, since the bootloader's port is called "PRO 800" too.
 let installerBusy = false, connecting = false, connectWanted = false, reconnectTimer = 0;
-const RECONNECT_QUIET = 3000; // a device can drop its port and set it up again right after it appears
+// A device can drop its port and set it up again right after it appears. `pro800 install` waits for the same thing, and
+// longer (PORT_STEADY in tools/pro800.py), so that this page's two messages on a port that turns out to be the bootloader's
+// are over before it flashes.
+const RECONNECT_QUIET = 3000;
 const portSeen = new Map();
 const pro800Port = list => Array.from(list.values()).find(p => p.state === "connected" && p.name && p.name.includes("PRO 800"));
 function letGoOfSynth() {
@@ -1771,7 +1774,7 @@ function dial(scale) {
   };
   return {
     svg: s,
-    turn: u => ptr.setAttribute("transform", `rotate(${(-135 + u * 270).toFixed(1)} 40 38)`),
+    turn: u => ptr.setAttribute("transform", `rotate(${(-135 + (u || 0) * 270).toFixed(1)} 40 38)`), // (u || 0): a value this firmware hasn't got
     mark: k => texts.forEach((t, j) => t && t.classList.toggle("on", j === k)),
     // the range the mod routes can move the value over: lo..hi in knob units around u (none: hidden), and each
     // source's own share (list: [{lo, hi}]) when there are several; past PART_RINGS sources the last arc takes the rest
@@ -1804,7 +1807,7 @@ function knob(i, text) {
     () => { if (I() in DEFAULTS) { setParam(I(), DEFAULTS[I()]); paintAll(); } });
   dl.addEventListener("focus", () => params && touch(label(I()), format(I(), params[I()])));
   paints.push(() => {
-    if (!params) return;
+    if (!params || params[I()] === undefined) return; // not there yet, or a parameter this firmware hasn't got
     const n = I(), u = params[n];
     d.turn(u);
     const m = modRange(n);
@@ -2946,7 +2949,7 @@ function settingKnob(key, label, title, show = u => String(Math.round(u * 99))) 
 function macroKnob(k) {
   const key = () => `macro${paramsLayer + 1}${k + 1}`, name = `Macro ${k + 1}`, signed = x => (x > 0 ? "+" : "") + x;
   let local = null, at = 0, timer = 0;
-  const get = () => local !== null && Date.now() - at < 1500 ? local : settings ? settings[key()] / 198 : 0.5;
+  const get = () => local !== null && Date.now() - at < 1500 ? local : settings && settings[key()] !== undefined ? settings[key()] / 198 : 0.5;
   const show = u => signed(Math.round(u * 198) - 99);
   const set = u => {
     if (offline()) return;
@@ -3279,7 +3282,7 @@ async function copyLfo(which) {
   } else ok = false;
   const status = document.getElementById("status");
   status.textContent = !ok ? "Copying failed (firmware 0.6.6 or later?)" : full ?
-    `Copied LFO ${n} to layer ${to + 1}, but ${full} route${full > 1 ? "s" : ""} didn't fit (8 per layer)` :
+    `Copied LFO ${n} to layer ${to + 1}, but ${full} route${full > 1 ? "s" : ""} didn't fit (${ROUTES} per layer)` :
     `Copied layer ${from + 1}'s LFO ${n} to layer ${to + 1}`;
   status.className = ok && !full ? "ok" : "bad";
   await refreshSettings(); await refreshParams();
@@ -3900,7 +3903,7 @@ document.getElementById("bank-factory").onclick = () => bankRun(async () => {
 // named; the sound on the synth ends up as the last one.
 async function installBank(bank, from) {
   const list = Array.isArray(bank) ? bank : bank && Array.isArray(bank.presets) ? bank.presets : null;
-  if (!list || !list.length || badSlotPreset(list)) {
+  if (!list || !list.length || badSlotPreset(list) !== undefined) {
     bankMsg(`${from} isn't a preset bank (a list of presets, each with a slot 1-128)`, "bad"); return;
   }
   await refreshSettings();

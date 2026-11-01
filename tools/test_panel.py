@@ -4487,6 +4487,38 @@ class WebInstaller(unittest.TestCase):
     await advance(100);
     """
 
+    def test_a_file_cut_between_two_messages_is_refused(self):
+        out = installer("""
+        const message = (kind, bytes) => [...HEADER, kind, ...bytes, 0xF7];
+        const update = count => { // a header and its blocks, laid out as PRO800_update_gen lays them out
+            const size = count * 210, head = new Array(40).fill(0);
+            head[1] = size & 127; head[2] = size >> 7 & 127; head[3] = size >> 14 & 127; // bytes 10-12 of the message
+            [..."BEHRINGER PRO 800"].forEach((c, i) => { head[15 + i] = c.charCodeAt(0); });
+            head[33] = 0; head[34] = 9; head[35] = 4;
+            const blocks = [];
+            for (let i = 0; i < count; i++) blocks.push(message(0x0B, [0, i & 127, i >> 7, ...new Array(220).fill(0)]));
+            return [message(0x0A, head), ...blocks];
+        };
+        const tryIt = async messages => {
+            try { const f = await parseUpdate(Uint8Array.from(messages.flat()).buffer); return "ok " + f.version; }
+            catch (e) { return e.message; }
+        };
+        const whole = update(60);
+        const swapped = [...whole]; [swapped[5], swapped[6]] = [swapped[6], swapped[5]];
+        report({
+            whole: await tryIt(whole),
+            cut: await tryIt(whole.slice(0, 50)),
+            headerOnly: await tryIt(whole.slice(0, 1)),
+            tooSmall: await tryIt(update(10)),
+            swapped: await tryIt(swapped),
+        });
+        """)
+        self.assertEqual(out["whole"], "ok 0.9.4")
+        self.assertEqual(out["cut"], "it's cut short")
+        self.assertEqual(out["headerOnly"], "it isn't a PRO-800 firmware update")
+        self.assertEqual(out["tooSmall"], "it's cut short")
+        self.assertEqual(out["swapped"], "its data blocks are out of order, or one is missing")
+
     def test_a_tab_keeps_off_the_synth_while_another_runs(self):
         out = installer(self.RUN + """
         const before = midi.sent.length;
@@ -4563,10 +4595,10 @@ class WebInstaller(unittest.TestCase):
         const idle = channel.sent.length;
         running = true;
         channel.onmessage({ data: "ask" });
-        report({ idle, running: channel.sent });
+        report({ idle, running: channel.sent, name: tabName });
         """)
         self.assertEqual(out["idle"], 0)
-        self.assertEqual(out["running"], ["busy"])
+        self.assertEqual(out["running"], ["busy " + out["name"]])
 
     def test_start_does_nothing_while_another_runs(self):
         out = installer(self.RUN + """
@@ -4590,12 +4622,33 @@ class WebInstaller(unittest.TestCase):
         await advance(10);
         channel.onmessage({ data: "busy" }); // the other tab said so inside the wait
         await drive(started);
-        report({ running, sent: midi.sent.length - before, said: channel.sent.slice(-2), text: $("state").textContent });
+        report({ running, sent: midi.sent.length - before, said: channel.sent.slice(-2), name: tabName, text: $("state").textContent });
         """)
         self.assertFalse(out["running"])
         self.assertEqual(out["sent"], 0, "the synth wasn't touched")
-        self.assertEqual(out["said"], ["busy", "idle"])
+        self.assertEqual(out["said"], ["busy " + out["name"], "idle " + out["name"]], "of this tab, by name")
         self.assertIn("Another installer tab", out["text"])
+
+    def test_another_tab_standing_back_doesnt_end_a_run_for_this_one(self):
+        """Tab a is flashing. Tab b comes out of its save dialog, says busy, sees a and stands back: a is still flashing."""
+        out = installer(self.RUN + """
+        const before = midi.sent.length;
+        channel.onPost = d => { if (d === "ask") channel.onmessage({ data: "busy a" }); };
+        channel.onmessage({ data: "busy a" });
+        channel.onmessage({ data: "busy b" });
+        channel.onmessage({ data: "idle b" });
+        await advance(30000);
+        const during = midi.sent.length - before, still = otherRunning, shown = $("state").textContent;
+        channel.onPost = null;
+        channel.onmessage({ data: "idle a" });
+        await advance(4000);
+        report({ during, still, shown, after: otherRunning, resumed: midi.sent.length - before });
+        """)
+        self.assertEqual(out["during"], 0, "not a message to a bootloader being flashed")
+        self.assertTrue(out["still"])
+        self.assertIn("Another installer tab", out["shown"])
+        self.assertFalse(out["after"])
+        self.assertGreater(out["resumed"], 0)
 
     def test_a_name_reads_back_as_it_was_sent(self):
         """A name outside 20-7E goes out without those characters, and the read-back must expect the same."""
@@ -4859,6 +4912,67 @@ class WebReconnect(unittest.TestCase):
         self.assertIsNone(out["output"])
         self.assertIn("installer is running", out["text"])
         self.assertEqual(out["connected"], 0)
+
+    def test_a_tab_standing_back_doesnt_let_it_back_while_another_runs(self):
+        out = editor(self.UP + """
+        channel.onPost = d => { if (d === "ask") watch.heard("busy a"); };
+        watch.heard("busy a");
+        midi.sent.length = 0;
+        watch.heard("busy b");
+        watch.heard("idle b");
+        const told = status();
+        await advance(30000);
+        const during = commands(), held = installerBusy;
+        channel.onPost = null;
+        watch.heard("idle a");
+        await advance(3200);
+        report({ told, during, held, busy: installerBusy, then: commands().slice(0, 2), back: status() });
+        """)
+        self.assertIn("installer is running", out["told"])
+        self.assertEqual(out["during"], [], "not a message")
+        self.assertTrue(out["held"], "and it goes on asking, so that it hears the real end")
+        self.assertFalse(out["busy"])
+        self.assertEqual(out["then"], [0x08, 0x79])
+        self.assertIn("Connected", out["back"])
+
+    def test_two_pressing_start_at_once_the_one_that_goes_ahead_still_counts(self):
+        out = editor(self.UP + """
+        channel.onPost = d => { if (d === "ask") watch.heard("busy b"); }; // b goes ahead; a stands back
+        watch.heard("busy a");
+        watch.heard("busy b");
+        midi.sent.length = 0;
+        watch.heard("idle a");
+        await advance(30000);
+        report({ during: commands(), busy: installerBusy });
+        """)
+        self.assertEqual(out["during"], [])
+        self.assertTrue(out["busy"])
+
+    def test_an_idle_from_a_tab_it_never_heard_changes_nothing(self):
+        out = editor(self.UP + """
+        channel.onPost = d => { if (d === "ask") watch.heard("busy a"); };
+        watch.heard("busy a");
+        watch.heard("idle b");
+        report({ busy: installerBusy, text: status() });
+        """)
+        self.assertTrue(out["busy"])
+        self.assertIn("installer is running", out["text"])
+
+    def test_a_tab_that_vanished_stops_counting_while_another_still_runs(self):
+        out = editor(self.UP + """
+        channel.onPost = d => { if (d === "ask") watch.heard("busy b"); };
+        watch.heard("busy a"); // says no more
+        watch.heard("busy b");
+        await advance(30000);
+        const still = installerBusy;
+        channel.onPost = null;
+        midi.sent.length = 0;
+        watch.heard("idle b");
+        const after = installerBusy;
+        report({ still, after });
+        """)
+        self.assertTrue(out["still"])
+        self.assertFalse(out["after"], "a was given up on, so b's end is the end")
 
     def test_an_installer_tab_that_vanished_lets_it_back(self):
         out = editor(self.UP + """
@@ -5148,6 +5262,30 @@ class WebMarkingTheMemory(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "needs node to run the page's code")
 class WebSmallThings(unittest.TestCase):
+    def test_a_bank_with_an_entry_that_isnt_a_preset_is_refused_whatever_the_entry(self):
+        """null and 0 are falsy: a check on what badSlotPreset() returns has to tell them from "none"."""
+        page = source("tools", "web", "index.html")
+        out = run_node(source("tools", "web", "sound-plan.js") + """
+        let settings = {}, shown = [], looked = 0, slots = [];
+        const bankMsg = text => shown.push(text), refreshSettings = async () => { looked++; }, scanSlots = async () => {}, confirm = () => false;
+        """ + js_block(page, "async function installBank(") + NODE_DRIVER % """
+        const out = [];
+        for (const bank of [[null], [0], [""], [false], { presets: [null] }, [{ slot: 1 }, 0], [{ slot: 129 }]]) {
+          shown = []; looked = 0;
+          await installBank(bank, "the file");
+          out.push({ bank, shown, looked });
+        }
+        shown = [];
+        await installBank([{ slot: 1 }], "the file");
+        report({ out, good: shown, looked });
+        """)
+        for case in out["out"]:
+            with self.subTest(bank=case["bank"]):
+                self.assertEqual(case["looked"], 0, "stopped before anything was asked of the synth")
+                self.assertEqual(len(case["shown"]), 1)
+                self.assertIn("isn't a preset bank", case["shown"][0])
+        self.assertEqual(out["looked"], 1, "a good one goes on")
+
     def test_the_pages_compile_with_the_shared_script(self):
         """A const in both would stop a page dead, and only a browser would otherwise show it."""
         for name in ("index.html", "install.html"):

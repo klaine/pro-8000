@@ -34,24 +34,26 @@ const badSlotPreset = list => list.find(p => !p || typeof p !== "object" || !Num
 // which this reads as 128 too. Null for no reply.
 function formatReply(d) { return d ? { count: d[1] << 7 | d[2], failed: !!d[3] } : null; }
 
-// Whether an installer is running in another tab, over the installer's BroadcastChannel: "ask" (is one running?), "busy"
-// (the answer, and said at its start) and "idle" (it ended). A tab that is closed or crashes says nothing, so while busy
-// this keeps asking, and two asks without an answer count as finished. Counting asks, not time: the timers of a tab in the
-// background may run once a minute, and a running installer still answers each ask at once. The page gives heard() what
-// it receives; changed(busy) is called on each change.
+// Whether an installer is running in another tab, over the installer's BroadcastChannel: "ask" (is one running?), "busy
+// <tab>" (the answer, and said at its start) and "idle <tab>" (it ended, or stood back). Kept per tab: one tab's idle says
+// nothing of another, and two can be on the channel at once. A tab that is closed or crashes says nothing, so while any is
+// busy this keeps asking, and two asks without an answer count as that tab finished. Counting asks, not time: the timers
+// of a tab in the background may run once a minute, and a running installer still answers each ask at once. The page gives
+// heard() what it receives; changed(busy) is called on each change.
 function watchInstaller(channel, changed, every = 4000) {
-  let busy = false, unanswered = 0;
+  const tabs = new Map(); // tab: the asks it hasn't answered
   const heard = data => {
-    if (data === "busy") {
-      unanswered = 0;
-      if (!busy) { busy = true; changed(true); }
-    } else if (data === "idle" && busy) { busy = false; changed(false); }
+    const [word, tab = ""] = String(data).split(" "), was = tabs.size;
+    if (word === "busy") {
+      tabs.set(tab, 0);
+      if (!was) changed(true);
+    } else if (word === "idle" && tabs.delete(tab) && !tabs.size) changed(false);
   };
   setInterval(() => {
-    if (!busy) return;
-    if (unanswered >= 2) { busy = false; changed(false); return; }
-    unanswered++;
-    channel.postMessage("ask");
+    if (!tabs.size) return;
+    for (const [tab, unanswered] of tabs)
+      if (unanswered >= 2) tabs.delete(tab); else tabs.set(tab, unanswered + 1);
+    if (tabs.size) channel.postMessage("ask"); else changed(false);
   }, every);
   return { heard };
 }

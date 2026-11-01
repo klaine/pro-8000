@@ -1664,6 +1664,11 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   answered the version request again. So any program's traffic does it, not only the editor's poll. The page stops at a
   missing `03 31` or any `01 00 0x` error, and treats a port that answers nothing as the bootloader, since sending the
   update header to anything else does nothing. Editor tabs let go over a BroadcastChannel; other software can't be told.
+  **The channel's protocol** (2026-10-31, `watchInstaller()` in `sound-plan.js`): `ask`, `busy <tab>` and `idle <tab>`,
+  tracked per tab. A plain `busy` or `idle` still works; an editor tab loaded before this change ignores the new form
+  until reloaded. A second installer tab stands back, says another one is running and keeps off the port. A tab that
+  closes or crashes says nothing, so two unanswered asks count as finished: counted, not timed, because a background
+  tab's timers may run once a minute and a running installer still answers each ask at once.
 - **What's on the port** without the USB product id, which a page can't see: only our firmware answers 79, only stock
   answers 77 7E 03, anything else counts as the bootloader.
 - **The stock file:** Behringer's cloud (`cloud.midasconsoles.com`) wants an authorised token, and the firmware isn't
@@ -1755,10 +1760,13 @@ From the GitHub issues (#14, #15, #1). VALUE and `PAnL` tried on the synth; the 
   that source as well (its `cc != 74` test could never run before).
 - **Restore everything** on the editor's Patches tab (reported by a user): Back up everything has written a 98,304-byte
   `.bin` since 0.8.0, and nothing took it back; the installer wants a 131,072-byte image and just called it wrong, now
-  it names the file and sends you to the editor. The page checks the size and every record's checksum, refuses memory
-  still in the stock format (raw writes wouldn't write the global block), then writes only the slots that differ and
-  reads each back, so a retry picks up where it stopped. It uses the same 79 / 5A SysEx as Export and Import, so it
-  works with older firmware too. Tested in Node with the page's handlers against a simulated EEPROM holding a real
+  it names the file and sends you to the editor. The page checks the size and every record's checksum, then writes only
+  the slots that differ and reads each back, so a retry picks up where it stopped. Raw writes don't write the global
+  block, so memory holding stock data asks for a format first. The old gate tested kind 2, which `store_slot_kind()`
+  never returns, so it never fired; now kind 3 with no kind 1 (`needsFormatFirst()`, 2026-10-31). On empty memory never
+  formatted the restore goes through and `markMemoryOurs()` marks the block at the end by toggling pickup there and back,
+  then a 79 read flushes it; `store_set_last()` doesn't help on an invalid block. It uses the same 79 / 5A SysEx as Export
+  and Import, so it works with older firmware too. Tested in Node with the page's handlers against a simulated EEPROM holding a real
   backup (differing slots, identical memory, wrong size, damaged record, no patches, stock memory, declining, a failed
   write and its retry, a failed read-back); not yet run in a browser against the synth.
 

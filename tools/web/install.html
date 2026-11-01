@@ -302,6 +302,10 @@ async function parseUpdate(buffer) {
     throw new Error("it isn't a PRO-800 firmware update");
   const name = String.fromCharCode(...messages[0].subarray(24, 41));
   if (name !== "BEHRINGER PRO 800" || messages[0].length <= 44) throw new Error("it isn't a PRO-800 firmware update");
+  // A file that stops between two messages parses whole: bytes 10-12 are the firmware's size, 210 bytes to a block, and each block counts itself in bytes 10-11
+  const head = messages[0], blocks = Math.ceil((head[10] | head[11] << 7 | head[12] << 14) / 210);
+  if (data.length < 10000 || messages.length - 1 !== blocks) throw new Error("it's cut short");
+  if (messages.slice(1).some((m, i) => m.length < 13 || (m[10] | m[11] << 7) !== i)) throw new Error("its data blocks are out of order, or one is missing");
   const version = Array.from(messages[0].subarray(42, 45));
   const digest = await crypto.subtle.digest("SHA-256", data);
   return { messages, version: version.join("."), major: version[0], bytes: data.length,
@@ -714,6 +718,8 @@ async function installPresets() {
 
 // --- running it ---
 const installerChannel = "BroadcastChannel" in window ? new BroadcastChannel("pro800-installer") : null;
+const tabName = Math.random().toString(36).slice(2);
+const sayToTabs = word => { if (installerChannel) installerChannel.postMessage(`${word} ${tabName}`); };
 let refreshTimer = null;
 if (installerChannel) {
   const watch = watchInstaller(installerChannel, busy => {
@@ -725,13 +731,13 @@ if (installerChannel) {
     if (access) refreshTimer = setTimeout(refresh, 3500); // as after any change of the port: it has just stopped being flashed
   });
   installerChannel.onmessage = e => {
-    if (e.data === "ask") { if (running) installerChannel.postMessage("busy"); }
+    if (e.data === "ask") { if (running) sayToTabs("busy"); }
     else watch.heard(e.data);
   };
   installerChannel.postMessage("ask");
 }
 window.addEventListener("beforeunload", e => { if (running) e.preventDefault(); });
-window.addEventListener("pagehide", () => { if (running && installerChannel) installerChannel.postMessage("idle"); });
+window.addEventListener("pagehide", () => { if (running) sayToTabs("idle"); });
 
 function resultBox(kind, title, paragraphs, keepImage) {
   $("result").className = kind === "ok" ? "ok-box" : "bad-box";
@@ -768,11 +774,11 @@ async function start() {
   if (!steps.length) return;
 
   running = true;
-  if (installerChannel) installerChannel.postMessage("busy");
+  sayToTabs("busy");
   await sleep(1200); // a poll another tab has already sent is answered and gone
-  if (otherRunning) { // two pressed Start at once: neither has touched the synth yet, and each stands back
+  if (otherRunning) { // another is running, or was pressed at once: this tab hasn't touched the synth yet and stands back
     running = false;
-    if (installerChannel) installerChannel.postMessage("idle");
+    sayToTabs("idle"); // of this tab alone: the others go on keeping off for whichever goes ahead
     showOtherRunning();
     return;
   }
@@ -797,7 +803,7 @@ async function start() {
   }
   if (wake) wake.release().catch(() => {});
   running = false;
-  if (installerChannel) installerChannel.postMessage("idle");
+  sayToTabs("idle");
   if (failed) {
     $("again").textContent = "Try again";
     resultBox("bad", "It stopped", [failed.message, failed.help || "Press Try again to look at the synth again."], !!savedImage);
