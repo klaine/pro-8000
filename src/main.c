@@ -2568,10 +2568,11 @@ static void handle_sysex(const uint8_t *message, int length)
 }
 
 // MIDI CCs → parameters of the layer the channel plays (layer 2 for channel 2 in channel mode), else the edit layer.
-// Also CC 64 sustain pedal (bank select is ignored: one bank). CC 74 is Timbre, per voice in MPE, so cutoff has 79.
+// Also CC 64 sustain pedal (bank select is ignored: one bank). CC 74 is cutoff, and the Timbre source too; in the
+// per-channel modes it's Timbre alone, per voice, as MPE keyboards send it for each note.
 static const struct { uint8_t cc, param; } cc_map[] = {
     {14, POT_FREQ_A}, {15, POT_FREQ_B}, {16, POT_FINE}, {17, POT_A_PW}, {18, POT_B_PW}, {19, POT_A_LEVEL},
-    {20, POT_B_LEVEL}, {21, POT_NOISE}, {79, POT_CUTOFF}, {71, POT_RESONANCE}, {22, POT_FIL_ENV_AMT},
+    {20, POT_B_LEVEL}, {21, POT_NOISE}, {74, POT_CUTOFF}, {71, POT_RESONANCE}, {22, POT_FIL_ENV_AMT},
     {23, POT_FIL_ATT}, {24, POT_FIL_DEC}, {25, POT_FIL_SUS}, {26, POT_FIL_REL}, {73, POT_AMP_ATT}, {75, POT_AMP_DEC},
     {70, POT_AMP_SUS}, {72, POT_AMP_REL}, {5, POT_GLIDE}, {76, POT_LFO_FREQ}, {77, POT_LFO_AMOUNT},
     {27, PARAM_LFO2_RATE}, {28, PARAM_LFO2_AMOUNT}, {29, POT_PMOD_FIL_ENV}, {30, POT_PMOD_OSC_B},
@@ -2624,7 +2625,8 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
     }
     if (cc == 0 || cc == 32) // bank select: one bank
         return;
-    if (cc == synth_cc_number(0) || cc == synth_cc_number(1)) {
+    int assigned = cc == synth_cc_number(0) || cc == synth_cc_number(1);
+    if (assigned) {
         synth_cc_source(cc == synth_cc_number(0) ? 0 : 1, value, synth_channel_layers(channel));
         if (cc != 1 && cc != 74)
             return;
@@ -2635,7 +2637,9 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
             synth_voice_timbre(pv, value);
         else
             synth_timbre(value, synth_channel_layers(channel));
-        return;
+        int per_channel = synth_layer_mode() == LAYER_VOICE_PER_CHANNEL || synth_layer_mode() == LAYER_MPE;
+        if (per_channel || assigned)
+            return; // else it's cutoff as well, below
     }
     for (unsigned i = 0; i < sizeof cc_map / sizeof cc_map[0]; i++)
         if (cc_map[i].cc == cc) {

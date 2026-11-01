@@ -1783,7 +1783,7 @@ From the GitHub issues (#14, #15, #1). VALUE and `PAnL` tried on the synth; the 
   what tests read). `midistat`'s second number is DIN bytes waiting.
 - **What it can't tell:** anything analog or timing on the hardware (a pass here is a flat 1 ms), USB (`usb_harness.c` covers
   the driver's register writes only: the review's section below), the bootloader.
-- **What the 624 tests cover** (counted 2026-11-01, with the synced LFO times, the init sound's routes, the editor's Velocity knobs, the panel's Velocity routes and the route hold below; a class each, and 170 of them need `node`): boot on formatted, stock-format and untuned memory; manual mode; typing a
+- **What the 628 tests cover** (counted 2026-11-01, with the synced LFO times, the init sound's routes, the editor's Velocity knobs, the panel's Velocity routes and the route hold below; a class each, and 170 of them need `node`): boot on formatted, stock-format and untuned memory; manual mode; typing a
   slot; VALUE through the patches; saving; init, undo and compare; a damaged slot; every knob's display value and the
   envelope table; pickup after a load, a layer, LFO or envelope switch and with pickup off; Shift's secondaries and
   buttons; every Settings page, value and sub-page; the LFO controls; keyboard tracking; layers, links and voices per
@@ -2328,3 +2328,7 @@ Windows, `python tools/pro800.py`. This covers only what's listed; the sections 
 - **Not tried on the synth:** anything heard (the line signal isn't monitored on the Move), the Shift gestures and M VOL's new level path (need hands on the panel), the editor's Velocity knobs in Chrome or Edge, the delay and fade's actual timing, the Swift tool.
 - **Tried by the owner, hands on the panel and ears on:** `VE.F` through 0 keeps the route; M VOL's new level path, the pickup gesture, the editor's Velocity knobs and the synced fades all work; the sound is fine. That is what set the VCA's depth to 70.
 - **Found while changing that depth, and fixed:** with pickup off, letting go of Shift while a knob's reading was still gliding jumped the knob's parameter to the knob, because what was left of the glide read as a move. On M VOL that's a jump in the volume. Waiting now compares the readings, not the glide (`synth_tick`'s `pickup_from`), for every knob behind the muxes. `test_with_pickup_off_letting_go_during_the_knobs_glide_moves_nothing` fails without it. The build the owner tried has the bug, with pickup on it can't happen.
+
+## CC 74 is cutoff after all (0.9.4, 2026-11-01)
+
+0.9.4 had moved cutoff to CC 79, as 74 was taken for Timbre first and never reached the knob. The owner wants the usual numbers: cutoff 74, resonance 71. So 74 moves the knob and still feeds the `Timbre` source. In `8CH` and `nPE` it's Timbre alone: MPE keyboards send it for each note, and it mustn't sweep the other voices' cutoff (P57 and P58 route it). CC A or B set to 74 keeps it off the knob, as it does for any other number. CC 79 does nothing now; it was never released. A patch outside those modes with a route from Timbre now gets the knob moving as well: none in the bank. Simulated only so far.

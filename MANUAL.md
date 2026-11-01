@@ -96,7 +96,7 @@ Notes, controllers, bend, pressure and program changes on other channels are ign
 source. Aftertouch is a mod source too, and it's per voice: poly pressure (the Move's pads send it) moves only the
 voice playing that note; channel pressure moves them all. In channel mode (`CHAn`) each channel's bend, mod wheel,
 pressure and sustain pedal reach only the layer it plays; in the `8CH` and `nPE` modes each channel's bend, pressure
-and CC 74 reach only its voice (see Layers). CC 74 is the `Timbre` mod source. The firmware follows MIDI clock
+and CC 74 reach only its voice (see Layers). The firmware follows MIDI clock
 (Start, Stop, Continue, Song Position and Clock) for LFO sync.
 
 The 5-pin MIDI IN socket (from 0.7.6) takes the same notes, controllers, pressure, bend, program changes and clock,
@@ -120,10 +120,10 @@ web page's MIDI router).
 | 15 | FREQ B | 23-26 | Filter A / D / S / R | 31 | M TUNE (Macro 1) |
 | 16 | FINE | 27 / 28 | LFO 2 rate / amount | 70 / 72 / 73 / 75 | Amp S / R / A / D |
 | 17 / 18 | PW A / B | 71 | Resonance | 76 / 77 | LFO 1 rate / amount |
-| 19 / 20 | Level A / B | 79 | Cutoff | 85-88, 89-90 + 102-103 | Env 3, Env 4 A / D / S / R |
+| 19 / 20 | Level A / B | 74 | Cutoff | 85-88, 89-90 + 102-103 | Env 3, Env 4 A / D / S / R |
 
 The display shows a controller's value as it shows its knob's, except while Settings, a save or MOD ASSIGN is using it.
-CC 74 is the `Timbre` mod source, not a knob; before 0.9.4 this table named it for cutoff, which it never reached.
+CC 74 also feeds the `Timbre` mod source, for routes. In the `8CH` and `nPE` modes it's Timbre only, per voice, and leaves the Cutoff knob alone: an MPE keyboard sends it for each note. Up to 0.9.3 CC 74 never reached cutoff, though this table said it did. If CC A or B is set to 74, it's that source and Timbre, and not the knob.
 
 ### Voice modes, drift, scale, morph
 

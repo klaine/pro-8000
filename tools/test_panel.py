@@ -2227,26 +2227,57 @@ class MidiOnTheDisplay(PanelTest):
         self.s.ms(1500)
         self.assertShows("P  1")
 
-    def test_cutoff_is_cc_79_in_hz(self):
-        self.s.cc(79, 127)
+    def test_cutoff_is_cc_74_in_hz(self):
+        self.s.cc(74, 127)
         self.s.ms(60)
         self.assertShows(" 16.7")
         self.assertEqual(self.s.params()["cutoff"], 99)
-        self.s.cc(79, 0)
+        self.s.cc(74, 0)
         self.s.ms(60)
         self.assertShows(" 16.4")
 
-    def test_cc_74_is_timbre_and_shows_nothing(self):
-        before = self.s.params()["cutoff"]
-        self.s.cc(79, 40)
-        self.s.ms(1600)
-        self.s.history()
-        self.s.cc(74, 127)
+    def test_resonance_is_cc_71(self):
+        self.s.cc(71, 127)
         self.s.ms(60)
-        self.assertEqual(self.s.history(), [])
-        self.assertShows("P  1")
-        self.assertNotEqual(before, self.s.params()["cutoff"])
-        self.assertEqual(self.s.params()["cutoff"], 31)
+        self.assertEqual(self.s.params()["resonance"], 99)
+
+    def test_cc_79_is_nothing_now(self):
+        before = self.s.params()
+        self.s.cc(79, 40)
+        self.s.ms(60)
+        self.assertEqual(self.s.params(), before)
+
+    def test_cc_74_is_the_timbre_source_as_well(self):
+        """Outside the per-channel modes it moves the knob, and a route from Timbre goes on working: measured on the noise
+        level's wire, which the cutoff doesn't touch."""
+        self.s.no_routes()
+        self.s.request(0x56, 0, pro800.SOURCE_NAMES.index("timbre"), pro800.DEST_NAMES.index("noise"), (50 + 99) >> 7, (50 + 99) & 0x7F)
+        self.s.cc(74, 0)
+        self.s.note(60)
+        self.s.ms(100)
+        low = self.s.cvs()[CV_NOISE]
+        self.s.cc(74, 127)
+        self.s.ms(100)
+        self.assertEqual(self.s.params()["cutoff"], 99)
+        self.assertGreater(self.s.cvs()[CV_NOISE] - low, 1000)
+
+    def test_in_the_per_channel_modes_cc_74_is_timbre_and_leaves_the_knob(self):
+        """An MPE keyboard sends it for each note: it must not sweep everyone's cutoff. The two MPE presets rely on it."""
+        for mode in ("8ch", "mpe"):
+            with self.subTest(mode=mode):
+                self.s.setting("layers", pro800.LAYER_MODES.index(mode))
+                self.s.cc(74, 64, channel=1)
+                self.s.ms(60)
+                self.assertEqual(self.s.params()["cutoff"], 99)
+                self.s.cc(74, 64, channel=0)
+                self.s.ms(60)
+                self.assertEqual(self.s.params()["cutoff"], 99)
+
+    def test_cc_a_set_to_74_takes_it_from_the_knob(self):
+        self.s.setting("cc-a", 74)
+        self.s.cc(74, 0)
+        self.s.ms(60)
+        self.assertEqual(self.s.params()["cutoff"], 99)
 
     def test_a_stream_shows_at_most_20_times_a_second(self):
         self.s.history()
@@ -2902,7 +2933,7 @@ class MidiPlaying(PanelTest):
 
     def test_controllers_in_channel_mode_go_to_their_layer(self):
         self.s.setting("layers", 3)
-        self.s.cc(79, 64, channel=1)
+        self.s.cc(74, 64, channel=1)
         self.s.ms(5)
         self.assertEqual(self.s.params(1)["cutoff"], 50)
         self.assertEqual(self.s.params(0)["cutoff"], 99, "resonance would reach both: it's one wire")
