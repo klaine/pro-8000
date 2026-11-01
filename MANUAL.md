@@ -780,12 +780,42 @@ The rest of this section is the same thing by hand, with the command-line tool.
 - **First install:** after flashing from the stock firmware the slots are empty or unreadable; fill them from the
   web page (see Patches: "Filling the slots after installing").
 
-- **Update:** `build/pro800 install build/pro800-<version>.syx --yes` puts the synth into update mode, flashes it
-  and waits until it runs the file's version. Patches and tuning stay. If the stock firmware doesn't go into update
-  mode, it stops without flashing: hold 0 and 7 at power-up, then run it again.
+- **Update:** `build/pro800 install build/pro800-<version>.syx --yes` puts the synth into update mode, waits 8 s for
+  the bootloader's MIDI port to settle (a page left open finishes looking at it by then), flashes it and waits until it
+  runs the file's version. Patches and tuning stay. If the stock firmware doesn't go into update mode, it stops without
+  flashing: hold 0 and 7 at power-up, then run it again. If the synth reaches its bootloader but the MIDI port doesn't
+  appear, nothing was flashed: restart the MIDI service or replug the USB cable, then run the `flash` command it prints.
+- **By hand:** `build/pro800 update-mode --yes` restarts the synth into its bootloader. It erases flash sector 4, so the
+  synth stays there until it gets a firmware (without `--yes` nothing is sent and the tool says this). The way back is
+  `build/pro800 flash <file.syx> --yes`, with PRO-8000 or a stock firmware `.syx`.
 - **If a firmware won't start:** hold buttons **0 and 7** while switching on to reach the bootloader. Then flash
-  any firmware `.syx` with `build/pro800 flash` or Behringer's SynthTribe. The bootloader can't be overwritten
-  from here.
+  any firmware `.syx` with `build/pro800 flash <file.syx> --yes` or Behringer's SynthTribe. The bootloader can't be
+  overwritten from here.
+- **`CrSh` on the display:** for 1.5 s at a start, where the version goes, it means the last run crashed and the synth
+  restarted itself. It plays on as usual, though a sound you hadn't saved is gone. After three crashes without 10 s of
+  running between them it stays frozen instead of restarting: switch it off, hold 0 and 7 and switch it on for the
+  bootloader. `build/pro800 fault` (0.9.4 or later) prints the last crash, for a bug report; switching off clears it.
+  `build/pro800 fault-test --yes` crashes the synth on purpose, to try this, and prints the record once it's back. If it
+  says the record matches the one from before the crash, switch off and on and run it again.
+- **No working crystal:** the synth still starts, on its internal clock. The panel and the 5-pin socket work, USB doesn't
+  (so no web page or tool reaches it, and a crash record can't be read), and everything runs slower. The way to the
+  bootloader is buttons 0 and 7 at power-up.
+
+**What `flash` refuses, and what its messages mean.** `flash`, `flash --dry-run` and `install` check the file first and
+send nothing if it holds only a header, is under 10,000 bytes, has no `BEHRINGER PRO 800` and version in its header, or
+has blocks out of order, missing, or not as many as the header's size says (the file is cut short: get it again). Then
+`flash` stops at the first thing that goes wrong and exits with an error:
+
+| It says | What happened |
+|---|---|
+| `the bootloader did not accept the header; nothing was written` | No `03 31` came back within 7 s after the erase wait. Is the synth in its bootloader? |
+| `the bootloader refused the update: 01 00 xx` | It turned a block down. `01 00 07` usually means something else was talking to the synth. |
+| `the bootloader did not confirm the update` | No `01 00 00` within 6 s of the last block. An earlier OK doesn't count. |
+
+Before the bootloader has accepted the header, it adds: if the synth still plays, it wasn't in its bootloader and nothing
+changed. After that, the synth stays in its bootloader until it gets a firmware. Nothing is harmed either way, and the
+bootloader takes a fresh header without a power-cycle: close other MIDI software and run `flash` again. Or hold buttons
+0 and 7 at power-up. A stock firmware `.syx` also brings it back.
 
 ### Going back to the stock firmware
 
@@ -811,7 +841,9 @@ if you come back to PRO-8000 later: **Restore everything** on the same tab write
   ```
 
   Wait for the line `verified: the EEPROM matches`. The message then says to power-cycle the synth: don't, go straight
-  to step 3. Use only an image from your own synth, because it holds that synth's data as well as its patches.
+  to step 3. Use only an image from your own synth, because it holds that synth's data as well as its patches. If a
+  block fails or the read-back differs, it says the memory is half old, half new: run `eeprom-write` again, or
+  `format --yes` and go on by route B.
 
 - **Route B: you have no image.** Your original stock patches can't be brought back from the synth, because PRO-8000
   overwrote them. In the web editor's Patches tab, click **Format the patch memory**. Every slot becomes empty, which
@@ -845,8 +877,8 @@ the bootloader is ready, so let go of the buttons. Then choose a route.
   ```
 
   It takes about a minute. A good update prints a reply ending in `03 31 F7` near the start and one ending in
-  `01 00 00 F7` at the very end. Blocks answered with `01 00 07` mean something else was talking to the synth: quit
-  it, switch the synth off and on with 0 and 7 held, and flash again.
+  `01 00 00 F7` at the very end. It stops at a block answered with `01 00 07`, which means something else was talking
+  to the synth: quit it and run the same command again. The bootloader takes a fresh header without a power-cycle.
 
 **4. Check the result.** Switch the synth off and on if it hasn't restarted by itself. It should start as a stock
 PRO-800, showing a patch number such as `A-13`. SynthTribe, or `build/pro800 version`, should show the stock version

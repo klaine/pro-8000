@@ -77,6 +77,8 @@ Probe (our firmware 0.0.9+):
                                         replies on stdout as hex; over one MIDI connection
   pro800 engine                         the engine's state: held keys, voice gates and envelope stages, keytrack,
                                         switch overrides (read-only probe, 0.9.1+)
+  pro800 fault                          the last crash the firmware recorded: exception, pc, lr, fault registers,
+                                        streak (read-only, 0.9.4+)
   pro800 cc <controller> <value>        send a control change (e.g. 1 = mod wheel)
   pro800 bend <0-16383>                 send pitch bend (8192 = centre); --channel N for both
   pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
@@ -96,12 +98,15 @@ Probe (our firmware 0.0.9+):
   pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
 Changes the synth (only when you mean it):
-  pro800 update-mode                    reboot into the bootloader's update mode
+  pro800 update-mode --yes              reboot into the bootloader's update mode (erases flash sector 4: the synth
+                                        stays in the bootloader until a firmware is flashed)
   pro800 flash <file.syx> --yes [--rate B/s] [--erase-wait S] [--dry-run]
-                                        stream a firmware update to the bootloader
+                                        stream a firmware update to the bootloader; fails unless it confirms
   pro800 format --yes                   wipe every patch slot and mark the EEPROM as ours (format 2), in place
   pro800 eeprom-write <file> --yes      write a whole EEPROM image and verify it (e.g. back to stock)
   pro800 install <file.syx> --yes       update-mode + flash + check the synth runs the file's version
+  pro800 fault-test --yes               crash the synth on purpose, wait for it to restart and print the record
+                                        (an unsaved sound is lost; 0.9.4+)
 
 Options for every command: --port <name> (default "PRO 800").
 """
@@ -110,11 +115,16 @@ SYSEX_HEADER = bytes([0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00])
 HEADER_SIZE = len(SYSEX_HEADER)
 EMPTY_SLOT = bytes([0xF0, 0xF7])
 EMPTY_GRACE = 0.1
+STOCK_ERROR = bytes([0x01, 0x00, 0x01])  # the stock firmware's answer to a request it doesn't know
+
+
+# Added to whatever stops the command from here on, whoever notices: flash and eeprom-write say how to go on with it.
+fail_note = ""
 
 
 def fail(message):
     sys.stdout.flush()
-    print(message, file=sys.stderr)
+    print(message + fail_note, file=sys.stderr)
     sys.exit(1)
 
 
@@ -170,6 +180,23 @@ def bits7(data):  # big-endian, 7 bits a byte
     for b in data:
         value = value << 7 | b
     return value
+
+
+def refuse_stock(reply):
+    if reply[HEADER_SIZE:HEADER_SIZE + 3] == STOCK_ERROR:
+        fail("the stock firmware does not do this (it answered 01 00 01): this command needs our firmware")
+
+
+def enough(data, need):
+    if len(data) < need:
+        fail(f"short reply ({len(data)} bytes)")
+    return data
+
+
+# A reply's bytes after `skip` of them (the command and its echo), without the F7, at least `need` of them
+def reply_data(reply, skip, need=0):
+    refuse_stock(reply)
+    return enough(reply[HEADER_SIZE + skip:-1], need)
 
 
 # MARK: - Arguments
@@ -681,9 +708,17 @@ CV_NAMES = ([f"osca{i}" for i in range(1, 9)] + [f"oscb{i}" for i in range(1, 9)
 GATE_NAMES = ["sawa", "tria", "sync", "sawb", "trib", "pmodfa", "pmodfil"]
 
 
+# False without a reply. The stock firmware's error isn't an acknowledgement, though request() hands it over too.
+def acked(data, timeout=1.5):
+    reply = midi().request(data, expect=[0x7F, data[0]], timeout=timeout)
+    if reply is None:
+        return False
+    refuse_stock(reply)
+    return len(reply) > HEADER_SIZE and reply[HEADER_SIZE] == 0x7F
+
+
 def probe_ack(data):
-    reply = midi().request(data, expect=[0x7F, data[0]])
-    if reply is None or len(reply) <= HEADER_SIZE or reply[HEADER_SIZE] != 0x7F:
+    if not acked(data):
         fail("no acknowledgement (is our firmware 0.0.9 or later running?)")
 
 
@@ -730,7 +765,7 @@ def measure_once(periods, timeout_ms, rising=False):
     reply = midi().request(data, expect=[0x73], timeout=timeout_ms / 1000 + 2)
     if reply is None:
         fail("no reply (is our firmware 0.1.3 or later running?)")
-    b = reply[HEADER_SIZE + 1:]
+    b = reply_data(reply, 1)
     if len(b) < 11 or b[0] != 1:
         return None
     counted = b[1] << 7 | b[2]
@@ -763,7 +798,7 @@ def tune():
     reply = midi().request([0x75], expect=[0x76], timeout=120)
     if reply is None:
         fail("no reply (firmware 0.1.1 or later?)")
-    show(f"done: {reply[HEADER_SIZE + 1]} of 24 rows measured")
+    show(f"done: {reply_data(reply, 1, 1)[0]} of 24 rows measured")
 
 
 def tuning_rows():
@@ -772,7 +807,7 @@ def tuning_rows():
         reply = midi().request([0x77, row], expect=[0x77, row], timeout=2)
         if reply is None:
             fail(f"no reply for row {row}")
-        b = reply[HEADER_SIZE + 3:-1]
+        b = reply_data(reply, 3)
         rows.append([bits7(b[i:i + 4]) / 100 for i in range(0, len(b) - 3, 4)])
     return rows
 
@@ -835,38 +870,40 @@ def check():
         show(line)
         set_cv(f"amp{v}", 0)
 
-    ack([0x74, 1])
-    set_cv("master", 0)
-    set_cv("res", 0)
-    set_cv("pwa", 0xFFFF)
-    set_cv("pwb", 0)
-    for v in range(1, 9):
-        set_cv(f"amp{v}", 0)
-        set_cv(f"fil{v}", 0xFFFF)
-    if not only_filters:
-        show("cents off per note: " + "".join(f"{n:6d}" for n in osc_notes))
-        for osc in range(2):
-            ack([0x71, 0, 1 if osc == 0 else 0])
-            ack([0x71, 3, 1 if osc == 1 else 0])
-            set_cv("vola", 0xFFFF if osc == 0 else 0)
-            set_cv("volb", 0xFFFF if osc == 1 else 0)
-            for v in range(1, 9):
-                row(f"osc {'A' if osc == 0 else 'B'}{v}", v, osc, osc_notes)
-    if not only_osc:
-        ack([0x71, 0, 0])
-        ack([0x71, 3, 0])
-        set_cv("vola", 0)
-        set_cv("volb", 0)
-        set_cv("res", 0xFFFF)
-        if not only_filters:
-            show("")
-        show("filters, self-oscillating at full resonance")
-        show("cents off per note: " + "".join(f"{n:6d}" for n in filter_notes))
-        for v in range(1, 9):
-            row(f"filter {v}", v, 2, filter_notes)
-            set_cv(f"fil{v}", 0xFFFF)
+    try:
+        ack([0x74, 1])
+        set_cv("master", 0)
         set_cv("res", 0)
-    ack([0x74, 0])
+        set_cv("pwa", 0xFFFF)
+        set_cv("pwb", 0)
+        for v in range(1, 9):
+            set_cv(f"amp{v}", 0)
+            set_cv(f"fil{v}", 0xFFFF)
+        if not only_filters:
+            show("cents off per note: " + "".join(f"{n:6d}" for n in osc_notes))
+            for osc in range(2):
+                ack([0x71, 0, 1 if osc == 0 else 0])
+                ack([0x71, 3, 1 if osc == 1 else 0])
+                set_cv("vola", 0xFFFF if osc == 0 else 0)
+                set_cv("volb", 0xFFFF if osc == 1 else 0)
+                for v in range(1, 9):
+                    row(f"osc {'A' if osc == 0 else 'B'}{v}", v, osc, osc_notes)
+        if not only_osc:
+            ack([0x71, 0, 0])
+            ack([0x71, 3, 0])
+            set_cv("vola", 0)
+            set_cv("volb", 0)
+            set_cv("res", 0xFFFF)
+            if not only_filters:
+                show("")
+            show("filters, self-oscillating at full resonance")
+            show("cents off per note: " + "".join(f"{n:6d}" for n in filter_notes))
+            for v in range(1, 9):
+                row(f"filter {v}", v, 2, filter_notes)
+                set_cv(f"fil{v}", 0xFFFF)
+            set_cv("res", 0)
+    finally:
+        ack([0x74, 0])
     if not only_filters:
         show(f"worst oscillator: {worst[0]:.1f} cents")
     if not only_osc:
@@ -936,7 +973,7 @@ def sh_waits():
         fail("usage: pro800 sh-waits <settle µs 0-12.7> <sample µs 0-12.7>")
     data = [0x6C, 0, 0, 168 >> 7, 168 & 0x7F, 168 >> 7, 168 & 0x7F, 0, 0, int(settle * 10 + 0.5), int(sample * 10 + 0.5)]
     r = midi().request(data, expect=[0x7F, 0x6C], timeout=2)
-    if r is None or r[HEADER_SIZE + 2] != 1:
+    if r is None or reply_data(r, 2, 1)[0] != 1:
         fail("rejected")
     show(f"S&H waits: settle {settle} µs, sample {sample} µs (0 = default)")
 
@@ -970,7 +1007,7 @@ def dac_test():
         r = m.request(data, expect=[0x7F, 0x6C], timeout=2)
         if r is None:
             fail("no reply (firmware 0.7.4 or later?)")
-        return r[HEADER_SIZE + 2] == 1
+        return reply_data(r, 2, 1)[0] == 1
 
     def hz(cv_value):
         set_cv("osca1", cv_value)
@@ -1130,9 +1167,7 @@ def state():
     reply = midi().request([0x7C], expect=[0x7C], timeout=2)
     if reply is None:
         fail("no reply (firmware 0.2.0 or later?)")
-    b = reply[HEADER_SIZE + 1:]
-    if len(b) < 26 * 2 + 24:
-        fail("short reply")
+    b = reply_data(reply, 1, 26 * 2 + 24)
     for i in range(26):
         v = b[2 * i] << 7 | b[2 * i + 1]
         show(pad(POT_NAMES[i], 14) + f"{v * 99 // 4095:3d}")
@@ -1297,7 +1332,7 @@ def set_setting():
         reply = midi().request([0x54], expect=[0x54], timeout=2)
         if reply is None:
             fail("no reply")
-        b = reply[HEADER_SIZE + 1:-1]
+        b = settings_data(reply)
         i = 48 + layer - 1
         if b[0] <= i:
             fail("the firmware has no envelope curves (0.9.0 or later?)")
@@ -1397,13 +1432,19 @@ def setting_text(i, v):
     return None
 
 
+# 54's reply: how many settings, then 2 bytes each
+def settings_data(reply):
+    b = reply_data(reply, 1, 1)
+    return enough(b, 1 + 2 * b[0])
+
+
 # pro800 settings: every setting, as the firmware has them now
 def settings():
     m = midi()
     reply = m.request([0x54], expect=[0x54], timeout=2)
     if reply is None:
         fail("no reply (firmware 0.6.0 or later?)")
-    b = reply[HEADER_SIZE + 1:-1]
+    b = settings_data(reply)
     count, read_only = b[0], 4  # env-select, preset-mode, patch, morph: always the reply's last four
     for r in range(count):
         # the settable ones from the start, as far as both know them; the read-only ones from the end
@@ -1415,7 +1456,7 @@ def settings():
         show(f"{pad(SETTING_NAMES[i], 20)} {v if text is None else text}")
     r = m.request([0x4C], expect=[0x4C])
     if r is not None:
-        d = r[HEADER_SIZE + 1:-1]
+        d = reply_data(r, 1)
         on = [BUTTON_NAMES[k] for k in sorted(BUTTON_NAMES) if k < len(d) and d[k] != 0]
         show(pad("buttons", 21) + (" ".join(on) if on else "none"))
     for layer in range(2):
@@ -1423,7 +1464,7 @@ def settings():
             r = m.request([0x4D, layer, lfo], expect=[0x4D, layer, lfo])
             if r is None:
                 continue
-            d = r[HEADER_SIZE:]
+            d = reply_data(r, 0, 7)
             bits = d[4] << 14 | d[5] << 7 | d[6]
             show(pad(f"steps {layer + 1} {lfo + 1}", 21) + "".join("x" if bits >> i & 1 else "." for i in range(d[3])))
 
@@ -1445,10 +1486,12 @@ def params():
         reply = midi().request([0x53, layer - 1], expect=[0x53, layer - 1], timeout=2)
         if reply is None:
             fail("no reply (firmware 0.6.0 or later?)")
-        b = reply[HEADER_SIZE + 2:-1]
+        b = reply_data(reply, 2, 1)
+        count = min(b[0], len(PARAM_NAMES))
+        enough(b, 1 + 2 * count)
         show(f"layer {layer}:")
         line = ""
-        for i in range(min(b[0], len(PARAM_NAMES))):
+        for i in range(count):
             v = b[1 + 2 * i] << 7 | b[2 + 2 * i]
             line += f"{pad(PARAM_NAMES[i], 13)}{(v * 99 + 8191) // 16383:3d}   "
             if i % 4 == 3:
@@ -1477,11 +1520,11 @@ def seq_set():
     h = midi().request([0x48], expect=[0x48], timeout=2)
     if h is None:
         fail("no reply (firmware 0.7.0 or later?)")
-    d = h[HEADER_SIZE + 1:]
+    d = reply_data(h, 1, 9)
     length, division, bpm, flags = d[0], d[2], d[3] << 7 | d[4], d[5]
     chord = flags >> 5 & 3
     lanes = d[1] - chord  # automation lanes; the header counts the chord lanes too
-    swing, smooth, arp = d[6], d[7], d[9]
+    swing, smooth, arp = d[6], d[7], d[9] if len(d) > 9 else 0  # a firmware without the arp byte
     usage = ("usage: pro800 seq set on=0|1 length=1-64 step=<division> clock=0|1 bpm=30-255 swing=0-75 once=0|1 "
              f"keys=both|1|2 arp={'|'.join(ARP_MODE_NAMES)} lanes=0-4 chord=0-2 smooth=none|A..D (lanes + chord: at most 4)")
 
@@ -1573,7 +1616,7 @@ def seq_step():
             h = midi().request([0x48], expect=[0x48], timeout=2)
             if h is None:
                 fail("no reply")
-            d = h[HEADER_SIZE + 1:]
+            d = reply_data(h, 1, 6)
             chord = d[5] >> 5 & 3
             which = 0 if opt.startswith("n2") else 1
             if which >= chord:
@@ -1604,11 +1647,11 @@ def show_sequence():
     h = midi().request([0x48], expect=[0x48], timeout=2)
     if h is None:
         fail("no reply (firmware 0.7.0 or later?)")
-    d = h[HEADER_SIZE + 1:]
+    d = reply_data(h, 1, 9)
     length, flags = d[0], d[5]
     chord = flags >> 5 & 3
     lanes = d[1] - chord
-    arp = "" if len(d) <= 10 or d[9] == 0 else ", arp " + at(["off", "up", "down", "up-down", "random", "played"], d[9], "?")
+    arp = "" if len(d) <= 9 or d[9] == 0 else ", arp " + at(["off", "up", "down", "up-down", "random", "played"], d[9], "?")
     show(f"{'on' if flags & 1 else 'off'}, {length} steps of {at(DIVISION_NAMES, d[2], '?')}, "
          + ("MIDI clock" if flags & 2 else f"{d[3] << 7 | d[4]} BPM") + f", swing {d[6]} %, "
          + ("once per key" if flags & 4 else "loops") + ", keys of " + ["both layers", "layer 1", "layer 2", "?"][flags >> 3 & 3]
@@ -1621,7 +1664,7 @@ def show_sequence():
         r = midi().request([0x46, first, 8], expect=[0x46, first, 8], timeout=2)
         if r is None:
             fail("no reply")
-        x = r[HEADER_SIZE + 3:]
+        x = reply_data(r, 3, 9 * min(8, length - first))
         for k in range(8):
             if first + k >= length:
                 break
@@ -1667,7 +1710,7 @@ def factory():
         reply = m.request(data, expect=[0x51], timeout=3)
         if reply is None:
             fail("no reply (firmware 0.6.0 or later?)")
-        status = reply[HEADER_SIZE + 1]
+        status = reply_data(reply, 1, 1)[0]
         show(at([f"copied factory {f} to {slot_name(n)}", f"{slot_name(n)} isn't empty (--force to replace it)",
                  f"factory patch {f} isn't there", "write error"], status, f"status {status}"))
         return
@@ -1675,7 +1718,7 @@ def factory():
         reply = m.request([0x50, f], expect=[0x50, f], timeout=2)
         if reply is None:
             fail("no reply (firmware 0.6.0 or later?)")
-        b = reply[HEADER_SIZE + 2:-1]
+        b = reply_data(reply, 2, 1)
         show(f"{f:2d}  " + (b[1:].decode("utf-8", "replace") if b[:1] == b"\x01" else "(none)"))
 
 
@@ -1735,7 +1778,7 @@ def eeprom():
         reply = m.request(req, expect=req, timeout=2)
         if reply is None:
             fail(f"no reply at 0x{address:x} (firmware 0.3.2 or later?)")
-        b = reply[HEADER_SIZE + 5:-1]
+        b = reply_data(reply, 5)
         if len(b) != 2 + 2 * n:
             fail(f"short reply at 0x{address:x}")
         status = b[0] << 4 | b[1]
@@ -1765,9 +1808,13 @@ def slot_name(n):
     return patch_label(n)
 
 
+EEPROM_HALF_WRITTEN = ("\nThe memory is now half old, half new, so don't trust its patches. Run eeprom-write again, "
+                       "or pro800 format --yes to start empty.")
+
+
 # Writes a whole EEPROM image and reads it back: pro800 eeprom-write <file> --yes (e.g. the stock image)
 def eeprom_write():
-    global args
+    global args, fail_note
     confirmed = flag("--yes")
     if not confirmed or not args:
         fail("usage: pro800 eeprom-write <file> --yes")
@@ -1779,18 +1826,21 @@ def eeprom_write():
         image = b""
     if len(image) != 0x20000:
         fail(f"{path} isn't a 128 kB image")
-    m = midi()
     address = 0
-    while address < len(image):
-        n = min(48, len(image) - address)
-        data = [0x5A, address >> 14 & 0x7F, address >> 7 & 0x7F, address & 0x7F, n]
-        for b in image[address:address + n]:
-            data += [b >> 4, b & 0x0F]
-        if m.request(data, expect=[0x7F, 0x5A], timeout=2) is None:
-            fail(f"write failed at 0x{address:x}")
-        address += n
-        if address % 0x2000 < 48:
-            show(f"\rwritten {address} / {len(image)}", end="")
+    try:
+        while address < len(image):
+            n = min(48, len(image) - address)
+            data = [0x5A, address >> 14 & 0x7F, address >> 7 & 0x7F, address & 0x7F, n]
+            for b in image[address:address + n]:
+                data += [b >> 4, b & 0x0F]
+            if not acked(data, timeout=2):
+                fail(f"\nwrite failed at 0x{address:x}")
+            address += n
+            fail_note = EEPROM_HALF_WRITTEN
+            if address % 0x2000 < 48:
+                show(f"\rwritten {address} / {len(image)}", end="")
+    finally:
+        fail_note = ""
     show("\nverifying")
     check_path = os.path.join(tempfile.gettempdir(), "pro800-verify.bin")
     args = [check_path]
@@ -1798,8 +1848,9 @@ def eeprom_write():
     with open(check_path, "rb") as f:
         back = f.read()
     if back != image:
-        fail("MISMATCH after writing")
+        fail("MISMATCH after writing." + EEPROM_HALF_WRITTEN)
     show(f"verified: the EEPROM matches {path}; power-cycle the synth")
+    show("The image carries the tuning tables: if it came from another synth, run a Tune (pro800 tune).")
 
 
 # Empties every slot: pro800 format --yes
@@ -1810,19 +1861,24 @@ def format_patches():
     reply = midi().request([0x5B], expect=[0x5B], timeout=60)
     if reply is None:
         fail("no reply (firmware 0.8.0 or later?)")
-    b = reply[HEADER_SIZE + 1:]
-    show(f"{b[1]} empty slots" if b[2] == 0 else "format failed")
+    b = reply_data(reply, 1, 3)
+    if b[2] != 0:
+        fail("format failed")
+    show(f"{b[0] << 7 | b[1]} empty slots")  # 01 00 from 0.9.4; 00 80 before, which this reads as 128 too
 
 
 # pro800 patch load|save|clear <slot>  (slot 0-127, or P1-P128)
 def patch_command():
     if len(args) >= 3 and args[0] == "rename" and (n := slot_number(args[1])) is not None:
-        name = bytes(b for b in " ".join(args[2:]).encode("utf-8") if 0x20 <= b < 0x7F)[:16]
+        text = " ".join(args[2:])
+        name = bytes(b for b in text.encode("utf-8") if 0x20 <= b < 0x7F)[:16]
         probe_ack([0x59, n >> 7, n & 0x7F] + list(name))
         show(f"renamed {slot_name(n)} to {name.decode()}")
+        if len(name) < len(text):
+            show(f"note: {len(text) - len(name)} characters dropped (16 at most, plain ASCII only)")
         return
     if args == ["init"]:  # the basic sound PERF loads
-        if midi().request([0x5F], expect=[0x7F, 0x5F], timeout=3) is None:
+        if not acked([0x5F], timeout=3):
             fail("no reply")
         show("loaded the init sound")
         return
@@ -1834,7 +1890,7 @@ def patch_command():
         show(f"cleared {slot_name(n)}")
         return
     cmd = 0x5C if args[0] == "load" else 0x5D
-    if midi().request([cmd, n >> 7, n & 0x7F], expect=[0x7F, cmd], timeout=3) is None:
+    if not acked([cmd, n >> 7, n & 0x7F], timeout=3):
         fail(f"{args[0]} {slot_name(n)} failed (empty slot?)")
     show(f"{'loaded' if args[0] == 'load' else 'saved'} {slot_name(n)}")
 
@@ -1848,8 +1904,8 @@ def patches():
         reply = midi().request([0x5E, n >> 7, n & 0x7F], expect=[0x5E, n >> 7, n & 0x7F], timeout=2)
         if reply is None:
             fail("no reply (firmware 0.4.0 or later?)")
-        b = reply[HEADER_SIZE + 3:-1]
-        kind = b[0]
+        b = reply_data(reply, 3, 1)
+        kind = min(b[0], 3)  # a kind this tool doesn't know reads as what it can't use
         counts[kind] += 1
         if kind != 0 or show_all:
             show(f"{slot_name(n)}  {pad(kinds[kind], 7)} {b[1:].decode('utf-8', 'replace')}")
@@ -1895,7 +1951,7 @@ def route_both():
     reply = midi().request([0x57, layer - 1], expect=[0x57, layer - 1], timeout=2)
     if reply is None:
         fail("no reply")
-    b = reply[HEADER_SIZE + 2:-1]
+    b = reply_data(reply, 2)
     slot = next((i // 4 for i in range(0, len(b) - 3, 4) if b[i] == names[0] and b[i + 1] == names[1]), None)
     if slot is None:
         fail(f"layer {layer} has no route {args[1]} → {args[2]}")
@@ -1914,7 +1970,7 @@ def route_both_masks():
     reply = midi().request([0x54], expect=[0x54], timeout=2)
     if reply is None:
         return None
-    b = reply[HEADER_SIZE + 1:-1]
+    b = settings_data(reply)
     if b[0] < 95:
         return None
     value = lambda i: b[1 + 2 * i] << 7 | b[2 + 2 * i]
@@ -1928,7 +1984,7 @@ def routes():
         reply = midi().request([0x57, layer], expect=[0x57, layer], timeout=2)
         if reply is None:
             fail("no reply (firmware 0.5.0 or later?)")
-        b = reply[HEADER_SIZE + 2:-1]
+        b = reply_data(reply, 2)
         lines = []
         for i in range(0, len(b) - 3, 4):
             if b[i] != 0 and b[i] < len(SOURCE_NAMES) and b[i + 1] < len(DEST_NAMES):
@@ -1964,9 +2020,7 @@ def engine():
     reply = midi().request([0x55], expect=[0x55], timeout=2)
     if reply is None:
         fail("no reply (needs firmware 0.9.1 or later)")
-    b = reply[HEADER_SIZE + 1:-1]
-    if len(b) < 53:
-        fail(f"short reply ({len(b)} bytes)")
+    b = reply_data(reply, 1, 53)
     stages = ["idle", "attack", "decay", "release", "hold", "rest", "delay"]
     for l in range(2):
         count = b[5 * l]
@@ -1990,6 +2044,89 @@ def engine():
              + " ".join(phase(p) for p in b[start + 2:start + 10]))
 
 
+# The record src/fault.h keeps across a reset
+EXCEPTION_NAMES = {2: "NMI", 3: "HardFault", 4: "MemManage", 5: "BusFault", 6: "UsageFault", 11: "SVCall", 12: "DebugMonitor",
+                   14: "PendSV", 15: "SysTick"}
+CFSR_BITS = [(0, "IACCVIOL"), (1, "DACCVIOL"), (3, "MUNSTKERR"), (4, "MSTKERR"), (5, "MLSPERR"), (7, "MMARVALID"),
+             (8, "IBUSERR"), (9, "PRECISERR"), (10, "IMPRECISERR"), (11, "UNSTKERR"), (12, "STKERR"), (13, "LSPERR"),
+             (15, "BFARVALID"), (16, "UNDEFINSTR"), (17, "INVSTATE"), (18, "INVPC"), (19, "NOCP"), (24, "UNALIGNED"),
+             (25, "DIVBYZERO")]
+HFSR_BITS = [(1, "VECTTBL"), (30, "FORCED"), (31, "DEBUGEVT")]
+FAULT_STREAK_STOP = 3  # src/fault.h's FAULT_STREAK_LIMIT: this crash in a row stays put instead of resetting
+
+
+def bit_names(table, value):
+    return "".join(f" {name}" for bit, name in table if value >> bit & 1)
+
+
+# 49's reply: <1 if there is a record> <streak> <exception>, then seven values of 5 × 7 bits
+def read_fault():
+    reply = midi().request([0x49], expect=[0x49], timeout=2)
+    if reply is None:
+        fail("no reply (firmware 0.9.4 or later?)")
+    return reply_data(reply, 1, 3 + 5 * 7)
+
+
+def fault_text(b):
+    if b[0] == 0:
+        return "no fault recorded"
+    streak, exception = b[1], b[2]
+    pc, lr, exc_return, cfsr, hfsr, mmfar, bfar = [bits7(b[3 + 5 * i:8 + 5 * i]) for i in range(7)]
+    name = f"interrupt {exception - 16}" if exception >= 16 else EXCEPTION_NAMES.get(exception, "reserved")
+    return "\n".join([
+        f"last crash: {name} (exception {exception})",
+        f"  pc         0x{pc:08X}" + (" (no stack frame to read)" if pc == 0 else ""),
+        f"  lr         0x{lr:08X}",
+        f"  EXC_RETURN 0x{exc_return:08X}",
+        f"  CFSR       0x{cfsr:08X}{bit_names(CFSR_BITS, cfsr)}",
+        f"  HFSR       0x{hfsr:08X}{bit_names(HFSR_BITS, hfsr)}",
+        f"  MMFAR      0x{mmfar:08X}" + ("" if cfsr >> 7 & 1 else " (not valid)"),
+        f"  BFAR       0x{bfar:08X}" + ("" if cfsr >> 15 & 1 else " (not valid)"),
+        f"  streak     {streak}"])
+
+
+# pro800 fault: the last crash, read-only
+def fault():
+    show(fault_text(read_fault()))
+
+
+def without_streak(text):
+    return re.sub(r"\n  streak +[0-9]+", "", text).strip()
+
+
+# pro800 fault-test --yes: crashes the synth on purpose and reads the record after the restart. The reading runs as a
+# child process, as install's do: the port goes away and comes back.
+def fault_test():
+    if not flag("--yes"):
+        fail("usage: pro800 fault-test --yes (crashes the synth on purpose: it restarts, and an unsaved sound is lost)")
+    before = read_fault()
+    if before[0] and before[1] >= FAULT_STREAK_STOP - 1:
+        fail(f"not crashing it: {before[1]} crashes in a row already, and number {FAULT_STREAK_STOP} would stop the synth "
+             "until a power cycle. Wait 10 s and run this again.")
+    show("crashing the synth on purpose; it restarts")
+    midi().send(SYSEX_HEADER + bytes([0x4A, 0x43, 0x52, 0xF7]))
+    close_midi()
+    for _ in range(60):
+        time.sleep(1)
+        result = run_self("fault", timeout=10)
+        if result is None or result.returncode != 0:
+            continue
+        found = re.search(r"^  streak +([0-9]+)", result.stdout, re.M)
+        if found is None:
+            fail("the synth answers, but holds no record of this crash. Either it didn't crash (firmware older than 0.9.4?) "
+                 "or the bootloader used that RAM on the way back.")
+        # After 10 s of running the firmware clears the streak and keeps the rest, and the port can take longer than that
+        # to answer. So a streak of 0 says this crash only if the record isn't the one from before it.
+        if int(found.group(1)) == 0 and without_streak(result.stdout) == without_streak(fault_text(before)):
+            fail("the synth answers, with the same record as before the crash and its streak cleared: either it didn't crash, "
+                 "or it took over 10 s to answer and this crash looks just like the last. Switch it off and on, which clears "
+                 "the record, and run this again.")
+        show(result.stdout, end="")
+        return
+    fail_with_child_error("the synth didn't answer within 60 s of the crash. Switch it off and on; "
+                          "with buttons 0 and 7 held it starts in the bootloader.")
+
+
 # pro800 timing: how long the engine, the CV refresh and a main-loop pass take
 def timing():
     m = midi()
@@ -1998,8 +2135,8 @@ def timing():
     reply = m.request([0x58], expect=[0x58], timeout=2)
     if reply is None:
         fail("no reply (firmware 0.5.0 or later?)")
-    b = reply[HEADER_SIZE + 1:]
-    v = [b[3 * i] << 14 | b[3 * i + 1] << 7 | b[3 * i + 2] for i in range(min(8, (len(b) - 1) // 3))]
+    b = reply_data(reply, 1, 3 * 4)
+    v = [b[3 * i] << 14 | b[3 * i + 1] << 7 | b[3 * i + 2] for i in range(min(8, len(b) // 3))]
     show(f"engine {v[0]} µs, CV refresh {v[1]} µs" + (f" (of which the four ticks {v[7]} µs)" if len(v) >= 8 else "")
          + f", main-loop pass {v[2]} µs (longest in 2 s: {v[3]} µs)")
     if len(v) >= 6:
@@ -2040,8 +2177,22 @@ def bend():
 
 
 def update_mode():
+    if not flag("--yes"):
+        fail("usage: pro800 update-mode --yes\n"
+             "This erases flash sector 4, and the synth stays in its bootloader until a firmware is flashed. The way back:\n"
+             "pro800 flash <file.syx> --yes, with our firmware or a stock firmware .syx.")
     midi().send(SYSEX_HEADER + bytes([0x03, 0x30, 0xF7]))
-    show("sent the update-mode command; the PRO-800 restarts into its bootloader")
+    show("sent the update-mode command; the PRO-800 restarts into its bootloader and stays there until a firmware is\n"
+         "flashed: pro800 flash <file.syx> --yes, with our firmware or a stock firmware .syx")
+
+
+MIN_UPDATE_BYTES = 10000  # a firmware is tens of kB
+UPDATE_BLOCK_BYTES = 210
+FLASH_WAY_BACK = ("until it gets a firmware, and the bootloader takes a fresh header without a power-cycle: close other MIDI "
+                  "software and run flash again. Or hold buttons 0 and 7 at power-up. A stock firmware .syx also brings it back.")
+FLASH_RECOVERY = "\nThe synth stays in its bootloader " + FLASH_WAY_BACK
+FLASH_NOT_STARTED = "\nIf the synth still plays, it wasn't in its bootloader and nothing changed. If it is there, it stays there " + FLASH_WAY_BACK
+FLASH_ACCEPT_WAIT, FLASH_CONFIRM_WAIT = 7.0, 6.0  # seconds, as tools/web/install.html
 
 
 # Splits a .syx file into messages and checks it is a PRO-800 update made by PRO800_update_gen.
@@ -2072,19 +2223,40 @@ def update_messages(path):
     update_header = SYSEX_HEADER + b"\x0A"
     if not messages or not messages[0].startswith(update_header):
         fail(f"{path}: doesn't start with a PRO-800 update header ({hexdump(update_header)})")
+    header = messages[0]
+    if header[24:41] != b"BEHRINGER PRO 800" or len(header) <= 44:
+        fail(f"{path}: the header isn't a PRO-800 update's (no BEHRINGER PRO 800 and version in it)")
     if not all(m.startswith(SYSEX_HEADER + b"\x0B") for m in messages[1:]):
         fail(f"{path}: expected only update data messages (0B) after the header")
+    if len(messages) < 2:
+        fail(f"{path}: only a header, no firmware in it")
+    if len(data) < MIN_UPDATE_BYTES:
+        fail(f"{path}: only {len(data)} bytes, too small for a firmware: the file is cut short")
+    # Bytes 10-12 are the firmware's size, 210 bytes to a block, and each block counts itself in bytes 10-11: so in
+    # stock 1.4.6 and everything PRO800_update_gen has made here (NOTES).
+    blocks = math.ceil((header[10] | header[11] << 7 | header[12] << 14) / UPDATE_BLOCK_BYTES)
+    if len(messages) - 1 != blocks:
+        fail(f"{path}: {len(messages) - 1} data blocks where the header's size says {blocks}: the file is cut short")
+    if any(len(m) < 13 or m[10] | m[11] << 7 != i for i, m in enumerate(messages[1:])):
+        fail(f"{path}: the data blocks aren't in order, or one is missing")
     return messages
 
 
+# xx of the bootloader's 01 00 xx, else None
+def bootloader_status(reply):
+    body = reply[HEADER_SIZE:-1] if reply.startswith(SYSEX_HEADER) else b""
+    return body[2] if len(body) >= 3 and body[:2] == b"\x01\x00" else None
+
+
 def flash():
+    global fail_note
     rate = to_float(option("--rate"))
     rate = 3000.0 if rate is None else rate  # bytes/s; the bootloader takes up to 9640
     erase_wait = to_float(option("--erase-wait"))
     erase_wait = 3.0 if erase_wait is None else erase_wait
     confirmed = flag("--yes")
     dry_run = flag("--dry-run")
-    require_ok = flag("--require-ok")  # for `install`: exit 1 unless the bootloader confirms
+    flag("--require-ok")  # the checks are always on now; old scripts may still pass it
     if not args:
         fail("usage: pro800 flash <file.syx> --yes [--rate B/s] [--erase-wait S] [--dry-run]")
     path = args[0]
@@ -2101,28 +2273,53 @@ def flash():
         return
     if not confirmed:
         fail("not sent. The PRO-800 must already be in update mode (hold buttons 0 and 7 at power-up, or run\n"
-             "`pro800 update-mode`). Add --yes to send. If the update fails, the synth stays in update mode\n"
+             "`pro800 update-mode --yes`). Add --yes to send. If the update fails, the synth stays in update mode\n"
              "and a stock firmware .syx brings it back.")
 
     m = midi()
     m.take_sysex()
-    last = b""
-    for i, message in enumerate(messages):
-        m.send(message)
-        # the header comes first; give the bootloader time to erase the application flash
-        time.sleep(len(message) / rate + (erase_wait if i == 0 else 0))
+    accepted = finished = False
+
+    # prints what came back; the first error ends it, and only an OK after the last block counts
+    def take_replies(where, last_block_sent):
+        global fail_note
+        nonlocal accepted, finished
         for reply in m.take_sysex():
-            show(f"\nreply after message {i + 1}: {hexdump(reply)}")
-            last = reply
-        show(f"\rsent {i + 1}/{len(messages)}", end="")
-    time.sleep(1)
-    for reply in m.take_sysex():
-        show(f"\nreply: {hexdump(reply)}")
-        last = reply
+            show(f"\nreply{where}: {hexdump(reply)}")
+            status = bootloader_status(reply)
+            if status:
+                fail(f"\nthe bootloader refused the update: 01 00 {status:02X}{where}.")
+            if status == 0 and last_block_sent:
+                finished = True
+            if reply.startswith(SYSEX_HEADER + b"\x03\x31"):
+                accepted = True
+                fail_note = FLASH_RECOVERY  # only this says it's in the bootloader: a running firmware ignores or refuses a header
+
+    fail_note = FLASH_NOT_STARTED  # whatever stops it from here on, a dead port included
+    try:
+        for i, message in enumerate(messages):
+            m.send(message)
+            # the header comes first; give the bootloader time to erase the application flash
+            time.sleep(len(message) / rate + (erase_wait if i == 0 else 0))
+            take_replies(f" after message {i + 1}", i == len(messages) - 1)
+            if i == 0:
+                give_up = time.monotonic() + FLASH_ACCEPT_WAIT
+                while not accepted and time.monotonic() < give_up:
+                    time.sleep(0.05)
+                    take_replies(" after message 1", False)
+                if not accepted:
+                    fail("\nthe bootloader did not accept the header; nothing was written. (Is the synth in its bootloader? "
+                         "pro800 update-mode --yes puts it there.)")
+            show(f"\rsent {i + 1}/{len(messages)}", end="")
+        give_up = time.monotonic() + FLASH_CONFIRM_WAIT
+        while not finished and time.monotonic() < give_up:
+            time.sleep(0.05)
+            take_replies("", True)
+        if not finished:
+            fail("\nthe bootloader did not confirm the update: no 01 00 00 after the last block.")
+    finally:
+        fail_note = ""
     show("\ndone. If the synth doesn't restart by itself, power-cycle it.")
-    # the bootloader's OK after the last block
-    if require_ok and last != SYSEX_HEADER + bytes([0x01, 0x00, 0x00, 0xF7]):
-        sys.exit(1)
 
 
 # The synth on USB: 1397:125F running a firmware, 1397:1260 in the bootloader. The bootloader answers the version
@@ -2190,14 +2387,20 @@ def running_version():
     return words[1] if len(words) == 2 and words[0] == "firmware" else None
 
 
+# How long the bootloader's port has to stay before install flashes, in seconds. A device can drop the port and set it up
+# again right after it appears. And a web page left open looks at a port that comes back, which would spoil a flash under
+# way: the editor sends its two messages 3 s after the port's last change, an idle installer tab starts 3.5 s after it and
+# sends its last, with no answers, about 3.2 s later. So this waits for all of that, with a margin for a browser that hears
+# of the port late.
+PORT_STEADY = 8.0
+
+
 # update-mode, flash, then wait until the new firmware answers the version request
 def install():
     if not flag("--yes") or not args:
         fail("usage: pro800 install <file.syx> --yes (switches to update mode, flashes, waits)")
     path = args[0]
     messages = update_messages(path)  # check the file before touching the synth
-    if len(messages[0]) <= 44:
-        fail(f"{path}: header too short to hold a version")
     expected = ".".join(str(b) for b in messages[0][42:45])  # the version PRO800_update_gen packed into the header
 
     if usb_device_present(USB_BOOTLOADER):
@@ -2207,7 +2410,7 @@ def install():
             fail("no PRO-800 on USB")
         show("update mode requested; waiting for the bootloader")
         for _ in range(3):  # the stock firmware sometimes misses a SysEx message
-            run_self("update-mode", timeout=10)
+            run_self("update-mode", "--yes", timeout=10)
             if wait_for(6, lambda: usb_device_present(USB_BOOTLOADER)):
                 break
         else:
@@ -2222,12 +2425,13 @@ def install():
             return False
         if steady[0] is None:
             steady[0] = time.monotonic()
-        return time.monotonic() - steady[0] >= 3
+        return time.monotonic() - steady[0] >= PORT_STEADY
 
     if not wait_for(30, port_steady):
-        fail_with_child_error("the bootloader's MIDI port didn't appear")
-    if run_self("flash", path, "--yes", "--require-ok", capture=False).returncode != 0:
-        fail("the bootloader didn't confirm the update. Quit anything else using MIDI (SynthTribe, a web page in Chrome), switch the synth off and on, and run this again with 0 and 7 held if it comes up on the old firmware.")
+        fail_with_child_error("the synth is in its bootloader, but its MIDI port didn't appear, so nothing was flashed. "
+                              f"Restart the MIDI service or replug the USB cable, then run: pro800 flash {path} --yes")
+    if run_self("flash", path, "--yes", capture=False).returncode != 0:
+        fail("the bootloader didn't confirm the update (what happened is above). Quit anything else using MIDI (SynthTribe, a web page in Chrome) and run this again.")
     # a first boot after an update also autotunes (about 30 s) before it answers
     show("waiting for the new firmware (it tunes first, about 30 s)", end="")
     for _ in range(75):
@@ -2265,7 +2469,7 @@ COMMANDS = {
     "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "timing": timing, "engine": engine,
     "sysex": sysex_pipe, "cc": cc, "bend": bend, "eeprom-write": eeprom_write, "format": format_patches,
     "patch": patch_command, "patches": patches, "clock": clock_out, "leds": leds, "update-mode": update_mode,
-    "flash": flash, "install": install, "port-present": port_present,
+    "flash": flash, "install": install, "port-present": port_present, "fault": fault, "fault-test": fault_test,
 }
 
 
@@ -2290,6 +2494,8 @@ def main():
         sys.exit(130)
     except OSError as error:
         fail(str(error))
+    except IndexError:  # a parser the reply helpers don't cover: one line, not a traceback
+        fail("the synth's reply is shorter than this command expects (a firmware older than the tool?)")
 
 
 if __name__ == "__main__":

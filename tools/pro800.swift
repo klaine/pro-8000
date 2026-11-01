@@ -10,11 +10,13 @@
 //       --record [audio device]  (default "Ableton Move Audio")  --wav <file>
 //   pro800 record [seconds] [--window S] [--device D] [--wav file]
 //                                         record the synth's audio, print level and pitch per window
+//   pro800 fault                          the last crash the firmware recorded
 //
 // Changes the synth (only when you mean it):
-//   pro800 update-mode                    reboot into the bootloader's update mode
+//   pro800 update-mode --yes              reboot into the bootloader's update mode
 //   pro800 flash <file.syx> --yes [--rate B/s] [--erase-wait S] [--dry-run]
-//                                         stream a firmware update to the bootloader
+//                                         stream a firmware update to the bootloader; fails unless it confirms
+//   pro800 fault-test --yes               crash the synth on purpose and print the record
 //
 // Options for every command: --port <name> (default "PRO 800").
 import AVFoundation
@@ -49,11 +51,11 @@ Probe (our firmware 0.0.9+):
                                         play notes through the tables on every oscillator and filter (filters
                                         self-oscillating, 0.8.4+), print cents off
   pro800 dac-test [--bus-only|--timing-only|--clock]
+                                        sweep DAC80501 buses and S&H waits, checked by osc A1's pitch (0.7.4+;
+                                        silent; changes nothing stored)
   pro800 sh-waits <settle µs> <sample µs>  the S&H waits for channels written alone (RAM only; 0 0 = default)
   pro800 dac-heal                       set the DAC80501's gain wrong on purpose and check the firmware's re-send
                                         puts it right (0.8.5+; silent)
-                                        sweep DAC80501 buses and S&H waits, checked by osc A1's pitch (0.7.4+;
-                                        silent; changes nothing stored)
   pro800 panel [seconds]                print every pot, switch, button and encoder change live
   pro800 state                          print every pot (0-99) and switch as the firmware reads them
   pro800 set <setting> <value>          lfo-sync / lfo2-sync free|clock, lfo-trigger / lfo2-trigger
@@ -82,11 +84,13 @@ Probe (our firmware 0.0.9+):
                                         replies on stdout as hex; over one MIDI connection
   pro800 engine                         the engine's state: held keys, voice gates and envelope stages, keytrack,
                                         switch overrides (read-only probe, 0.9.1+)
+  pro800 fault                          the last crash the firmware recorded: exception, pc, lr, fault registers,
+                                        streak (read-only, 0.9.4+)
   pro800 cc <controller> <value>        send a control change (e.g. 1 = mod wheel)
   pro800 bend <0-16383>                 send pitch bend (8192 = centre); --channel N for both
   pro800 eeprom <file> [start] [length] read the patch EEPROM (read-only; default all 128 kB)
   pro800 patches [--all]                list the patch slots (ours, stock, empty)
-  pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-199, A00-B99;
+  pro800 patch load|save|clear <slot>   load a patch, save the current sound, or empty a slot (0-127, P1-P128;
                                         each patch has its own sequence, saved and cleared with it)
   pro800 seq                            print the loaded patch's step sequence (firmware 0.7.0+)
   pro800 seq set key=value…             its header: on, length, step (division), clock, bpm, swing, once, keys, arp,
@@ -101,25 +105,55 @@ Probe (our firmware 0.0.9+):
   pro800 leds <address> <value> ...     write display RAM bytes (HT16K33, addresses 0-15)
 
 Changes the synth (only when you mean it):
-  pro800 update-mode                    reboot into the bootloader's update mode
+  pro800 update-mode --yes              reboot into the bootloader's update mode (erases flash sector 4: the synth
+                                        stays in the bootloader until a firmware is flashed)
   pro800 flash <file.syx> --yes [--rate B/s] [--erase-wait S] [--dry-run]
-                                        stream a firmware update to the bootloader
+                                        stream a firmware update to the bootloader; fails unless it confirms
   pro800 format --yes                   wipe every patch slot and mark the EEPROM as ours (format 2), in place
   pro800 eeprom-write <file> --yes      write a whole EEPROM image and verify it (e.g. back to stock)
   pro800 install <file.syx> --yes       update-mode + flash + check the synth runs the file's version
+  pro800 fault-test --yes               crash the synth on purpose, wait for it to restart and print the record
+                                        (an unsaved sound is lost; 0.9.4+)
 
 Options for every command: --port <name> (default "PRO 800").
 """
 
 let sysexHeader: [UInt8] = [0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00]
+let emptySlot: [UInt8] = [0xF0, 0xF7]
+let emptyGrace = 0.1
+let stockError: [UInt8] = [0x01, 0x00, 0x01] // the stock firmware's answer to a request it doesn't know
+
+// Added to whatever stops the command from here on, whoever notices: flash and eeprom-write say how to go on with it.
+var failNote = ""
+// exit() runs no defer, so what must happen even when a command stops goes here too: direct mode going off.
+var onFail: (() -> Void)?
 
 func fail(_ message: String) -> Never {
     fflush(stdout)
-    FileHandle.standardError.write((message + "\n").data(using: .utf8)!)
+    FileHandle.standardError.write((message + failNote + "\n").data(using: .utf8)!)
+    if let cleanup = onFail { onFail = nil; cleanup() }
     exit(1)
 }
 
 func hex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02X", $0) }.joined(separator: " ") }
+
+func refuseStock(_ reply: [UInt8]) {
+    if reply.dropFirst(sysexHeader.count).starts(with: stockError) {
+        fail("the stock firmware does not do this (it answered 01 00 01): this command needs our firmware")
+    }
+}
+
+@discardableResult
+func enough(_ data: [UInt8], _ need: Int) -> [UInt8] {
+    guard data.count >= need else { fail("short reply (\(data.count) bytes)") }
+    return data
+}
+
+// A reply's bytes after `skip` of them (the command and its echo), without the F7, at least `need` of them
+func replyData(_ reply: [UInt8], _ skip: Int, _ need: Int = 0) -> [UInt8] {
+    refuseStock(reply)
+    return enough(Array(reply.dropFirst(sysexHeader.count + skip).dropLast()), need)
+}
 
 // MARK: - Arguments
 
@@ -239,23 +273,28 @@ final class Midi {
         return all
     }
 
-    // Sends header + data + F7 and waits for a PRO-800 reply whose data starts with `expect`.
-    // An empty patch slot answers with a bare F0 F7, returned as is.
-    func request(_ data: [UInt8], expect: [UInt8], timeout: Double = 1.5) -> [UInt8]? {
+    // Sends header + data + F7 and waits for a PRO-800 reply whose data starts with `expect`. An empty patch slot
+    // answers with a bare F0 F7, returned as is with allowEmpty (only `backup` asks for the stock firmware's slots).
+    // Another program's reply can arrive during this request: a real reply gets emptyGrace seconds to follow it.
+    func request(_ data: [UInt8], expect: [UInt8], timeout: Double = 1.5, allowEmpty: Bool = false) -> [UInt8]? {
         _ = takeSysex()
         send(sysexHeader + data + [0xF7])
         let deadline = Date().addingTimeInterval(timeout)
         var seen = [[UInt8]]()
+        var emptyAt: Date?
         while Date() < deadline {
-            _ = arrived.wait(timeout: .now() + 0.05)
+            _ = arrived.wait(timeout: .now() + 0.02)
             seen += takeSysex()
-            if seen.contains([0xF0, 0xF7]) { return [0xF0, 0xF7] }
             for m in seen where m.count > sysexHeader.count && m.starts(with: sysexHeader) {
                 let body = m[sysexHeader.count...]
-                if body.starts(with: expect) || body.starts(with: [0x01, 0x00, 0x01]) { return m }
+                if body.starts(with: expect) || body.starts(with: stockError) { return m }
+            }
+            if allowEmpty && seen.contains(emptySlot) {
+                if emptyAt == nil { emptyAt = Date() }
+                if Date().timeIntervalSince(emptyAt!) >= emptyGrace { return emptySlot }
             }
         }
-        return nil
+        return allowEmpty && seen.contains(emptySlot) ? emptySlot : nil
     }
 }
 
@@ -347,10 +386,10 @@ func backup() {
     var saved = 0, empty = 0, failed = [String]()
     for n in first...last {
         let lo = UInt8(n & 0x7F), hi = UInt8(n >> 7)
-        var reply = midi.request([0x77, lo, hi], expect: [0x78, lo, hi])
-        if reply == nil { reply = midi.request([0x77, lo, hi], expect: [0x78, lo, hi], timeout: 3) }
+        var reply = midi.request([0x77, lo, hi], expect: [0x78, lo, hi], allowEmpty: true)
+        if reply == nil { reply = midi.request([0x77, lo, hi], expect: [0x78, lo, hi], timeout: 3, allowEmpty: true) }
         let label = patchLabel(n)
-        if reply == [0xF0, 0xF7] { empty += 1; note("\(label): empty"); continue }
+        if reply == emptySlot { empty += 1; note("\(label): empty"); continue }
         guard let r = reply, r.count > sysexHeader.count + 3, r[sysexHeader.count] == 0x78 else {
             failed.append(label)
             note("\(label): \(reply.map { "unexpected " + hex($0) } ?? "NO REPLY")")
@@ -535,11 +574,15 @@ func parseValue(_ text: String) -> Int? {
     text.lowercased().hasPrefix("0x") ? Int(text.dropFirst(2), radix: 16) : Int(text)
 }
 
+// False without a reply. The stock firmware's error isn't an acknowledgement, though request() hands it over too.
+func acked(_ midi: Midi, _ data: [UInt8], timeout: Double = 1.5) -> Bool {
+    guard let reply = midi.request(data, expect: [0x7F, data[0]], timeout: timeout) else { return false }
+    refuseStock(reply)
+    return reply.count > sysexHeader.count && reply[sysexHeader.count] == 0x7F
+}
+
 func probeAck(_ midi: Midi, _ data: [UInt8]) {
-    guard let reply = midi.request(data, expect: [0x7F, data[0]]), reply.count > sysexHeader.count,
-          reply[sysexHeader.count] == 0x7F else {
-        fail("no acknowledgement (is our firmware 0.0.9 or later running?)")
-    }
+    guard acked(midi, data) else { fail("no acknowledgement (is our firmware 0.0.9 or later running?)") }
 }
 
 func direct() {
@@ -580,7 +623,7 @@ func measureOnce(_ midi: Midi, periods: Int, timeoutMs: Int, rising: Bool = fals
     guard let reply = midi.request(data, expect: [0x73], timeout: Double(timeoutMs) / 1000 + 2) else {
         fail("no reply (is our firmware 0.1.3 or later running?)")
     }
-    let b = Array(reply[(sysexHeader.count + 1)...])
+    let b = replyData(reply, 1)
     guard b.count >= 11, b[0] == 1 else { return nil }
     let counted = Int(b[1]) << 7 | Int(b[2])
     let cycles = b[3...7].reduce(0) { $0 << 7 | Int($1) }, khz = b[8...10].reduce(0) { $0 << 7 | Int($1) }
@@ -609,13 +652,13 @@ func tune() {
     let midi = Midi(port: portName)
     print("tuning (about 25 s, silent)...")
     guard let reply = midi.request([0x75], expect: [0x76], timeout: 120) else { fail("no reply (firmware 0.1.1 or later?)") }
-    print("done: \(reply[sysexHeader.count + 1]) of 24 rows measured")
+    print("done: \(replyData(reply, 1, 1)[0]) of 24 rows measured")
 }
 
 func tuningRows(_ midi: Midi) -> [[Double]] {
     (0..<24).map { row in
         guard let reply = midi.request([0x77, UInt8(row)], expect: [0x77, UInt8(row)], timeout: 2) else { fail("no reply for row \(row)") }
-        let b = Array(reply[(sysexHeader.count + 3)..<(reply.count - 1)])
+        let b = replyData(reply, 3)
         return stride(from: 0, to: b.count - 3, by: 4).map { i in Double(b[i...(i + 3)].reduce(0) { $0 << 7 | Int($1) }) / 100 }
     }
 }
@@ -636,6 +679,7 @@ func tuning() {
 func check() {
     let onlyOsc = flag("--osc"), onlyFilters = flag("--filters")
     let given = args.compactMap { Int($0) }
+    guard given.allSatisfy({ (0...127).contains($0) }) else { fail("notes 0-127") }
     let oscNotes = given.isEmpty ? [36, 48, 60, 72, 84, 96] : given
     let filterNotes = given.isEmpty ? [48, 60, 72, 84, 96, 108, 120] : given
     let midi = Midi(port: portName)
@@ -679,6 +723,8 @@ func check() {
         print(line)
         setCV("amp\(v)", 0)
     }
+    onFail = { ack([0x74, 0]) }
+    defer { onFail = nil; ack([0x74, 0]) }
     ack([0x74, 1])
     setCV("master", 0); setCV("res", 0); setCV("pwa", 0xFFFF); setCV("pwb", 0)
     for v in 1...8 { setCV("amp\(v)", 0); setCV("fil\(v)", 0xFFFF) }
@@ -701,14 +747,10 @@ func check() {
         }
         setCV("res", 0)
     }
-    ack([0x74, 0])
     if !onlyFilters { print(String(format: "worst oscillator: %.1f cents", worst[0])) }
     if !onlyOsc { print(String(format: "worst filter: %.1f cents", worst[1])) }
 }
 
-// Sweeps the CV path's speed (firmware 0.7.4): DAC80501 buses and S&H waits, each checked by oscillator A1's pitch
-// through the tuning comparator against the safe default. pro800 dac-test [--bus-only | --timing-only]
-// Everything is a probe: the synth goes back to the default at the end, and on any reboot.
 // Checks the DAC80501 setup re-send (0.8.5): in direct mode, osc A1 at CV 0x8000 through TUNE_CPR, then with the re-send
 // off and the gain at reference / 2 × 1 (half the CV range: about 92 Hz instead of 343), then with the re-send on
 // again. pro800 dac-heal
@@ -729,7 +771,8 @@ func dacHeal() {
         return readings.isEmpty ? nil : readings.sorted()[readings.count / 2]
     }
     func show(_ label: String) { print(label + (hz().map { String(format: "%8.1f Hz", $0) } ?? "  no signal")) }
-    defer { ack([0x6E, 1]); probeAck(midi, [0x74, 0]) }
+    onFail = { ack([0x6E, 1]); probeAck(midi, [0x74, 0]) }
+    defer { onFail = nil; ack([0x6E, 1]); probeAck(midi, [0x74, 0]) }
     probeAck(midi, [0x74, 1])
     setCV("master", 0); setCV("res", 0); setCV("pwa", 0xFFFF); setCV("pwb", 0); setCV("volb", 0); setCV("vola", 0xFFFF)
     for v in 1...8 { setCV("amp\(v)", 0); setCV("fil\(v)", 0xFFFF) }
@@ -753,10 +796,13 @@ func shWaits() {
           settle <= 12.7, sample <= 12.7 else { fail("usage: pro800 sh-waits <settle µs 0-12.7> <sample µs 0-12.7>") }
     let midi = Midi(port: portName)
     let data: [UInt8] = [0x6C, 0, 0, 168 >> 7, 168 & 0x7F, 168 >> 7, 168 & 0x7F, 0, 0, UInt8(settle * 10 + 0.5), UInt8(sample * 10 + 0.5)]
-    guard let r = midi.request(data, expect: [0x7F, 0x6C], timeout: 2), r[sysexHeader.count + 2] == 1 else { fail("rejected") }
+    guard let r = midi.request(data, expect: [0x7F, 0x6C], timeout: 2), replyData(r, 2, 1)[0] == 1 else { fail("rejected") }
     print("S&H waits: settle \(settle) µs, sample \(sample) µs (0 = default)")
 }
 
+// Sweeps the CV path's speed (firmware 0.7.4): DAC80501 buses and S&H waits, each checked by oscillator A1's pitch
+// through the tuning comparator against the safe default. pro800 dac-test [--bus-only | --timing-only]
+// Everything is a probe: the synth goes back to the default at the end, and on any reboot.
 func dacTest() {
     let midi = Midi(port: portName)
     func ack(_ data: [UInt8]) { probeAck(midi, data) }
@@ -768,7 +814,7 @@ func dacTest() {
         let data: [UInt8] = [0x6C, UInt8(b.bus), UInt8(b.mode), UInt8(b.high >> 7), UInt8(b.high & 0x7F), UInt8(b.low >> 7),
                              UInt8(b.low & 0x7F), UInt8(b.speed), UInt8(b.sync), UInt8(settle), UInt8(sample)]
         guard let r = midi.request(data, expect: [0x7F, 0x6C], timeout: 2) else { fail("no reply (firmware 0.7.4 or later?)") }
-        return r[sysexHeader.count + 2] == 1
+        return replyData(r, 2, 1)[0] == 1
     }
     // the bus's time for one 24-bit frame plus the SYNC waits, in µs
     func frameUs(_ b: Bus) -> Double {
@@ -788,7 +834,8 @@ func dacTest() {
         return readings.isEmpty ? nil : readings.sorted()[readings.count / 2]
     }
     let points = [0x5000, 0x8000, 0xB000]
-    defer { _ = configure(Bus()); ack([0x74, 0]) }
+    onFail = { _ = configure(Bus()); ack([0x74, 0]) }
+    defer { onFail = nil; _ = configure(Bus()); ack([0x74, 0]) }
 
     ack([0x74, 1])
     setCV("master", 0); setCV("res", 0); setCV("pwa", 0xFFFF); setCV("pwb", 0); setCV("volb", 0); setCV("vola", 0xFFFF)
@@ -930,8 +977,7 @@ let switchLabels = ["Osc A Saw", "Osc A Tri", "Osc A Square", "Osc B Saw", "Osc 
 func state() {
     let midi = Midi(port: portName)
     guard let reply = midi.request([0x7C], expect: [0x7C], timeout: 2) else { fail("no reply (firmware 0.2.0 or later?)") }
-    let b = Array(reply[(sysexHeader.count + 1)...])
-    guard b.count >= 26 * 2 + 24 else { fail("short reply") }
+    let b = replyData(reply, 1, 26 * 2 + 24)
     for i in 0..<26 {
         let v = Int(b[2 * i]) << 7 | Int(b[2 * i + 1])
         print(potNames[i].padding(toLength: 14, withPad: " ", startingAt: 0) + String(format: "%3d", v * 99 / 4095))
@@ -1093,7 +1139,7 @@ func setSetting() {
               let env = cycleNames.firstIndex(of: args[2]), let curve = curveNames.firstIndex(of: args[3]) {
         // the other envelopes' curves stay: read them first
         guard let reply = Midi(port: portName).request([0x54], expect: [0x54], timeout: 2) else { fail("no reply") }
-        let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)]), i = 48 + layer - 1
+        let b = settingsData(reply), i = 48 + layer - 1
         guard Int(b[0]) > i else { fail("the firmware has no envelope curves (0.9.0 or later?)") }
         let bits = Int(b[1 + 2 * i]) << 7 | Int(b[2 + 2 * i])
         (id, v) = (UInt8(i), bits & ~(3 << (2 * env)) | curve << (2 * env))
@@ -1120,12 +1166,18 @@ func synthChannel() -> Int? {
     return (1...16).contains(v) ? v : nil
 }
 
+// 54's reply: how many settings, then 2 bytes each
+func settingsData(_ reply: [UInt8]) -> [UInt8] {
+    let b = replyData(reply, 1, 1)
+    return enough(b, 1 + 2 * Int(b[0]))
+}
+
 // pro800 settings: every setting, as the firmware has them now
 func settings() {
     guard let reply = Midi(port: portName).request([0x54], expect: [0x54], timeout: 2) else {
         fail("no reply (firmware 0.6.0 or later?)")
     }
-    let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)])
+    let b = settingsData(reply)
     let count = Int(b[0]), readOnly = 4 // env-select, preset-mode, patch, morph: always the reply's last four
     for r in 0..<count {
         // the settable ones from the start, as far as both know them; the read-only ones from the end
@@ -1176,14 +1228,14 @@ func settings() {
     }
     let midi = Midi(port: portName)
     if let r = midi.request([0x4C], expect: [0x4C]) {
-        let d = Array(r[(sysexHeader.count + 1)..<(r.count - 1)])
+        let d = replyData(r, 1)
         let on = buttonNames.keys.sorted().filter { $0 < d.count && d[$0] != 0 }.map { buttonNames[$0]! }
         print("buttons".padding(toLength: 21, withPad: " ", startingAt: 0) + (on.isEmpty ? "none" : on.joined(separator: " ")))
     }
     for layer in 0..<2 {
         for lfo in 0..<2 {
             guard let r = midi.request([0x4D, UInt8(layer), UInt8(lfo)], expect: [0x4D, UInt8(layer), UInt8(lfo)]) else { continue }
-            let d = Array(r[sysexHeader.count...])
+            let d = replyData(r, 0, 7)
             let count = Int(d[3]), bits = Int(d[4]) << 14 | Int(d[5]) << 7 | Int(d[6])
             print("steps \(layer + 1) \(lfo + 1)".padding(toLength: 21, withPad: " ", startingAt: 0) +
                   String((0..<count).map { bits >> $0 & 1 != 0 ? "x" : "." }))
@@ -1212,10 +1264,11 @@ func params() {
         guard let reply = midi.request([0x53, UInt8(layer - 1)], expect: [0x53, UInt8(layer - 1)], timeout: 2) else {
             fail("no reply (firmware 0.6.0 or later?)")
         }
-        let b = Array(reply[(sysexHeader.count + 2)..<(reply.count - 1)])
+        let b = replyData(reply, 2, 1), count = min(Int(b[0]), paramNames.count)
+        enough(b, 1 + 2 * count)
         print("layer \(layer):")
         var line = ""
-        for i in 0..<min(Int(b[0]), paramNames.count) {
+        for i in 0..<count {
             let v = Int(b[1 + 2 * i]) << 7 | Int(b[2 + 2 * i])
             line += "\(paramNames[i].padding(toLength: 13, withPad: " ", startingAt: 0))\(String(format: "%3d", (v * 99 + 8191) / 16383))   "
             if i % 4 == 3 { print("  " + line); line = "" }
@@ -1242,10 +1295,10 @@ let arpModeNames = ["off", "up", "down", "updown", "random", "played"]
 func seqSet() {
     let midi = Midi(port: portName)
     guard let h = midi.request([0x48], expect: [0x48], timeout: 2) else { fail("no reply (firmware 0.7.0 or later?)") }
-    let d = Array(h[(sysexHeader.count + 1)...])
+    let d = replyData(h, 1, 9)
     var length = Int(d[0]), division = Int(d[2]), bpm = Int(d[3]) << 7 | Int(d[4]), flags = Int(d[5])
     var chord = flags >> 5 & 3, lanes = Int(d[1]) - chord // automation lanes; the header counts the chord lanes too
-    var swing = Int(d[6]), smooth = Int(d[7]), arp = Int(d[9])
+    var swing = Int(d[6]), smooth = Int(d[7]), arp = d.count > 9 ? Int(d[9]) : 0 // a firmware without the arp byte
     let usage = "usage: pro800 seq set on=0|1 length=1-64 step=<division> clock=0|1 bpm=30-255 swing=0-75 once=0|1 " +
                 "keys=both|1|2 arp=\(arpModeNames.joined(separator: "|")) lanes=0-4 chord=0-2 smooth=none|A..D (lanes + chord: at most 4)"
     for kv in args.dropFirst() {
@@ -1304,7 +1357,7 @@ func seqStep() {
         if opt.hasPrefix("n2") || opt.hasPrefix("n3") { // a chord note: its lane depends on the header
             guard let v = Int(opt.dropFirst(2)), (-63...63).contains(v) else { fail(usage) }
             guard let h = Midi(port: portName).request([0x48], expect: [0x48], timeout: 2) else { fail("no reply") }
-            let d = Array(h[(sysexHeader.count + 1)...]), chord = Int(d[5]) >> 5 & 3, which = opt.hasPrefix("n2") ? 0 : 1
+            let d = replyData(h, 1, 6), chord = Int(d[5]) >> 5 & 3, which = opt.hasPrefix("n2") ? 0 : 1
             guard which < chord else { fail("the sequence has \(chord) chord lane(s): seq set chord=\(which + 1) first") }
             lanes[Int(d[1]) - chord + which] = 64 + v
             continue
@@ -1326,14 +1379,14 @@ func seqStep() {
 }
 
 func arpText(_ d: [UInt8]) -> String {
-    guard d.count > 10, d[9] != 0 else { return "" }
+    guard d.count > 9, d[9] != 0 else { return "" }
     return ", arp " + (["off", "up", "down", "up-down", "random", "played"][safe: Int(d[9])] ?? "?")
 }
 
 func showSequence() {
     let midi = Midi(port: portName)
     guard let h = midi.request([0x48], expect: [0x48], timeout: 2) else { fail("no reply (firmware 0.7.0 or later?)") }
-    let d = Array(h[(sysexHeader.count + 1)...])
+    let d = replyData(h, 1, 9)
     let length = Int(d[0]), flags = Int(d[5]), chord = flags >> 5 & 3, lanes = Int(d[1]) - chord
     print("\(flags & 1 != 0 ? "on" : "off"), \(length) steps of \(divisionNames[safe: Int(d[2])] ?? "?"), " +
           (flags & 2 != 0 ? "MIDI clock" : "\(Int(d[3]) << 7 | Int(d[4])) BPM") + ", swing \(d[6]) %, " +
@@ -1344,7 +1397,7 @@ func showSequence() {
     var chordRows = [[String]](repeating: [], count: chord), holdRow = [String]()
     for first in stride(from: 0, to: length, by: 8) {
         guard let r = midi.request([0x46, UInt8(first), 8], expect: [0x46, UInt8(first), 8], timeout: 2) else { fail("no reply") }
-        let x = Array(r[(sysexHeader.count + 3)...])
+        let x = replyData(r, 3, 9 * min(8, length - first))
         for k in 0..<8 where first + k < length {
             let s = Array(x[(9 * k)..<(9 * k + 9)]) // note, velocity, gate, on, extra, lanes A-D
             let offset = Int(s[0]) - 64
@@ -1376,7 +1429,7 @@ func factory() {
         var data: [UInt8] = [0x51, UInt8(f), UInt8(n >> 7), UInt8(n & 0x7F)]
         if flag("--force") { data.append(1) }
         guard let reply = midi.request(data, expect: [0x51], timeout: 3) else { fail("no reply (firmware 0.6.0 or later?)") }
-        let status = Int(reply[sysexHeader.count + 1])
+        let status = Int(replyData(reply, 1, 1)[0])
         print(["copied factory \(f) to \(slotName(n))", "\(slotName(n)) isn't empty (--force to replace it)",
                "factory patch \(f) isn't there", "write error"][safe: status] ?? "status \(status)")
         return
@@ -1385,7 +1438,7 @@ func factory() {
         guard let reply = midi.request([0x50, UInt8(f)], expect: [0x50, UInt8(f)], timeout: 2) else {
             fail("no reply (firmware 0.6.0 or later?)")
         }
-        let b = Array(reply[(sysexHeader.count + 2)..<(reply.count - 1)])
+        let b = replyData(reply, 2, 1)
         print(String(format: "%2d  ", f) + (b.first == 1 ? String(decoding: b.dropFirst(), as: UTF8.self) : "(none)"))
     }
 }
@@ -1438,7 +1491,7 @@ func eeprom() {
         guard let reply = midi.request(request, expect: Array(request), timeout: 2) else {
             fail("no reply at 0x\(String(address, radix: 16)) (firmware 0.3.2 or later?)")
         }
-        let b = Array(reply[(sysexHeader.count + 5)..<(reply.count - 1)])
+        let b = replyData(reply, 5)
         guard b.count == 2 + 2 * n else { fail("short reply at 0x\(String(address, radix: 16))") }
         status = Int(b[0]) << 4 | Int(b[1])
         for i in 0..<n { data.append(b[2 + 2 * i] << 4 | b[3 + 2 * i]) }
@@ -1463,6 +1516,9 @@ func slotNumber(_ text: String) -> Int? {
 
 func slotName(_ n: Int) -> String { patchLabel(n) }
 
+let eepromHalfWritten = "\nThe memory is now half old, half new, so don't trust its patches. Run eeprom-write again, " +
+    "or pro800 format --yes to start empty."
+
 // Writes a whole EEPROM image and reads it back: pro800 eeprom-write <file> --yes (e.g. the stock image)
 func eepromWrite() {
     guard flag("--yes"), let path = args.first else { fail("usage: pro800 eeprom-write <file> --yes") }
@@ -1473,43 +1529,50 @@ func eepromWrite() {
         let n = min(48, bytes.count - address)
         var data: [UInt8] = [0x5A, UInt8(address >> 14 & 0x7F), UInt8(address >> 7 & 0x7F), UInt8(address & 0x7F), UInt8(n)]
         for b in bytes[address..<(address + n)] { data += [b >> 4, b & 0x0F] }
-        guard midi.request(data, expect: [0x7F, 0x5A], timeout: 2) != nil else { fail("write failed at 0x\(String(address, radix: 16))") }
+        guard acked(midi, data, timeout: 2) else { fail("\nwrite failed at 0x\(String(address, radix: 16))") }
         address += n
+        failNote = eepromHalfWritten
         if address % 0x2000 < 48 { print("\rwritten \(address) / \(bytes.count)", terminator: ""); fflush(stdout) }
     }
+    failNote = ""
     print("\nverifying")
     let check = FileManager.default.temporaryDirectory.appendingPathComponent("pro800-verify.bin").path
     args = [check]
     eeprom()
     let back = FileManager.default.contents(atPath: check)
-    print(back == image ? "verified: the EEPROM matches \(path); power-cycle the synth" : "MISMATCH after writing")
+    guard back == image else { fail("MISMATCH after writing." + eepromHalfWritten) }
+    print("verified: the EEPROM matches \(path); power-cycle the synth")
+    print("The image carries the tuning tables: if it came from another synth, run a Tune (pro800 tune).")
 }
 
-// Converts every stock patch in place: pro800 import --yes
+// Empties every slot: pro800 format --yes
 func formatPatches() {
     guard flag("--yes") else { fail("usage: pro800 format --yes (wipes every patch slot and marks the EEPROM as ours)") }
     let midi = Midi(port: portName)
     print("formatting...")
     guard let reply = midi.request([0x5B], expect: [0x5B], timeout: 60) else { fail("no reply (firmware 0.8.0 or later?)") }
-    let b = Array(reply[(sysexHeader.count + 1)...])
-    print(b[2] == 0 ? "\(b[1]) empty slots" : "format failed")
+    let b = replyData(reply, 1, 3)
+    guard b[2] == 0 else { fail("format failed") }
+    print("\(Int(b[0]) << 7 | Int(b[1])) empty slots") // 01 00 from 0.9.4; 00 80 before, which this reads as 128 too
 }
 
 // pro800 patch load|save|clear <slot>  (slot 0-127, or P1-P128)
 func patchCommand() {
     if args.count >= 3, args[0] == "rename", let n = slotNumber(args[1]) {
-        let name = Array(args[2...].joined(separator: " ").utf8.filter { $0 >= 0x20 && $0 < 0x7F }.prefix(16))
+        let text = args[2...].joined(separator: " "), characters = text.unicodeScalars.count
+        let name = Array(text.utf8.filter { $0 >= 0x20 && $0 < 0x7F }.prefix(16))
         probeAck(Midi(port: portName), [0x59, UInt8(n >> 7), UInt8(n & 0x7F)] + name)
         print("renamed \(slotName(n)) to \(String(decoding: name, as: UTF8.self))")
+        if name.count < characters { print("note: \(characters - name.count) characters dropped (16 at most, plain ASCII only)") }
         return
     }
     if args == ["init"] { // the basic sound PERF loads
-        guard Midi(port: portName).request([0x5F], expect: [0x7F, 0x5F], timeout: 3) != nil else { fail("no reply") }
+        guard acked(Midi(port: portName), [0x5F], timeout: 3) else { fail("no reply") }
         print("loaded the init sound")
         return
     }
     guard args.count == 2, ["load", "save", "clear"].contains(args[0]), let n = slotNumber(args[1]) else {
-        fail("usage: pro800 patch load|save|clear <slot 0-199 or A00-B99>  or  pro800 patch init")
+        fail("usage: pro800 patch load|save|clear <slot 0-127 or P1-P128>  or  pro800 patch init")
     }
     if args[0] == "clear" { // an empty slot is 256 zero bytes
         probeAck(Midi(port: portName), [0x4F, UInt8(n >> 7), UInt8(n & 0x7F)])
@@ -1517,7 +1580,7 @@ func patchCommand() {
         return
     }
     let cmd: UInt8 = args[0] == "load" ? 0x5C : 0x5D
-    guard Midi(port: portName).request([cmd, UInt8(n >> 7), UInt8(n & 0x7F)], expect: [0x7F, cmd], timeout: 3) != nil else {
+    guard acked(Midi(port: portName), [cmd, UInt8(n >> 7), UInt8(n & 0x7F)], timeout: 3) else {
         fail("\(args[0]) \(slotName(n)) failed (empty slot?)")
     }
     print("\(args[0] == "load" ? "loaded" : "saved") \(slotName(n))")
@@ -1532,8 +1595,9 @@ func patches() {
         guard let reply = midi.request([0x5E, UInt8(n >> 7), UInt8(n & 0x7F)], expect: [0x5E, UInt8(n >> 7), UInt8(n & 0x7F)], timeout: 2) else {
             fail("no reply (firmware 0.4.0 or later?)")
         }
-        let b = Array(reply[(sysexHeader.count + 3)..<(reply.count - 1)])
-        let kind = Int(b[0]), name = String(decoding: b.dropFirst(), as: UTF8.self)
+        let b = replyData(reply, 3, 1)
+        let kind = min(Int(b[0]), 3) // a kind this tool doesn't know reads as what it can't use
+        let name = String(decoding: b.dropFirst(), as: UTF8.self)
         counts[kind] += 1
         if kind != 0 || all { print("\(slotName(n))  \(kinds[kind].padding(toLength: 7, withPad: " ", startingAt: 0)) \(name)") }
     }
@@ -1572,7 +1636,7 @@ func routeBoth() {
     }
     let midi = Midi(port: portName)
     guard let reply = midi.request([0x57, UInt8(layer - 1)], expect: [0x57, UInt8(layer - 1)], timeout: 2) else { fail("no reply") }
-    let b = Array(reply[(sysexHeader.count + 2)..<(reply.count - 1)])
+    let b = replyData(reply, 2)
     guard let slot = stride(from: 0, to: b.count - 3, by: 4).first(where: { Int(b[$0]) == src && Int(b[$0 + 1]) == dest }).map({ $0 / 4 }) else {
         fail("layer \(layer) has no route \(args[1]) → \(args[2])")
     }
@@ -1586,7 +1650,7 @@ func routeBoth() {
 // Each layer's both-layers routes, a bit per slot; nil from firmware without them (fewer settings than 0.9.3's 95)
 func routeBothMasks(_ midi: Midi) -> [Int]? {
     guard let reply = midi.request([0x54], expect: [0x54], timeout: 2) else { return nil }
-    let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)]).map(Int.init)
+    let b = settingsData(reply).map(Int.init)
     guard b[0] >= 95 else { return nil }
     let value = { (i: Int) in b[1 + 2 * i] << 7 | b[2 + 2 * i] }
     return [value(87) | value(88) << 8, value(89) | value(90) << 8]
@@ -1600,7 +1664,7 @@ func routes() {
         guard let reply = midi.request([0x57, UInt8(layer)], expect: [0x57, UInt8(layer)], timeout: 2) else {
             fail("no reply (firmware 0.5.0 or later?)")
         }
-        let b = Array(reply[(sysexHeader.count + 2)..<(reply.count - 1)])
+        let b = replyData(reply, 2)
         var lines = [String]()
         for i in stride(from: 0, to: b.count - 3, by: 4) where b[i] != 0 && Int(b[i]) < sourceNames.count && Int(b[i + 1]) < destNames.count {
             lines.append("  \(sourceNames[Int(b[i])]) → \(destNames[Int(b[i + 1])]): \((Int(b[i + 2]) << 7 | Int(b[i + 3])) - 99)"
@@ -1610,7 +1674,6 @@ func routes() {
     }
 }
 
-// pro800 timing: how long the engine, the CV refresh and a main-loop pass take
 // pro800 sysex: for scripts. Requests from stdin, one per line ("<request hex> [; <reply prefix hex>]", the bytes after
 // the PRO-800 header; the prefix defaults to the request's command byte), each reply on stdout as hex from the command
 // byte on, without F7, or "none"; all over one MIDI connection. Sends whatever it's given: read-only only if the
@@ -1635,8 +1698,7 @@ func engine() {
     guard let reply = Midi(port: portName).request([0x55], expect: [0x55], timeout: 2) else {
         fail("no reply (needs firmware 0.9.1 or later)")
     }
-    let b = Array(reply[(sysexHeader.count + 1)..<(reply.count - 1)]).map(Int.init)
-    guard b.count >= 53 else { fail("short reply (\(b.count) bytes)") }
+    let b = replyData(reply, 1, 53).map(Int.init)
     let stages = ["idle", "attack", "decay", "release", "hold", "rest", "delay"]
     for l in 0..<2 {
         let count = b[5 * l], notes = b[(5 * l + 1)..<(5 * l + 1 + min(count, 4))].map(String.init)
@@ -1661,17 +1723,100 @@ func engine() {
     }
 }
 
+// The record src/fault.h keeps across a reset
+let exceptionNames: [Int: String] = [2: "NMI", 3: "HardFault", 4: "MemManage", 5: "BusFault", 6: "UsageFault", 11: "SVCall",
+                                     12: "DebugMonitor", 14: "PendSV", 15: "SysTick"]
+let cfsrBits: [(Int, String)] = [(0, "IACCVIOL"), (1, "DACCVIOL"), (3, "MUNSTKERR"), (4, "MSTKERR"), (5, "MLSPERR"), (7, "MMARVALID"),
+                                 (8, "IBUSERR"), (9, "PRECISERR"), (10, "IMPRECISERR"), (11, "UNSTKERR"), (12, "STKERR"), (13, "LSPERR"),
+                                 (15, "BFARVALID"), (16, "UNDEFINSTR"), (17, "INVSTATE"), (18, "INVPC"), (19, "NOCP"), (24, "UNALIGNED"),
+                                 (25, "DIVBYZERO")]
+let hfsrBits: [(Int, String)] = [(1, "VECTTBL"), (30, "FORCED"), (31, "DEBUGEVT")]
+let faultStreakStop = 3 // src/fault.h's FAULT_STREAK_LIMIT: this crash in a row stays put instead of resetting
+
+func bitNames(_ table: [(Int, String)], _ value: Int) -> String {
+    table.filter { value >> $0.0 & 1 != 0 }.map { " " + $0.1 }.joined()
+}
+
+// 49's reply: <1 if there is a record> <streak> <exception>, then seven values of 5 × 7 bits
+func readFault(_ midi: Midi) -> [UInt8] {
+    guard let reply = midi.request([0x49], expect: [0x49], timeout: 2) else { fail("no reply (firmware 0.9.4 or later?)") }
+    return replyData(reply, 1, 3 + 5 * 7)
+}
+
+func faultText(_ b: [UInt8]) -> String {
+    guard b[0] != 0 else { return "no fault recorded" }
+    let streak = Int(b[1]), exception = Int(b[2])
+    let v: [Int] = (0..<7).map { i in b[(3 + 5 * i)..<(8 + 5 * i)].reduce(0) { $0 << 7 | Int($1) } }
+    let (pc, lr, excReturn, cfsr, hfsr, mmfar, bfar) = (v[0], v[1], v[2], v[3], v[4], v[5], v[6])
+    let name = exception >= 16 ? "interrupt \(exception - 16)" : exceptionNames[exception] ?? "reserved"
+    func word(_ x: Int) -> String { String(format: "0x%08X", UInt32(truncatingIfNeeded: x)) }
+    let noFrame = pc == 0 ? " (no stack frame to read)" : ""
+    let mmfarNote = cfsr >> 7 & 1 != 0 ? "" : " (not valid)", bfarNote = cfsr >> 15 & 1 != 0 ? "" : " (not valid)"
+    let lines: [String] = ["last crash: \(name) (exception \(exception))",
+                           "  pc         \(word(pc))\(noFrame)",
+                           "  lr         \(word(lr))",
+                           "  EXC_RETURN \(word(excReturn))",
+                           "  CFSR       \(word(cfsr))\(bitNames(cfsrBits, cfsr))",
+                           "  HFSR       \(word(hfsr))\(bitNames(hfsrBits, hfsr))",
+                           "  MMFAR      \(word(mmfar))\(mmfarNote)",
+                           "  BFAR       \(word(bfar))\(bfarNote)",
+                           "  streak     \(streak)"]
+    return lines.joined(separator: "\n")
+}
+
+// pro800 fault: the last crash, read-only
+func fault() {
+    print(faultText(readFault(Midi(port: portName))))
+}
+
+// pro800 fault-test --yes: crashes the synth on purpose and reads the record after the restart
+func faultTest() {
+    guard flag("--yes") else { fail("usage: pro800 fault-test --yes (crashes the synth on purpose: it restarts, and an unsaved sound is lost)") }
+    let midi = Midi(port: portName)
+    let before = readFault(midi)
+    if before[0] != 0, Int(before[1]) >= faultStreakStop - 1 {
+        fail("not crashing it: \(before[1]) crashes in a row already, and number \(faultStreakStop) would stop the synth " +
+             "until a power cycle. Wait 10 s and run this again.")
+    }
+    // an open client keeps this process's list of ports current while the synth re-enumerates
+    var watcher = MIDIClientRef()
+    MIDIClientCreateWithBlock("pro800 fault-test" as CFString, &watcher) { _ in }
+    defer { MIDIClientDispose(watcher) }
+    print("crashing the synth on purpose; it restarts")
+    midi.send(sysexHeader + [0x4A, 0x43, 0x52, 0xF7])
+    for _ in 0..<60 {
+        pump(1)
+        guard let again = Midi(existing: portName), let reply = again.request([0x49], expect: [0x49], timeout: 2) else { continue }
+        let b = replyData(reply, 1, 3 + 5 * 7)
+        guard b[0] != 0 else {
+            fail("the synth answers, but holds no record of this crash. Either it didn't crash (firmware older than 0.9.4?) " +
+                 "or the bootloader used that RAM on the way back.")
+        }
+        // After 10 s of running the firmware clears the streak and keeps the rest, and the port can take longer than that
+        // to answer. So a streak of 0 says this crash only if the record isn't the one from before it.
+        if b[1] == 0 && before[0] != 0 && Array(b[2...]) == Array(before[2...]) {
+            fail("the synth answers, with the same record as before the crash and its streak cleared: either it didn't crash, " +
+                 "or it took over 10 s to answer and this crash looks just like the last. Switch it off and on, which clears " +
+                 "the record, and run this again.")
+        }
+        print(faultText(b))
+        return
+    }
+    fail("the synth didn't answer within 60 s of the crash. Switch it off and on; with buttons 0 and 7 held it starts in the bootloader.")
+}
+
+// pro800 timing: how long the engine, the CV refresh and a main-loop pass take
 func timing() {
     let midi = Midi(port: portName)
     _ = midi.request([0x58], expect: [0x58], timeout: 2) // resets the longest pass
     pump(2)
     guard let reply = midi.request([0x58], expect: [0x58], timeout: 2) else { fail("no reply (firmware 0.5.0 or later?)") }
-    let b = Array(reply[(sysexHeader.count + 1)...])
+    let b = replyData(reply, 1, 3 * 4)
     func value(_ i: Int) -> Int {
         let high = Int(b[3 * i]) << 14, mid = Int(b[3 * i + 1]) << 7
         return high | mid | Int(b[3 * i + 2])
     }
-    let v = (0..<min(8, (b.count - 1) / 3)).map(value)
+    let v = (0..<min(8, b.count / 3)).map(value)
     print("engine \(v[0]) µs, CV refresh \(v[1]) µs" + (v.count >= 8 ? " (of which the four ticks \(v[7]) µs)" : "")
           + ", main-loop pass \(v[2]) µs (longest in 2 s: \(v[3]) µs)")
     if v.count >= 6 { print("panel poll \(v[4]) µs, display \(v[5]) µs (last pass)") }
@@ -1680,9 +1825,15 @@ func timing() {
     }
 }
 
+func channelOption(_ fallback: Int) -> UInt8 {
+    let channel = Int(option("--channel") ?? "") ?? synthChannel() ?? fallback
+    guard (1...16).contains(channel) else { fail("--channel must be 1-16") }
+    return UInt8(channel - 1)
+}
+
 // pro800 cc <controller> <value> [--channel N]
 func cc() {
-    let channel = UInt8((Int(option("--channel") ?? "") ?? synthChannel() ?? 1) - 1) & 0x0F
+    let channel = channelOption(1)
     guard args.count == 2, let num = Int(args[0]), let value = Int(args[1]), (0...127).contains(num), (0...127).contains(value) else {
         fail("usage: pro800 cc <controller 0-127> <value 0-127> [--channel N]")
     }
@@ -1693,7 +1844,7 @@ func cc() {
 
 // pro800 bend <0-16383> [--channel N]: pitch bend (8192 = centre)
 func bend() {
-    let channel = UInt8((Int(option("--channel") ?? "") ?? synthChannel() ?? 1) - 1) & 0x0F
+    let channel = channelOption(1)
     guard args.count == 1, let value = Int(args[0]), (0...16383).contains(value) else {
         fail("usage: pro800 bend <0-16383> [--channel N]  (8192 = centre)")
     }
@@ -1705,10 +1856,28 @@ func bend() {
 // MARK: - Bootloader
 
 func updateMode() {
+    guard flag("--yes") else {
+        fail("""
+        usage: pro800 update-mode --yes
+        This erases flash sector 4, and the synth stays in its bootloader until a firmware is flashed. The way back:
+        pro800 flash <file.syx> --yes, with our firmware or a stock firmware .syx.
+        """)
+    }
     let midi = Midi(port: portName)
     midi.send(sysexHeader + [0x03, 0x30, 0xF7])
-    print("sent the update-mode command; the PRO-800 restarts into its bootloader")
+    print("""
+    sent the update-mode command; the PRO-800 restarts into its bootloader and stays there until a firmware is
+    flashed: pro800 flash <file.syx> --yes, with our firmware or a stock firmware .syx
+    """)
 }
+
+let minUpdateBytes = 10000 // a firmware is tens of kB
+let updateBlockBytes = 210
+let flashWayBack = "until it gets a firmware, and the bootloader takes a fresh header without a power-cycle: close other MIDI " +
+    "software and run flash again. Or hold buttons 0 and 7 at power-up. A stock firmware .syx also brings it back."
+let flashRecovery = "\nThe synth stays in its bootloader " + flashWayBack
+let flashNotStarted = "\nIf the synth still plays, it wasn't in its bootloader and nothing changed. If it is there, it stays there " + flashWayBack
+let flashAcceptWait = 7.0, flashConfirmWait = 6.0 // seconds, as tools/web/install.html
 
 // Splits a .syx file into messages and checks it is a PRO-800 update made by PRO800_update_gen.
 func updateMessages(_ path: String) -> [[UInt8]] {
@@ -1729,49 +1898,103 @@ func updateMessages(_ path: String) -> [[UInt8]] {
     guard let first = messages.first, first.starts(with: sysexHeader + [0x0A]) else {
         fail("\(path): doesn't start with a PRO-800 update header (\(hex(sysexHeader + [0x0A])))")
     }
+    guard first.count > 44, String(decoding: first[24..<41], as: UTF8.self) == "BEHRINGER PRO 800" else {
+        fail("\(path): the header isn't a PRO-800 update's (no BEHRINGER PRO 800 and version in it)")
+    }
     guard messages.dropFirst().allSatisfy({ $0.starts(with: sysexHeader + [0x0B]) }) else {
         fail("\(path): expected only update data messages (0B) after the header")
+    }
+    guard messages.count >= 2 else { fail("\(path): only a header, no firmware in it") }
+    guard data.count >= minUpdateBytes else { fail("\(path): only \(data.count) bytes, too small for a firmware: the file is cut short") }
+    // Bytes 10-12 are the firmware's size, 210 bytes to a block, and each block counts itself in bytes 10-11: so in
+    // stock 1.4.6 and everything PRO800_update_gen has made here (NOTES).
+    let size = Int(first[10]) | Int(first[11]) << 7 | Int(first[12]) << 14
+    let blocks = (size + updateBlockBytes - 1) / updateBlockBytes
+    guard messages.count - 1 == blocks else {
+        fail("\(path): \(messages.count - 1) data blocks where the header's size says \(blocks): the file is cut short")
+    }
+    for (i, m) in messages.dropFirst().enumerated() where m.count < 13 || Int(m[10]) | Int(m[11]) << 7 != i {
+        fail("\(path): the data blocks aren't in order, or one is missing")
     }
     return messages
 }
 
-@discardableResult
-func flash() -> Bool {
+// xx of the bootloader's 01 00 xx, else nil
+func bootloaderStatus(_ reply: [UInt8]) -> UInt8? {
+    guard reply.starts(with: sysexHeader) else { return nil }
+    let body = Array(reply.dropFirst(sysexHeader.count).dropLast())
+    return body.count >= 3 && body[0] == 0x01 && body[1] == 0x00 ? body[2] : nil
+}
+
+func flash() {
     let rate = Double(option("--rate") ?? "3000") ?? 3000 // bytes/s; the bootloader takes up to 9640
     let eraseWait = Double(option("--erase-wait") ?? "3") ?? 3
     let confirmed = flag("--yes")
     let dryRun = flag("--dry-run")
+    _ = flag("--require-ok") // the checks are always on now; old scripts may still pass it
     guard let path = args.first else { fail("usage: pro800 flash <file.syx> --yes [--rate B/s] [--erase-wait S] [--dry-run]") }
     guard rate > 0, rate <= 9000 else { fail("--rate must be 1-9000 bytes/s") }
+    guard eraseWait >= 0 else { fail("--erase-wait can't be negative") }
 
     let messages = updateMessages(path)
     let total = messages.reduce(0) { $0 + $1.count }
     let seconds = Double(total) / rate + eraseWait
     print("\(path): \(messages.count) messages, \(total) bytes, about \(Int(seconds.rounded(.up))) s at \(Int(rate)) B/s")
-    if dryRun { return true }
+    if dryRun { return }
     guard confirmed else {
         fail("""
         not sent. The PRO-800 must already be in update mode (hold buttons 0 and 7 at power-up, or run
-        `pro800 update-mode`). Add --yes to send. If the update fails, the synth stays in update mode
+        `pro800 update-mode --yes`). Add --yes to send. If the update fails, the synth stays in update mode
         and a stock firmware .syx brings it back.
         """)
     }
 
     let midi = Midi(port: portName)
     _ = midi.takeSysex()
-    var last = [UInt8]()
+    var accepted = false, finished = false
+
+    // prints what came back; the first error ends it, and only an OK after the last block counts
+    func takeReplies(_ place: String, lastBlockSent: Bool) {
+        for reply in midi.takeSysex() {
+            print("\nreply\(place): \(hex(reply))")
+            let status = bootloaderStatus(reply)
+            if let status, status != 0 { fail("\nthe bootloader refused the update: 01 00 \(hex([status]))\(place).") }
+            if status == 0 && lastBlockSent { finished = true }
+            if reply.starts(with: sysexHeader + [0x03, 0x31]) {
+                accepted = true
+                failNote = flashRecovery // only this says it's in the bootloader: a running firmware ignores or refuses a header
+            }
+        }
+    }
+
+    failNote = flashNotStarted // whatever stops it from here on, a dead port included
     for (i, m) in messages.enumerated() {
         midi.send(m)
         // the header comes first; give the bootloader time to erase the application flash
         Thread.sleep(forTimeInterval: Double(m.count) / rate + (i == 0 ? eraseWait : 0))
-        for reply in midi.takeSysex() { print("\nreply after message \(i + 1): \(hex(reply))"); last = reply }
+        takeReplies(" after message \(i + 1)", lastBlockSent: i == messages.count - 1)
+        if i == 0 {
+            let acceptBy = Date().addingTimeInterval(flashAcceptWait)
+            while !accepted && Date() < acceptBy {
+                Thread.sleep(forTimeInterval: 0.05)
+                takeReplies(" after message 1", lastBlockSent: false)
+            }
+            guard accepted else {
+                fail("\nthe bootloader did not accept the header; nothing was written. (Is the synth in its bootloader? " +
+                     "pro800 update-mode --yes puts it there.)")
+            }
+        }
         print("\rsent \(i + 1)/\(messages.count)", terminator: "")
         fflush(stdout)
     }
-    Thread.sleep(forTimeInterval: 1)
-    for reply in midi.takeSysex() { print("\nreply: \(hex(reply))"); last = reply }
+    let confirmBy = Date().addingTimeInterval(flashConfirmWait)
+    while !finished && Date() < confirmBy {
+        Thread.sleep(forTimeInterval: 0.05)
+        takeReplies("", lastBlockSent: true)
+    }
+    guard finished else { fail("\nthe bootloader did not confirm the update: no 01 00 00 after the last block.") }
+    failNote = ""
     print("\ndone. If the synth doesn't restart by itself, power-cycle it.")
-    return last == sysexHeader + [0x01, 0x00, 0x00, 0xF7] // the bootloader's OK after the last block
 }
 
 // The synth on USB: 1397:125F running a firmware, 1397:1260 in the bootloader. The bootloader answers the version
@@ -1806,12 +2029,18 @@ func pump(_ seconds: Double) {
     RunLoop.main.run(until: Date().addingTimeInterval(seconds))
 }
 
+// How long the bootloader's port has to stay before install flashes, in seconds. A device can drop the port and set it up
+// again right after it appears. And a web page left open looks at a port that comes back, which would spoil a flash under
+// way: the editor sends its two messages 3 s after the port's last change, an idle installer tab starts 3.5 s after it and
+// sends its last, with no answers, about 3.2 s later. So this waits for all of that, with a margin for a browser that hears
+// of the port late.
+let portSteady = 8.0
+
 // update-mode, flash, then wait until the new firmware answers the version request
 func install() {
     guard flag("--yes") else { fail("usage: pro800 install <file.syx> --yes (switches to update mode, flashes, waits)") }
     guard let path = args.first else { fail("usage: pro800 install <file.syx> --yes") }
     let messages = updateMessages(path) // check the file before touching the synth
-    guard messages[0].count > 44 else { fail("\(path): header too short to hold a version") }
     let expected = Array(messages[0][42...44]) // the version PRO800_update_gen packed into the header
     let expectedText = expected.map(String.init).joined(separator: ".")
 
@@ -1839,13 +2068,14 @@ func install() {
     let portReady = waitFor(20) {
         guard Midi.endpoints(portName) != nil else { steady = nil; return false }
         if steady == nil { steady = Date() }
-        return Date().timeIntervalSince(steady!) >= 3
+        return Date().timeIntervalSince(steady!) >= portSteady
     }
-    guard portReady else { fail("the bootloader's MIDI port didn't appear") }
+    guard portReady else {
+        fail("the synth is in its bootloader, but its MIDI port didn't appear, so nothing was flashed. " +
+             "Restart the MIDI service or replug the USB cable, then run: pro800 flash \(path) --yes")
+    }
     args = [path, "--yes"]
-    guard flash() else {
-        fail("the bootloader didn't confirm the update. Quit anything else using MIDI (a web page in Chrome), switch the synth off and on, and run this again with 0 and 7 held if it comes up on the old firmware.")
-    }
+    flash() // says why and exits if the bootloader doesn't confirm
     // a first boot after an update also autotunes (about 30 s) before it answers
     print("waiting for the new firmware (it tunes first, about 30 s)", terminator: "")
     for _ in 0..<75 {
@@ -1914,6 +2144,8 @@ case "leds": leds()
 case "update-mode": updateMode()
 case "flash": flash()
 case "install": install()
+case "fault": fault()
+case "fault-test": faultTest()
 default:
     print(helpText)
     if command != "help" && command != "-h" && command != "--help" { exit(1) }

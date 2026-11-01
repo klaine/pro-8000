@@ -3,6 +3,7 @@
 # below are built the way src/main.c and src/synth.c build them, the requests are checked byte for byte, and the name
 # tables are compared with tools/pro800.swift's.
 import contextlib
+import glob
 import io
 import itertools
 import os
@@ -22,8 +23,29 @@ import pro800  # noqa: E402
 HEADER = pro800.SYSEX_HEADER
 
 
+def no_child_process(*command, **options):
+    raise AssertionError(f"a test would have run the real tool, on the real port: {command}")
+
+
+pro800.run_self = no_child_process  # a test that needs it patches in its own
+
+
 def request_bytes(*data):
     return HEADER + bytes(data) + b"\xF7"
+
+
+# what fault_provoke() leaves: a precise bus fault at the unmapped address, escalated to a hard fault
+CRASH = dict(streak=1, exception=3, pc=0x08012345, lr=0x0801ABCD, exc_return=0xFFFFFFE9, cfsr=0x00008200, hfsr=0x40000000,
+             mmfar=0xFEDCBA98, bfar=0x30000000)
+CRASH_TEXT = ("last crash: HardFault (exception 3)\n"
+              "  pc         0x08012345\n"
+              "  lr         0x0801ABCD\n"
+              "  EXC_RETURN 0xFFFFFFE9\n"
+              "  CFSR       0x00008200 PRECISERR BFARVALID\n"
+              "  HFSR       0x40000000 FORCED\n"
+              "  MMFAR      0xFEDCBA98 (not valid)\n"
+              "  BFAR       0x30000000\n"
+              "  streak     1\n")
 
 
 class FakeSynth:
@@ -48,6 +70,11 @@ class FakeSynth:
         self.silent = False  # stock firmware: answers nothing of ours
         self.start_messages = []
         self.panel_events = []
+        self.crash = None  # the record of src/fault.h: a dict, or None
+        self.crashes = True  # takes the crash request (an older firmware ignores it)
+        self.format_count = (1, 0)
+        self.format_failed = 0
+        self.cut = None  # (reply prefix, bytes kept): replies shorter than they should be
 
     def open(self, source, destination, receive):
         self.receive = receive
@@ -64,6 +91,8 @@ class FakeSynth:
         pass
 
     def reply(self, *body):
+        if self.cut and bytes(body[:len(self.cut[0])]) == self.cut[0]:
+            body = body[:self.cut[1]]
         self.receive(HEADER + bytes(body) + b"\xF7")
 
     def ack(self, command):
@@ -141,7 +170,7 @@ class FakeSynth:
         elif c == 0x51:
             self.reply(0x51, 0)
         elif c == 0x5B:
-            self.reply(0x5B, 0, 128, 0)
+            self.reply(0x5B, *self.format_count, self.format_failed)
         elif c == 0x75:
             self.reply(0x76, 24)
         elif c == 0x72:
@@ -160,8 +189,23 @@ class FakeSynth:
             self.ack(0x7D)
         elif c in (0x03,):
             pass
+        elif c == 0x49:
+            self.reply(0x49, *self.fault_body())
+        elif c == 0x4A:
+            if self.crashes and d[1:3] == b"\x43\x52":
+                streak = self.crash["streak"] + 1 if self.crash else 1
+                self.crash = dict(CRASH, streak=streak)
         else:
             self.ack(c)  # the commands that only acknowledge
+
+    def fault_body(self):  # as src/main.c builds 49's reply
+        if self.crash is None:
+            return bytes(3 + 5 * 7)
+        c = self.crash
+        out = [1, min(c["streak"], 0x7F), c["exception"]]
+        for name in ("pc", "lr", "exc_return", "cfsr", "hfsr", "mmfar", "bfar"):
+            out += [c[name] >> shift & 0x7F for shift in (28, 21, 14, 7, 0)]
+        return bytes(out)
 
     def engine_probe(self):
         out = [2, 60, 64, 0, 0, 0, 0, 0, 0, 0]  # held keys per layer: count, four notes
@@ -208,7 +252,7 @@ class SwiftParity(unittest.TestCase):
             cls.swift = f.read()
 
     def table(self, name):
-        found = re.search(r"let " + name + r"(?:: \[String\])? = \[(.*?)\]\n?", self.swift, re.S)
+        found = re.search(r"\b" + name + r"(?:: \[String\])? = \[(.*?)\]\n?", self.swift, re.S)
         self.assertIsNotNone(found, name)
         return re.findall(r'"([^"]*)"', found.group(1))
 
@@ -219,8 +263,37 @@ class SwiftParity(unittest.TestCase):
                 ("linkNames", pro800.LINK_NAMES), ("curveNames", pro800.CURVE_NAMES), ("scaleNames", pro800.SCALE_NAMES),
                 ("rootNames", pro800.ROOT_NAMES), ("divisionNames", pro800.DIVISION_NAMES), ("paramNames", pro800.PARAM_NAMES),
                 ("sourceNames", pro800.SOURCE_NAMES), ("destNames", pro800.DEST_NAMES), ("arpModeNames", pro800.ARP_MODE_NAMES),
-                ("gateNames", pro800.GATE_NAMES)):
+                ("gateNames", pro800.GATE_NAMES), ("layerModes", pro800.LAYER_MODES),
+                ("triggerModes", pro800.TRIGGER_MODES), ("voiceModes", pro800.VOICE_MODES), ("priorities", pro800.PRIORITIES)):
             self.assertEqual(self.table(swift_name), table, swift_name)
+
+    def test_tables_inside_functions(self):
+        with open(os.path.join(HERE, "pro800.py"), encoding="utf-8") as f:
+            python = f.read()
+        for name in ("stages", "kinds"):
+            ours = re.search(name + r" = \[(.*?)\]", python).group(1)
+            self.assertEqual(self.table(name), re.findall(r'"([^"]*)"', ours), name)
+
+    def test_buttons(self):
+        found = re.search(r"let buttonNames: \[Int: String\] = \[(.*?)\]\n", self.swift, re.S).group(1)
+        self.assertEqual({int(k): v for k, v in re.findall(r'([0-9]+): "([a-z-]+)"', found)}, pro800.BUTTON_NAMES)
+
+    def test_fault_tables(self):
+        def pairs(name):
+            found = re.search(r"let " + name + r": .*? = \[(.*?)\]\n", self.swift, re.S).group(1)
+            return [(int(k), v) for k, v in re.findall(r'\(([0-9]+), "([A-Z]+)"\)', found)]
+
+        self.assertEqual(pairs("cfsrBits"), pro800.CFSR_BITS)
+        self.assertEqual(pairs("hfsrBits"), pro800.HFSR_BITS)
+        names = re.search(r"let exceptionNames: .*? = \[(.*?)\]\n", self.swift, re.S).group(1)
+        self.assertEqual({int(k): v for k, v in re.findall(r'([0-9]+): "([A-Za-z]+)"', names)}, pro800.EXCEPTION_NAMES)
+
+    def test_setting_names_match_in_order(self):
+        block = re.search(r"let settingNames: \[String\] = (.*?\"morph\"\])", self.swift, re.S).group(1)
+        names = []
+        for envelope, literal in re.findall(r'perEnvelope\("([^"]+)"\)|"([^"]+)"', block):
+            names += pro800.per_envelope(envelope) if envelope else [literal]
+        self.assertEqual(names, pro800.SETTING_NAMES)
 
     def test_setting_names(self):
         self.assertEqual(len(pro800.SETTING_NAMES), 95)
@@ -229,10 +302,60 @@ class SwiftParity(unittest.TestCase):
         self.assertEqual(pro800.SETTING_NAMES.index("lfo-restart"), 86)
         self.assertEqual(pro800.SETTING_NAMES[91:], ["env-select", "preset-mode", "patch", "morph"])
 
-    def test_every_command_is_here(self):
+    def test_commands_match_both_ways(self):
         commands = set(re.findall(r'^case "([a-z0-9-]+)":', self.swift, re.M))
         self.assertTrue(commands)
         self.assertEqual(commands - set(pro800.COMMANDS), set())
+        self.assertEqual(set(pro800.COMMANDS) - commands, {"port-present"})  # install's child process; the Swift tool asks CoreMIDI
+
+    def swift_help(self):
+        return re.search(r'let helpText = """\n(.*?)\n"""', self.swift, re.S).group(1)
+
+    def test_help_lists_every_command(self):
+        for name, text, known in (("Python", pro800.HELP_TEXT, set(pro800.COMMANDS) - {"port-present", "record"}),
+                                  ("Swift", self.swift_help(), set(pro800.COMMANDS) - {"port-present"})):
+            listed = set(re.findall(r"\bpro800 ([a-z0-9-]+)", text)) & set(pro800.COMMANDS)
+            self.assertEqual(listed, known, name)
+
+    def test_help_says_the_same(self):
+        audio = ("record", "--record", "play <note>", "Run as", "level and pitch")
+        lines = lambda text: [line for line in text.splitlines() if line.strip() and not any(word in line for word in audio)]
+        self.assertEqual(lines(pro800.HELP_TEXT), lines(self.swift_help()))
+
+    def test_the_same_messages(self):
+        for text in ("the bootloader did not accept the header; nothing was written", "the bootloader did not confirm the update",
+                     "the bootloader refused the update", "takes a fresh header", "A stock firmware .syx also brings it back",
+                     "hold buttons 0 and 7", "short reply (", "the stock firmware does not do this", "half old, half new",
+                     "The image carries the tuning tables", "no fault recorded", "holds no record of this crash",
+                     "the same record as before the crash",
+                     "the synth is in its bootloader", "Restart the MIDI service or replug", "BEHRINGER PRO 800", "characters dropped",
+                     "--channel must be 1-16", "notes 0-127", "the file is cut short", "only a header", "pro800 update-mode --yes",
+                     "--erase-wait can't be negative", "the data blocks aren't in order",
+                     "If the synth still plays, it wasn't in its bootloader and nothing changed. If it is there, it stays there ",
+                     "\\nThe synth stays in its bootloader "):
+            with open(os.path.join(HERE, "pro800.py"), encoding="utf-8") as f:
+                self.assertIn(text, f.read(), "pro800.py")
+            self.assertIn(text, self.swift, "pro800.swift")
+
+    def test_swift_says_stuck_in_the_bootloader_only_after_the_accept(self):
+        flash = self.swift[self.swift.index("func flash()"):self.swift.index("let usbFirmware")]
+        self.assertEqual(flash.count("failNote = flashRecovery"), 1)
+        self.assertLess(flash.index("accepted = true"), flash.index("failNote = flashRecovery"))
+        self.assertLess(flash.index("failNote = flashRecovery"), flash.index("failNote = flashNotStarted"), "inside takeReplies")
+        self.assertLess(flash.index("failNote = flashNotStarted"), flash.index("midi.send(m)"))
+
+    def test_swift_takes_an_empty_reply_only_for_backup(self):
+        self.assertEqual(self.swift.count("allowEmpty: true"), 2)
+        backup = self.swift[self.swift.index("func backup()"):self.swift.index("// MARK: - play / record")]
+        self.assertEqual(backup.count("allowEmpty: true"), 2)
+
+    def test_swift_parsers_go_through_the_helper(self):
+        # only the channel lookup, which must not fail on a firmware that can't say, reads a reply by hand
+        self.assertEqual(len(re.findall(r"Array\((?:reply|r|h)\[\(?sysexHeader", self.swift)), 1)
+
+    def test_swift_usage_is_current(self):
+        self.assertNotIn("A00", self.swift)
+        self.assertNotIn("0-199", self.swift)
 
     def test_help_mentions_what_the_preset_installer_greps_for(self):
         self.assertIn("seq set", pro800.HELP_TEXT)
@@ -397,6 +520,32 @@ class ReadOnly(unittest.TestCase):
         self.assertRegex(out, r"filter 1              [+-]0\.0\n")
         self.assertIn("worst filter: 0.0 cents", out)
 
+    def test_check_turns_direct_mode_off_when_it_fails(self):
+        class Refuses(FakeSynth):
+            def handle(self, d):
+                if d[0] == 0x78:
+                    self.reply(0x01, 0x00, 0x01)
+                else:
+                    super().handle(d)
+
+        synth = Refuses()
+        out, code = run(synth, "check", "60", "--osc")
+        self.assertEqual(code, 1)
+        self.assertIn("no acknowledgement", out)
+        self.assertEqual(synth.sent[0], request_bytes(0x74, 1))
+        self.assertEqual(synth.sent[-1], request_bytes(0x74, 0))
+
+    def test_check_turns_direct_mode_off_on_ctrl_c(self):
+        synth = FakeSynth()
+        with mock.patch.object(pro800, "measure_once", side_effect=KeyboardInterrupt):
+            pro800.args = ["60", "--osc"]
+            with mock.patch.object(pro800, "port_names", lambda: (["PRO 800"], ["PRO 800"])), \
+                    mock.patch.object(pro800, "open_transport", synth.open), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(KeyboardInterrupt):
+                    pro800.check()
+                pro800.close_midi()
+        self.assertEqual(synth.sent[-1], request_bytes(0x74, 0))
+
     def test_panel(self):
         self.synth.panel_events = [(0x60, 24, 0x1F, 0x7F), (0x61, 12, 1), (0x62, 2, 0, 5), (0x63, 0, 65), (0x64, 7, 1), (0x64, 7, 0), (0x65, 1, 1)]
         out, code = run(self.synth, "panel", "0.1")
@@ -501,6 +650,268 @@ class Stock(unittest.TestCase):
         self.assertEqual(run(synth, "version"), ("firmware 1.4.6\n", 0))
 
 
+class ShortReplies(unittest.TestCase):
+    CASES = [
+        (("settings",), b"\x54", 3),  # says 95 settings, holds one
+        (("settings",), b"\x54", 1),  # not even the count
+        (("params", "1"), b"\x53", 4),
+        (("params", "1"), b"\x53", 2),
+        (("patches",), b"\x5E", 3),  # no kind
+        (("factory", "import", "5", "P128"), b"\x51", 1),
+        (("factory",), b"\x50", 2),
+        (("format", "--yes"), b"\x5B", 3),
+        (("tune",), b"\x76", 1),
+        (("sh-waits", "2", "4"), b"\x7F\x6C", 2),
+        (("routes",), b"\x54", 10),  # the both-layers masks
+        (("route-both", "1", "lfo", "cutoff", "on"), b"\x54", 10),
+        (("set", "env-curve", "1", "amp", "linear"), b"\x54", 3),
+        (("seq", "set", "on=1"), b"\x48", 6),
+        (("seq",), b"\x48", 6),
+        (("seq",), b"\x46", 5),
+        (("seq", "step", "1", "0", "50", "n2+7"), b"\x48", 3),
+        (("state",), b"\x7C", 10),
+        (("engine",), b"\x55", 10),
+        (("timing",), b"\x58", 4),
+        (("fault",), b"\x49", 20),
+        (("fault-test", "--yes"), b"\x49", 20),
+    ]
+
+    def test_each_parser_says_so(self):
+        for argv, prefix, kept in self.CASES:
+            with self.subTest(argv=argv, kept=kept):
+                synth = FakeSynth()
+                synth.routes[0][9] = (1, 3, 50)
+                synth.cut = (prefix, kept)
+                out, code = run(synth, *argv)  # an IndexError here would be the bug
+                self.assertEqual(code, 1, out)
+                self.assertRegex(out, r"short reply \([0-9]+ bytes\)\n")
+
+    def test_nothing_is_sent_on_the_strength_of_a_short_reply(self):
+        for argv in (("set", "env-curve", "1", "amp", "linear"), ("seq", "set", "on=1")):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                synth.cut = (b"\x54" if argv[0] == "set" else b"\x48", 3)
+                run(synth, *argv)
+                self.assertEqual(len(synth.sent), 1, synth.sent)
+
+    def test_a_slot_kind_this_tool_does_not_know(self):
+        synth = FakeSynth()
+        synth.slots = {3: (9, b"")}
+        out, code = run(synth, "patches")
+        self.assertEqual(code, 0, out)
+        self.assertIn("P4  corrupt", out)
+        self.assertIn("127 empty, 1 corrupt", out)
+
+    def test_seq_set_on_a_firmware_without_the_arp_byte(self):
+        synth = FakeSynth()
+        del synth.sequence[9]
+        out, code = run(synth, "seq", "set", "swing=5")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(synth.sent[-1], request_bytes(0x47, 8, 0, 12, 0, 120, 0, 5, 0, 0))  # the F7 isn't taken for the arp
+        synth.sent.clear()
+        self.assertNotIn("arp", run(synth, "seq")[0])
+
+    def test_seq_set_keeps_the_arp(self):
+        synth = FakeSynth()
+        synth.sequence[9] = 3
+        run(synth, "seq", "set", "swing=5")
+        self.assertEqual(synth.sent[-1], request_bytes(0x47, 8, 0, 12, 0, 120, 0, 5, 0, 3))
+
+    def test_a_stray_index_error_is_one_line(self):
+        def boom():
+            return b""[3]
+
+        pro800.args = ["boom"]
+        err = io.BytesIO()
+        with mock.patch.dict(pro800.COMMANDS, boom=boom), mock.patch.object(sys, "stdout", io.TextIOWrapper(io.BytesIO())), \
+                mock.patch.object(sys, "stderr", io.TextIOWrapper(err)), mock.patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO())), \
+                mock.patch.object(pro800.atexit, "register"):
+            with self.assertRaises(SystemExit) as caught:
+                pro800.main()
+            sys.stderr.flush()
+            self.assertEqual(caught.exception.code, 1)
+            self.assertEqual(err.getvalue().decode().count("\n"), 1)
+            self.assertIn("shorter than this command expects", err.getvalue().decode())
+
+
+class StockError(unittest.TestCase):
+    """The stock firmware answers what it doesn't know with 01 00 01, and request() hands that over."""
+
+    class Firmware(FakeSynth):
+        def handle(self, d):
+            self.reply(0x01, 0x00, 0x01)
+
+    def test_is_not_taken_for_success(self):
+        for argv in (("patch", "load", "P1"), ("patch", "save", "P1"), ("patch", "clear", "P1"), ("patch", "init"),
+                     ("direct", "on"), ("settings",), ("params", "1"), ("patches",), ("tune",), ("seq",), ("seq", "set", "on=1"),
+                     ("routes",), ("factory",), ("factory", "import", "1", "P1"), ("format", "--yes"), ("state",), ("engine",),
+                     ("timing",), ("fault",), ("set", "env-curve", "1", "amp", "linear"), ("tuning",)):
+            with self.subTest(argv=argv):
+                out, code = run(self.Firmware(), *argv)
+                self.assertEqual(code, 1, out)
+                self.assertIn("the stock firmware does not do this", out)
+
+    def test_eeprom_write_stops_at_the_first_block(self):
+        synth = self.Firmware()
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "image.bin")
+            with open(path, "wb") as f:
+                f.write(bytes(0x20000))
+            out, code = run(synth, "eeprom-write", path, "--yes")
+        self.assertEqual(code, 1)
+        self.assertIn("the stock firmware does not do this", out)
+        self.assertNotIn("half old", out)  # it wrote nothing
+        self.assertEqual(len(synth.sent), 1)
+
+
+class Fault(unittest.TestCase):
+    def test_none_recorded(self):
+        synth = FakeSynth()
+        self.assertEqual(run(synth, "fault"), ("no fault recorded\n", 0))
+        self.assertEqual(synth.sent, [request_bytes(0x49)])
+
+    def test_a_record(self):
+        synth = FakeSynth()
+        synth.crash = dict(CRASH)
+        self.assertEqual(run(synth, "fault"), (CRASH_TEXT, 0))
+
+    def test_names(self):
+        synth = FakeSynth()
+        synth.crash = dict(CRASH, exception=16 + 67, pc=0, cfsr=1 << 7 | 1 << 1 | 1 << 25, hfsr=2, streak=3)
+        out, _ = run(synth, "fault")
+        self.assertIn("last crash: interrupt 67 (exception 83)\n", out)
+        self.assertIn("  pc         0x00000000 (no stack frame to read)\n", out)
+        self.assertIn("  CFSR       0x02000082 DACCVIOL MMARVALID DIVBYZERO\n", out)
+        self.assertIn("  HFSR       0x00000002 VECTTBL\n", out)
+        self.assertIn("  MMFAR      0xFEDCBA98\n", out)
+        self.assertIn("  BFAR       0x30000000 (not valid)\n", out)
+        self.assertIn("  streak     3\n", out)
+
+    def test_an_old_firmware_says_nothing(self):
+        synth = FakeSynth()
+        synth.silent = True
+        out, code = run(synth, "fault")
+        self.assertEqual(code, 1)
+        self.assertIn("firmware 0.9.4 or later?", out)
+
+    def fault_test(self, synth, answers_after=2, argv=("--yes",), slow=False):
+        calls = []
+
+        def child(*command, capture=True, timeout=None):
+            calls.append(command)
+            if len(calls) <= answers_after:  # still restarting
+                return mock.Mock(returncode=1, stdout="") if len(calls) % 2 else None
+            if slow:  # over 10 s of running before the port answered: src/fault.h's fault_clear_streak()
+                synth.crash["streak"] = 0
+            return mock.Mock(returncode=0, stdout=pro800.fault_text(synth.fault_body()) + "\n")
+
+        real_sleep = time.sleep
+        with mock.patch.object(pro800, "run_self", child), mock.patch.object(pro800.time, "sleep", lambda s: real_sleep(min(s, 0.001))):
+            out, code = run(synth, "fault-test", *argv)
+        return out, code, calls
+
+    def test_crashes_and_reads_the_record(self):
+        synth = FakeSynth()
+        out, code, calls = self.fault_test(synth)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(synth.sent, [request_bytes(0x49), request_bytes(0x4A, 0x43, 0x52)])
+        self.assertEqual(calls, [("fault",)] * 3)
+        self.assertIn("crashing the synth on purpose", out)
+        self.assertTrue(out.endswith(CRASH_TEXT), out)
+
+    def test_needs_yes(self):
+        synth = FakeSynth()
+        out, code, calls = self.fault_test(synth, argv=())
+        self.assertEqual(code, 1)
+        self.assertIn("usage: pro800 fault-test --yes", out)
+        self.assertEqual((synth.sent, calls), ([], []))
+
+    def test_fails_without_a_record(self):
+        synth = FakeSynth()
+        synth.crashes = False
+        out, code, _ = self.fault_test(synth)
+        self.assertEqual(code, 1)
+        self.assertIn("holds no record of this crash", out)
+
+    def test_an_older_crash_is_not_this_one(self):
+        synth = FakeSynth()
+        synth.crashes = False
+        synth.crash = dict(CRASH, streak=0)
+        out, code, _ = self.fault_test(synth)
+        self.assertEqual(code, 1)
+        self.assertIn("the same record as before the crash", out)
+        self.assertIn("Switch it off and on", out)
+
+    def test_a_port_slower_than_the_streak_is_still_this_crash(self):
+        synth = FakeSynth()
+        out, code, _ = self.fault_test(synth, slow=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("  BFAR       0x30000000\n", out)
+        self.assertIn("  streak     0\n", out)
+        self.assertNotIn("no record", out)
+
+    def test_a_slow_port_after_a_different_crash_is_still_this_crash(self):
+        synth = FakeSynth()
+        synth.crash = dict(CRASH, pc=0x08054321, streak=0)
+        out, code, _ = self.fault_test(synth, slow=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("  pc         0x08012345\n", out)
+
+    def test_a_slow_port_after_the_same_crash_cant_be_told_apart(self):
+        synth = FakeSynth()
+        synth.crash = dict(CRASH, streak=0)
+        out, code, _ = self.fault_test(synth, slow=True)
+        self.assertEqual(code, 1)
+        self.assertIn("the same record as before the crash", out)
+
+    def test_the_streak_alone_tells_this_crash_from_the_last(self):
+        synth = FakeSynth()
+        synth.crash = dict(CRASH, streak=0)
+        out, code, _ = self.fault_test(synth)  # 0 before it, 1 now: all else the same
+        self.assertEqual(code, 0, out)
+        self.assertIn("  streak     1\n", out)
+
+    def test_fails_when_it_never_comes_back(self):
+        synth = FakeSynth()
+        out, code, calls = self.fault_test(synth, answers_after=1000)
+        self.assertEqual(code, 1)
+        self.assertIn("didn't answer within 60 s", out)
+        self.assertEqual(len(calls), 60)
+
+    def test_will_not_be_the_crash_that_stops_the_synth(self):
+        synth = FakeSynth()
+        synth.crash = dict(CRASH, streak=2)
+        out, code, calls = self.fault_test(synth)
+        self.assertEqual(code, 1)
+        self.assertIn("Wait 10 s", out)
+        self.assertEqual((synth.sent, calls), ([request_bytes(0x49)], []))
+
+    def test_a_second_crash_within_ten_seconds_is_fine(self):
+        synth = FakeSynth()
+        synth.crash = dict(CRASH, streak=1)
+        out, code, _ = self.fault_test(synth)
+        self.assertEqual(code, 0, out)
+        self.assertIn("  streak     2\n", out)
+
+
+class Format(unittest.TestCase):
+    def test_new_reply(self):
+        synth = FakeSynth()
+        self.assertEqual(run(synth, "format", "--yes"), ("formatting...\n128 empty slots\n", 0))
+
+    def test_old_reply(self):  # before 0.9.4: 00 80
+        synth = FakeSynth()
+        synth.format_count = (0, 0x80)
+        self.assertEqual(run(synth, "format", "--yes"), ("formatting...\n128 empty slots\n", 0))
+
+    def test_failure(self):
+        synth = FakeSynth()
+        synth.format_failed = 1
+        out, code = run(synth, "format", "--yes")
+        self.assertEqual(code, 1)
+        self.assertIn("format failed", out)
+
+
 class Writes(unittest.TestCase):
     def test_requests_byte_for_byte(self):
         cases = [
@@ -567,7 +978,7 @@ class Writes(unittest.TestCase):
             (("seq", "step", "2", ".", "20"), [0x45, 1, 1, 64, 0, 50, 0, 0, 64, 64, 64, 64]),
             (("seq", "step", "3", "-2", "30", "h5", "b-99"), [0x45, 2, 1, 62, 0, 30, 1 | 5 << 1, 0, 64, 1, 64, 64]),
             (("sh-waits", "2", "4"), [0x6C, 0, 0, 1, 40, 1, 40, 0, 0, 20, 40]),
-            (("update-mode",), [0x03, 0x30]),
+            (("update-mode", "--yes"), [0x03, 0x30]),
         ]
         for argv, expected in cases:
             with self.subTest(argv=argv):
@@ -648,12 +1059,38 @@ class Writes(unittest.TestCase):
                      ("format",), ("eeprom-write", "x"), ("direct", "maybe"), ("cv", "nope", "1"), ("gate", "sawa"),
                      ("cv", "osca1", "0xF_F"), ("param", "1", "cutoff", "1_0"), ("param", "1", "cutoff", "nan"),
                      ("play", "60", "--hold", "-1", "--channel", "1"), ("check", "200"),
-                     ("cc", "1", "2", "--channel", "0"), ("cc", "1", "2", "--channel", "17"), ("bend", "0", "--channel", "-1")):
+                     ("cc", "1", "2", "--channel", "0"), ("cc", "1", "2", "--channel", "17"), ("bend", "0", "--channel", "-1"),
+                     ("update-mode",), ("fault-test",)):
             with self.subTest(argv=argv):
                 synth = FakeSynth()
                 out, code = run(synth, *argv)
                 self.assertEqual(code, 1, out)
                 self.assertEqual(synth.sent, [], out)
+
+    def test_update_mode_says_how_to_get_back(self):
+        out, code = run(FakeSynth(), "update-mode")
+        self.assertEqual(code, 1)
+        self.assertIn("--yes", out)
+        self.assertIn("erases flash sector 4", out)
+        self.assertIn("pro800 flash <file.syx> --yes", out)
+        out, code = run(FakeSynth(), "update-mode", "--yes")
+        self.assertEqual(code, 0)
+        self.assertIn("stays there until a firmware is", out)
+        self.assertIn("pro800 flash <file.syx> --yes", out)
+
+    def test_rename_warns_about_what_it_dropped(self):
+        cases = [(("Foo",), "Foo", None), (("Two", "Words"), "Two Words", None), (("A" * 20,), "A" * 16, 4), (("Füü",), "F", 2),
+                 (("A" * 16,), "A" * 16, None)]
+        for words, name, dropped in cases:
+            with self.subTest(words=words):
+                synth = FakeSynth()
+                out, code = run(synth, "patch", "rename", "P2", *words)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(synth.sent, [request_bytes(0x59, 0, 1, *name.encode())])
+                if dropped is None:
+                    self.assertNotIn("dropped", out)
+                else:
+                    self.assertIn(f"note: {dropped} characters dropped", out)
 
     def test_eeprom_write_verifies(self):
         synth = FakeSynth()
@@ -666,6 +1103,27 @@ class Writes(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(bytes(synth.eeprom), image)
         self.assertIn("verified: the EEPROM matches", out)
+        self.assertIn("The image carries the tuning tables: if it came from another synth, run a Tune", out)
+        self.assertNotIn("half old", out)
+
+    def test_eeprom_write_says_what_a_failed_block_leaves(self):
+        class Dies(FakeSynth):
+            def handle(self, d):
+                if not (d[0] == 0x5A and d[1:4] == bytes([0, 0, 96])):  # the third block
+                    super().handle(d)
+
+        synth = Dies()
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "image.bin")
+            with open(path, "wb") as f:
+                f.write(bytes(0x20000))
+            out, code = run(synth, "eeprom-write", path, "--yes")
+        self.assertEqual(code, 1)
+        self.assertIn("write failed at 0x60", out)
+        self.assertIn("half old, half new", out)
+        self.assertIn("eeprom-write again", out)
+        self.assertIn("pro800 format --yes", out)
+        self.assertEqual(pro800.fail_note, "")
 
     def test_seq_set_wants_a_value(self):
         synth = FakeSynth()
@@ -687,6 +1145,7 @@ class Writes(unittest.TestCase):
             out, code = run(Forgetful(), "eeprom-write", path, "--yes")
         self.assertEqual(code, 1)
         self.assertIn("MISMATCH", out)
+        self.assertIn("half old, half new", out)
 
     def test_eeprom_write_wants_a_whole_image(self):
         synth = FakeSynth()
@@ -700,23 +1159,38 @@ class Writes(unittest.TestCase):
         self.assertEqual(synth.sent, [])
 
 
-def update_file(folder, version=(0, 9, 3), blocks=8, block_size=200):
-    header = HEADER + b"\x0A" + bytes(33) + bytes(version) + bytes(10) + b"\xF7"
-    assert header[42:45] == bytes(version)
-    block = HEADER + b"\x0B" + bytes(block_size) + b"\xF7"
+def update_messages(version=(0, 9, 3), blocks=8, block_size=200, declared=None):
+    """As PRO800_update_gen lays one out: the firmware's size in the header, a count in each block."""
+    size = (blocks if declared is None else declared) * pro800.UPDATE_BLOCK_BYTES
+    header = (HEADER + b"\x0A\x00" + bytes([size & 0x7F, size >> 7 & 0x7F, size >> 14 & 0x7F]) + bytes(11) + b"BEHRINGER PRO 800"
+              + b"\x00" + bytes(version) + bytes(10) + b"\xF7")
+    assert header[24:41] == b"BEHRINGER PRO 800" and header[42:45] == bytes(version)
+    return header, [HEADER + b"\x0B\x00" + bytes([i & 0x7F, i >> 7, 0, 0]) + bytes(block_size) + b"\xF7" for i in range(blocks)]
+
+
+def write_update(folder, messages):
     path = os.path.join(folder, "update.syx")
     with open(path, "wb") as f:
-        f.write(header + block * blocks)
-    return path, header, block
+        f.write(b"".join(messages))
+    return path
+
+
+def update_file(folder, version=(0, 9, 3), blocks=8, block_size=200):
+    header, data = update_messages(version, blocks, block_size)
+    return write_update(folder, [header] + data), header, data
 
 
 class Bootloader:
     """Records when each message came and answers as the bootloader does."""
 
-    def __init__(self, ok=True):
+    def __init__(self, ok=True, accepts=True, blocks=8, status_at=None, dies_at=None):
         self.times = []
         self.sent = []
-        self.ok = ok
+        self.ok = ok  # what it says after the last block: True 01 00 00, False 01 00 07, None nothing
+        self.accepts = accepts
+        self.blocks = blocks
+        self.status_at = status_at or {}  # after that many messages, 01 00 xx
+        self.dies_at = dies_at  # that message is what the port refuses
         self.receive = None
 
     def open(self, source, destination, receive):
@@ -727,27 +1201,56 @@ class Bootloader:
         pass
 
     def send(self, data):
+        if len(self.sent) + 1 == self.dies_at:
+            pro800.fail("midiOutLongMsg failed: Undefined external error. (1)")
         self.times.append(time.perf_counter())
         self.sent.append(bytes(data))
-        if data[8] == 0x0A:
+        if len(self.sent) in self.status_at:
+            self.receive(HEADER + bytes([0x01, 0x00, self.status_at[len(self.sent)]]) + b"\xF7")
+        if data[8] == 0x0A and self.accepts:
             self.receive(HEADER + b"\x03\x31\xF7")
-        elif len(self.sent) == 9:
+        elif len(self.sent) == 1 + self.blocks and self.ok is not None:
             self.receive(HEADER + (b"\x01\x00\x00" if self.ok else b"\x01\x00\x07") + b"\xF7")
 
 
 class Flash(unittest.TestCase):
+    def setUp(self):  # most files here are small, for speed; UpdateFiles tests the size
+        for name, value in (("MIN_UPDATE_BYTES", 0), ("FLASH_ACCEPT_WAIT", 0.1), ("FLASH_CONFIRM_WAIT", 0.1)):
+            patcher = mock.patch.object(pro800, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def flash(self, synth, *options, **file_options):
+        with tempfile.TemporaryDirectory() as folder:
+            path = update_file(folder, **file_options)[0]
+            return run(synth, "flash", path, "--yes", "--erase-wait", "0", "--rate", "9000", *options)
+
+    def recovers(self, out):
+        for text in ("stays in its bootloader", "takes a fresh header without a power-cycle", "close other MIDI software",
+                     "run flash again", "hold buttons 0 and 7", "A stock firmware .syx also brings it back"):
+            self.assertIn(text, out)
+        self.assertEqual(pro800.fail_note, "")
+
+    def may_be_running(self, out):
+        """No 03 31 yet: a running synth ignores the header, so nobody can say it's stuck in its bootloader."""
+        self.assertNotIn("The synth stays in its bootloader", out)
+        for text in ("If the synth still plays, it wasn't in its bootloader and nothing changed", "it stays there until it gets a firmware",
+                     "takes a fresh header without a power-cycle", "hold buttons 0 and 7", "A stock firmware .syx also brings it back"):
+            self.assertIn(text, out)
+        self.assertEqual(pro800.fail_note, "")
+
     def test_dry_run_needs_no_synth(self):
         def no_midi(*a):
             raise AssertionError("opened MIDI")
 
         with tempfile.TemporaryDirectory() as folder:
-            path, header, block = update_file(folder)
+            path, header, blocks = update_file(folder)
             pro800.args = [path, "--dry-run"]
             out = io.StringIO()
             with mock.patch.object(pro800, "port_names", no_midi), mock.patch.object(pro800, "open_transport", no_midi), \
                     contextlib.redirect_stdout(out):
                 pro800.flash()
-        self.assertIn(f"9 messages, {len(header) + 8 * len(block)} bytes, about 4 s at 3000 B/s", out.getvalue())
+        self.assertIn(f"9 messages, {len(header) + sum(len(b) for b in blocks)} bytes, about 4 s at 3000 B/s", out.getvalue())
 
     def test_needs_yes(self):
         synth = Bootloader()
@@ -786,34 +1289,184 @@ class Flash(unittest.TestCase):
         rate, erase_wait = 9000, 0.2
         synth = Bootloader()
         with tempfile.TemporaryDirectory() as folder:
-            path, header, block = update_file(folder)
+            path, header, blocks = update_file(folder)
             out, code = run(synth, "flash", path, "--yes", "--rate", str(rate), "--erase-wait", str(erase_wait))
         self.assertEqual(code, 0)
-        self.assertEqual(synth.sent, [header] + [block] * 8)
+        self.assertEqual(synth.sent, [header] + blocks)
         gaps = [b - a for a, b in zip(synth.times, synth.times[1:])]
         self.assertGreaterEqual(gaps[0], len(header) / rate + erase_wait)
-        for gap in gaps[1:]:
+        for gap, block in zip(gaps[1:], blocks):
             self.assertGreaterEqual(gap, len(block) / rate)
-        speed = len(block) * (len(synth.times) - 2) / (synth.times[-1] - synth.times[1])
+        speed = len(blocks[0]) * (len(synth.times) - 2) / (synth.times[-1] - synth.times[1])
         self.assertLess(speed, 9640)
         self.assertIn("reply after message 1: F0 00 20 32 00 01 24 00 03 31 F7", out)
         self.assertIn("F0 00 20 32 00 01 24 00 01 00 00 F7", out)
+        self.assertIn("done.", out)
 
-    def test_require_ok(self):
+    def test_confirmed(self):
+        self.assertEqual(self.flash(Bootloader(), block_size=4)[1], 0)
+
+    def test_require_ok_is_still_taken(self):
+        self.assertEqual(self.flash(Bootloader(), "--require-ok", block_size=4)[1], 0)
+        self.assertEqual(self.flash(Bootloader(ok=False), "--require-ok", block_size=4)[1], 1)
+
+    def test_no_header_accepted(self):
+        synth = Bootloader(accepts=False)
+        out, code = self.flash(synth, block_size=4)
+        self.assertEqual(code, 1)
+        self.assertIn("the bootloader did not accept the header; nothing was written", out)
+        self.assertEqual(len(synth.sent), 1)  # not one block
+        self.may_be_running(out)
+
+    def test_the_accept_may_come_late(self):
+        class Slow(Bootloader):
+            def send(self, data):
+                self.times.append(0)
+                self.sent.append(bytes(data))
+                if data[8] == 0x0A:
+                    threading.Timer(0.05, self.receive, [HEADER + b"\x03\x31\xF7"]).start()
+                elif len(self.sent) == 9:
+                    self.receive(HEADER + b"\x01\x00\x00\xF7")
+
+        self.assertEqual(self.flash(Slow(), block_size=4)[1], 0)
+
+    def test_refused_block_stops_at_once(self):
+        synth = Bootloader(status_at={4: 7})
+        out, code = self.flash(synth, block_size=4)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(synth.sent), 4)
+        self.assertIn("the bootloader refused the update: 01 00 07 after message 4", out)
+        self.assertNotIn("done.", out)
+        self.recovers(out)
+
+    def test_refused_header(self):
+        synth = Bootloader(accepts=False, status_at={1: 1})  # stock firmware running
+        out, code = self.flash(synth, block_size=4)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(synth.sent), 1)
+        self.assertIn("01 00 01", out)
+        self.may_be_running(out)
+
+    def test_refused_last_block(self):
+        out, code = self.flash(Bootloader(ok=False), block_size=4)
+        self.assertEqual(code, 1)
+        self.assertIn("01 00 07", out)
+        self.recovers(out)
+
+    def test_unconfirmed(self):
+        synth = Bootloader(ok=None)
+        out, code = self.flash(synth, block_size=4)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(synth.sent), 9)
+        self.assertIn("the bootloader did not confirm the update", out)
+        self.assertNotIn("done.", out)
+        self.recovers(out)
+
+    def test_an_ok_before_the_last_block_confirms_nothing(self):
+        out, code = self.flash(Bootloader(ok=None, status_at={4: 0}), block_size=4)
+        self.assertEqual(code, 1)
+        self.assertIn("did not confirm", out)
+
+    def test_other_replies_on_the_way_do_no_harm(self):
+        class Chatty(Bootloader):
+            def send(self, data):
+                super().send(data)
+                self.receive(HEADER + b"\x09\x00\x00\x00\x00\xF7")
+
+        self.assertEqual(self.flash(Chatty(), block_size=4)[1], 0)
+
+    def test_the_port_dying_midway(self):
+        synth = Bootloader(dies_at=5)
+        out, code = self.flash(synth, block_size=4)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(synth.sent), 4)
+        self.assertIn("midiOutLongMsg failed", out)
+        self.recovers(out)
+
+    def test_the_port_dying_on_the_header(self):
+        synth = Bootloader(dies_at=1)
+        out, code = self.flash(synth, block_size=4)
+        self.assertEqual(code, 1)
+        self.assertEqual(synth.sent, [])
+        self.assertIn("midiOutLongMsg failed", out)
+        self.may_be_running(out)
+
+    def test_the_port_dying_right_after_the_accept(self):
+        synth = Bootloader(dies_at=2)
+        out, code = self.flash(synth, block_size=4)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(synth.sent), 1)
+        self.assertIn("midiOutLongMsg failed", out)
+        self.recovers(out)
+
+
+class UpdateFiles(unittest.TestCase):
+    """What flash and install take, at the real size limit."""
+
+    def refused(self, messages, text):
+        synth = Bootloader()
         with tempfile.TemporaryDirectory() as folder:
-            path = update_file(folder, blocks=8, block_size=4)[0]
-            good = run(Bootloader(), "flash", path, "--yes", "--require-ok", "--erase-wait", "0")
-            refused = run(Bootloader(ok=False), "flash", path, "--yes", "--require-ok", "--erase-wait", "0")
-            unchecked = run(Bootloader(ok=False), "flash", path, "--yes", "--erase-wait", "0")
-        self.assertEqual((good[1], refused[1], unchecked[1]), (0, 1, 0))
+            out, code = run(synth, "flash", write_update(folder, messages), "--yes")
+            dry = run(synth, "flash", write_update(folder, messages), "--dry-run")
+        self.assertEqual((code, dry[1]), (1, 1), out)
+        self.assertIn(text, out)
+        self.assertEqual(synth.sent, [])
+
+    def test_a_whole_file(self):
+        header, blocks = update_messages(blocks=48, block_size=240)
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(len(pro800.update_messages(write_update(folder, [header] + blocks))), 49)
+
+    def test_header_only(self):
+        self.refused([update_messages()[0]], "only a header")
+
+    def test_too_small(self):
+        header, blocks = update_messages(blocks=8, block_size=200)
+        self.refused([header] + blocks, "too small for a firmware")
+
+    def test_no_name(self):
+        header, blocks = update_messages(blocks=48, block_size=240)
+        self.refused([header.replace(b"BEHRINGER PRO 800", b"BEHRINGER PRO 600")] + blocks, "the header isn't a PRO-800 update's")
+
+    def test_cut_short_at_a_message(self):
+        header, blocks = update_messages(blocks=48, block_size=240, declared=60)
+        self.refused([header] + blocks, "48 data blocks where the header's size says 60")
+
+    def test_cut_inside_a_message(self):
+        header, blocks = update_messages(blocks=48, block_size=240)
+        self.refused([header] + blocks[:-1] + [blocks[-1][:100]], "last message has no F7")
+
+    def test_a_block_missing(self):
+        header, blocks = update_messages(blocks=49, block_size=240, declared=48)
+        self.refused([header] + blocks[:10] + blocks[11:], "aren't in order")
+
+    def test_blocks_out_of_order(self):
+        header, blocks = update_messages(blocks=48, block_size=240)
+        blocks[3], blocks[4] = blocks[4], blocks[3]
+        self.refused([header] + blocks, "aren't in order")
+
+    def test_real_files_pass(self):
+        # the packer's own output and the stock firmware, where this machine has them; git-ignored, so not everywhere
+        root = os.path.dirname(HERE)
+        found = glob.glob(os.path.join(root, "build", "pro800-*.syx")) + glob.glob(os.path.join(root, "backup", "stock-firmware", "*.syx"))
+        if not found:
+            self.skipTest("no packed firmware here")
+        for path in found:
+            with self.subTest(path):
+                self.assertGreater(len(pro800.update_messages(path)), 100)
 
 
 class Install(unittest.TestCase):
     """install's steps, with the USB list and the child processes replaced."""
 
+    def setUp(self):
+        patcher = mock.patch.object(pro800, "MIN_UPDATE_BYTES", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     class Machine:
-        def __init__(self, mode=pro800.USB_FIRMWARE, enters=True, flash_ok=True, runs="0.9.3"):
-            self.mode, self.enters, self.flash_ok, self.runs = mode, enters, flash_ok, runs
+        def __init__(self, mode=pro800.USB_FIRMWARE, enters=True, flash_ok=True, runs="0.9.3", port=True):
+            self.mode, self.enters, self.flash_ok, self.runs, self.port = mode, enters, flash_ok, runs, port
             self.commands = []
 
         def usb(self, product):
@@ -830,6 +1483,8 @@ class Install(unittest.TestCase):
                     self.mode = pro800.USB_FIRMWARE
             elif command[0] == "version":
                 done.stdout = f"firmware {self.runs}\n"
+            elif command[0] == "port-present":
+                done.returncode = 0 if self.port else 1
             return done
 
     def install(self, machine, version=(0, 9, 3)):
@@ -861,7 +1516,8 @@ class Install(unittest.TestCase):
             out, code = self.install(machine)
         self.assertEqual(code, 0, out)
         self.assertEqual(self.names(machine), ["update-mode", "port-present", "flash", "version"])
-        self.assertTrue(any(c[0] == "flash" and "--require-ok" in c and "--yes" in c for c in machine.commands))
+        self.assertIn(("update-mode", "--yes"), machine.commands)  # install's own --yes is enough for the user
+        self.assertTrue(any(c[0] == "flash" and "--yes" in c for c in machine.commands))
         self.assertIn("running firmware 0.9.3", out)
 
     def test_from_the_bootloader(self):
@@ -886,6 +1542,61 @@ class Install(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("nothing was flashed", out)
         self.assertEqual([c[0] for c in machine.commands], ["update-mode"] * 3)
+
+    def test_the_bootloaders_port_never_appears(self):
+        machine = self.Machine(port=False)
+        with mock.patch.object(pro800.time, "monotonic", side_effect=iter(range(0, 100000))):
+            out, code = self.install(machine)
+        self.assertEqual(code, 1)
+        for text in ("the synth is in its bootloader", "nothing was flashed", "Restart the MIDI service or replug", "pro800 flash ", "--yes"):
+            self.assertIn(text, out)
+        self.assertNotIn("flash", [c[0] for c in machine.commands])
+
+    class Timed(Machine):
+        """With a clock, and the port coming and going as port_at() says"""
+
+        def __init__(self, port_at=lambda t: True, **options):
+            super().__init__(mode=pro800.USB_BOOTLOADER, **options)
+            self.now, self.port_at, self.times = 0.0, port_at, {}
+
+        def run_self(self, *command, capture=True, timeout=None):
+            self.times.setdefault(command[0], self.now)
+            self.port = self.port_at(self.now)
+            return super().run_self(*command, capture=capture, timeout=timeout)
+
+    def timed(self, machine):
+        def sleep(seconds):
+            machine.now += seconds
+
+        with mock.patch.object(pro800.time, "monotonic", lambda: machine.now):
+            with tempfile.TemporaryDirectory() as folder:
+                pro800.args = [update_file(folder, (0, 9, 3))[0], "--yes"]
+                with mock.patch.object(pro800, "usb_device_present", machine.usb), mock.patch.object(pro800, "run_self", machine.run_self), \
+                        mock.patch.object(pro800.time, "sleep", sleep), \
+                        contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    pro800.install()
+        return machine.times
+
+    def test_a_page_left_open_has_finished_looking_before_the_flash(self):
+        with open(os.path.join(HERE, "web", "index.html"), encoding="utf-8") as f:
+            quiet = int(re.search(r"const RECONNECT_QUIET = (\d+);", f.read()).group(1)) / 1000
+        with open(os.path.join(HERE, "web", "install.html"), encoding="utf-8") as f:
+            page = f.read()
+        idle_tab = int(re.search(r"setTimeout\(refresh, (\d+)\)", page).group(1)) / 1000
+        self.assertIn('retry(2, () => request([0x79, ...a, 4], [0x79, ...a, 4], 1000))', page)
+        self.assertIn('retry(2, () => request([0x77, 0x7E, 0x03], [0x78, 0x7E, 0x03], 1200))', page)
+        last_message = idle_tab + 2 * 1.0 + 1.2  # 08, 79 and 79 again, 77 and 77 again: its last goes out a timeout before the end
+        times = self.timed(self.Timed())
+        wait = times["flash"] - times["port-present"]
+        self.assertGreaterEqual(wait, pro800.PORT_STEADY)
+        self.assertGreaterEqual(wait - quiet, 4, "the editor, with time for a browser that hears of the port late")
+        self.assertGreaterEqual(wait - last_message, 1, "an idle installer tab")
+        with open(os.path.join(HERE, "pro800.swift"), encoding="utf-8") as f:
+            self.assertIn(f"let portSteady = {pro800.PORT_STEADY}\n", f.read())
+
+    def test_a_port_that_drops_starts_the_wait_again(self):
+        times = self.timed(self.Timed(port_at=lambda t: not 2 <= t < 3))
+        self.assertGreaterEqual(times["flash"], 3 + pro800.PORT_STEADY)
 
     def test_says_why_a_step_failed(self):
         self.addCleanup(setattr, pro800, "child_error", "")

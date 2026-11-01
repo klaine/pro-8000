@@ -9,16 +9,22 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   with Music Tribe's `PRO800_update_gen`. `--no-pack` skips packing; `-h` prints the help. On Windows, run it from
   Git Bash (`winget install zig.zig`). The packer salts its output, so two packs of one `.bin` differ: compare `.bin`s.
 - `scripts/tools.sh` builds `build/pro800`, the macOS USB MIDI tool (`build/pro800 help`):
-  - Read-only: `ports`, `version`, `listen`, `backup <dir>` (system settings + patches as .syx).
+  - Read-only: `ports`, `version`, `listen`, `backup <dir>` (system settings + patches as .syx), `fault` (the last crash, SysEx 49, 0.9.4+).
   - `play <note> --record`: plays a note and measures level and pitch from the Move's audio input.
-  - Changes the synth: `update-mode` (reboot into the bootloader) and `flash <file.syx> --yes`. Flash checks
-    that the file is a packed update and paces it below the bootloader's 9.64 kB/s, waiting after the header
-    for the flash erase. `--dry-run` only checks the file.
+  - Changes the synth: `update-mode --yes` (reboot into the bootloader; it erases flash sector 4, so the synth stays there
+    until flashed; without `--yes` nothing is sent) and `flash <file.syx> --yes`. Flash, `--dry-run` and `install` refuse a
+    file that isn't a whole packed update: header only, under 10000 bytes, no `BEHRINGER PRO 800` and version in the header,
+    a block count that differs from the header's size, blocks out of order or missing. Flash paces it below the bootloader's
+    9.64 kB/s, waits after the header for the flash erase, then up to 7 s for `03 31`; stops at the first `01 00 xx` with xx
+    nonzero; needs `01 00 00` after the last block (up to 6 s). Exit is nonzero on any failure, and the message says the way
+    back. `--dry-run` only checks the file; `--require-ok` is accepted and does nothing.
+  - `fault-test --yes` (0.9.4+) crashes the synth on purpose (SysEx 4A 43 52), waits up to 60 s for the restart and prints the
+    record. It fails with no record, and refuses at streak 2 or more: the third crash in a row stops the synth until a power cycle.
   - Our firmware plays on every MIDI channel unless one is set (`set midi-channel all|1-16`, Shift + NOISE);
     `play`, `cc` and `bend` default to that channel, else 6 (the stock firmware's) for `play` and 1 for the others.
   - Knob pickup is on unless turned off (`set pickup on|off`, Shift + FIL ENV AMT, 0.9.3): off, a knob in pickup
     takes over as soon as it moves (the stock synth's jump).
-  - `install <file.syx> --yes`: update-mode + flash + wait until the synth runs the file's version (it autotunes first). Fails if the synth doesn't reach the bootloader (USB `1397:1260`), the bootloader doesn't confirm the update, or another version answers; reinstalling the same version is fine.
+  - `install <file.syx> --yes`: update-mode + flash + wait until the synth runs the file's version (it autotunes first). The bootloader's port has to stay 8 s first (`PORT_STEADY`), so pages left open finish probing it. Fails if the synth doesn't reach the bootloader (USB `1397:1260`), its MIDI port doesn't appear, the bootloader doesn't confirm the update, or another version answers; reinstalling the same version is fine.
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
   - Patches: `patches`, `patch load|save|clear <slot>`, `format --yes` (wipe every slot), `eeprom <file>` (read),
     `eeprom-write <image> --yes` (write and verify, e.g. back to stock).
@@ -43,8 +49,9 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 - `tools/pro800.py` is the same tool for Windows, with the same commands: nothing to build, `python tools/pro800.py help`
   (Python 3.8+, WinMM through ctypes). Read `python tools/pro800.py` for `build/pro800` in these notes. Left out: `record`
   and `play --record`. On macOS and Linux it needs `pip install python-rtmidi`; on macOS the Swift tool stays the tested one.
-  A new command goes in both tools. `python tools/test_pro800.py` runs it against a simulated synth (no MIDI port): requests
-  byte for byte, replies as `src/main.c` builds them, name tables and command list against `tools/pro800.swift`. It flashes
+  A new command goes in both tools. `python tools/test_pro800.py` runs it against a simulated synth (no MIDI port; it replaces
+  `run_self` at import, so no test can start the tool on the real port): requests byte for byte, replies as `src/main.c`
+  builds them, name tables and command list against `tools/pro800.swift`. The tool flashes
   like the Swift tool (same checks, pacing and erase wait), so quit SynthTribe and close WebMIDI pages first: under Windows
   MIDI Services they stay connected and every program sees every reply (NOTES). The stock firmware answers only `version`,
   `backup` and `listen`.
@@ -63,7 +70,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   `node` against routes measured on the simulator's CVs; `WebInstaller`, `WebReconnect`, `WebRestore`, `WebSaveInASlot`,
   `WebMarkingTheMemory` and `WebSmallThings` run the pages' code in `node` against fake ports or the simulated firmware (all
   skipped without node), and `PresetBundle` checks `presets/lib/bundle.py`.
-- Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
+- Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode --yes`, then `flash ... --yes`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
 - The installer page `tools/web/install.html` (http://localhost:8800/install.html, on the site `editor/install.html`):
   WebMIDI, needs the same browsers. Flashes `firmware.syx` beside it (`scripts/web.sh` and `scripts/pages.sh` copy the

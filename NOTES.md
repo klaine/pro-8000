@@ -1292,7 +1292,13 @@ asymmetric clocks and no SYNC wait; both logs were in the session's scratchpad):
   in Chrome reconnects and polls it (54, every 0.9 s) in the middle of the update: the header never gets its `03 31`
   and every block after it answers `01 00 07`, the image is rejected (`noFW` at power-up) and the synth waits in
   `boot`. A power-cycle doesn't help while the page polls; closing it does (then `03 31`, and `01 00 00` at the end).
-  Neither the file nor the size was at fault: the previous build failed the same way.
+  Neither the file nor the size was at fault: the previous build failed the same way. **From 2026-10-31** `connect()`
+  sends only 08 and 79 and stays off anything that doesn't answer 79, the poll is gated while connecting, and the
+  reconnect waits 3 s of quiet, reacting only to real port state changes. The remaining risk: a flash from outside this
+  browser can get those two messages about 3 s after the bootloader's port appears, then silence, so closing WebMIDI
+  pages before a command-line flash still stands. `pro800 install` now waits 8 s after that port appears (`PORT_STEADY`):
+  the editor sends at 3 s, and an idle installer tab starts at 3.5 s and sends its last, unanswered, about 3.2 s later. A
+  very late browser can still interfere, and plain `flash` has no such wait.
 - **Arp Assign held on a layer without routes** (issue 5: "Arp Assign shows None instead of SrC"): a press is
   short only if it's let go within 0.6 s; longer, it browses the routes, and with none `browse_begin` showed `nonE`
   for a second and left, so a slightly long press looked like the button not working (same in the 0.9.0 release).
@@ -1926,6 +1932,36 @@ matters:
   phase jump (about 60 ms at 120 BPM after the simulator's 25 s tune), not a dark light.
 - Single-wire routes use a layer's last voice only while that voice is still on that layer. After a split change, that layer's
   single-wire routes contribute nothing until it plays a new note.
+
+**The tools** (both, unless it says Swift)
+
+- `update-mode` is now `update-mode --yes`: without it nothing is sent and it explains. Notes above that say plain `update-mode` are
+  history.
+- `flash <file.syx> --yes`: the checks are the default. After the erase wait it waits for `03 31` for up to 7 s, stops at the first
+  `01 00 xx` with xx nonzero, and needs `01 00 00` after the last block (up to 6 s; an earlier OK doesn't count). Exit is nonzero on
+  any failure. Before `03 31` the failure text says "If the synth still plays, it wasn't in its bootloader and nothing changed. If it is
+  there, it stays there until it gets a firmware...", since only that reply shows it's in the bootloader; after it, "The synth stays in
+  its bootloader until...". `--require-ok` is accepted and does nothing. The Swift tool refuses a negative `--erase-wait` too.
+- `flash`, `flash --dry-run` and `install` refuse a header-only file, a file under 10000 bytes, a header without `BEHRINGER PRO 800`
+  at bytes 24-40 and a version at 42-44, a block count that differs from the header's size, and blocks out of order or missing. The installer page's `parseUpdate()` makes the same checks (run over stock 1.4.6, 0.9.3 and 0.9.4: all accepted).
+- **New about the update format:** header bytes 10-12 (7 bits each, low first) hold the firmware size, always a multiple of 32. Each
+  block carries 210 bytes and counts itself in bytes 10-11 (7 bits, low first). Blocks = ceil(size / 210). True of stock 1.4.6
+  (139168 bytes, 663 blocks), 0.9.3 (78624, 375) and 0.9.4 (79232, 378). `install.html` doesn't check this yet.
+- `install` needs no other flag and now has the 8 s port wait (above). New failure text when the port doesn't appear: the synth is in
+  its bootloader, its MIDI port didn't appear, nothing was flashed, restart the MIDI service or replug, then the flash command.
+- New `fault` (read-only, 0.9.4+) prints `no fault recorded`, or the exception by name, pc, lr, EXC_RETURN, CFSR and HFSR with named
+  bits, MMFAR and BFAR (`(not valid)` unless CFSR says valid), streak. New `fault-test --yes` crashes the synth, waits up to 60 s for
+  the restart and prints the record. It fails if there's no record, or if the record matches the one from before the crash with the
+  streak cleared (it didn't crash, or took over 10 s to answer: switch off and on and run it again). It refuses at streak 2 or more.
+- `format --yes`: a failed format exits 1. `eeprom-write`: a failed block after the first, or a mismatch, says the memory is half
+  old, half new; success adds that the image carries the tuning tables. The Swift tool's mismatch now exits 1. `patch rename` says how
+  many characters it dropped. `patches` lists a slot kind over 3 as corrupt.
+- `patch load|save|clear|init`, `eeprom-write` and all parsers: the stock firmware's `01 00 01` gives "the stock firmware does not do
+  this", too-short replies "short reply (n bytes)"; the Python tool turns any other IndexError into one line.
+- Swift only: `check` refuses notes outside 0-127; `cc` and `bend` refuse `--channel` 0 or 17; usage says slots 0-127 or P1-P128.
+  `check`, `dac-test` and `dac-heal` put direct mode back on failure through `onFail`, because `exit()` runs no defer.
+- `presets/lib/bundle.py` fails the build on a slot outside 1-128 or taken twice, and on a name that isn't plain ASCII, is over 16
+  characters or has spaces at its edges.
 
 ## Backlog
 
