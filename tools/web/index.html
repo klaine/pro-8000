@@ -545,7 +545,7 @@
         <li><kbd>Arp Assign</kbd> <code class="lcd">SrC</code> (a knob touched in the 5 s before is the destination already)</li>
         <li>the source: a number key, a touch of an LFO or ADSR knob, or scroll with <kbd>VALUE</kbd> and press <kbd>Arp Assign</kbd></li>
         <li>the destination: touch its knob (ADSR knobs = envelope stages) or an LFO routing button, or scroll (names only) and press <kbd>Arp Assign</kbd></li>
-        <li><kbd>VALUE</kbd>: depth −99…99 (0 removes; <code class="lcd">FULL</code> = 16 in use)</li>
+        <li><kbd>VALUE</kbd>: depth −99…99 (5 s at 0 removes it, sooner back keeps it; <code class="lcd">FULL</code> = 16 in use, none at 0)</li>
         <li><kbd>Arp Assign</kbd> to finish (back to the patch number); hold it to browse the routes: <kbd>VALUE</kbd> steps through <code class="lcd">nod1</code> <code class="lcd">nod2</code> …, at rest the route's number, source, destination and depth cycle; press to edit, hold to leave. With no routes, a hold starts at <code class="lcd">SrC</code> too (the init sound has two: a hold browses them).</li>
       </ol>
       <div class="ct-pair">
@@ -634,7 +634,8 @@
       add, in the destination's own units: ± for a source that swings either side of the middle, one way for a 0-to-1
       source; for a cutoff, an LFO rate or a time, also where that takes the knob from where it stands. On the panel: Arp Assign,
       then a source (a number key, a touch of an LFO or ADSR knob, or scroll with VALUE), then a destination (touch
-      its knob or LFO button, or scroll and press Arp Assign), VALUE for the depth; hold Arp Assign to browse the routes.
+      its knob or LFO button, or scroll and press Arp Assign), VALUE for the depth; hold Arp Assign to browse the routes. A route at 0 plays nothing and keeps its slot and its Both mark: after 5 s at 0 it's removed,
+      or a new route takes its slot if the table is otherwise full. A save leaves it out.
       <span data-needs="routeBoth">In the two-layer modes, Both plays a route on both layers' voices with one slot and one
       depth; each voice reads its own velocity, envelopes and LFOs. It shows on the other layer too, marked, and edits from there.
       It adds to the other layer's own routes: the init sound has its velocity routes on each layer, so take the other layer's off first for one shared response.</span>
@@ -905,6 +906,7 @@ function onMessage(e) {
 
 // The status line: the firmware's version, and what this editor leaves out because that firmware hasn't got it
 let firmwareVersion = "";
+// Older than the route hold and the init sound's routes: the sound plan's route slots start from an empty table
 function showFirmware() {
   const status = document.getElementById("status");
   if (!output || !firmwareVersion) return;
@@ -1458,6 +1460,9 @@ let routesLayer = null; // the layer layerRoutes was read from (paramsLayer move
 let otherRoutes = [];   // the other layer's routes that play on this one too (same form)
 const ROUTES = 16;      // per layer, src/mod.h
 const routesFull = () => `All ${ROUTES} mod routes of layer ${paramsLayer + 1} are in use`;
+// The slots a new route can't have: one waiting at 0 gives its slot up (synth_set_route())
+const routesTaken = () => layerRoutes.filter(r => r.depth).length;
+const ROUTE_HOLD_TEXT = "5 s"; // ROUTE_HOLD_MS in synth.h
 const routeBothMask = l => rawSettings ? (rawSettings[`routeBoth${l + 1}Lo`] || 0) | (rawSettings[`routeBoth${l + 1}Hi`] || 0) << 8 : 0;
 const routesBothShown = () => !!settings && twoLayers(settings) && feature("routeBoth");
 // How far the edit layer's routes can move each knob, in knob units (0..1 of its travel), from the engine's
@@ -2778,7 +2783,7 @@ function laneEditor(l) {
     await refreshLayerRoutes();
   };
   paints.push(() => {
-    const r = layerRoutes && layerRoutes.find(r => r.source === src);
+    const r = layerRoutes && layerRoutes.find(r => r.source === src && r.depth); // not one on its way out at 0
     if (document.activeElement !== dest) dest.value = String(r ? r.dest : -1);
   });
   const smooth = led("Smooth", () => seq && seq.smooth >> l & 1, on => { if (!seq) return; seq.smooth = on ? seq.smooth | 1 << l : seq.smooth & ~(1 << l); sendSeqHeader(); },
@@ -2994,7 +2999,7 @@ function velocityKnob(dest, name, min, about) {
     if (!held()) moved = false;
     const x = depthAt(u), on = route(), layer = paramsLayer;
     if (!reset && !moved && x === depthAt(pos(truth()))) { local = u; at = Date.now(); localLayer = layer; return; } // hasn't left where it points
-    if (x && !on && layerRoutes.length >= ROUTES) { // the slots are taken: it stays where the truth is
+    if (x && !on && routesTaken() >= ROUTES) { // the slots are taken: it stays where the truth is
       local = null;
       velocityStatus(`${routesFull()} (Mod matrix, below)`, "bad");
       paintAll();
@@ -3010,8 +3015,8 @@ function velocityKnob(dest, name, min, about) {
       await refreshLayerRoutes(); // the matrix and the rings follow
       if (thisTurn !== turn) return; // turned again meanwhile: its own write will settle it
       local = null;
-      if (!ok) velocityStatus(layerRoutes.length >= ROUTES ? `${routesFull()} (Mod matrix, below)` : "The synth didn't take that route", "bad");
-      else if (!x && on && on.both && routesBothShown()) velocityStatus(`${name} is off on layer ${layer + 1}, and its Both mark went with it`, "");
+      if (!ok) velocityStatus(routesTaken() >= ROUTES ? `${routesFull()} (Mod matrix, below)` : "The synth didn't take that route", "bad");
+      else if (!x && on && on.both && routesBothShown()) velocityStatus(`${name} is at 0 on layer ${layer + 1}: ${ROUTE_HOLD_TEXT} there takes it off, and its Both mark with it`, "");
       else velocityUnsay();
       paintAll();
     }, 60);
@@ -3023,13 +3028,13 @@ function velocityKnob(dest, name, min, about) {
     const x = depth(), on = route(), two = routesBothShown(), other = two && otherRoutes.find(r => r.source === SRC_VELOCITY && r.dest === dest);
     d.turn(get());
     const out = x < min, notes = [];
-    const copies = mine().length;
+    const copies = mine().filter(r => r.depth).length; // one at 0 is on its way out
     val.textContent = (x ? signed(x) : "off") + (copies > 1 ? ` ×${copies}` : "") + (on && on.both && two ? " both" : "") + (other ? ` +L${other.layer + 1}` : "");
     dl.setAttribute("aria-valuetext", val.textContent);
     e.classList.toggle("out", out);
-    if (copies > 1) notes.push(`Layer ${paramsLayer + 1} has this route ${copies} times, which only a hand-made record can: the engine plays them all, the knob turns the first, and 0 takes them all off.`);
+    if (copies > 1) notes.push(`Layer ${paramsLayer + 1} has this route ${copies} times, which only a hand-made record can: the engine plays them all, the knob turns the first, and 0 sets them all to 0, which takes them off after ${ROUTE_HOLD_TEXT}.`);
     if (out) notes.push(`Layer ${paramsLayer + 1} has this route at ${signed(x)}. A negative depth does nothing here on its own, so the knob rests at 0 and leaves it alone until you turn it up, which replaces it.`);
-    if (on && on.both && two) notes.push(`Marked Both: this one route plays on both layers' voices, so turning it changes both. 0 takes it and the mark away.`);
+    if (on && on.both && two) notes.push(`Marked Both: this one route plays on both layers' voices, so turning it changes both. Through 0 it stays as it is; ${ROUTE_HOLD_TEXT} at 0 takes it and the mark away.`);
     if (other) notes.push(`Layer ${other.layer + 1}'s own route at ${signed(other.depth)} also plays on this layer (Both); this knob doesn't touch it. See the mod matrix.`);
     if (paramsLayer === 1 && linkOn(dest === DEST_CUTOFF ? LINK_FILTER : 1)) notes.push("Links don't take routes: this is layer 2's own.");
     e.title = [about, ...notes].join(" ");
@@ -3113,7 +3118,7 @@ function morphControls() {
       document.getElementById("status").textContent = routesFull();
     await refreshLayerRoutes();
   };
-  paints.push(() => { const r = layerRoutes && layerRoutes.find(r => r.dest === MORPH_DEST);
+  paints.push(() => { const r = layerRoutes && layerRoutes.find(r => r.dest === MORPH_DEST && r.depth);
     if (document.activeElement !== source) source.value = String(r ? r.source : 0); });
   return h("div", { class: "row" }, h("label", { class: "sel" }, h("span", { class: "lbl" }, "Morph to"), target),
     h("label", { class: "sel" }, h("span", { class: "lbl" }, "Morph by"), source));
@@ -3211,7 +3216,7 @@ function buildPanel() {
     h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Macro 1"), power),
     ps("amp", "Amplifier",
       pflex(
-        velocityKnob(DEST_VCA, "Velocity → VCA", 0, "How much softer a soft note plays, 0 to 99: level = 1 - (1 - velocity) × depth, so at 70 velocity 127 plays at full and 64 at about 0.65. It's the edit layer's route in the mod matrix below: 0 removes it, turning up adds it, a double-click takes it off. On the synth, from 0.9.4: Shift + M VOL (VE.A)."),
+        velocityKnob(DEST_VCA, "Velocity → VCA", 0, "How much softer a soft note plays, 0 to 99: level = 1 - (1 - velocity) × depth, so at 70 velocity 127 plays at full and 64 at about 0.65. It's the edit layer's route in the mod matrix below: 5 s at 0 removes it, turning up adds it, a double-click takes it off. On the synth, from 0.9.4: Shift + M VOL (VE.A)."),
         prow(knob(P.AMP_ATT, "Attack"), knob(P.AMP_DEC, "Decay"), knob(P.AMP_SUS, "Sustain"), knob(P.AMP_REL, "Release")),
         h("div", { class: "env-side" }, viz("env", drawEnv(1)), envTools(ENVS[1])))),
     h("div", { class: "loose loose-vol" }, knob(P.VOL, "Volume")));
@@ -3374,12 +3379,16 @@ async function copyLfo(which) {
   const read = async layer => {
     const d = await ask([0x57, layer], [0x57, layer], 1000), list = [];
     if (d) for (let r = 0; r < ROUTES; r++)
-      if (d[2 + 4 * r] === src) list.push({ dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
+      if (d[2 + 4 * r] === src) list.push({ slot: r, dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99 });
     return d ? list : null;
   };
   const mine = ok && await read(to), theirs = ok && await read(from);
   let full = 0;
   if (mine && theirs) {
+    // a route back from 0 keeps its Both mark, but what comes back here is the other layer's: marked, it would play on that layer's voices on top of its own
+    await refreshSettings();
+    const marks = routeBothMask(to), kept = marks & ~mine.reduce((bits, r) => bits | 1 << r.slot, 0);
+    if (kept !== marks) ok = await set7D(`routeBoth${to + 1}Lo`, kept & 255) && await set7D(`routeBoth${to + 1}Hi`, kept >> 8);
     for (const r of mine) await setRoute(to, src, r.dest, 0);
     for (const r of theirs) if (!await setRoute(to, src, r.dest, r.depth)) full++;
   } else ok = false;
@@ -3506,7 +3515,7 @@ function renderRoutes(force) {
   for (const route of [...layerRoutes, ...otherRoutes]) {
     const { layer, source: src, dest, depth, both } = route, own = layer === paramsLayer;
     if (src >= SOURCES.length || dest >= DESTS.length) continue;
-    if (own) used++;
+    if (own && depth) used++;
     const tr = document.createElement("tr");
     tr.innerHTML = `<td><select class="s">${options(SOURCES, 0)}</select></td>
       <td><select class="d">${options(DESTS, -1)}</select> ${WIRE.has(dest) ? '<span class="tag">wire</span>' : ""}${own ? "" : ` <span class="tag">layer ${layer + 1}'s</span>`}</td>
@@ -3516,7 +3525,10 @@ function renderRoutes(force) {
       <td class="actions"><button class="del">Remove</button></td>`;
     tr.querySelector(".s").value = src; tr.querySelector(".d").value = dest;
     const range = tr.querySelector("input"), out = tr.querySelector("output");
-    tr._paintRange = () => paintRange(tr.querySelector(".range"), src, dest, +range.value || 0);
+    tr._paintRange = () => {
+      paintRange(tr.querySelector(".range"), src, dest, +range.value || 0);
+      if (!+range.value) tr.querySelector(".range").replaceChildren("–", h("small", {}, `plays nothing; ${ROUTE_HOLD_TEXT} at 0 takes it off`));
+    };
     tr._paintRange();
     let timer = 0;
     tr._route = `${layer}:${src}:${dest}`;
@@ -3766,7 +3778,7 @@ async function readSound() {
     const d = await ask([0x57, layer], [0x57, layer], 1000), list = [];
     if (!d) bad("the synth didn't send its routes");
     for (let r = 0; r < ROUTES; r++)
-      if (d[2 + 4 * r]) list.push([JN.sources[d[2 + 4 * r] - 1], JN.dests[d[3 + 4 * r]], (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99,
+      if (d[2 + 4 * r] && (d[4 + 4 * r] << 7 | d[5 + 4 * r]) !== 99) list.push([JN.sources[d[2 + 4 * r] - 1], JN.dests[d[3 + 4 * r]], (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, // one at 0 isn't saved either
         ...(routeBothMask(layer) >> r & 1 ? ["both"] : [])]);
     if (list.length) out.routes[layer + 1] = list;
   }
@@ -3831,6 +3843,8 @@ async function loadSound(text, from) {
     if (!await ack(messages[i], 3000)) { jsonMsg(`the synth didn't take message ${i + 1} of ${messages.length} (${messages[i][0].toString(16)})`, "bad"); return; }
     if (i % 20 === 19) jsonMsg(`loading… ${i + 1} / ${messages.length}`);
   }
+  const stuck = await markBothRoutes(plan, ask, m => ack(m, 3000));
+  if (stuck) { jsonMsg(`the synth didn't take a message for the Both marks (${stuck[0].toString(16)})`, "bad"); return; }
   document.getElementById("json-name").value = j.name || "";
   if (j.slot) document.getElementById("json-slot").value = Math.min(128, Math.max(1, j.slot)) - 1;
   await refreshSettings(); await refreshParams(); seqFor = null; await refreshSettings();
@@ -4044,6 +4058,8 @@ async function installBank(bank, from) {
     const p = list[i], n = p.slot - 1;
     for (const m of plans[i].messages)
       if (!await ack(m, 3000)) { bankMsg(`P${p.slot}: the synth didn't take a message (${m[0].toString(16)}); stopped`, "bad"); await scanSlots(); return; }
+    const stuck = await markBothRoutes(plans[i], ask, m => ack(m, 3000));
+    if (stuck) { bankMsg(`P${p.slot}: the synth didn't take a message (${stuck[0].toString(16)}); stopped`, "bad"); await scanSlots(); return; }
     if (!await ack([0x5D, n >> 7, n & 0x7F], 3000)) { bankMsg(`saving P${p.slot} failed; stopped`, "bad"); await scanSlots(); return; }
     const name = nameBytes(p.name);
     if (name.length) await ack([0x59, n >> 7, n & 0x7F, ...name], 3000);

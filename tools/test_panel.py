@@ -104,6 +104,7 @@ CV_AMP1, CV_FIL1, CV_NOISE, CV_PW_A = 24, 16, 36, 38
 VELOCITY, VCA, CUTOFF = pro800.SOURCE_NAMES.index("velocity"), pro800.DEST_NAMES.index("vca"), pro800.DEST_NAMES.index("cutoff")
 INIT_ROUTES = [(VELOCITY, VCA, 70), (VELOCITY, CUTOFF, 20)]  # src/main.c, init_patch(); MANUAL, the mod matrix
 KNOB_START = [(VELOCITY, VCA, 40), (VELOCITY, CUTOFF, 20)]  # where the knob tests begin: their setUp sets it, whatever init holds
+ROUTE_HOLD_MS = 5000  # src/synth.h
 
 
 class Synth:
@@ -243,14 +244,15 @@ class Synth:
         return [r for r in self.route_table(layer) if r[0]]
 
     def rest(self):
-        """A moment for a route taken off: 0 takes it at once."""
-        self.ms(50)
+        """Long enough for a route at 0 to go (ROUTE_HOLD_MS)."""
+        self.ms(ROUTE_HOLD_MS + 50)
 
     def no_routes(self):
         """Takes every route off both layers: the start for a test about something else, as the init sound comes with two."""
         for layer in (0, 1):
             for source, dest, _ in self.routes(layer):
                 self.request(0x56, layer, source, dest, 0, 99)
+        self.rest()  # they go after resting at 0 (MANUAL, the mod matrix)
 
     def cvs(self):
         return [int(x) for x in self.cmd("cv").split()]
@@ -1942,6 +1944,8 @@ class ModAssign(PanelTest):
         self.s.turn(-5)
         self.assertShows("   0")
         self.s.press("ASSIGN")
+        self.assertEqual(self.s.routes(), [(4, 3, 0)], "at 0 it waits")
+        self.s.rest()
         self.assertEqual(self.s.routes(), [])
 
     def test_seq_and_arp_up_still_work_while_assigning(self):
@@ -5333,6 +5337,13 @@ function fakeFirmware(d, m) {
   if (d[0] === 0x54) return [0x54, SETTINGS.length, ...SETTINGS.flatMap(() => [0, 0])];
   if (d[0] === 0x5E) return [0x5E, d[1], d[2], m.kindOfSlot, ...(m.names[d[1] << 7 | d[2]] || [])];
   if (d[0] === 0x59) m.names[d[1] << 7 | d[2]] = d.slice(3);
+  if (d[0] === 0x5F) m.routes = [Array(16).fill(null), Array(16).fill(null)]; // a table as before the hold: 0 takes a route at once
+  if (d[0] === 0x56) {
+    const t = m.routes[d[1]], same = t.findIndex(r => r && r[0] === d[2] && r[1] === d[3]), depth = (d[4] << 7 | d[5]) - 99;
+    if (same >= 0) t[same] = depth ? d.slice(2, 6) : null;
+    else if (depth) t[t.indexOf(null)] = d.slice(2, 6);
+  }
+  if (d[0] === 0x57) return [0x57, d[1], ...m.routes[d[1]].flatMap(r => r || [0, 0, 0, 99])];
   if (d[0] === 0x5B) return m.formatAnswer;
   return [0x7F, d[0]];
 }
@@ -5582,6 +5593,18 @@ class WebInstaller(unittest.TestCase):
         self.assertEqual(out[start + 1:start + 5], [[0x56, l, VELOCITY, d, 0, 99] for l in (0, 1) for d in (VCA, CUTOFF)])
         self.assertIn([0x56, 0, 1, VCA, 0, 104], out[start + 5:])
         self.assertLess(out.index([0x56, 0, 1, VCA, 0, 104]), out.index([0x5D, 0, 0]), "and it saves after")
+
+    def test_a_both_mark_goes_by_the_slot_the_firmware_gave_it(self):
+        """The fake firmware's table has no hold, as one older than 0.9.4 that the page runs on with Flash unticked: the list starts
+        at slot 0. On this firmware it starts past the init sound's two, or doesn't if they've gone: the same message reads both."""
+        out = installer(self.RUN + """
+        const result = await drive(installPresets());
+        report({ result: result || null, lo: SET_ID.routeBoth1Lo, hi: SET_ID.routeBoth1Hi, sent: midi.sent });
+        """, bank=[{"slot": 1, "name": "a", "routes": {"1": [["lfo", "vca", 5, "both"], ["env3", "resonance", 9]]}}])
+        self.assertIsNone(out["result"])
+        self.assertIn([0x7D, out["lo"], 0, 0b1], out["sent"], "the first route's slot, 0, marked, and nothing else")
+        self.assertLess(out["sent"].index([0x57, 0]), out["sent"].index([0x7D, out["lo"], 0, 0b1]), "read before it's marked")
+        self.assertLess(out["sent"].index([0x7D, out["hi"], 0, 0]), out["sent"].index([0x5D, 0, 0]), "and marked before the save")
 
     def test_a_bank_with_a_slot_out_of_range_isnt_offered(self):
         for slot in (0, 129, 1.5, "7", None):
@@ -6374,6 +6397,8 @@ class PresetRoutes(PanelTest):
             if (!await ack(m)) failed.push(m);
             if (each) await firmwareMs(each);
           }
+          const stuck = await markBothRoutes(plan, ask, ack);
+          if (stuck) failed.push(stuck);
           if (%s) await ack([0x5D, (p.slot - 1) >> 7, (p.slot - 1) & 0x7F]);
         }
         report({ failed });
@@ -6476,6 +6501,34 @@ class PresetRoutes(PanelTest):
         self.assertEqual(self.plan_on_the_firmware([preset], save=True)["failed"], [])
         self.s.request(0x5C, 0, 6)
         self.assertLists(preset)
+
+    def test_the_marks_land_right_however_long_the_plan_takes(self):
+        """The init sound's two wait at 0 for 5 s from the start of the plan: a slow one outlives them, before the list or in it,
+        and the list's slots move. At 250 ms a message they go about when the list starts, at 1000 long before it."""
+        routes = [["lfo", d, 5] for d in pro800.DEST_NAMES[:16]]
+        for at in (0, 14, 15):
+            routes[at].append("both")
+        small = [["lfo", "vca", 5, "both"], ["env3", "resonance", 9], ["env4", "resonance", 7]]
+        for each_ms in (0, 250, 1000):
+            with self.subTest(each_ms=each_ms):
+                preset = {"name": "slow", "slot": 7, "routes": {"1": routes, "2": small}}
+                self.assertEqual(self.plan_on_the_firmware([preset], save=True, each_ms=each_ms)["failed"], [])
+                self.s.request(0x5C, 0, 6)
+                self.assertLists(preset)
+
+    def test_the_plan_names_the_marked_routes_and_the_table_gives_the_slots(self):
+        out = run_node(source("tools", "web", "sound-plan.js") + ASK_THE_SIMULATOR + NODE_DRIVER % """
+        const preset = { routes: { 2: [["lfo", "vca", 5, "both"], ["lfo", "cutoff", 0, "both"], ["env3", "resonance", 7]] } };
+        const plan = planSound(preset, () => true), older = planSound(preset, () => false);
+        deaf = true;
+        const silent = await markBothRoutes(plan, ask, ack);
+        report({ both: plan.both, olderBoth: older.both, olderSaid: older.warnings, silent, none: await markBothRoutes(planSound({}, () => true), ask, ack) });
+        """, self.s)
+        self.assertEqual(out["both"], [[1, [[1, VCA]]]], "layer 2's lfo -> vca: a listed depth 0 lands nowhere")
+        self.assertEqual(out["olderBoth"], [])
+        self.assertEqual(out["olderSaid"], ['routes 2: "both": this firmware hasn\'t got it'])
+        self.assertEqual(out["silent"], [0x57, 1], "no reading, no marks: said, not guessed")
+        self.assertIsNone(out["none"])
 
     def test_a_firmware_whose_init_sound_has_none_takes_the_removals(self):
         """The messages planSound() adds, against a route table without those routes: what any firmware before them replies."""
@@ -6609,7 +6662,7 @@ def velocity_page():
     if VELOCITY_PAGE is not None:
         return VELOCITY_PAGE
     page = source("tools", "web", "index.html")
-    blocks = RANGE_BLOCKS + ["const ROUTES", "const routesFull", "const routeBothMask", "const LINK_FILTER", "const twoLayers", "const linkOn", "const routesBothShown",
+    blocks = RANGE_BLOCKS + ["const ROUTES", "const routesFull", "const routesTaken", "const ROUTE_HOLD_TEXT", "const routeBothMask", "const LINK_FILTER", "const twoLayers", "const linkOn", "const routesBothShown",
                              "const FEATURES", "const feature", "const missingFeatures", "function linkedView(", "function linkedWrites(", "const paramLink",
                              "async function setRoute(", "async function setRouteBoth(", "async function refreshLayerRoutes(", "async function setSetting(",
                              "async function refreshSettings(", "async function refreshParams(", "const WIRE", "const options", "let routeRowHeld", "const ROUTE_ROW_HOLD",
@@ -6657,6 +6710,28 @@ class WebVelocityKnobs(PanelTest):
         for dest in [d for d in range(46) if d not in (VCA, CUTOFF)][:free]:
             self.route(0, 1, dest, 5)
         self.assertEqual(len(self.s.routes(0)), 16)
+
+    # Copy LFO
+    def test_copy_lfo_leaves_the_routes_it_replaced_unmarked(self):
+        """It sends 0, then the other layer's. Back from 0 inside the hold a route keeps its mark, but this one's the other
+        layer's now, and a mark would play it on that layer's voices on top of their own."""
+        env3 = pro800.SOURCE_NAMES.index("env3")
+        self.route(0, 1, CUTOFF, 50)
+        self.route(1, 1, CUTOFF, 30)  # slot 2, past the init sound's two
+        self.route(1, 1, VCA, 25)  # slot 3: this layer's only, it goes
+        self.route(1, env3, CUTOFF, 10)  # slot 4: not this LFO's, stays as it was
+        self.s.setting("route-both 2 (0-7)", 0b11100)
+        out = self.run_page("""
+        await setLayer(1);
+        await copyLfo(0);
+        report(document.getElementById("status").textContent);
+        """)
+        self.assertIn("Copied layer 1's LFO 1 to layer 2", out)
+        self.assertEqual(self.s.route_table(1)[2:5], [(1, CUTOFF, 50), (1, VCA, 0), (env3, CUTOFF, 10)])
+        self.assertEqual(self.s.settings()["route-both 2 (0-7)"], 0b10000, "only the other source's keeps its mark")
+        self.s.rest()
+        self.assertEqual(self.s.route_table(1)[3], (0, 0, 0), "and the one it dropped goes")
+        self.assertEqual(self.s.settings()["route-both 2 (0-7)"], 0b10000)
 
     # reading
     def test_they_read_the_init_sounds_routes(self):
@@ -6740,6 +6815,7 @@ class WebVelocityKnobs(PanelTest):
 
     def test_zero_really_takes_the_route_away(self):
         self.run_page("await drag(vca, -40 * reach.vca); report({});")
+        self.assertEqual(self.s.routes(0), [(VELOCITY, VCA, 0), KNOB_START[1]], "after 5 s at 0")
         self.s.rest()
         self.assertEqual(self.s.routes(0), KNOB_START[1:])
         self.run_page("await drag(cutoff, -20 * reach.cutoff); report({});")
@@ -6931,7 +7007,7 @@ class WebVelocityKnobs(PanelTest):
         self.assertAlmostEqual(out["before"]["ring"], 20 / 99 * 96 / 120, delta=0.001)
         self.assertEqual(out["turned"]["rows"], [[VELOCITY, VCA, 40], [VELOCITY, CUTOFF, 60]])
         self.assertAlmostEqual(out["turned"]["ring"], 60 / 99 * 96 / 120, delta=0.001)
-        self.assertEqual(out["removed"], [[VELOCITY, CUTOFF, 60]])
+        self.assertEqual(out["removed"], [[VELOCITY, VCA, 0], [VELOCITY, CUTOFF, 60]], "at 0 the row stays, for 5 s")
         self.assertEqual(sorted(out["created"]), sorted([[VELOCITY, VCA, 11], [VELOCITY, CUTOFF, -99]]))
         self.assertAlmostEqual(out["ring"][0], 96 / 120, delta=0.001, msg="a negative route's ring goes down")
         self.assertEqual(out["ring"][1], 0)
@@ -7225,6 +7301,90 @@ class WebVelocityKnobs(PanelTest):
         self.assertEqual(self.s.routes(1), KNOB_START, "layer 2's own route isn't this one")
         self.assertEqual(out["other"]["val"], "+20", "not marked")
 
+    def test_the_matrix_keeps_a_row_at_0_and_drops_it_when_it_goes(self):
+        self.both_on_layer_1()
+        out = self.run_page("""
+        await loadRoutes();
+        const tr = byId.routes.kids[0], range = tr.q["input"];
+        range.value = "0"; range.oninput();
+        await settle();
+        range.onchange();
+        await settle();
+        skew += 2000; // past the moment a row is left alone after its slider moves
+        await poll();
+        const cell = byId.routes.kids[0].q[".range"].kids;
+        const at0 = { rows: rows(), cell: [cell[0], cell[1].kids], both: layerRoutes[0].both, knob: state(vca).val };
+        await firmwareMs(5050);
+        const stale = rows();
+        await poll();
+        report({ at0, stale, after: rows(), masks: routeBothMask(0), knob: state(vca).val, button: byId["add-route"].disabled });
+        """)
+        self.assertEqual(out["at0"]["rows"], [[VELOCITY, VCA, 0], [VELOCITY, CUTOFF, 20]], "it keeps the row")
+        self.assertEqual(out["at0"]["cell"][0], "–", "the Range cell has no reach to show")
+        self.assertIn("5 s at 0 takes it off", " ".join(out["at0"]["cell"][1]))
+        self.assertTrue(out["at0"]["both"], "with its mark")
+        self.assertEqual(out["at0"]["knob"], "off both")
+        self.assertEqual(out["stale"], out["at0"]["rows"], "until the next read")
+        self.assertEqual(out["after"], [[VELOCITY, CUTOFF, 20]], "the poll drops it")
+        self.assertEqual(out["masks"], 0)
+        self.assertEqual(out["knob"], "off")
+        self.assertFalse(out["button"])
+
+    def test_remove_leaves_the_row_at_0_until_it_goes(self):
+        out = self.run_page("""
+        await loadRoutes();
+        await byId.routes.kids[0].q[".del"].onclick();
+        await settle();
+        const pressed = rows();
+        await firmwareMs(5050);
+        await poll();
+        report({ pressed, after: rows() });
+        """)
+        self.assertEqual(out["pressed"], [[VELOCITY, VCA, 0], [VELOCITY, CUTOFF, 20]])
+        self.assertEqual(out["after"], [[VELOCITY, CUTOFF, 20]])
+
+    def test_a_full_table_counts_none_at_0(self):
+        self.fill()
+        self.route(0, 1, 0, 0)  # one of the 16 on its way
+        out = self.run_page("""
+        await loadRoutes();
+        const button = byId["add-route"].disabled;
+        await drag(vca, 30 * reach.vca);
+        report({ button, said: status().text, val: state(vca).val, rows: rows().length });
+        """)
+        self.assertFalse(out["button"], "Add route: one of the 16 is at 0")
+        self.assertEqual(out["said"], "", "no message that all 16 are in use")
+        self.assertEqual(out["val"], "+30")
+        self.assertEqual(out["rows"], 16)
+        self.assertIn((VELOCITY, VCA, 30), self.s.routes(0), "it took the slot")
+        self.assertNotIn((1, 0, 0), self.s.routes(0))
+
+    def test_a_lane_or_morph_menu_reads_past_a_row_at_0(self):
+        page = source("tools", "web", "index.html")
+        self.assertIn("layerRoutes.find(r => r.source === src && r.depth)", page)
+        self.assertIn("layerRoutes.find(r => r.dest === MORPH_DEST && r.depth)", page)
+
+    def test_a_json_read_back_leaves_a_row_at_0_out(self):
+        page = source("tools", "web", "index.html")
+        self.assertIn("!== 99) list.push([JN.sources", page, "a save wouldn't keep it, and plan.py refuses one")
+
+    def test_zero_on_a_both_route_says_what_5_s_there_does(self):
+        self.both_on_layer_1()
+        out = self.run_page("""
+        await drag(vca, -40 * reach.vca);
+        const said = status().text;
+        await drag(vca, 40 * reach.vca);
+        report({ said, back: state(vca) });
+        """)
+        self.assertIn("5 s there takes it off, and its Both mark with it", out["said"])
+        self.assertEqual(self.s.settings()["route-both 1 (0-7)"], 1, "inside the hold it keeps it")
+        self.assertEqual(out["back"]["val"], "+40 both", "back from 0 it's as it was")
+        self.run_page("await drag(vca, -40 * reach.vca); report({});")
+        self.s.rest()
+        self.assertEqual(self.s.settings()["route-both 1 (0-7)"], 0, "the firmware takes it off with the route")
+        out = self.run_page("await drag(vca, 40 * reach.vca); report({ back: state(vca) });")
+        self.assertEqual(out["back"]["val"], "+40", "it comes back as this layer's alone")
+
     # what the status line says
     def test_a_later_turn_takes_the_both_message_away(self):
         self.both_on_layer_1()
@@ -7329,6 +7489,21 @@ class WebVelocityKnobs(PanelTest):
         self.s.ms(1600)
         self.assertEqual(self.s.settings()["patch"], 8)
         self.assertEqual(self.s.routes(0), KNOB_START + [(VELOCITY, CUTOFF, 30)])
+
+    def test_a_route_stored_twice_says_so_and_0_takes_them_all_after_the_hold(self):
+        self.twice()
+        out = self.run_page("""
+        const a = state(cutoff);
+        await drag(cutoff, -20 * reach.cutoff);
+        report({ a, b: state(cutoff), rows: rows() });
+        """)
+        self.assertEqual(out["a"]["val"], "+20 ×2")
+        self.assertIn("2 times", out["a"]["title"])
+        self.assertEqual(out["b"]["val"], "off", "no ×2: they're both on their way")
+        self.assertEqual(self.s.routes(0), [KNOB_START[0], (VELOCITY, CUTOFF, 0), (VELOCITY, CUTOFF, 0)])
+        self.assertEqual(out["rows"], [[VELOCITY, VCA, 40], [VELOCITY, CUTOFF, 0], [VELOCITY, CUTOFF, 0]])
+        self.s.rest()
+        self.assertEqual(self.s.routes(0), KNOB_START[:1])
 
     def test_a_route_stored_twice_turns_the_first(self):
         self.twice()
@@ -7522,6 +7697,418 @@ class VelocityOnTheEngine(PanelTest):
         self.assertAlmostEqual(self.voice(127, note=72)[1], without, delta=0.02, msg="layer 1's route isn't layer 2's")
 
 
+class RouteHold(PanelTest):
+    """Depth 0 keeps a route's slot, source, destination and Both mark for 5 s, playing nothing (MANUAL, the mod matrix)."""
+    BOTH = "route-both 1 (0-7)"
+
+    def route(self, depth, source=VELOCITY, dest=VCA, layer=0):
+        reply = self.s.request(0x56, layer, source, dest, (depth + 99) >> 7, (depth + 99) & 0x7F)
+        return bytes([0x7F, 0x56]) in reply
+
+    def counts(self, pot, move):
+        self.position += move
+        self.s.cmd(f"pot {POT[pot]} {self.position}")
+        self.s.ms(40)
+
+    def fill(self, source=1):
+        """The 14 slots the init sound leaves: lfo into dests 16 up."""
+        for dest in range(16, 30):
+            self.assertTrue(self.route(5, source, dest))
+        self.assertEqual(len(self.s.routes()), 16)
+
+    def record_routes(self, slot):
+        return self.s.memory()[(slot - 1) * 768 + 240:(slot - 1) * 768 + 288]
+
+    def record_both(self, slot):
+        return int.from_bytes(self.s.memory()[(slot - 1) * 768 + 351:(slot - 1) * 768 + 353], "little")
+
+    # sweeping through 0
+    def test_a_sweep_on_shift_fil_env_amt_keeps_the_slot_and_the_mark(self):
+        self.s.setting(self.BOTH, 2)  # slot 1: velocity -> cutoff, the init sound's
+        self.s.hold("SHIFT")
+        self.s.pot("FIL_ENV_AMT", 0.3)
+        self.position = round(0.3 * 4095)
+        depths = []
+        for _ in range(32):
+            self.counts("FIL_ENV_AMT", -24)  # the knob's smallest move: it stops on 0 on the way
+            slot = self.s.route_table()[1]
+            self.assertEqual(slot[:2], (VELOCITY, CUTOFF))
+            self.assertEqual(self.s.settings()[self.BOTH], 2)
+            depths.append(slot[2])
+        self.assertIn(0, depths)
+        self.assertGreaterEqual(depths[0], 19)
+        self.assertLessEqual(depths[-1], -20)
+        self.s.let_go("SHIFT")
+        self.s.rest()
+        self.assertEqual(self.s.route_table()[1], (VELOCITY, CUTOFF, depths[-1]))
+        self.assertEqual(self.s.settings()[self.BOTH], 2, "not at 0: nothing goes")
+
+    def test_a_sweep_in_mod_assign_keeps_the_slot_and_the_mark(self):
+        self.s.setting(self.BOTH, 2)
+        self.s.press("ASSIGN")
+        self.s.press("4")
+        self.s.pot("CUTOFF", 0.3)
+        self.s.pot("CUTOFF", 0.35)
+        self.s.ms(800)
+        self.assertShows("  20")
+        self.s.turn(-10)
+        self.assertShows("   0")
+        self.assertEqual(self.s.route_table()[1], (VELOCITY, CUTOFF, 0))
+        self.s.turn(-10)
+        self.assertShows(" -20")
+        self.s.press("ASSIGN")
+        self.s.rest()
+        self.assertEqual(self.s.route_table()[1], (VELOCITY, CUTOFF, -20))
+        self.assertEqual(self.s.settings()[self.BOTH], 2)
+
+    def test_a_sweep_through_the_hosts_message_keeps_the_slot_and_the_mark(self):
+        self.s.setting(self.BOTH, 2)
+        for depth in (20, 1, 0, -1, -20):
+            self.assertTrue(self.route(depth, VELOCITY, CUTOFF), "the same ack as ever")
+            self.assertEqual(self.s.route_table()[1], (VELOCITY, CUTOFF, depth), "57 sends it, at 0 too")
+            self.assertEqual(self.s.settings()[self.BOTH], 2)
+        self.s.rest()
+        self.assertEqual(self.s.route_table()[1], (VELOCITY, CUTOFF, -20))
+
+    # the hold
+    def test_just_under_5_s_keeps_it_and_just_over_takes_it_and_its_mark(self):
+        self.s.setting(self.BOTH, 1)
+        self.route(0)
+        self.s.ms(ROUTE_HOLD_MS - 100)
+        self.assertEqual(self.s.route_table()[0], (VELOCITY, VCA, 0))
+        self.assertEqual(self.s.settings()[self.BOTH], 1)
+        self.s.ms(120)
+        self.assertEqual(self.s.route_table()[0], (0, 0, 0))
+        self.assertEqual(self.s.settings()[self.BOTH], 0)
+        self.assertEqual(self.s.routes(), INIT_ROUTES[1:], "and only it")
+
+    def test_the_same_through_the_panels_stop_on_0(self):
+        self.s.request(0x56, 0, VELOCITY, VCA, (40 + 99) >> 7, (40 + 99) & 0x7F)
+        self.s.hold("SHIFT")
+        self.s.pot("MASTER_VOL", 0.6)
+        self.s.pot("MASTER_VOL", 0.0)  # VE.A from 40 down to its end
+        self.assertEqual(self.s.route_table()[0], (VELOCITY, VCA, 0))
+        self.s.let_go("SHIFT")
+        self.s.ms(ROUTE_HOLD_MS - 300)
+        self.assertEqual(self.s.route_table()[0], (VELOCITY, VCA, 0))
+        self.s.ms(400)
+        self.assertEqual(self.s.route_table()[0], (0, 0, 0))
+
+    def test_back_from_0_cancels_it(self):
+        self.route(0)
+        self.s.ms(ROUTE_HOLD_MS - 100)
+        self.route(7)
+        self.s.rest()
+        self.assertEqual(self.s.route_table()[0], (VELOCITY, VCA, 7))
+
+    def test_0_after_coming_back_is_a_whole_hold_again(self):
+        self.route(0)
+        self.s.ms(4000)
+        self.route(7)
+        self.route(0)
+        self.s.ms(ROUTE_HOLD_MS - 100)
+        self.assertEqual(self.s.route_table()[0], (VELOCITY, VCA, 0))
+        self.s.ms(120)
+        self.assertEqual(self.s.route_table()[0], (0, 0, 0))
+
+    def test_0_again_at_0_doesnt_start_it_over(self):
+        self.route(0)
+        self.s.ms(3000)
+        self.route(0)
+        self.s.ms(ROUTE_HOLD_MS - 3000 + 20)
+        self.assertEqual(self.s.route_table()[0], (0, 0, 0))
+
+    def test_each_has_its_own_time_on_each_layer(self):
+        self.route(0, VELOCITY, VCA)
+        self.s.ms(3000)
+        self.route(0, VELOCITY, CUTOFF)
+        self.route(0, VELOCITY, VCA, layer=1)
+        self.s.ms(2050)
+        self.assertEqual(self.s.routes(0), [(VELOCITY, CUTOFF, 0)])
+        self.assertEqual(self.s.routes(1), [(VELOCITY, VCA, 0), INIT_ROUTES[1]])
+        self.s.ms(3000)
+        self.assertEqual(self.s.routes(0), [])
+        self.assertEqual(self.s.routes(1), INIT_ROUTES[1:])
+
+    def test_a_route_that_isnt_there_stays_not_there(self):
+        self.assertTrue(self.route(0, 1, 3), "acknowledged, as ever")
+        self.assertEqual(self.s.routes(), INIT_ROUTES)
+
+    # playing nothing
+    def voice_cvs(self):
+        """A note's CVs at 300 ms: the voice's four and the single wires, by voice since their tuning differs."""
+        self.s.note(60, 100)
+        self.s.ms(300)
+        v = self.s.gated()[0]
+        cvs = self.s.cvs()
+        self.s.note_off(60)
+        self.s.ms(250)
+        return v, [cvs[8 * k + v] for k in range(4)] + cvs[32:]
+
+    def test_at_0_every_source_into_every_destination_changes_no_cv(self):
+        """Into the VCA and the volume a 0..1 source counts down from full and FIX turns down by its depth, pitch squares it, the
+        time destinations go through 2^x. The routes reach 0 with no voice sounding, so a depth on the way disturbs nothing."""
+        self.s.param(0, "amp-rel", 0)
+        self.s.ms(300)
+        self.s.no_routes()
+        base = {}
+        for _ in range(16):
+            v, cvs = self.voice_cvs()
+            base.setdefault(v, cvs)
+            self.assertEqual(base[v], cvs, "the measure itself is steady")
+        fixed = 25
+        self.assertTrue(self.route(50, fixed, VCA))
+        self.s.ms(100)
+        v, cvs = self.voice_cvs()
+        self.assertNotEqual(cvs, base[v], "and it sees a route that plays")
+        self.route(0, fixed, VCA)
+        names = pro800.SOURCE_NAMES
+        for source_ in (fixed, VELOCITY, names.index("lfo"), names.index("env3"), names.index("mod-wheel"), names.index("macro1"), names.index("note"), names.index("amp-env")):
+            for dest in range(len(pro800.DEST_NAMES)):
+                self.assertTrue(self.route(1, source_, dest))
+                self.route(0, source_, dest)
+                self.s.ms(20)
+                v, cvs = self.voice_cvs()
+                self.assertEqual(cvs, base[v], f"{names[source_]} -> {pro800.DEST_NAMES[dest]}")
+
+    def test_at_0_a_morph_source_doesnt_morph(self):
+        self.s.param(0, "cutoff", 0x1000)
+        self.s.ms(400)
+        self.s.request(0x5D, 0, 8)  # P9, a darker sound: the target
+        self.s.request(0x5F)
+        self.s.request(0x44, 0, 9)
+        self.s.no_routes()
+        self.s.ms(300)
+        _, plain = self.voice_cvs()
+        v, plain = self.voice_cvs()
+        fixed, morph = 25, pro800.DEST_NAMES.index("morph")
+        self.route(50, fixed, morph)
+        self.s.ms(100)
+        self.assertNotEqual(self.voice_cvs()[1][2], plain[2], "it does at 50")
+        self.route(0, fixed, morph)
+        self.s.ms(300)
+        for _ in range(8):
+            w, cvs = self.voice_cvs()
+            if w == v:
+                self.assertEqual(cvs, plain)
+
+    # a full table
+    def test_a_new_route_takes_a_slot_waiting_at_0(self):
+        self.fill()
+        self.assertFalse(self.route(9, 2, 3), "16 playing: full")
+        self.s.setting(self.BOTH, 1)
+        self.route(0, VELOCITY, VCA)
+        self.assertTrue(self.route(9, 2, 3), "one at 0: not full")
+        self.assertEqual(self.s.route_table()[0], (2, 3, 9))
+        self.assertEqual(self.s.settings()[self.BOTH], 0, "a new route has no mark")
+        self.s.rest()
+        self.assertEqual(self.s.route_table()[0], (2, 3, 9), "and no time running")
+        self.assertFalse(self.route(9, 2, 4), "full again")
+
+    def test_an_empty_slot_goes_first(self):
+        self.route(0, VELOCITY, VCA)
+        self.assertTrue(self.route(9, 2, 3))
+        self.assertEqual(self.s.route_table()[:3], [(VELOCITY, VCA, 0), INIT_ROUTES[1], (2, 3, 9)])
+
+    def test_the_panels_velocity_knob_and_mod_assign_agree(self):
+        self.s.no_routes()
+        for dest in range(16, 32):
+            self.route(5, 1, dest)
+        self.s.hold("SHIFT")
+        self.s.pot("MASTER_VOL", 0.3)
+        self.s.pot("MASTER_VOL", 0.4)
+        self.assertShows("FULL")
+        self.s.let_go("SHIFT")
+        self.s.ms(1100)
+        self.route(0, 1, 20)
+        self.s.hold("SHIFT")
+        self.s.pot("MASTER_VOL", 0.6)
+        self.s.pot("MASTER_VOL", 0.7)
+        self.assertShows("VE.A", "room now")
+        self.assertEqual(self.s.route_table()[4][:2], (VELOCITY, VCA), "in the slot at 0")
+        self.s.let_go("SHIFT")
+        self.s.ms(1600)
+        self.route(0, 1, 21)  # the next one, for MOD ASSIGN
+        self.s.press("ASSIGN")
+        self.s.press("4")
+        self.s.pot("CUTOFF", 0.3)
+        self.s.pot("CUTOFF", 0.35)
+        self.s.ms(800)
+        self.s.turn(1)
+        self.assertShows("   2", "no FULL")
+        self.assertEqual(self.s.route_table()[5], (VELOCITY, CUTOFF, 2))
+        self.s.press("ASSIGN")
+
+    # a save, a load, undo, compare, copy
+    def test_a_save_stores_none_at_0_and_the_one_waiting_stays_waiting(self):
+        self.s.setting(self.BOTH, 3)
+        self.route(0, VELOCITY, VCA)
+        self.s.ms(1000)
+        self.store_patch(9)
+        self.assertEqual(self.record_routes(9)[:6], bytes([0, 0, 0, VELOCITY, CUTOFF, 20]), "slot 0 empty, slot 1 where it was")
+        self.assertEqual(self.record_both(9), 2, "and the mark on slot 1 still on slot 1")
+        self.assertEqual(self.s.route_table()[0], (VELOCITY, VCA, 0), "in memory it's as it was")
+        self.assertEqual(self.s.settings()[self.BOTH], 3)
+        self.route(30, VELOCITY, VCA)  # and still has its slot and its mark, if it comes back
+        self.assertEqual(self.s.settings()[self.BOTH], 3)
+        self.route(0, VELOCITY, VCA)
+        self.s.rest()
+        self.assertEqual(self.s.route_table()[0], (0, 0, 0))
+        self.s.request(0x5C, 0, 8)
+        self.assertEqual(self.s.routes(), INIT_ROUTES[1:], "loaded: none at 0")
+        self.assertEqual(self.s.settings()[self.BOTH], 2)
+
+    def test_a_load_ends_the_wait(self):
+        self.store_patch(9)
+        self.route(0)
+        self.s.request(0x5C, 0, 8)
+        self.assertEqual(self.s.routes(), INIT_ROUTES)
+        self.s.rest()
+        self.assertEqual(self.s.routes(), INIT_ROUTES, "the slot's route isn't the one that was waiting")
+
+    def test_the_init_sound_ends_the_wait(self):
+        self.route(0)
+        self.s.request(0x5F)
+        self.s.rest()
+        self.assertEqual(self.s.routes(), INIT_ROUTES)
+
+    def test_undo_ends_the_wait_and_what_waited_is_gone(self):
+        self.store_patch(9)
+        self.route(0)
+        self.s.request(0x5C, 0, 8)  # the edit, as it was, goes to the undo: without the route at 0
+        self.s.hold("SHIFT")
+        self.s.press("PERF")
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.routes(), INIT_ROUTES[1:])
+        self.assertTrue(self.route(11, 2, 3))
+        self.s.hold("SHIFT")
+        self.s.press("PERF")
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.routes(), INIT_ROUTES, "redo: the stored one")
+        self.s.rest()
+        self.assertEqual(self.s.routes(), INIT_ROUTES)
+
+    def test_compare_ends_the_wait_and_what_waited_is_gone(self):
+        self.store_patch(9)
+        self.route(0)
+        self.s.hold("SHIFT")
+        self.s.hold("REC")
+        self.assertShows("CoNP")
+        self.assertEqual(self.s.routes(), INIT_ROUTES, "the stored patch while held")
+        self.s.rest()
+        self.assertEqual(self.s.routes(), INIT_ROUTES, "with the wait over")
+        self.s.let_go("REC")
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.routes(), INIT_ROUTES[1:], "back to the edit, which holds no route at 0")
+        self.assertTrue(self.route(11, 2, 3))
+        self.s.rest()
+        self.assertEqual(self.s.routes(), [(2, 3, 11), INIT_ROUTES[1]])
+
+    def test_a_copy_of_the_layer_takes_none_at_0_and_ends_the_wait_there(self):
+        self.route(0, VELOCITY, CUTOFF)
+        self.route(0, VELOCITY, VCA, layer=1)
+        self.s.hold("SHIFT")
+        self.s.press("SEQ2")
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.routes(1), INIT_ROUTES[:1], "the copy: not the one at 0")
+        self.assertEqual(self.s.routes(0), [INIT_ROUTES[0], (VELOCITY, CUTOFF, 0)], "the original's still waiting")
+        self.s.rest()
+        self.assertEqual(self.s.routes(1), INIT_ROUTES[:1], "and nothing was waiting on the copy")
+        self.assertEqual(self.s.routes(0), INIT_ROUTES[:1])
+
+    def test_a_record_holding_depth_0_loads_and_stays_until_its_edited(self):
+        """Only a hand-made one has any. It plays nothing and no time runs: nothing goes by itself. A save leaves it out."""
+        self.store_patch(9)
+        self.s.close()
+        rewrite_record(self.path, 9, (242, 0))  # store.c: routes at 240, the first route's depth
+        self.s = Synth(self.path)
+        self.s.ms(1600)
+        self.assertEqual(self.s.settings()["patch"], 8)
+        wanted = [(VELOCITY, VCA, 0), INIT_ROUTES[1]]
+        self.assertEqual(self.s.routes(), wanted)
+        self.s.rest()
+        self.assertEqual(self.s.routes(), wanted, "still there")
+        self.s.request(0x5D, 0, 9)
+        self.assertEqual(self.record_routes(10)[:3], bytes(3), "not in the save")
+        self.assertEqual(self.s.routes(), wanted)
+        self.route(0)
+        self.s.rest()
+        self.assertEqual(self.s.routes(), INIT_ROUTES[1:], "0 once more: now it's on its way")
+
+    def test_such_a_record_gives_its_slot_up_when_the_table_is_full(self):
+        self.store_patch(9)
+        self.s.close()
+        rewrite_record(self.path, 9, (242, 0))
+        self.s = Synth(self.path)
+        self.s.ms(1600)
+        self.fill()
+        self.assertTrue(self.route(9, 2, 3))
+        self.assertEqual(self.s.route_table()[0], (2, 3, 9))
+
+    # browsing
+    def browse(self):
+        self.s.hold("ASSIGN")
+        self.s.ms(650)
+        self.s.let_go("ASSIGN")
+
+    def test_browsing_shows_one_at_0_and_copes_when_it_goes(self):
+        self.s.no_routes()
+        self.route(5, 1, VCA)
+        self.route(5, 2, CUTOFF)
+        self.route(0, 2, CUTOFF)
+        self.browse()
+        self.assertShows("nod1")
+        self.s.turn(1)
+        self.assertShows("nod2")
+        self.s.history()
+        self.s.ms(800 + 3 * 600)
+        self.assertSaw(["FEnV", "CUt", "   0"])
+        self.s.rest()  # it went while its row was shown: the list ends a row sooner
+        self.s.history()
+        self.s.ms(3 * 600)
+        self.assertEqual({t for _, t in self.s.history()} - {readable(segments_of(x)) for x in ("nod1", "LFO1", "VCA", "   5")}, set(), "only the one left")
+        self.s.turn(1)
+        self.assertShows("nod1", "round to itself")
+        self.s.press("ASSIGN")
+        self.assertShows("VCA", "and it edits the one left")
+        self.s.press("ASSIGN")
+
+    def test_browsing_when_the_last_one_goes(self):
+        self.s.no_routes()
+        self.route(5, 1, VCA)
+        self.route(0, 1, VCA)
+        self.browse()
+        self.s.rest()
+        self.assertShows("nonE")
+        self.s.turn(1)
+        self.assertShows("nonE")
+        self.s.turn(-1)
+        self.assertShows("nonE")
+        self.s.press("ASSIGN")
+        self.assertShows("nonE", "nothing to edit")
+        self.s.hold("ASSIGN")
+        self.s.ms(650)
+        self.s.let_go("ASSIGN")
+        self.assertShows("P  1")
+
+    def test_mod_assign_at_0_when_it_goes_shows_0_and_a_turn_brings_it_back_unmarked(self):
+        self.s.setting(self.BOTH, 2)
+        self.s.press("ASSIGN")
+        self.s.press("4")
+        self.s.pot("CUTOFF", 0.3)
+        self.s.pot("CUTOFF", 0.35)
+        self.s.ms(800)
+        self.s.turn(-10)
+        self.s.rest()
+        self.assertShows("   0")
+        self.assertEqual(self.s.route_table()[1], (0, 0, 0))
+        self.s.turn(1)
+        self.assertShows("   2")
+        self.assertEqual(self.s.route_table()[1], (VELOCITY, CUTOFF, 2))
+        self.assertEqual(self.s.settings()[self.BOTH], 0)
+        self.s.press("ASSIGN")
+
+
 class ShiftVelocityRoutes(PanelTest):
     """Shift + M VOL is the edit layer's Velocity -> VCA (VE.A), Shift + FIL ENV AMT its Velocity -> Cutoff (VE.F), the routes
     MOD ASSIGN and the editor's Velocity knobs edit. MANUAL, the Shift table. Knob travel here: VE.A 113.85 per sweep, VE.F 227.7."""
@@ -7578,7 +8165,9 @@ class ShiftVelocityRoutes(PanelTest):
         self.assertEqual(self.depth(VCA), 22)
         self.s.pot("MASTER_VOL", 0.0)
         self.assertShows("   0")
-        self.assertIsNone(self.depth(VCA), "0 removes it")
+        self.assertEqual(self.depth(VCA), 0, "0 keeps it for now")
+        self.s.rest()
+        self.assertIsNone(self.depth(VCA), "and resting there removes it")
         self.assertEqual(self.s.routes(), [])
         self.s.pot("MASTER_VOL", 0.1)
         self.assertEqual(self.s.shows(), "  11")
@@ -7597,7 +8186,7 @@ class ShiftVelocityRoutes(PanelTest):
         depths, shown = [], []
         for _ in range(7):
             self.counts("FIL_ENV_AMT", -24)  # the knob's smallest move, 1.33 of a step
-            depths.append(self.depth(CUTOFF) or 0)  # at 0 the route is gone
+            depths.append(self.depth(CUTOFF))
             shown.append(self.s.shows())
         self.assertIn(0, depths, "a slow turn stops on 0")
         self.assertEqual(depths, sorted(depths, reverse=True))
@@ -7730,7 +8319,9 @@ class ShiftVelocityRoutes(PanelTest):
         self.assertEqual(self.depth(VCA), 1, "the first whole step replaces it, from 0")
         self.assertShows("   1")
         self.counts("MASTER_VOL", -60)
-        self.assertIsNone(self.depth(VCA), "and now it's an ordinary route")
+        self.assertEqual(self.depth(VCA), 0, "and now it's an ordinary route")
+        self.s.rest()
+        self.assertIsNone(self.depth(VCA))
         self.s.let_go("SHIFT")
 
     def test_a_negative_cutoff_route_is_an_ordinary_value(self):
@@ -7760,11 +8351,33 @@ class ShiftVelocityRoutes(PanelTest):
         self.assertEqual(self.depth(VCA), 51)
         self.assertEqual(self.s.settings()[both], 1, "adjusting leaves it")
         self.s.pot("MASTER_VOL", 0.0)
+        self.assertEqual(self.depth(VCA), 0)
+        self.assertEqual(self.s.settings()[both], 1, "at 0 it keeps it")
+        self.s.pot("MASTER_VOL", 0.3)
+        self.assertEqual(self.depth(VCA), 34)
+        self.assertEqual(self.s.settings()[both], 1, "back from 0 it still has it")
+        self.s.pot("MASTER_VOL", 0.0)
+        self.s.rest()
         self.assertIsNone(self.depth(VCA))
         self.assertEqual(self.s.settings()[both], 0, "the firmware takes it off with the route")
         self.s.pot("MASTER_VOL", 0.3)
         self.assertEqual(self.depth(VCA), 34)
         self.assertEqual(self.s.settings()[both], 0, "a new route has no mark")
+        self.s.let_go("SHIFT")
+
+    def test_0_takes_every_copy_off_as_the_editors_knob_does(self):
+        self.store_patch(9)
+        self.s.close()
+        rewrite_record(self.path, 9, (246, VELOCITY), (247, CUTOFF), (248, 30))  # store.c: routes at 240, three bytes each
+        self.s = Synth(self.path)
+        self.s.ms(1600)
+        self.route(0, CUTOFF, 1)  # the first
+        self.assertEqual(self.s.routes(0), [(VELOCITY, VCA, 40), (VELOCITY, CUTOFF, 1), (VELOCITY, CUTOFF, 30)])
+        self.start("FIL_ENV_AMT")
+        self.counts("FIL_ENV_AMT", -25)
+        self.assertEqual(self.s.routes(0), [(VELOCITY, VCA, 40), (VELOCITY, CUTOFF, 0), (VELOCITY, CUTOFF, 0)])
+        self.s.rest()
+        self.assertEqual(self.s.routes(0), [(VELOCITY, VCA, 40)])
         self.s.let_go("SHIFT")
 
     def test_letting_go_at_once_still_shows_the_value(self):

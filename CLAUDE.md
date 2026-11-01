@@ -77,7 +77,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   current build there; git-ignored in `tools/web/`), initialises the memory, installs the preset bank, writes a memory
   image back, and goes back to stock from a file the user opens. **Behringer's firmware never goes on the site or in
   git.** `tools/web/sound-plan.js` holds what it shares with the editor: the preset-format code, `GLOBAL_ADDRESS` / `GLOBAL_MAGIC`,
-  `nameBytes`, `badSlotPreset`, `formatReply` and `watchInstaller`, so a page must not redeclare them. Other MIDI software on the
+  `nameBytes`, `badSlotPreset`, `formatReply`, `watchInstaller` and `markBothRoutes`, so a page must not redeclare them. Other MIDI software on the
   Mac breaks a flash (NOTES), the command-line flash too; the Chrome test uses a separate profile.
 - The preset bank: `presets/lib/bundle.py` bundles `presets/*.json` into one file for the editor's Patches tab;
   `scripts/web.sh` writes `tools/web/presets.json` (git-ignored), `scripts/pages.sh` the site's `editor/presets.json`,

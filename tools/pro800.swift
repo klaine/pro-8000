@@ -77,7 +77,7 @@ Probe (our firmware 0.0.9+):
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
-  pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, 0 removes); pro800 routes lists them
+  pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99; 5 s at 0 removes it); pro800 routes lists them
   pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
@@ -1628,7 +1628,7 @@ let destNames = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "
                  "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
                  "glide", "detune", "volume", "macro1", "macro2"]
 
-// pro800 route <layer 1|2> <source> <dest> <depth -99..99>  (0 removes)
+// pro800 route <layer 1|2> <source> <dest> <depth -99..99>  (5 s at 0 removes it)
 func route() {
     guard args.count == 4, let layer = Int(args[0]), layer == 1 || layer == 2,
           let src = sourceNames.firstIndex(of: args[1]), src > 0, let dest = destNames.firstIndex(of: args[2]),
@@ -1681,8 +1681,10 @@ func routes() {
         let b = replyData(reply, 2)
         var lines = [String]()
         for i in stride(from: 0, to: b.count - 3, by: 4) where b[i] != 0 && Int(b[i]) < sourceNames.count && Int(b[i + 1]) < destNames.count {
-            lines.append("  \(sourceNames[Int(b[i])]) → \(destNames[Int(b[i + 1])]): \((Int(b[i + 2]) << 7 | Int(b[i + 3])) - 99)"
-                         + (both[layer] >> (i / 4) & 1 != 0 ? " (both layers)" : ""))
+            let depth = (Int(b[i + 2]) << 7 | Int(b[i + 3])) - 99
+            lines.append("  \(sourceNames[Int(b[i])]) → \(destNames[Int(b[i + 1])]): \(depth)"
+                         + (both[layer] >> (i / 4) & 1 != 0 ? " (both layers)" : "")
+                         + (depth != 0 ? "" : " (plays nothing; 5 s at 0 removes it)"))
         }
         print("layer \(layer + 1): " + (lines.isEmpty ? "no routes" : "\n" + lines.joined(separator: "\n")))
     }

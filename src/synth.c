@@ -243,6 +243,10 @@ static uint8_t switch_override[SWITCH_COUNT], switch_value[SWITCH_COUNT], switch
 static int keytrack_setting = 2;
 static route_t routes[LAYERS][ROUTES];
 static uint16_t route_both[LAYERS]; // bit r: routes[layer][r] plays on the other layer's voices too
+// A route turned to 0 stays in its slot, playing nothing, until it has rested there for ROUTE_HOLD_MS (synth_route_poll()):
+// bit r says it's on its way out, and route_zero_at when it reached 0 (0: the poll hasn't timed it yet).
+static uint16_t route_waiting[LAYERS];
+static uint32_t route_zero_at[LAYERS][ROUTES];
 
 static layer_mode_t layer_mode = LAYER_OFF;
 static int split_note = 60;
@@ -624,28 +628,54 @@ int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth)
     if (source == SRC_NONE || source >= SRC_COUNT || dest >= DEST_COUNT)
         return 0;
     depth = depth < -99 ? -99 : depth > 99 ? 99 : depth;
-    int free_slot = -1;
+    int found = 0, free_slot = -1, zero_slot = -1;
     for (int r = 0; r < ROUTES; r++) {
         route_t *x = &routes[layer][r];
+        uint16_t bit = (uint16_t)(1u << r);
         if (x->source == source && x->dest == dest) {
-            if (depth)
+            if (depth) { // the first of a hand-made record's copies; back from 0 it keeps its slot and its Both mark
                 x->depth = (int8_t)depth;
-            else {
-                *x = (route_t){0};
-                route_both[layer] &= (uint16_t)~(1u << r);
+                route_waiting[layer] &= (uint16_t)~bit;
+                return 1;
             }
-            return 1;
-        }
-        if (x->source == SRC_NONE && free_slot < 0)
-            free_slot = r;
+            x->depth = 0; // and on through the copies: 0 takes them all
+            if (!(route_waiting[layer] & bit)) { // already on its way, it keeps its time
+                route_waiting[layer] |= bit;
+                route_zero_at[layer][r] = 0;
+            }
+            found = 1;
+        } else if (x->source == SRC_NONE) {
+            if (free_slot < 0)
+                free_slot = r;
+        } else if (!x->depth && zero_slot < 0)
+            zero_slot = r;
     }
-    if (!depth)
+    if (found || !depth)
         return 1;
-    if (free_slot < 0)
+    int slot = free_slot >= 0 ? free_slot : zero_slot; // a route at 0 plays nothing: it's only in the way of a full table
+    if (slot < 0)
         return 0;
-    routes[layer][free_slot] = (route_t){(uint8_t)source, (uint8_t)dest, (int8_t)depth};
-    route_both[layer] &= (uint16_t)~(1u << free_slot);
+    routes[layer][slot] = (route_t){(uint8_t)source, (uint8_t)dest, (int8_t)depth};
+    route_both[layer] &= (uint16_t)~(1u << slot);
+    route_waiting[layer] &= (uint16_t)~(1u << slot);
     return 1;
+}
+
+void synth_route_poll(uint32_t now)
+{
+    for (int l = 0; l < LAYERS; l++)
+        for (int r = 0; r < ROUTES && route_waiting[l]; r++) {
+            uint16_t bit = (uint16_t)(1u << r);
+            if (!(route_waiting[l] & bit))
+                continue;
+            if (!route_zero_at[l][r]) // never before it reached 0, so never early; | 1: 0 is "not timed yet"
+                route_zero_at[l][r] = now | 1;
+            else if ((int32_t)(now - route_zero_at[l][r]) >= ROUTE_HOLD_MS) {
+                routes[l][r] = (route_t){0};
+                route_both[l] &= (uint16_t)~bit;
+                route_waiting[l] &= (uint16_t)~bit;
+            }
+        }
 }
 
 int synth_route_both(int layer) { return route_both[layer]; }
@@ -785,6 +815,7 @@ void synth_apply_patch(const patch_t *patch)
             x.depth = x.depth < -99 ? -99 : x.depth > 99 ? 99 : x.depth;
             routes[l][r] = x.source < SRC_COUNT && x.dest < DEST_COUNT ? x : (route_t){0};
         }
+        route_waiting[l] = 0; // a depth 0 in a record (only a hand-made one has any) stays, playing nothing, until it's edited or saved away
         for (int w = 0; w < 2; w++)
             lfo_shape[l][w] = patch->lfo_shape[l][w] < LFO_SHAPE_COUNT ? patch->lfo_shape[l][w] : 0;
         lfo2_dests[l] = patch->lfo2_dests[l] & 7;
@@ -871,8 +902,12 @@ void synth_capture_patch(patch_t *patch)
                 patch->extra[l][i - POT_COUNT] = u;
         }
         patch->osc_tune[l] = (uint8_t)(osc_tune_modes[l][0] | (osc_tune_modes[l][1] << 2));
-        for (int r = 0; r < ROUTES; r++)
-            patch->routes[l][r] = routes[l][r];
+        patch->route_both[l] = route_both[l];
+        for (int r = 0; r < ROUTES; r++) { // a route at 0 isn't part of the sound; each stays in its slot, so the Both bits hold
+            patch->routes[l][r] = routes[l][r].depth ? routes[l][r] : (route_t){0};
+            if (!routes[l][r].depth)
+                patch->route_both[l] &= (uint16_t)~(1u << r);
+        }
         for (int w = 0; w < 2; w++)
             patch->lfo_shape[l][w] = lfo_shape[l][w];
         patch->lfo2_dests[l] = lfo2_dests[l];
@@ -904,8 +939,6 @@ void synth_capture_patch(patch_t *patch)
     patch->layer_voices = (uint8_t)layer1_voices;
     patch->layer_link = layer_link;
     patch->lfo_restart_keys = lfo_restart_keys;
-    for (int l = 0; l < LAYERS; l++)
-        patch->route_both[l] = route_both[l];
     patch->split = (uint8_t)split_note;
     patch->voice_mode = (uint8_t)(voice_mode[0] | priority[0] << 2 | voice_mode[1] << 4 | priority[1] << 6);
     patch->drift = (uint8_t)drift_amount;
@@ -1219,9 +1252,10 @@ void synth_copy_layer(int from, int to)
     for (int i = 0; i < PARAM_COUNT; i++)
         if (per_layer[i])
             layer_param[to][i] = layer_param[from][i];
-    for (int r = 0; r < ROUTES; r++) // a both-layers route already plays on `to`: a copy would count it twice
-        routes[to][r] = route_both[from] >> r & 1 ? (route_t){0} : routes[from][r];
+    for (int r = 0; r < ROUTES; r++) // a both-layers route already plays on `to`: a copy would count it twice; one at 0 is no route to copy
+        routes[to][r] = route_both[from] >> r & 1 || !routes[from][r].depth ? (route_t){0} : routes[from][r];
     route_both[to] = 0;
+    route_waiting[to] = 0;
     for (int w = 0; w < 2; w++) {
         lfo_shape[to][w] = lfo_shape[from][w];
         lfo_pattern[LFO_ID(to, w)] = lfo_pattern[LFO_ID(from, w)];

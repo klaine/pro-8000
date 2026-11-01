@@ -1009,12 +1009,12 @@ static void show_shift_value(void)
 static int velocity_route_pot(int pot) { return pot == POT_MASTER_VOL || pot == POT_FIL_ENV_AMT; }
 static mod_dest_t velocity_route_dest(int pot) { return pot == POT_MASTER_VOL ? DEST_VCA : DEST_CUTOFF; }
 
-// No route to adjust and no slot for one
+// No route to adjust and no slot for one: as synth_set_route(), a route waiting at 0 gives up its slot
 static int velocity_route_full(int layer, mod_dest_t dest)
 {
     const route_t *r = synth_routes(layer);
     for (int i = 0; i < ROUTES; i++)
-        if (r[i].source == SRC_NONE || (r[i].source == SRC_VELOCITY && r[i].dest == dest))
+        if (r[i].source == SRC_NONE || !r[i].depth || (r[i].source == SRC_VELOCITY && r[i].dest == dest))
             return 0;
     return 1;
 }
@@ -2985,6 +2985,7 @@ int main(void)
         if (turned_patch >= 0 && (int32_t)(now - encoder_patch_at) >= TURNED_REST_MS)
             turned_load();
         store_poll(now);
+        synth_route_poll(now);
         cc_show(now);
         if (assign_press_at && (int32_t)(now - assign_press_at) >= 600) {
             assign_press_at = 0;

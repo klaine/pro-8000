@@ -70,7 +70,7 @@ Probe (our firmware 0.0.9+):
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
-  pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, 0 removes); pro800 routes lists them
+  pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99; 5 s at 0 removes it); pro800 routes lists them
   pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
@@ -1943,7 +1943,7 @@ def source_and_dest():  # None unless args[1] and args[2] name a source and a de
     return SOURCE_NAMES.index(args[1]), DEST_NAMES.index(args[2])
 
 
-# pro800 route <layer 1|2> <source> <dest> <depth -99..99>  (0 removes)
+# pro800 route <layer 1|2> <source> <dest> <depth -99..99>  (5 s at 0 removes it)
 def route():
     names = source_and_dest()
     layer = int_in(args[0], 1, 2) if len(args) == 4 else None
@@ -2002,8 +2002,10 @@ def routes():
         lines = []
         for i in range(0, len(b) - 3, 4):
             if b[i] != 0 and b[i] < len(SOURCE_NAMES) and b[i + 1] < len(DEST_NAMES):
-                lines.append(f"  {SOURCE_NAMES[b[i]]} → {DEST_NAMES[b[i + 1]]}: {(b[i + 2] << 7 | b[i + 3]) - 99}"
-                             + (" (both layers)" if both[layer] >> (i // 4) & 1 else ""))
+                depth = (b[i + 2] << 7 | b[i + 3]) - 99
+                lines.append(f"  {SOURCE_NAMES[b[i]]} → {DEST_NAMES[b[i + 1]]}: {depth}"
+                             + (" (both layers)" if both[layer] >> (i // 4) & 1 else "")
+                             + ("" if depth else " (plays nothing; 5 s at 0 removes it)"))
         show(f"layer {layer + 1}: " + ("\n" + "\n".join(lines) if lines else "no routes"))
 
 

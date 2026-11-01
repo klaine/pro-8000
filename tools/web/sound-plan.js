@@ -131,10 +131,10 @@ const JSON_SETTINGS = [
 const INIT_ROUTES = [["velocity", "vca"], ["velocity", "cutoff"]];
 
 // A preset-format object as the SysEx messages that build it, after the init sound without its routes, checked first;
-// `has` tells whether the firmware has a setting. Returns { messages, warnings }.
+// `has` tells whether the firmware has a setting. Returns { messages, warnings, both }: send the messages, then markBothRoutes().
 function planSound(j, has) {
   if (!j || typeof j !== "object" || Array.isArray(j)) bad("the JSON isn't an object");
-  const messages = [[0x5F]], warnings = [], st = { ...(j.settings || {}) };
+  const messages = [[0x5F]], warnings = [], both = [], st = { ...(j.settings || {}) };
   for (const layer of [0, 1])
     for (const [source, dest] of INIT_ROUTES) messages.push([0x56, layer, JN.sources.indexOf(source) + 1, JN.dests.indexOf(dest), 0, 99]);
   const setting = (id, v) => messages.push([0x7D, id, v >> 7, v & 127]);
@@ -173,18 +173,17 @@ function planSound(j, has) {
   for (const [layer, list] of Object.entries(j.routes || {})) {
     if (layer !== "1" && layer !== "2") bad(`routes: layer "1" or "2", not ${JSON.stringify(layer)}`);
     if (!Array.isArray(list) || list.length > 16) bad(`routes ${layer}: a list of up to 16`);
-    let bothBits = 0;
-    for (const [slot, r] of list.entries()) { // after the init sound a layer's routes fill its slots in order
+    for (const r of list) {
       if (!Array.isArray(r) || !(r.length === 3 || (r.length === 4 && r[3] === "both"))) bad(`route: [source, destination, depth] or [source, destination, depth, "both"], not ${JSON.stringify(r)}`);
-      if (r.length === 4) bothBits |= 1 << slot;
       const s = JN.sources.indexOf(r[0]) + 1, d = JN.dests.indexOf(r[1]);
       if (!s) bad(`route source: ${JSON.stringify(r[0])}`);
       if (d < 0) bad(`route destination: ${JSON.stringify(r[1])}`);
       const depth = jInt(-99, 99).enc(r[2], `depth of ${r[0]} → ${r[1]}`) + 99;
       messages.push([0x56, layer - 1, s, d, depth >> 7, depth & 0x7F]);
     }
-    if (bothBits && !has(`routeBoth${layer}Lo`)) warnings.push(`routes ${layer}: "both": this firmware hasn't got it`);
-    else if (bothBits) { setting(SET_ID[`routeBoth${layer}Lo`], bothBits & 255); setting(SET_ID[`routeBoth${layer}Hi`], bothBits >> 8); }
+    const marked = list.filter(r => r.length === 4 && r[2]); // a listed depth 0 lands nowhere
+    if (marked.length && !has(`routeBoth${layer}Lo`)) warnings.push(`routes ${layer}: "both": this firmware hasn't got it`);
+    else if (marked.length) both.push([layer - 1, marked.map(r => [JN.sources.indexOf(r[0]) + 1, JN.dests.indexOf(r[1])])]);
   }
   const q = j.sequence;
   if (q) {
@@ -215,5 +214,23 @@ function planSound(j, has) {
   }
   if (j.morph) { const t = jInt(1, 128).enc(j.morph, "morph"); messages.push([0x44, t >> 7, t & 0x7F]); }
   if (j.name !== undefined && (typeof j.name !== "string" || j.name.length > 16)) bad("name: up to 16 characters");
-  return { messages, warnings };
+  return { messages, warnings, both };
+}
+
+// A Both mark goes by slot, and the slot a listed route gets is the firmware's: from 0.9.4 the init sound's two wait at 0 in the
+// first two for 5 s, which a slow plan can outlive, and older firmwares have let them go already. So the marks are read from the
+// table once all the routes are in: from then on a route that isn't at 0 doesn't move. Returns the message that failed, or null.
+async function markBothRoutes(plan, ask, ack) {
+  for (const [layer, marked] of plan.both) {
+    const d = await ask([0x57, layer], [0x57, layer], 3000);
+    if (!d) return [0x57, layer];
+    let bits = 0;
+    for (let r = 0; 2 + 4 * r < d.length; r++)
+      if (marked.some(([source, dest]) => d[2 + 4 * r] === source && d[3 + 4 * r] === dest)) bits |= 1 << r;
+    for (const [name, v] of [["Lo", bits & 255], ["Hi", bits >> 8]]) {
+      const m = [0x7D, SET_ID[`routeBoth${layer + 1}${name}`], v >> 7, v & 127];
+      if (!await ack(m)) return m;
+    }
+  }
+  return null;
 }

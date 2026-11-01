@@ -540,6 +540,18 @@ class ReadOnly(unittest.TestCase):
         out, _ = run(self.synth, "routes")
         self.assertEqual(out, "layer 1: \n  lfo → cutoff: -50 (both layers)\nlayer 2: \n  macro2 → macro2: 99\n")
 
+    def test_routes_marks_one_at_0(self):
+        self.synth.routes[0][1] = (1, 3, 0)
+        self.synth.settings[87] = 0b10
+        out, _ = run(self.synth, "routes")
+        self.assertEqual(out, "layer 1: \n  lfo → cutoff: 0 (both layers) (plays nothing; 5 s at 0 removes it)\nlayer 2: no routes\n")
+        swift = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pro800.swift"), encoding="utf-8").read()
+        self.assertIn('" (plays nothing; 5 s at 0 removes it)"', swift, "the same in both tools")
+
+    def test_routes_with_none_says_so(self):
+        out, _ = run(self.synth, "routes")
+        self.assertEqual(out, "layer 1: no routes\nlayer 2: no routes\n")
+
     def test_timing(self):
         with mock.patch.object(pro800.time, "sleep"):
             out, _ = run(self.synth, "timing")

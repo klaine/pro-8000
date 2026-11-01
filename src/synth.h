@@ -206,7 +206,12 @@ void synth_set_param(int layer, int param, float value);
 // Mod matrix, per layer: the depth (-99..99, 0 = no route) of source → destination; setting 0 removes a route.
 // Setting returns 0 when the layer's ROUTES are all used.
 int synth_route(int layer, mod_source_t source, mod_dest_t dest);
+// Depth 0 keeps the route in its slot, with its Both mark, playing nothing: sweeping through 0 loses nothing. After
+// ROUTE_HOLD_MS at 0 synth_route_poll() (once a pass, with ms_ticks) takes it and the mark away; until then a depth brings
+// it back, and a new route that finds no empty slot takes its. Returns 0 only when a new route finds neither.
+#define ROUTE_HOLD_MS 5000
 int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth);
+void synth_route_poll(uint32_t now);
 const route_t *synth_routes(int layer); // ROUTES entries; source SRC_NONE = unused
 // Bit r: route r of this layer plays on the other layer's voices too, in the two-layer modes (0.9.3)
 int synth_route_both(int layer);

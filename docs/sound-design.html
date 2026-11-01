@@ -282,7 +282,7 @@
       <li><b>Press <kbd>Arp Assign</kbd>.</b> Its LED blinks and the display shows <span class="led">SrC</span>. The knobs stay in pickup while you assign, so touching one won't change the sound.</li>
       <li><b>Pick the source.</b> A number key (1 LFO, again for the other LFO; 2 filter env; 3 amp env; 4 velocity; 5 mod wheel; 6 aftertouch; 7 Env 3; 8 Env 4; 9 random; 0 note), or touch a knob that stands for one (an LFO knob, an ADSR knob), or turn VALUE to scroll through all 27 and press <kbd>Arp Assign</kbd> to take the one shown.</li>
       <li><b>Pick the destination.</b> Turn its knob a little, or press its LFO routing button. AMP SUS means the VCA, the other ADSR knobs mean that envelope's stage; VALUE scrolls through the rest, and <kbd>Arp Assign</kbd> takes the one shown. A knob you touched in the 5 seconds before pressing Arp Assign is the destination already, so you go straight to the depth.</li>
-      <li><b>Turn VALUE for the depth</b>, then press <kbd>Arp Assign</kbd> to finish. Depth 0 removes the route. Hold Arp Assign for half a second to browse the layer's routes: VALUE steps through them by number (<span class="led">nod1</span>, <span class="led">nod2</span> …) and, when it rests, the route shown cycles through its number, source, destination and depth.</li>
+      <li><b>Turn VALUE for the depth</b>, then press <kbd>Arp Assign</kbd> to finish. At depth 0 the route plays nothing and keeps its slot, so you can sweep through it; 5 s there removes it. Hold Arp Assign for half a second to browse the layer's routes: VALUE steps through them by number (<span class="led">nod1</span>, <span class="led">nod2</span> …) and, when it rests, the route shown cycles through its number, source, destination and depth.</li>
     </ol>
     <p>Pick an idea below to see its routes in the patch bay:</p>
   </div>
@@ -447,7 +447,7 @@
   <span class="sec-num">13</span>
   <h2>Recipes</h2>
   <div class="prose">
-    <p>Ready-made sounds cover all of this: the bank in <code>presets/</code> (installed from the editor's Patches tab with "Install the preset bank", or with <code>presets/install.sh</code>) fills P1–P64 with eight each of basses, leads, polys, pads, plucks, sequences, effects and curiosities, and P65–P66 with two more, and its <code>DESIGN.md</code> explains the techniques. The recipes below are the same ideas by hand. Start from <kbd>Perf</kbd> (a plain sawtooth, filter open) unless it says otherwise. Display codes are what you'll see on the synth.</p>
+    <p>Ready-made sounds cover all of this: the bank in <code>presets/</code> (installed from the editor's Patches tab with "Install the preset bank", or with <code>presets/install.sh</code>) fills P1–P64 with eight each of basses, leads, polys, pads, plucks, sequences, effects and curiosities, and P65–P66 with two more, and its <code>DESIGN.md</code> explains the techniques. The recipes below are the same ideas by hand. Start from <kbd>Perf</kbd> (a plain sawtooth, filter open, with velocity already on the VCA at 70 and the cutoff at 20: a recipe's depth replaces those, and 5 s at depth 0 removes them) unless it says otherwise. Display codes are what you'll see on the synth.</p>
   </div>
   <div class="cards">
     <div class="card"><span class="tag">Pad · per-voice LFO</span><h4>Shimmering ensemble pad</h4>

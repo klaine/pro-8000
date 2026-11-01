@@ -700,6 +700,8 @@ async function installPresets() {
     const p = list[i], slot = p.slot - 1, plan = planSound(p, has);
     for (const m of plan.messages)
       if (!await ack(m)) throw new Stop(`P${p.slot}: the synth didn't take a message (${m[0].toString(16)}).`, help);
+    const stuck = await markBothRoutes(plan, request, ack);
+    if (stuck) throw new Stop(`P${p.slot}: the synth didn't take a message (${stuck[0].toString(16)}).`, help);
     if (!await ack([0x5D, slot >> 7, slot & 0x7F])) throw new Stop(`Saving P${p.slot} failed.`, help);
     const name = nameBytes(p.name);
     if (name.length) await ack([0x59, slot >> 7, slot & 0x7F, ...name]);

@@ -233,7 +233,7 @@ def plan(patch):
             check(src in SOURCES, "source: %s" % src)
             check(dest in DESTS, "destination: %s" % dest)
             in_range(depth, -99, 99, "depth of %s -> %s" % (src, dest))
-            check(depth != 0, "route %s -> %s has depth 0 (it would be removed)" % (src, dest))
+            check(depth != 0, "route %s -> %s has depth 0 (a save leaves it out)" % (src, dest))
             check((src, dest) not in seen, "route %s -> %s twice on layer %s" % (src, dest, layer))
             seen.add((src, dest))
             out.append("route %s %s %s %d" % (layer, src, dest, depth))
