@@ -31,6 +31,7 @@ typedef enum {
     SRC_VOICE,                 // the voice's place in its layer, 0..1: a different offset on every voice
     SRC_FIXED,                 // always 1: a route is a plain offset
     SRC_MACRO1, SRC_MACRO2,    // the macros: whatever is routed into DEST_MACRO1 / 2, -1..1 (once a pass)
+    SRC_RELEASE_VELOCITY,      // the MIDI note-off velocity, 0..1; synthetic releases use 0
     SRC_COUNT
 } mod_source_t;
 

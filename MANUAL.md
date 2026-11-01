@@ -579,7 +579,7 @@ so for a fast LFO straight into the cutoff route the LFO directly.
 | 1 | The selected LFO; press 1 again for the other one | `LFO1` / `LFO2` |
 | 2 | Filter envelope | `FEnV` |
 | 3 | Amp envelope | `AEnV` |
-| 4 | Velocity | `VEL` |
+| 4 | Velocity; press 4 again to toggle Release velocity | `VEL` / `rVEL` |
 | 5 | Mod wheel | `nod` |
 | 6 | Aftertouch | `PrES` |
 | 7 | Env 3 | `EnV3` |
@@ -596,6 +596,7 @@ so for a fast LFO straight into the cutoff route the LFO directly.
 | VALUE / web | Voice number, 0 to 1 across the layer's voices: a different offset on every voice | `VoIC` |
 | VALUE / web | Fixed, always 1: the route is a plain offset | `FIX` |
 | VALUE / web | Macro 1, Macro 2 | `nAC1` `nAC2` |
+| VALUE / web | Release velocity at note-off, 0-127; sequencer releases use 0 | `rVEL` |
 
 The Morph destination (web page only) fades toward the morph target patch (see Voice modes, drift, scale, morph).
 

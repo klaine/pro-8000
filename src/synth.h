@@ -36,7 +36,7 @@ void synth_note_on(uint8_t note, uint8_t velocity, int channel); // channel 0-15
 int synth_channel_voice(int channel);
 int synth_channel_plays(int channel); // 0 for a channel the mode gives nothing to play (8CH: channels 9-16)
 void synth_voice_note_on(int voice, uint8_t note, uint8_t velocity);
-void synth_voice_note_off(int voice, uint8_t note);
+void synth_voice_note_off(int voice, uint8_t note, uint8_t release_velocity);
 void synth_voice_bend(int voice, int value); // 14-bit, centre 8192
 void synth_voice_pressure(int voice, uint8_t value);
 void synth_voice_timbre(int voice, uint8_t value); // CC 74
@@ -69,7 +69,7 @@ void synth_set_lfo_restart_keys(int on);
 void synth_lfos_key(int layers, int busy); // seq.c: a key went down on `layers`, `busy` already had one
 // A note-off on given layers, and the layers a note-off on `channel` releases: the channel's layer in channel mode,
 // else both (a key's voices stay on the layer they started on, wherever the split is now).
-void synth_note_off_layers(uint8_t note, int layers);
+void synth_note_off_layers(uint8_t note, uint8_t release_velocity, int layers);
 int synth_channel_layers(int channel);
 void synth_all_off(void);
 // Controllers, for the layers a channel plays (synth_channel_layers(): both, but in channel mode the channel's)

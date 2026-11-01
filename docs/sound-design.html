@@ -95,7 +95,7 @@
   <h2>The big shift: from fixed wiring to a patch bay</h2>
   <div class="prose">
     <p class="lead-in">On the stock PRO-800, modulation travels along paths printed on the panel: the LFO goes to pitch, pulse width or filter; poly-mod sends oscillator B and the filter envelope to oscillator A or the filter. Those are wonderful paths, and they're all still here. But they're fixed.</p>
-    <p>This firmware adds a <strong>mod matrix</strong>: any of 27 sources can be routed, with its own depth, to any of 46 destinations, 16 routes per layer, and two <strong>macros</strong> gather several sources into one hand. And because the voltages for pitch, filter and volume are worked out separately for each voice, most routes act <em>per note</em>: each note gets its own velocity, its own envelopes, its own random value, its own pressure, even its own LFO.</p>
+    <p>This firmware adds a <strong>mod matrix</strong>: any of 28 sources can be routed, with its own depth, to any of 46 destinations, 16 routes per layer, and two <strong>macros</strong> gather several sources into one hand. And because the voltages for pitch, filter and volume are worked out separately for each voice, most routes act <em>per note</em>: each note gets its own velocity, release velocity, envelopes, random value, pressure and LFO.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:660px">
@@ -117,7 +117,7 @@
       <tr><td><b>Sounds at once</b></td><td>One</td><td>Two layers: split, stacked, or by MIDI channel</td></tr>
       <tr><td><b>LFOs</b></td><td>One</td><td>Two per layer, nine shapes, a delay and fade-in per note, locked to the clock in 15 divisions, optionally one per voice</td></tr>
       <tr><td><b>Envelopes per voice</b></td><td>Two (filter, amp)</td><td>Four: ADSR or DAHDSR, from key down or key up, in seconds or note values, three curves, and any of them can loop, freely or in time, endlessly or a count of cycles</td></tr>
-      <tr><td><b>Modulation</b></td><td>The panel's fixed paths</td><td>The same paths, plus 16 routes per layer from 27 sources to 46 destinations, and two macros</td></tr>
+      <tr><td><b>Modulation</b></td><td>The panel's fixed paths</td><td>The same paths, plus 16 routes per layer from 28 sources to 46 destinations, and two macros</td></tr>
       <tr><td><b>Per-note expression</b></td><td>Velocity, aftertouch</td><td>Poly aftertouch per voice; MPE with per-note bend, pressure and slide; eight mono channels, each with its own bend and pressure</td></tr>
       <tr><td><b>Sequencing</b></td><td>An arpeggiator and two sequences</td><td>A sequence inside every patch, played and transposed from the keys, with probability, ratchets, an arpeggiator and 4 automation lanes; steps can be recorded from the panel</td></tr>
       <tr><td><b>Clock</b></td><td>Internal, MIDI or the SYNC IN jack, for the arpeggiator and sequencer</td><td>MIDI clock (USB or 5-pin), an internal clock with tap tempo, or the SYNC IN jack, driving the LFOs, looping envelopes and the sequence alike</td></tr>
@@ -280,7 +280,7 @@
     <p>Each layer has 16 routes. Each route is a source, a destination and a depth from −99 to +99. You build them from the panel with <strong>MOD ASSIGN</strong>:</p>
     <ol class="steps">
       <li><b>Press <kbd>Arp Assign</kbd>.</b> Its LED blinks and the display shows <span class="led">SrC</span>. The knobs stay in pickup while you assign, so touching one won't change the sound.</li>
-      <li><b>Pick the source.</b> A number key (1 LFO, again for the other LFO; 2 filter env; 3 amp env; 4 velocity; 5 mod wheel; 6 aftertouch; 7 Env 3; 8 Env 4; 9 random; 0 note), or touch a knob that stands for one (an LFO knob, an ADSR knob), or turn VALUE to scroll through all 27 and press <kbd>Arp Assign</kbd> to take the one shown.</li>
+      <li><b>Pick the source.</b> A number key (1 LFO, again for the other LFO; 2 filter env; 3 amp env; 4 velocity, press 4 again for release velocity; 5 mod wheel; 6 aftertouch; 7 Env 3; 8 Env 4; 9 random; 0 note), or touch a knob that stands for one (an LFO knob, an ADSR knob), or turn VALUE to scroll through all 28 and press <kbd>Arp Assign</kbd> to take the one shown.</li>
       <li><b>Pick the destination.</b> Turn its knob a little, or press its LFO routing button. AMP SUS means the VCA, the other ADSR knobs mean that envelope's stage; VALUE scrolls through the rest, and <kbd>Arp Assign</kbd> takes the one shown. A knob you touched in the 5 seconds before pressing Arp Assign is the destination already, so you go straight to the depth.</li>
       <li><b>Turn VALUE for the depth</b>, then press <kbd>Arp Assign</kbd> to finish. At depth 0 the route plays nothing and keeps its slot, so you can sweep through it; 5 s there removes it. Hold Arp Assign for half a second to browse the layer's routes: VALUE steps through them by number (<span class="led">nod1</span>, <span class="led">nod2</span> …) and, when it rests, the route shown cycles through its number, source, destination and depth.</li>
     </ol>
@@ -293,7 +293,7 @@
       <p class="desc" id="pb-desc"></p>
       <div class="legend"><span><i class="k-mod"></i>per voice: every note its own amount</span><span><i class="k-sh"></i>single wire: follows the newest note</span></div>
     </div>
-    <figcaption><b>Figure 7.</b> All 27 sources and 46 destinations. On the panel, VALUE scrolls to the ones without a key or a knob of their own; Morph is set on the web page.</figcaption>
+    <figcaption><b>Figure 7.</b> All 28 sources and 46 destinations. On the panel, VALUE scrolls to the ones without a key or a knob of their own; Morph is set on the web page.</figcaption>
   </figure>
   <div class="prose">
     <p>Depths are tuned so the whole range is useful. Pitch routes follow a squared curve: depth 5 is 6 cents, 10 is a quarter of a semitone, 20 a semitone, 50 six semitones, 99 two octaves. Cutoff at 99 is eight octaves. An envelope stage or the glide time scales by up to 16× either way. The VCA destination is a gain on the amp envelope, so it can never open a voice that isn't playing: velocity → VCA at 99 is plain velocity sensitivity, and aftertouch → VCA at 99 keeps a note silent until you press. The init sound starts with velocity → VCA at 70 and velocity → cutoff at 20, and in the editor those two routes have a Velocity knob each, in the faceplate's amp and filter sections.</p>
@@ -952,7 +952,7 @@ function envLevel(t, o) {
 // Figure 7: the patch bay
 (function () {
   var svg = document.getElementById("pb-svg"), desc = document.getElementById("pb-desc"), seg = document.getElementById("pb-recipes");
-  var SRC = ["LFO 1", "LFO 2", "LFO 1 as 0–1", "LFO 2 as 0–1", "Filter env", "Amp env", "Env 3", "Env 4", "Velocity", "Mod wheel", "Aftertouch",
+  var SRC = ["LFO 1", "LFO 2", "LFO 1 as 0–1", "LFO 2 as 0–1", "Filter env", "Amp env", "Env 3", "Env 4", "Velocity", "Release velocity", "Mod wheel", "Aftertouch",
              "Pitch bend", "CC 74 (timbre)", "CC A", "CC B", "Sustain pedal", "Gate", "Random", "Note", "Voice number", "Fixed (1)",
              "Seq lane A", "Seq lane B", "Seq lane C", "Seq lane D", "Macro 1", "Macro 2"];
   var ROWS = [

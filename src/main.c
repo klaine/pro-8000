@@ -217,6 +217,7 @@ static int comparing, undo_valid;
 // while it was down: the layers each one's note-off releases
 static int sustain;
 static uint8_t sustained[128];
+static uint8_t sustained_release_velocity[128][LAYERS];
 static char loaded_name[PATCH_NAME + 1]; // travels with the sound when it's saved to an empty slot
 static uint32_t typed_at;
 #define TYPED_PAUSE_MS 3000
@@ -676,7 +677,7 @@ static uint32_t last_pot_at;     // and when: only a knob touched in the 5 s bef
 static const char source_names[SRC_COUNT][5] = {
     "", "LFO1", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE", "LFO2",
     "SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb",
-    "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2",
+    "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "rVEL",
 };
 static const char dest_names[DEST_COUNT][6] = {
     "P.A", "P.b", "PIt", "CUt", "F.EA", "P.EA", "L.An", "L.Fr", "L.FL", "VCA",
@@ -859,6 +860,8 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
         if (source == SRC_LFO) // key 1: the selected LFO; pressed again, the other one
             source = assign_source == SRC_LFO ? SRC_LFO2 : assign_source == SRC_LFO2 ? SRC_LFO
                    : synth_lfo_select() ? SRC_LFO2 : SRC_LFO;
+        if (source == SRC_VELOCITY && (assign_source == SRC_VELOCITY || assign_source == SRC_RELEASE_VELOCITY))
+            source = assign_source == SRC_VELOCITY ? SRC_RELEASE_VELOCITY : SRC_VELOCITY;
         assign_take_source(source);
         return 1;
     }
@@ -2580,29 +2583,32 @@ static const struct { uint8_t cc, param; } cc_map[] = {
     {89, PARAM_ENV4_ATT}, {90, PARAM_ENV4_DEC}, {102, PARAM_ENV4_SUS}, {103, PARAM_ENV4_REL},
 };
 // A note let go on `layers` (the pedal's release): the sequence's key, else the engine's
-static void release_key(uint8_t note, int layers)
+static void release_key(uint8_t note, int layers, uint8_t release_velocity)
 {
     if (!layers)
         return;
     int rest = layers & ~seq_key_off(note, layers);
     if (rest)
-        synth_note_off_layers(note, rest);
+        synth_note_off_layers(note, release_velocity, rest);
 }
 
 // A key let go on a MIDI channel: the pedal holds it on the layers the pedal is down for; in the per-channel modes
 // it releases only its channel's voice
-static void key_off(uint8_t note, int channel)
+static void key_off(uint8_t note, uint8_t release_velocity, int channel)
 {
     int layers = synth_channel_layers(channel), held = layers & sustain;
     sustained[note & 0x7F] |= (uint8_t)held;
+    for (int layer = 0; layer < LAYERS; layer++)
+        if (held >> layer & 1)
+            sustained_release_velocity[note & 0x7F][layer] = release_velocity;
     layers &= ~held;
     int pv = synth_channel_voice(channel);
     if (!layers)
         return;
     if (pv >= 0)
-        synth_voice_note_off(pv, note);
+        synth_voice_note_off(pv, note, release_velocity);
     else
-        release_key(note, layers);
+        release_key(note, layers, release_velocity);
 }
 
 static void control_change(uint8_t cc, uint8_t value, int channel)
@@ -2619,7 +2625,9 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
             if (sustained[n] & layers) {
                 int off = sustained[n] & layers;
                 sustained[n] &= (uint8_t)~off;
-                release_key((uint8_t)n, off);
+                for (int layer = 0; layer < LAYERS; layer++)
+                    if (off >> layer & 1)
+                        release_key((uint8_t)n, 1 << layer, sustained_release_velocity[n][layer]);
             }
         return;
     }
@@ -2790,11 +2798,11 @@ static void handle_midi(void)
                         synth_note_on_layers(p[2], p[3], rest);
                 }
             } else
-                key_off(p[2], channel);
+                key_off(p[2], p[3], channel);
             break;
         }
         case 0x8:
-            key_off(p[2], p[1] & 0x0F);
+            key_off(p[2], p[3], p[1] & 0x0F);
             break;
         case 0xC: // program change 0-127: patch 1-128
             if (p[2] < PATCH_COUNT && !saving) // a save in progress keeps the sound it's about to store

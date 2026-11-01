@@ -48,7 +48,7 @@ The user manual is [MANUAL.md](MANUAL.md).
   numbers, the MIDI channel, knob pickup on or off) and buttons (compare, undo, quick save, layer copy, settings pages, panic).
 - **Mod matrix:** 16 routes per layer, assigned from the panel in three steps (source, destination, depth: MOD
   ASSIGN on Arp Assign) and browsed by number, with two macros that are destinations and sources at once.
-  - 27 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, pitch
+  - 28 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, release velocity, mod wheel, aftertouch, pitch
     bend, pedal, two assignable CCs, CC 74 (timbre), gate, random, note, voice number, a fixed 1, the sequencer's
     four lanes and the macros.
   - 46 destinations: pitch, cutoff, the VCA, mixer and pulse widths, every envelope stage, glide, detune, volume,
