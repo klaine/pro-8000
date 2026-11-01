@@ -137,6 +137,7 @@ typedef struct {
     uint8_t note;
     uint8_t gate;
     uint8_t velocity;
+    uint8_t release_velocity;
     uint32_t started; // allocation order
     float pitch;      // gliding note, in semitones (MIDI note numbers)
     float random;     // -1..1, new for every note
@@ -956,6 +957,7 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
     x->note = note;
     x->gate = 1;
     x->velocity = velocity;
+    x->release_velocity = 0;
     x->started = ++allocations;
     x->random = random_signed();
     x->pressure = 0;
@@ -1247,10 +1249,12 @@ void synth_voice_note_on(int voice, uint8_t note, uint8_t velocity)
     last_voice[0] = voice;
 }
 
-void synth_voice_note_off(int voice, uint8_t note)
+void synth_voice_note_off(int voice, uint8_t note, uint8_t release_velocity)
 {
-    if (voice >= 0 && voice < VOICE_COUNT && voices[voice].gate && voices[voice].note == note)
+    if (voice >= 0 && voice < VOICE_COUNT && voices[voice].gate && voices[voice].note == note) {
+        voices[voice].release_velocity = release_velocity;
         gate_off(&voices[voice], 1);
+    }
 }
 
 void synth_voice_bend(int voice, int value)
@@ -1278,7 +1282,7 @@ void synth_timbre(uint8_t value, int layers)
             voices[v].timbre = (float)value / 127.0f;
 }
 
-void synth_note_off_layers(uint8_t note, int layers)
+void synth_note_off_layers(uint8_t note, uint8_t release_velocity, int layers)
 {
     for (int layer = 0; layer < LAYERS; layer++) {
         if (!(layers >> layer & 1) || (layer && one_layer()))
@@ -1292,9 +1296,10 @@ void synth_note_off_layers(uint8_t note, int layers)
                 continue;
             mono_voices(layer, &first, &end);
             for (int v = first; v < end; v++) {
-                if (!held_count[layer])
+                if (!held_count[layer]) {
+                    voices[v].release_velocity = release_velocity;
                     gate_off(&voices[v], 1);
-                else if (voices[v].note != priority_note(layer)) { // back to a held note: legato, or mono retriggers
+                } else if (voices[v].note != priority_note(layer)) { // back to a held note: legato, or mono retriggers
                     if (voice_mode[layer] == VOICE_MONO)
                         gate_on(&voices[v], priority_note(layer), voices[v].velocity, 1);
                     else
@@ -1304,16 +1309,20 @@ void synth_note_off_layers(uint8_t note, int layers)
             continue;
         }
         for (int v = first; v < end; v++)
-            if (voices[v].gate && voices[v].note == note)
+            if (voices[v].gate && voices[v].note == note) {
+                voices[v].release_velocity = release_velocity;
                 gate_off(&voices[v], 1);
+            }
     }
 }
 
 void synth_all_off(void)
 {
     held_count[0] = held_count[1] = 0;
-    for (int v = 0; v < VOICE_COUNT; v++)
+    for (int v = 0; v < VOICE_COUNT; v++) {
+        voices[v].release_velocity = 0;
         gate_off(&voices[v], 0);
+    }
 }
 
 void synth_pitch_bend(int value, int layers)
@@ -1783,6 +1792,7 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
     case SRC_FILTER_ENV: return x->filter.level;
     case SRC_AMP_ENV: return x->amp.level;
     case SRC_VELOCITY: return (float)x->velocity / 127.0f;
+    case SRC_RELEASE_VELOCITY: return (float)x->release_velocity / 127.0f;
     case SRC_MOD_WHEEL: return mod_wheel[layer];
     case SRC_AFTERTOUCH: return x->pressure > aftertouch[layer] ? x->pressure : aftertouch[layer]; // poly, channel
     case SRC_ENV3: return x->env3.level;

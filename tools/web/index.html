@@ -544,7 +544,7 @@
           <tr><td><kbd>1</kbd></td><td>Selected LFO (1 again: the other) <code class="lcd">LFO1</code> <code class="lcd">LFO2</code></td></tr>
           <tr><td><kbd>2</kbd></td><td>Filter env <code class="lcd">FEnV</code></td></tr>
           <tr><td><kbd>3</kbd></td><td>Amp env <code class="lcd">AEnV</code></td></tr>
-          <tr><td><kbd>4</kbd></td><td>Velocity <code class="lcd">VEL</code></td></tr>
+          <tr><td><kbd>4</kbd></td><td>Velocity / Release velocity; press <kbd>4</kbd> again to toggle <code class="lcd">VEL</code> <code class="lcd">rVEL</code></td></tr>
           <tr><td><kbd>5</kbd></td><td>Mod wheel <code class="lcd">nod</code></td></tr>
           <tr><td><kbd>6</kbd></td><td>Aftertouch, per voice with poly pressure <code class="lcd">PrES</code></td></tr>
           <tr><td><kbd>7</kbd> / <kbd>8</kbd></td><td>Env 3 / Env 4 <code class="lcd">EnV3</code> <code class="lcd">EnV4</code></td></tr>
@@ -3181,7 +3181,7 @@ setInterval(async () => {
 const SOURCES = ["", "LFO 1", "Filter envelope", "Amp envelope", "Velocity", "Mod wheel", "Aftertouch", "Env 3", "Env 4",
   "Random (per note)", "Note number", "LFO 2", "Seq A", "Seq B", "Seq C", "Seq D", "LFO 1 (0 to 1)", "LFO 2 (0 to 1)",
   "Gate (key down)", "Timbre (CC 74)", "Pitch bend", "Pedal (CC 64)", "CC A", "CC B", "Voice number", "Fixed (always 1)",
-  "Macro 1", "Macro 2"];
+  "Macro 1", "Macro 2", "Release velocity"];
 const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount", "Poly-mod env amount", "LFO 1 amount",
   "LFO 1 → pitch", "LFO 1 → filter", "VCA", "Osc A level", "Osc B level", "Noise", "Resonance", "A pulse width",
   "B pulse width", "Poly-mod osc B", "LFO 1 → PW", "LFO 1 rate", "LFO 2 amount", "LFO 2 rate", "LFO 2 → pitch",

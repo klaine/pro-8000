@@ -74,7 +74,7 @@ void seq_clear(void)
 static void release(void)
 {
     for (int i = 0; i < sounding_count; i++)
-        synth_note_off_layers(sounding[i], layers);
+        synth_note_off_layers(sounding[i], 0, layers);
     sounding_count = 0;
 }
 
@@ -141,7 +141,7 @@ static void release_unheld(void)
             sounding[kept] = sounding[i];
             sounding_held[kept++] = 1;
         } else
-            synth_note_off_layers(sounding[i], layers);
+            synth_note_off_layers(sounding[i], 0, layers);
     }
     sounding_count = kept;
 }
@@ -177,7 +177,7 @@ static void play_note(int retrigger)
             synth_note_on_layers(notes[i], velocity, layers);
     for (int i = 0; i < sounding_count; i++)
         if (!has_note(notes, count, sounding[i]))
-            synth_note_off_layers(sounding[i], layers); // after the new notes: legato when held
+            synth_note_off_layers(sounding[i], 0, layers); // sequenced releases have no MIDI release velocity
     for (int i = 0; i < count; i++) {
         sounding[i] = notes[i];
         sounding_held[i] = held[i];
