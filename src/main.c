@@ -944,8 +944,8 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
 // Shift (the Sync Source button): held, or latched with two quick presses (LED on). The filter and amp ADSR knobs
 // edit Env 3 and Env 4 meanwhile (synth.c); the other knobs nudge a secondary value by how far they're turned:
 // LFO FREQ / AMOUNT the selected LFO's delay / fade, GLIDE drift, M TUNE unison detune, FINE the bend range,
-// CUTOFF / RESONANCE the macro offsets, A / B LEVEL the CC A / B numbers, NOISE the MIDI channel, FIL ENV AMT
-// knob pickup on or off. Shift + Rec compares (the stored patch while held), + Perf undoes the last load, + Preset
+// CUTOFF / RESONANCE the macro offsets, A / B LEVEL the CC A / B numbers, NOISE the MIDI channel, M VOL / FIL ENV AMT
+// the edit layer's Velocity routes to the VCA / the cutoff, PMOD FIL ENV knob pickup on or off. Shift + Rec compares (the stored patch while held), + Perf undoes the last load, + Preset
 // saves to the current slot, + Seq 1 / 2 copies the edit layer there, + a number key opens that Settings page, + 0
 // is a panic.
 static int shift_held, shift_latched;
@@ -964,6 +964,7 @@ static void shift_set(int on)
     display_led(LED_SYNC_SOURCE, on);
     for (int i = 0; i < POT_COUNT; i++)
         shift_pot_last[i] = -1;
+    shift_acc[POT_PMOD_FIL_ENV] = 0; // P.UP's quarter turn is counted within one press
     shift_pot = -1;
 }
 
@@ -981,7 +982,7 @@ static void set_midi_channel(int channel)
     synth_all_off(); // a key held on a channel no longer heard would never be let go
 }
 
-// Knob pickup, or jump (Shift + FIL ENV AMT, or the host's setting); system-wide
+// Knob pickup, or jump (Shift + PMOD FIL ENV, or the host's setting); system-wide
 static void set_pickup(int on)
 {
     synth_set_pickup(on);
@@ -997,10 +998,25 @@ static void show_shift_value(void)
         display_text(lfo_note_name(lfo_note_step((float)shift_value / 99.0f)));
     else if (pot == POT_NOISE && !shift_value)
         display_text("ALL");
-    else if (pot == POT_FIL_ENV_AMT)
+    else if (pot == POT_PMOD_FIL_ENV)
         display_text(shift_value ? "on" : "OFF");
     else
         display_number(shift_value);
+}
+
+// Under Shift, M VOL and FIL ENV AMT edit the edit layer's Velocity routes: the same ordinary routes as MOD ASSIGN and the
+// web page's Velocity knobs. A route is the layer's own, so a link between the layers doesn't come into it.
+static int velocity_route_pot(int pot) { return pot == POT_MASTER_VOL || pot == POT_FIL_ENV_AMT; }
+static mod_dest_t velocity_route_dest(int pot) { return pot == POT_MASTER_VOL ? DEST_VCA : DEST_CUTOFF; }
+
+// No route to adjust and no slot for one
+static int velocity_route_full(int layer, mod_dest_t dest)
+{
+    const route_t *r = synth_routes(layer);
+    for (int i = 0; i < ROUTES; i++)
+        if (r[i].source == SRC_NONE || (r[i].source == SRC_VELOCITY && r[i].dest == dest))
+            return 0;
+    return 1;
 }
 
 // A knob turned under Shift: the secondary it nudges, by `delta` of 4095
@@ -1010,7 +1026,8 @@ static void shift_turn(int pot, int delta)
         {POT_LFO_FREQ, "dLY", 0, 99},    {POT_LFO_AMOUNT, "FAdE", 0, 99}, {POT_GLIDE, "drFt", 0, 99},
         {POT_MASTER_TUNE, "dEtU", 0, 50}, {POT_FINE, "bEnd", 1, 12},      {POT_CUTOFF, "nAC1", -99, 99},
         {POT_RESONANCE, "nAC2", -99, 99}, {POT_A_LEVEL, "CC.A", 1, 127},   {POT_B_LEVEL, "CC.b", 1, 127},
-        {POT_NOISE, "CHnL", 0, 16},      {POT_FIL_ENV_AMT, "P.UP", 0, 1},
+        {POT_NOISE, "CHnL", 0, 16},      {POT_PMOD_FIL_ENV, "P.UP", 0, 1}, {POT_MASTER_VOL, "VE.A", 0, 99},
+        {POT_FIL_ENV_AMT, "VE.F", -99, 99},
     };
     unsigned t = 0;
     for (; t < sizeof table / sizeof table[0] && table[t].pot != pot; t++)
@@ -1018,6 +1035,14 @@ static void shift_turn(int pot, int delta)
     if (t == sizeof table / sizeof table[0])
         return;
     int which = synth_lfo_select(), layer = synth_edit_layer(), value;
+    if (velocity_route_pot(pot) && velocity_route_full(layer, velocity_route_dest(pot))) {
+        shift_acc[pot] = 0;
+        shift_pot = -1; // the name again, once there's room
+        shift_value_at = 0;
+        display_text("FULL");
+        display_until = ms_ticks + 1000;
+        return;
+    }
     switch (pot) {
     case POT_LFO_FREQ: value = lfo_delay[which]; break;
     case POT_LFO_AMOUNT: value = lfo_fade[which]; break;
@@ -1028,17 +1053,32 @@ static void shift_turn(int pot, int delta)
     case POT_RESONANCE: value = synth_macro_offset(layer, 1); break;
     case POT_A_LEVEL: value = synth_cc_number(0); break;
     case POT_NOISE: value = midi_channel; break;
-    case POT_FIL_ENV_AMT: value = synth_pickup(); break;
+    case POT_PMOD_FIL_ENV: value = synth_pickup(); break;
+    case POT_MASTER_VOL: case POT_FIL_ENV_AMT: value = synth_route(layer, SRC_VELOCITY, velocity_route_dest(pot)); break;
     default: value = synth_cc_number(1); break;
     }
     // on / off: a quarter turn. The rest a little over the range per sweep: a pot's ends fall short of 0 and 4095, and
     // this knob only moves the value by turning, so one sweep has to reach both ends (issue 11: no channel 16)
-    float span = pot == POT_FIL_ENV_AMT ? 4.0f : (float)(table[t].high - table[t].low) * 1.15f;
+    float span = pot == POT_PMOD_FIL_ENV ? 4.0f : (float)(table[t].high - table[t].low) * 1.15f;
     shift_acc[pot] += (float)delta * span / 4095.0f;
-    int step = (int)shift_acc[pot];
+    int step = (int)shift_acc[pot], before = value;
     shift_acc[pot] -= (float)step;
-    value += step;
-    value = value < table[t].low ? table[t].low : value > table[t].high ? table[t].high : value;
+    // A negative route on the VCA does nothing on its own, but it's somebody's: it shows as it is, and goes only when the
+    // knob goes up, from 0 (the web page's knob, the same). Everything else moves by the step and stops at its ends.
+    if (!(pot == POT_MASTER_VOL && value < 0 && step <= 0)) {
+        value = (pot == POT_MASTER_VOL && value < 0 ? 0 : value) + step;
+        value = value < table[t].low ? table[t].low : value > table[t].high ? table[t].high : value;
+    }
+    // Resting at 0 takes the route off, and the knob's smallest move is more than a step of VE.F: a slow turn stops there, a sweep goes on
+    if (pot == POT_FIL_ENV_AMT && value * before < 0 && step >= -3 && step <= 3) {
+        value = 0;
+        shift_acc[pot] = 0;
+    }
+    // A route's fraction past an end is no part of the depth: turning up from 0 adds the route after the same turn each time.
+    // Nor is P.UP's, whose step is a quarter turn: from either end the other is that far away
+    if ((velocity_route_pot(pot) || pot == POT_PMOD_FIL_ENV)
+        && ((value <= table[t].low && shift_acc[pot] < 0) || (value >= table[t].high && shift_acc[pot] > 0)))
+        shift_acc[pot] = 0;
     switch (pot) {
     case POT_LFO_FREQ: lfo_delay[which] = (uint8_t)value; break;
     case POT_LFO_AMOUNT: lfo_fade[which] = (uint8_t)value; break;
@@ -1049,7 +1089,11 @@ static void shift_turn(int pot, int delta)
     case POT_RESONANCE: synth_set_macro_offset(layer, 1, value); break;
     case POT_A_LEVEL: synth_set_cc_number(0, value); store_set_cc_number(0, value); break;
     case POT_NOISE: set_midi_channel(value); break;
-    case POT_FIL_ENV_AMT: set_pickup(value); break;
+    case POT_PMOD_FIL_ENV: set_pickup(value); break;
+    case POT_MASTER_VOL: case POT_FIL_ENV_AMT:
+        if (value != before)
+            synth_set_route(layer, SRC_VELOCITY, velocity_route_dest(pot), value); // velocity_route_full() said there's room
+        break;
     default: synth_set_cc_number(1, value); store_set_cc_number(1, value); break;
     }
     shift_value = value;

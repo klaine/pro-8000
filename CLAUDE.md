@@ -22,7 +22,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     record. It fails with no record, and refuses at streak 2 or more: the third crash in a row stops the synth until a power cycle.
   - Our firmware plays on every MIDI channel unless one is set (`set midi-channel all|1-16`, Shift + NOISE);
     `play`, `cc` and `bend` default to that channel, else 6 (the stock firmware's) for `play` and 1 for the others.
-  - Knob pickup is on unless turned off (`set pickup on|off`, Shift + FIL ENV AMT, 0.9.3): off, a knob in pickup
+  - Knob pickup is on unless turned off (`set pickup on|off`, Shift + PMOD FIL ENV; Shift + FIL ENV AMT in 0.9.3): off, a knob in pickup
     takes over as soon as it moves (the stock synth's jump).
   - `install <file.syx> --yes`: update-mode + flash + wait until the synth runs the file's version (it autotunes first). The bootloader's port has to stay 8 s first (`PORT_STEADY`), so pages left open finish probing it. Fails if the synth doesn't reach the bootloader (USB `1397:1260`), its MIDI port doesn't appear, the bootloader doesn't confirm the update, or another version answers; reinstalling the same version is fine.
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).

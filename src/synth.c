@@ -806,7 +806,7 @@ void synth_apply_patch(const patch_t *patch)
         }
     }
     for (int i = 0; i < PARAM_COUNT; i++) {
-        latched[i] = i == POT_MASTER_VOL;
+        latched[i] = i == POT_MASTER_VOL && (latched[i] || !pots_primed); // M VOL: where its knob is, unless Shift took it
         pickup_side[i] = 0;
     }
     // The load at start-up comes before the engine's first pass, which would copy the panel over this patch: both
@@ -1194,12 +1194,13 @@ void synth_set_shift(int on)
         return;
     shift = on;
     env_select = on ? 3 : 0;
-    for (int i = 0; i < POT_COUNT; i++) // the ADSR knobs change meaning, the rest will pick up after
-        if (i != POT_MASTER_VOL) {
-            unlatch(param_of_pot(i));
-            if (adsr_pot(i))
-                unlatch(i); // their plain parameter too
-        }
+    // The ADSR knobs change meaning, the rest will pick up after. M VOL with them: it's Velocity -> VCA under Shift, so the
+    // level stays where it is meanwhile. A knob left where it was is back at once, as it's still within the pickup window.
+    for (int i = 0; i < POT_COUNT; i++) {
+        unlatch(param_of_pot(i));
+        if (adsr_pot(i))
+            unlatch(i); // their plain parameter too
+    }
 }
 
 int synth_shift(void) { return shift; }
@@ -1727,18 +1728,18 @@ static void read_panel(float dt)
             continue;
         }
         int layer = per_layer[p] ? param_layer(edit_layer, p) : 0; // shared knobs keep one value, in both layers
-        if (!latched[p] && !frozen && !(frozen_pots >> i & 1) && !(shift && !adsr_pot(i))) {
+        if (!latched[p] && (!frozen || i == POT_MASTER_VOL) && !(frozen_pots >> i & 1) && !(shift && !adsr_pot(i))) {
             float diff = panel[i] - layer_param[layer][p];
             int8_t side = diff < 0 ? -1 : 1;
             if (diff < PICKUP_WINDOW && diff > -PICKUP_WINDOW)
                 latched[p] = 1;
             else if (pickup_side[p] == 0) {
                 pickup_side[p] = side;
-                pickup_from[p] = panel[i];
+                pickup_from[p] = knob_steps(i) ? panel[i] : raw; // the reading, not the glide: the glide's rest isn't a move
             } else if (side != pickup_side[p])
                 latched[p] = 1; // swept past it
             else if (!pickup) { // jump: moved since it started waiting (a stepped knob by a step)
-                float moved = panel[i] - pickup_from[p];
+                float moved = (knob_steps(i) ? panel[i] : raw) - pickup_from[p];
                 if (knob_steps(i) ? moved != 0 : moved > JUMP_MOVE || moved < -JUMP_MOVE)
                     latched[p] = 1;
             }
@@ -2106,7 +2107,7 @@ void synth_update(float dt)
     sh_set(CV_RESONANCE, cv_from(shared[POT_RESONANCE] + shared_mod[DEST_RESONANCE]));
     uint16_t pmod_osc_b = cv_from(shared[POT_PMOD_OSC_B] + shared_mod[DEST_PMOD_OSC_B]);
     sh_set(CV_PMOD_OSC_B, pmod_osc_b);
-    sh_set(CV_MASTER_VOL, cv_from(panel[POT_MASTER_VOL] * clamp01(1.0f + shared_mod[DEST_VOLUME])));
+    sh_set(CV_MASTER_VOL, cv_from(layer_param[0][POT_MASTER_VOL] * clamp01(1.0f + shared_mod[DEST_VOLUME])));
     sh_set(CV_EXT_FIL, 0);
     // square off: PW at maximum, where the pulse fills the cycle (at the minimum it's still ~5 % wide and heard,
     // issue 7). Osc B's pulse held high is a DC offset in the poly-mod source, though (+103 cents on FREQ A at a

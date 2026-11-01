@@ -78,7 +78,7 @@ A digit display can't show a plus sign, so positive values have none. A dot afte
 - after switching layer, LFO or envelope;
 - after editing from the web page.
 
-**Pickup off** (Shift + FIL ENV AMT, `P.UP` → `OFF`; or the web page's System tab, or `pro800 set pickup off`): a
+**Pickup off** (Shift + PMOD FIL ENV, `P.UP` → `OFF`; or the web page's System tab, or `pro800 set pickup off`): a
 knob waiting like this takes over as soon as you move it, and the value jumps to where the knob is, as on the stock
 firmware. The dot still shows until you move it. It's a system setting that survives power-off (stored about a second after the last change, see Settings menu); pickup
 is the default.
@@ -534,7 +534,9 @@ only plays it.
 ## Mod matrix (MOD ASSIGN)
 
 Each layer has 16 routes. A route adds source × depth (−99 to 99) to a destination. The init sound starts with two
-on each layer (velocity → VCA 70, velocity → cutoff 20; see Patches); any other sound has what it was saved with.
+on each layer (velocity → VCA 70, velocity → cutoff 20; see Patches); any other sound has what it was saved with. On
+the web page those two destinations also have a Velocity knob each on the faceplate, and on the panel Shift + M VOL and
+Shift + FIL ENV AMT turn them (see Shift): the same routes as here.
 
 1. Press **Arp Assign** (LED blinks, display `SrC`). The knobs go into pickup and stay there until you leave MOD
    ASSIGN, so touching one won't change the sound.
@@ -684,7 +686,9 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 | RESONANCE | Macro 2's offset (`nAC2`) |
 | A LEVEL / B LEVEL | The CC A / CC B source numbers (`CC.A` / `CC.b`, 1-127; a system setting) |
 | NOISE | The MIDI channel the synth listens on (`CHnL`: `ALL`, 1-16; a system setting, see Playing) |
-| FIL ENV AMT | Knob pickup (`P.UP`: a quarter turn up `on`, down `OFF`; a system setting, see The panel at a glance) |
+| M VOL | The edit layer's velocity → VCA route (`VE.A`, 0-99). The level stays where it is meanwhile; see below |
+| FIL ENV AMT | The edit layer's velocity → cutoff route (`VE.F`, -99 to 99) |
+| PMOD FIL ENV | Knob pickup (`P.UP`: a quarter turn up `on`, down `OFF`; a system setting, see The panel at a glance) |
 
 | Shift + button | Does |
 |---|---|
@@ -695,8 +699,22 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 | 1-9 | Open that Settings page directly |
 | 0 | Panic: every note off, the pedal cleared, the sequence stopped (`PAnC`) |
 
+`VE.A` and `VE.F` are ordinary routes, the ones MOD ASSIGN lists and the web page's Velocity knobs turn, on the layer
+you're editing and saved with the patch. At 0 the route is removed with its Both mark (a slow turn of `VE.F` stops there), and turning up adds it again. A
+link between the layers doesn't reach a route: on a linked layer they still edit that layer's own. With the
+layer's 16 routes taken and none of this kind to adjust, the display says `FULL` and nothing changes. A negative
+velocity → VCA route, which only MOD ASSIGN or the host can make, shows as it is (`-40`): turning down leaves it, turning
+up replaces it, from 0.
+
+These two turn by how far the knob moves, so with the knob at the top of its travel the depth can't go above where it is,
+and turning down far enough to come back higher passes 0, which removes the route and its Both mark. To go
+higher without that, turn the knob down a little under Shift and let go: with pickup on it now waits, so it can come further down without Shift as far as its
+own value without changing anything, and from there it has room to go up under Shift.
+
 When Shift is released the knobs go into pickup, as after loading a patch, so letting go doesn't move anything
-(with pickup off too: a knob takes over when you move it after).
+(with pickup off too: a knob takes over when you move it after). M VOL only does if you turned it under Shift: the
+level stays until the knob comes back to it, with the dot, so a volume knob left at the bottom has to come up past
+the level before it can bring it down. Left alone under Shift it's where its knob is, as always.
 
 ## Clock
 

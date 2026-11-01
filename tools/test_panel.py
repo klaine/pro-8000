@@ -1350,8 +1350,8 @@ class Pickup(PanelTest):
 
     def test_pickup_off_jumps_on_the_first_move(self):
         self.s.hold("SHIFT")
-        self.s.pot("FIL_ENV_AMT", 0.9)
-        self.s.pot("FIL_ENV_AMT", 0.1)
+        self.s.pot("PMOD_FIL_ENV", 0.9)
+        self.s.pot("PMOD_FIL_ENV", 0.1)
         self.assertShows("P.UP")
         self.s.ms(600)
         self.assertShows("OFF")
@@ -1414,7 +1414,7 @@ class Shift(PanelTest):
 
     def test_names_then_value(self):
         for pot, name in (("LFO_FREQ", "dLY"), ("LFO_AMOUNT", "FAdE"), ("GLIDE", "drFt"), ("MASTER_TUNE", "dEtU"), ("FINE", "bEnd"),
-                          ("CUTOFF", "nAC1"), ("RESONANCE", "nAC2"), ("A_LEVEL", "CC.A"), ("B_LEVEL", "CC.b"), ("NOISE", "CHnL"), ):
+                          ("CUTOFF", "nAC1"), ("RESONANCE", "nAC2"), ("A_LEVEL", "CC.A"), ("B_LEVEL", "CC.b"), ("NOISE", "CHnL"), ("MASTER_VOL", "VE.A"), ("FIL_ENV_AMT", "VE.F")):
             with self.subTest(pot=pot):
                 value = self.secondary(pot, name)
                 self.assertRegex(value, r"\d|ALL", f"{pot}'s value after the name")
@@ -1444,6 +1444,19 @@ class Shift(PanelTest):
         self.assertShows("ALL")
         self.assertEqual(self.s.settings()["midi-channel"], 0)
         self.s.let_go("SHIFT")
+
+    def test_letting_go_of_shift_at_once_still_shows_the_words(self):
+        """The value comes half a second after the name, and Shift can be up by then."""
+        for pot, name, start, end, word in (("NOISE", "CHnL", 0.3, 0.1, "ALL"), ("PMOD_FIL_ENV", "P.UP", 0.9, 0.1, "OFF"), ("PMOD_FIL_ENV", "P.UP", 0.3, 0.9, "on")):
+            with self.subTest(word=word):
+                self.s.hold("SHIFT")
+                self.s.pot(pot, start)
+                self.s.pot(pot, end)
+                self.assertShows(name)
+                self.s.let_go("SHIFT")
+                self.s.ms(520)
+                self.assertShows(word)
+                self.s.ms(1600)
 
     def test_detune_stays_0_to_50(self):
         self.s.hold("SHIFT")
@@ -5209,13 +5222,14 @@ class EveryName(unittest.TestCase):
         with open(os.path.join(ROOT, "src", "main.c"), encoding="utf-8") as f:
             main = f.read()
         texts = set(re.findall(r'display_text\("([^"]*)"\)', main))
-        for table in re.findall(r"(?:names?|modes|curves|values)\[[^\]]*\](?:\[[^\]]*\])* = \{(.*?)\};", main, re.S):
+        for table in re.findall(r"(?:names?|modes|curves|values|table)\[[^\]]*\](?:\[[^\]]*\])* = \{(.*?)\};", main, re.S):
             texts.update(re.findall(r'"([^"\n]*)"', table))
         with open(os.path.join(ROOT, "src", "lfo.c"), encoding="utf-8") as f:
             lfo = f.read()
         for table in re.findall(r"names?\[[^\]]*\](?:\[[^\]]*\])* = \{(.*?)\};", lfo, re.S):
             texts.update(re.findall(r'"([^"\n]*)"', table))
         self.assertGreater(len(texts), 80)
+        self.assertLessEqual({"VE.A", "VE.F", "P.UP", "FULL"}, texts)
         missing = {}
         for text in sorted(texts):
             for c in text:
@@ -7506,6 +7520,513 @@ class VelocityOnTheEngine(PanelTest):
         self.assertAlmostEqual(with_ - without, 20 / 99 * 96, delta=0.05, msg="layer 2's route, under layer 1's knob")
         self.route(0, VELOCITY, CUTOFF, 0)
         self.assertAlmostEqual(self.voice(127, note=72)[1], without, delta=0.02, msg="layer 1's route isn't layer 2's")
+
+
+class ShiftVelocityRoutes(PanelTest):
+    """Shift + M VOL is the edit layer's Velocity -> VCA (VE.A), Shift + FIL ENV AMT its Velocity -> Cutoff (VE.F), the routes
+    MOD ASSIGN and the editor's Velocity knobs edit. MANUAL, the Shift table. Knob travel here: VE.A 113.85 per sweep, VE.F 227.7."""
+
+    def setUp(self):
+        super().setUp()
+        for layer in (0, 1):  # about the knob, not init's depth (InitRoutes has that): a depth it can turn both ways
+            self.s.request(0x56, layer, VELOCITY, VCA, (40 + 99) >> 7, (40 + 99) & 0x7F)
+
+    def depth(self, dest, layer=0):
+        """The depth read back, None without a route, 0 for one waiting at 0."""
+        found = [d for source, to, d in self.s.routes(layer) if source == VELOCITY and to == dest]
+        self.assertLessEqual(len(found), 1)
+        return found[0] if found else None
+
+    def route(self, layer, dest, depth, source=VELOCITY):
+        self.s.request(0x56, layer, source, dest, (depth + 99) >> 7, (depth + 99) & 0x7F)
+
+    def counts(self, pot, *moves):
+        """Turns a knob from where it is by these many counts of 4095, one at a time. Under 24 no event comes (POT_HYSTERESIS)."""
+        for move in moves:
+            self.position = getattr(self, "position", 2048) + move
+            self.s.cmd(f"pot {POT[pot]} {self.position}")
+            self.s.ms(40)
+
+    def start(self, pot, at=0.3):
+        """Shift on, the knob's first reading in: from there on it counts."""
+        self.s.hold("SHIFT")
+        self.s.pot(pot, at)
+        self.position = round(at * 4095)
+
+    def voice(self, velocity, note=60):
+        """The gated voice's VCA gain and filter CV in semitones; the note is let go again."""
+        self.s.ms(50)
+        self.s.note(note, velocity)
+        self.s.ms(100)
+        voices = self.s.gated()
+        self.assertEqual(len(voices), 1)
+        cvs = self.s.cvs()
+        self.s.note_off(note)
+        self.s.ms(1500)
+        return (cvs[CV_AMP1 + voices[0]] / 65535 - 0.07) / 0.93, cvs[CV_FIL1 + voices[0]] / CV_PER_SEMITONE
+
+    def test_m_vol_adds_adjusts_and_removes_the_route(self):
+        self.s.no_routes()
+        self.start("MASTER_VOL")
+        self.s.pot("MASTER_VOL", 0.4)
+        self.assertShows("VE.A", "the name first")
+        self.assertEqual(self.depth(VCA), 11)
+        self.s.ms(520)
+        self.assertShows("  11", "then the value")
+        self.s.pot("MASTER_VOL", 0.5)
+        self.assertShows("  22")
+        self.assertEqual(self.depth(VCA), 22)
+        self.s.pot("MASTER_VOL", 0.0)
+        self.assertShows("   0")
+        self.assertIsNone(self.depth(VCA), "0 removes it")
+        self.assertEqual(self.s.routes(), [])
+        self.s.pot("MASTER_VOL", 0.1)
+        self.assertEqual(self.s.shows(), "  11")
+        self.assertEqual(self.depth(VCA), 11, "and turning up adds it, by as much as before")
+        self.s.pot("MASTER_VOL", 1.0)
+        self.assertShows("  99")
+        self.assertEqual(self.depth(VCA), 99)
+        self.s.let_go("SHIFT")
+
+    def test_fil_env_amt_adds_adjusts_and_removes_the_route_on_either_side(self):
+        self.route(0, CUTOFF, 3)
+        self.start("FIL_ENV_AMT")
+        self.counts("FIL_ENV_AMT", -24)
+        self.assertShows("VE.F")
+        self.s.ms(520)
+        depths, shown = [], []
+        for _ in range(7):
+            self.counts("FIL_ENV_AMT", -24)  # the knob's smallest move, 1.33 of a step
+            depths.append(self.depth(CUTOFF) or 0)  # at 0 the route is gone
+            shown.append(self.s.shows())
+        self.assertIn(0, depths, "a slow turn stops on 0")
+        self.assertEqual(depths, sorted(depths, reverse=True))
+        self.assertGreater(depths[0], 0)
+        self.assertLess(depths[-1], 0, "and going on takes it negative")
+        self.assertEqual(shown[depths.index(0)], "   0")
+        self.assertEqual(shown[-1], f"{depths[-1]:4d}", "the sign on the display")
+        self.s.pot("FIL_ENV_AMT", 0.0)
+        self.s.pot("FIL_ENV_AMT", 1.0)
+        self.s.pot("FIL_ENV_AMT", 0.0)
+        self.assertShows(" -99")
+        self.assertEqual(self.depth(CUTOFF), -99)
+        self.s.pot("FIL_ENV_AMT", 1.0)
+        self.assertShows("  99", "no plus: a route's depth, as MOD ASSIGN shows it")
+        self.assertEqual(self.depth(CUTOFF), 99)
+        self.s.let_go("SHIFT")
+
+    def test_what_the_route_says_is_what_plays(self):
+        self.s.param(0, "cutoff", 0x2000)
+        self.s.ms(400)
+        self.start("MASTER_VOL")
+        self.s.pot("MASTER_VOL", 0.4)
+        self.s.let_go("SHIFT")
+        vca = self.depth(VCA)
+        self.assertEqual(vca, 51)
+        self.assertAlmostEqual(self.voice(64)[0], 1 - (1 - 64 / 127) * vca / 99, delta=0.002)
+        self.assertAlmostEqual(self.voice(127)[0], 1, delta=0.002)
+        before = self.voice(127)[1]
+        self.start("FIL_ENV_AMT")
+        self.s.pot("FIL_ENV_AMT", 0.4)
+        self.s.let_go("SHIFT")
+        cutoff = self.depth(CUTOFF)
+        self.assertEqual(cutoff, 42)
+        self.assertAlmostEqual(self.voice(127)[1] - before, (42 - 20) / 99 * 96, delta=0.05)
+        self.start("FIL_ENV_AMT", 0.9)
+        self.s.pot("FIL_ENV_AMT", 0.1)
+        self.s.pot("FIL_ENV_AMT", 0.0)
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.depth(CUTOFF), -99)
+        self.assertAlmostEqual(self.voice(127)[1] - before, (-99 - 20) / 99 * 96, delta=0.05, msg="a harder note closes it")
+
+    def test_it_edits_the_edit_layer(self):
+        self.s.setting("layers", 1)  # split: from the split note up is layer 2
+        self.s.press("SEQ2")
+        self.start("MASTER_VOL")
+        self.s.pot("MASTER_VOL", 0.5)
+        self.start("FIL_ENV_AMT")
+        self.s.pot("FIL_ENV_AMT", 0.4)
+        self.s.ms(520)
+        self.s.let_go("SHIFT")
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.routes(0), KNOB_START, "layer 1's stay")
+        self.assertEqual(self.s.routes(1), [(VELOCITY, VCA, 62), (VELOCITY, CUTOFF, 42)])
+        self.assertAlmostEqual(self.voice(64, note=72)[0], 1 - (1 - 64 / 127) * 62 / 99, delta=0.002, msg="layer 2's own")
+        self.assertAlmostEqual(self.voice(64, note=40)[0], 1 - (1 - 64 / 127) * 40 / 99, delta=0.002, msg="layer 1's own")
+
+    def test_a_link_doesnt_reach_a_route(self):
+        """On a linked layer the knobs are layer 1's, but a route is the layer's own: the editor's knob says the same."""
+        self.s.setting("layers", 1)
+        self.s.setting("link", 127)
+        self.s.press("SEQ2")
+        self.start("FIL_ENV_AMT")
+        self.s.pot("FIL_ENV_AMT", 0.4)
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.routes(0), KNOB_START)
+        self.assertEqual(self.depth(CUTOFF, 1), 42)
+
+    def test_a_full_table_says_so_and_nothing_changes(self):
+        self.s.no_routes()
+        for dest in range(1, 17):
+            self.route(0, dest, 5, source=1)
+        table = self.s.routes()
+        self.assertEqual(len(table), 16)
+        self.start("MASTER_VOL")
+        self.s.pot("MASTER_VOL", 0.5)
+        self.assertShows("FULL")
+        self.s.ms(600)
+        self.assertShows("FULL", "no value of a route that isn't there comes after it")
+        self.assertEqual(self.s.routes(), table)
+        self.s.pot("MASTER_VOL", 0.1)  # turned down too: there's nothing to adjust
+        self.assertShows("FULL")
+        self.assertEqual(self.s.routes(), table)
+        self.s.let_go("SHIFT")
+        self.s.ms(1100)
+        self.assertShows("P  1")
+        self.start("FIL_ENV_AMT")
+        self.s.pot("FIL_ENV_AMT", 0.0)
+        self.assertShows("FULL")
+        self.assertEqual(self.s.routes(), table)
+        self.s.let_go("SHIFT")
+        self.s.ms(1100)
+        self.route(0, 2, 0, source=1)  # room again: what was turned against the full table counts for nothing
+        self.start("MASTER_VOL")
+        self.s.pot("MASTER_VOL", 0.4)
+        self.assertShows("VE.A")
+        self.assertEqual(self.depth(VCA), 11)
+        self.s.let_go("SHIFT")
+
+    def test_a_full_table_doesnt_stop_a_route_that_is_there(self):
+        for dest in range(4, 18):
+            self.route(0, dest, 5, source=1)
+        self.assertEqual(len(self.s.routes()), 16)
+        self.start("MASTER_VOL", 0.6)
+        self.s.pot("MASTER_VOL", 0.7)
+        self.assertShows("VE.A")
+        self.assertEqual(self.depth(VCA), 51)
+        self.s.pot("MASTER_VOL", 0.0)
+        self.s.rest()
+        self.assertEqual(self.depth(VCA), None)
+        self.assertEqual(len(self.s.routes()), 15)
+        self.s.pot("MASTER_VOL", 0.1)
+        self.assertEqual(self.depth(VCA), 11, "its slot is free: it comes back")
+        self.s.let_go("SHIFT")
+
+    def test_a_negative_vca_route_stays_until_the_knob_goes_up(self):
+        self.route(0, VCA, -40)
+        self.start("MASTER_VOL")
+        self.counts("MASTER_VOL", -200)
+        self.assertShows("VE.A")
+        self.s.ms(520)
+        self.assertShows(" -40", "the real value")
+        self.assertEqual(self.depth(VCA), -40, "a turn down writes nothing")
+        self.counts("MASTER_VOL", -200, -400)
+        self.assertShows(" -40")
+        self.assertEqual(self.depth(VCA), -40)
+        self.counts("MASTER_VOL", 24)  # 0.67 of a step, however far it was turned down
+        self.assertEqual(self.depth(VCA), -40)
+        self.assertShows(" -40")
+        self.counts("MASTER_VOL", 24)
+        self.assertEqual(self.depth(VCA), 1, "the first whole step replaces it, from 0")
+        self.assertShows("   1")
+        self.counts("MASTER_VOL", -60)
+        self.assertIsNone(self.depth(VCA), "and now it's an ordinary route")
+        self.s.let_go("SHIFT")
+
+    def test_a_negative_cutoff_route_is_an_ordinary_value(self):
+        self.route(0, CUTOFF, -40)
+        self.start("FIL_ENV_AMT")
+        self.s.pot("FIL_ENV_AMT", 0.2)
+        self.assertEqual(self.depth(CUTOFF), -62)
+        self.s.pot("FIL_ENV_AMT", 0.3)
+        self.assertEqual(self.depth(CUTOFF), -40)
+        self.s.let_go("SHIFT")
+
+    def test_the_fraction_doesnt_carry_past_the_end(self):
+        self.s.no_routes()
+        self.start("MASTER_VOL")
+        self.counts("MASTER_VOL", -24)  # 0.67 of a step below 0
+        self.counts("MASTER_VOL", 24)
+        self.assertIsNone(self.depth(VCA))
+        self.counts("MASTER_VOL", 24)
+        self.assertEqual(self.depth(VCA), 1, "1.33 steps up: the 0.67 below 0 doesn't count against it")
+        self.s.let_go("SHIFT")
+
+    def test_the_both_mark_stays_with_the_route_and_goes_with_it(self):
+        both = "route-both 1 (0-7)"
+        self.s.setting(both, 1)  # slot 0: velocity -> VCA, the init sound's
+        self.start("MASTER_VOL", 0.6)
+        self.s.pot("MASTER_VOL", 0.7)
+        self.assertEqual(self.depth(VCA), 51)
+        self.assertEqual(self.s.settings()[both], 1, "adjusting leaves it")
+        self.s.pot("MASTER_VOL", 0.0)
+        self.assertIsNone(self.depth(VCA))
+        self.assertEqual(self.s.settings()[both], 0, "the firmware takes it off with the route")
+        self.s.pot("MASTER_VOL", 0.3)
+        self.assertEqual(self.depth(VCA), 34)
+        self.assertEqual(self.s.settings()[both], 0, "a new route has no mark")
+        self.s.let_go("SHIFT")
+
+    def test_letting_go_at_once_still_shows_the_value(self):
+        for pot, name, value in (("MASTER_VOL", "VE.A", "  29"), ("FIL_ENV_AMT", "VE.F", "  -2")):
+            with self.subTest(pot=pot):
+                self.start(pot)
+                self.s.pot(pot, 0.2)
+                self.assertShows(name)
+                self.s.let_go("SHIFT")
+                self.s.ms(520)
+                self.assertShows(value)
+                self.s.ms(1600)
+                self.assertShows("P  1")
+
+    def test_a_saved_patch_keeps_the_depths(self):
+        self.start("MASTER_VOL")
+        self.s.pot("MASTER_VOL", 0.4)
+        self.start("FIL_ENV_AMT", 0.9)
+        self.s.pot("FIL_ENV_AMT", 0.1)
+        self.s.ms(520)
+        self.s.let_go("SHIFT")
+        self.s.let_go("SHIFT")
+        self.store_patch(9)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.assertEqual(self.s.routes(), INIT_ROUTES)
+        self.s.press("9")
+        self.s.ms(3100)
+        self.assertEqual(self.s.routes(), [(VELOCITY, VCA, 51), (VELOCITY, CUTOFF, -99)])
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.s.routes(), [(VELOCITY, VCA, 51), (VELOCITY, CUTOFF, -99)])
+
+    def test_the_rec_save_after_a_turn_has_it(self):
+        self.s.press("REC")
+        self.start("MASTER_VOL")
+        self.s.pot("MASTER_VOL", 0.4)
+        self.s.ms(520)
+        self.s.let_go("SHIFT")
+        self.s.ms(1600)
+        self.assertShows("P  1", "the save is still waiting")
+        self.s.press("REC")
+        self.assertShows("donE")
+        self.s.ms(1100)
+        self.s.press("2")
+        self.s.ms(3100)
+        self.assertEqual(self.s.routes(), INIT_ROUTES)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.assertEqual(self.depth(VCA), 51)
+
+    def test_without_shift_the_knobs_are_what_they_were(self):
+        self.manual()
+        self.s.pot("MASTER_VOL", 0.25)
+        self.assertShows("  25", "no dot")
+        self.s.ms(300)
+        self.assertEqual(self.s.params()["master-vol"], 25)
+        self.assertAlmostEqual(self.s.cvs()[35] / 65535, 0.25, delta=0.002)
+        self.s.ms(1600)
+        self.s.pot("FIL_ENV_AMT", 0.75)
+        self.assertNotIn(".", self.s.shows().rstrip()[-1:])
+        self.assertEqual(self.s.params()["fil-env-amt"], 74)
+        self.assertEqual(self.s.routes(), KNOB_START)
+        self.assertEqual(self.s.settings()["pickup"], 1)
+
+    def test_shift_pressed_and_let_go_leaves_m_vol_where_its_knob_is(self):
+        self.s.pot("MASTER_VOL", 0.75)
+        self.s.ms(300)
+        self.s.press("SHIFT")
+        self.s.ms(1200)
+        self.s.pot("MASTER_VOL", 0.25)
+        self.assertShows("  25", "no dot: nothing moved under Shift")
+        self.s.ms(300)
+        self.assertAlmostEqual(self.s.cvs()[35] / 65535, 0.25, delta=0.002)
+
+    def test_the_level_stays_while_m_vol_edits_the_route(self):
+        self.s.pot("MASTER_VOL", 0.5)
+        self.s.ms(300)
+        level = self.s.cvs()[35]
+        self.start("MASTER_VOL", 0.3)
+        self.s.pot("MASTER_VOL", 1.0)
+        self.s.ms(300)
+        self.assertEqual(self.s.cvs()[35], level, "under Shift")
+        self.s.let_go("SHIFT")
+        self.s.ms(300)
+        self.assertEqual(self.s.cvs()[35], level, "letting go moves nothing")
+        self.assertEqual(self.s.params()["master-vol"], 50)
+        self.s.pot("MASTER_VOL", 0.8)
+        self.assertShows("  50.", "it waits like any knob, with a dot")
+        self.s.ms(300)
+        self.assertEqual(self.s.cvs()[35], level)
+        self.s.pot("MASTER_VOL", 0.3)  # past it
+        self.s.ms(300)
+        self.assertAlmostEqual(self.s.cvs()[35] / 65535, 0.3, delta=0.002, msg="and takes over from there on")
+        self.s.pot("MASTER_VOL", 0.25)
+        self.assertShows("  25", "no dot any more")
+
+    def test_a_load_doesnt_let_a_waiting_m_vol_jump(self):
+        self.store_patch(3)
+        self.s.pot("MASTER_VOL", 0.5)
+        self.s.ms(300)
+        level = self.s.cvs()[35]
+        self.start("MASTER_VOL", 0.3)
+        self.s.pot("MASTER_VOL", 1.0)
+        self.s.let_go("SHIFT")
+        self.s.midi(0xC0, 2)
+        self.s.ms(300)
+        self.assertEqual(self.s.cvs()[35], level)
+
+    def test_a_waiting_m_vol_isnt_frozen_by_mod_assign(self):
+        """M VOL is the one knob MOD ASSIGN leaves alone."""
+        self.s.pot("MASTER_VOL", 0.5)
+        self.s.ms(300)
+        level = self.s.cvs()[35]
+        self.start("MASTER_VOL", 0.3)
+        self.s.pot("MASTER_VOL", 1.0)
+        self.s.let_go("SHIFT")
+        self.s.press("ASSIGN")
+        self.s.pot("MASTER_VOL", 0.8)
+        self.s.ms(300)
+        self.assertEqual(self.s.cvs()[35], level)
+        self.s.pot("MASTER_VOL", 0.3)
+        self.s.ms(300)
+        self.assertAlmostEqual(self.s.cvs()[35] / 65535, 0.3, delta=0.002)
+
+    def test_pickup_off_lets_m_vol_jump_when_it_moves(self):
+        self.s.setting("pickup", 0)
+        self.s.pot("MASTER_VOL", 0.5)
+        self.s.ms(300)
+        level = self.s.cvs()[35]
+        self.start("MASTER_VOL", 0.3)
+        self.s.pot("MASTER_VOL", 1.0)
+        self.s.let_go("SHIFT")
+        self.s.ms(300)
+        self.assertEqual(self.s.cvs()[35], level, "letting go moves nothing with pickup off too")
+        self.s.pot("MASTER_VOL", 0.9)
+        self.s.ms(300)
+        self.assertAlmostEqual(self.s.cvs()[35] / 65535, 0.9, delta=0.002)
+
+    def test_with_pickup_off_letting_go_during_the_knobs_glide_moves_nothing(self):
+        """A reading behind the muxes glides for a scan. What's left of that glide when Shift goes up isn't the knob moving, and
+        on M VOL it would jump the volume to the knob."""
+        for wait in (0, 1, 2, 5, 10, 20, 40):
+            with self.subTest(wait=wait):
+                self.s.setting("pickup", 0)
+                self.s.pot("MASTER_VOL", 0.5)
+                self.s.ms(300)
+                level = self.s.cvs()[35]
+                self.start("MASTER_VOL", 0.3)
+                self.s.pot("MASTER_VOL", 1.0)
+                self.s.ms(wait)
+                self.s.let_go("SHIFT")
+                self.s.ms(300)
+                self.assertEqual(self.s.cvs()[35], level)
+
+    def test_fil_env_amt_picks_up_after_shift_as_any_knob(self):
+        self.manual()
+        self.s.pot("FIL_ENV_AMT", 0.75)
+        before = self.s.params()["fil-env-amt"]
+        self.start("FIL_ENV_AMT", 0.6)
+        self.s.pot("FIL_ENV_AMT", 0.2)
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.params()["fil-env-amt"], before, "the turn didn't touch the knob's own value")
+        self.s.pot("FIL_ENV_AMT", 0.3)
+        self.assertTrue(self.s.shows().endswith("."), "waiting, with a dot")
+        self.assertEqual(self.s.params()["fil-env-amt"], before)
+        self.s.pot("FIL_ENV_AMT", 0.9)
+        self.assertEqual(self.s.params()["fil-env-amt"], 89, "past it: taken over")
+
+    def test_pickup_is_on_pmod_fil_env_now_and_not_on_fil_env_amt(self):
+        amount = self.s.params()["pmod-fil-env"]
+        self.s.hold("SHIFT")
+        self.s.pot("FIL_ENV_AMT", 0.9)
+        self.s.pot("FIL_ENV_AMT", 0.1)
+        self.assertShows("VE.F")
+        self.assertEqual(self.s.settings()["pickup"], 1, "the old knob doesn't touch it")
+        routes = self.s.routes()
+        self.s.pot("PMOD_FIL_ENV", 0.6)
+        self.s.pot("PMOD_FIL_ENV", 0.4)  # less than a quarter turn
+        self.assertEqual(self.s.settings()["pickup"], 1)
+        self.s.pot("PMOD_FIL_ENV", 0.3)
+        self.assertEqual(self.s.settings()["pickup"], 0, "a quarter turn down")
+        self.s.ms(600)
+        self.assertShows("OFF")
+        self.s.pot("PMOD_FIL_ENV", 0.7)
+        self.assertEqual(self.s.settings()["pickup"], 1, "a quarter turn up")
+        self.assertShows("on")
+        self.s.pot("PMOD_FIL_ENV", 0.2)
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.params()["pmod-fil-env"], amount, "the poly-mod value stays")
+        self.assertEqual(self.s.routes(), routes, "and it isn't a route")
+        self.s.ms(1100)
+        self.power_cycle()
+        self.assertEqual(self.s.settings()["pickup"], 0, "a system setting, where it was stored")
+
+    # A quarter turn is 1024 counts, the first move that makes a whole step of P.UP
+    def test_turning_past_an_end_of_pup_doesnt_change_the_quarter_turn(self):
+        self.start("PMOD_FIL_ENV", 0.4)
+        self.counts("PMOD_FIL_ENV", 820)  # up while on: 0.8 of a step that has nowhere to go
+        self.assertEqual(self.s.settings()["pickup"], 1)
+        self.counts("PMOD_FIL_ENV", -1000)
+        self.assertEqual(self.s.settings()["pickup"], 1, "under a quarter turn down")
+        self.counts("PMOD_FIL_ENV", -24)
+        self.assertEqual(self.s.settings()["pickup"], 0, "a quarter turn down")
+        self.counts("PMOD_FIL_ENV", -820)  # down while off, the same the other way
+        self.counts("PMOD_FIL_ENV", 1000)
+        self.assertEqual(self.s.settings()["pickup"], 0, "under a quarter turn up")
+        self.counts("PMOD_FIL_ENV", 24)
+        self.assertEqual(self.s.settings()["pickup"], 1, "a quarter turn up")
+        self.s.let_go("SHIFT")
+
+    def test_a_new_press_of_shift_starts_pups_quarter_turn_again(self):
+        self.start("PMOD_FIL_ENV", 0.7)
+        self.counts("PMOD_FIL_ENV", -1000)
+        self.assertEqual(self.s.settings()["pickup"], 1)
+        self.s.let_go("SHIFT")
+        self.start("PMOD_FIL_ENV", 0.4)
+        self.counts("PMOD_FIL_ENV", -100)
+        self.assertEqual(self.s.settings()["pickup"], 1, "what the last press turned doesn't count")
+        self.counts("PMOD_FIL_ENV", -924)
+        self.assertEqual(self.s.settings()["pickup"], 0, "this press's own quarter turn does")
+        self.s.let_go("SHIFT")
+
+    def test_m_vol_at_the_top_comes_down_without_shift_and_the_route_stays(self):
+        """MANUAL, under the Shift table: the knob waits, so the depth can go up without passing 0 and losing the mark."""
+        both = "route-both 1 (0-7)"
+        self.s.pot("MASTER_VOL", 1.0)
+        self.s.ms(300)
+        level = self.s.cvs()[35]
+        self.s.setting(both, 1)
+        self.start("MASTER_VOL", 1.0)
+        self.s.pot("MASTER_VOL", 0.95)  # the first reading
+        self.s.pot("MASTER_VOL", 0.9)
+        depth = self.depth(VCA)
+        self.assertLess(depth, 40)
+        self.s.let_go("SHIFT")
+        self.s.pot("MASTER_VOL", 0.5)
+        self.s.pot("MASTER_VOL", 0.3)
+        self.s.ms(300)
+        self.assertEqual(self.s.cvs()[35], level, "the level stays while the knob comes down")
+        self.s.hold("SHIFT")
+        self.s.pot("MASTER_VOL", 0.35)  # the first reading
+        self.s.pot("MASTER_VOL", 0.8)
+        self.s.let_go("SHIFT")
+        self.s.ms(300)
+        self.assertGreater(self.depth(VCA), 40, "above what it could reach from the top")
+        self.assertEqual(self.s.settings()[both], 1, "and the mark is still there")
+        self.assertEqual(self.s.cvs()[35], level)
+
+    def test_the_words_on_the_page_and_in_the_manual(self):
+        page = source("tools", "web", "index.html")
+        sheet = page[page.index('id="tab-device"'):page.index('id="tab-matrix"')]
+        for where in (sheet, source("MANUAL.md")):
+            for text in ("VE.A", "VE.F", "P.UP"):
+                self.assertIn(text, where)
+        for where in (page, source("MANUAL.md"), source("docs", "how-it-works.html"), source("README.md")):
+            self.assertNotIn("Shift + FIL ENV AMT, ", where)
+            self.assertNotIn("(Shift + FIL ENV AMT)", where)
+            self.assertNotIn("Shift + FIL ENV AMT\n", where)
+            self.assertIn("Shift + PMOD FIL ENV", where)
+        self.assertIn("Shift + M VOL", velocity_about(page, "DEST_VCA"))
+        self.assertIn("Shift + FIL ENV AMT", velocity_about(page, "DEST_CUTOFF"))
 
 
 def velocity_about(page, dest):

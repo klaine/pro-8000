@@ -467,7 +467,7 @@
         <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways</td></tr>
         <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
         <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
-        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span><span data-needs="pickup">; FIL ENV AMT → knob pickup <code class="lcd">P.UP</code> <code class="lcd">on</code> / <code class="lcd">OFF</code> (a quarter turn)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
+        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span>; M VOL / FIL ENV AMT → the edit layer's Velocity routes to the VCA and the cutoff, the page's Velocity knobs (<code class="lcd">VE.A</code> / <code class="lcd">VE.F</code>; firmware 0.9.4 and up)<span data-needs="pickup">; PMOD FIL ENV → knob pickup <code class="lcd">P.UP</code> <code class="lcd">on</code> / <code class="lcd">OFF</code> (a quarter turn; on firmware before 0.9.4 it's FIL ENV AMT)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
         <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live; the display shows <code class="lcd">PAnL</code>)</td></tr>
         <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
         <tr><td><kbd>Perf</kbd></td><td>Load the init sound (one saw, filter open, velocity → VCA 70 and → cutoff 20)</td></tr>
@@ -481,7 +481,7 @@
       <ul>
         <li>A knob shows its value while turned, in real units: FREQ A/B follow their mode (semitones, octaves or Hz for Fixed), cents (FINE), −99..99 (M TUNE, Macro 1), Hz with a point from 1 kHz (CUTOFF), ms / s (envelopes, GLIDE), divisions when synced (LFO FREQ). PW A / B: 5-95 % of the cycle, 50 a square.</li>
         <li>No plus sign: positive values have none.</li>
-        <li><b>A dot after the value</b> = the knob hasn't picked up yet. Turn it past (or onto) the stored value and it takes over. Happens after loading a patch, switching layer / LFO / envelope, or editing from the web page.<span data-needs="pickup"> With pickup off (Shift + FIL ENV AMT <code class="lcd">P.UP</code> <code class="lcd">OFF</code>) the knob takes over as soon as you move it: the value jumps to it.</span></li>
+        <li><b>A dot after the value</b> = the knob hasn't picked up yet. Turn it past (or onto) the stored value and it takes over. Happens after loading a patch, switching layer / LFO / envelope, or editing from the web page.<span data-needs="pickup"> With pickup off (Shift + PMOD FIL ENV <code class="lcd">P.UP</code> <code class="lcd">OFF</code>) the knob takes over as soon as you move it: the value jumps to it.</span></li>
       </ul>
     </section>
 
@@ -775,7 +775,7 @@
       knob is in pickup: the sound keeps the stored value until the knob reaches it or sweeps past it, and the
       display shows a dot meanwhile. With pickup off, a knob takes over as soon as you move it, and the value jumps
       to where the knob is, as on the stock synth. Letting go of Shift, MOD ASSIGN, the envelope page or Seq + FREQ
-      moves nothing either way. System-wide, stored a second after a change and kept through power-off; on the synth: Shift + FIL ENV AMT
+      moves nothing either way. System-wide, stored a second after a change and kept through power-off; on the synth: Shift + PMOD FIL ENV
       (<code class="lcd">P.UP</code>).</p>
     <div class="row" id="pickup-row"></div>
   </section>
@@ -1925,7 +1925,7 @@ function midiChannelSelect() {
 function pickupSelect() {
   return settingSelect("Knob pickup", ["On: a knob takes over at the stored value", "Off: a knob takes over when moved (jump)"],
     () => settings && settings.pickup !== undefined ? 1 - settings.pickup : undefined, v => setSetting(SET_ID.pickup, 1 - v),
-    "what a knob does after a patch load or a change of job (system-wide; on the synth: Shift + FIL ENV AMT)");
+    "what a knob does after a patch load or a change of job (system-wide; on the synth: Shift + PMOD FIL ENV)");
 }
 
 function settingSelect(text, options, get, set, title) {
@@ -3205,13 +3205,13 @@ function buildPanel() {
           touch("Keyboard tracking", ["Off", "Half", "Full"][2 - k]); setSetting(SET_ID.keytrack, 2 - k);
         }, "how far the cutoff follows the key; on the synth, the switch (a loaded patch's value holds until it moves)")),
       pflex(
-        velocityKnob(DEST_CUTOFF, "Velocity → Cutoff", -99, "How far a harder note opens the filter (negative: closes it), -99 to +99: velocity × depth / 99 × 96 semitones above the Cutoff knob, so at +20 velocity 127 adds about 19. With the Cutoff knob at the top a low note hears it all the same, as keyboard tracking takes its cutoff down; above about middle C it needs the knob down. It's the edit layer's route in the mod matrix below: 0 removes it, turning adds it, a double-click takes it off."),
+        velocityKnob(DEST_CUTOFF, "Velocity → Cutoff", -99, "How far a harder note opens the filter (negative: closes it), -99 to +99: velocity × depth / 99 × 96 semitones above the Cutoff knob, so at +20 velocity 127 adds about 19. With the Cutoff knob at the top a low note hears it all the same, as keyboard tracking takes its cutoff down; above about middle C it needs the knob down. It's the edit layer's route in the mod matrix below: 0 removes it, turning adds it, a double-click takes it off. On the synth, from 0.9.4: Shift + FIL ENV AMT (VE.F)."),
         h("div", { class: "grp" }, prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))), envCaption),
         h("div", { class: "env-side" }, viz("env", (g, w, ht) => drawEnv(selectedEnv()[1])(g, w, ht)), envTools(selectedEnv)))),
     h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Macro 1"), power),
     ps("amp", "Amplifier",
       pflex(
-        velocityKnob(DEST_VCA, "Velocity → VCA", 0, "How much softer a soft note plays, 0 to 99: level = 1 - (1 - velocity) × depth, so at 70 velocity 127 plays at full and 64 at about 0.65. It's the edit layer's route in the mod matrix below: 0 removes it, turning up adds it, a double-click takes it off."),
+        velocityKnob(DEST_VCA, "Velocity → VCA", 0, "How much softer a soft note plays, 0 to 99: level = 1 - (1 - velocity) × depth, so at 70 velocity 127 plays at full and 64 at about 0.65. It's the edit layer's route in the mod matrix below: 0 removes it, turning up adds it, a double-click takes it off. On the synth, from 0.9.4: Shift + M VOL (VE.A)."),
         prow(knob(P.AMP_ATT, "Attack"), knob(P.AMP_DEC, "Decay"), knob(P.AMP_SUS, "Sustain"), knob(P.AMP_REL, "Release")),
         h("div", { class: "env-side" }, viz("env", drawEnv(1)), envTools(ENVS[1])))),
     h("div", { class: "loose loose-vol" }, knob(P.VOL, "Volume")));

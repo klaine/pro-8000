@@ -231,7 +231,7 @@ after a change of address. The scan steps to the next address every 4 ms between
 multiplexers at once, so every knob is read every 32 ms, with a small dead band against jitter. Because two layers,
 two LFOs and four envelopes share the same knobs, a knob whose job changes goes into pickup: the sound keeps the stored
 value until the knob reaches it (a dot after the number on the display until then), or, with pickup turned off
-(Shift + FIL ENV AMT), until it moves, when the value jumps to it. Shift is the Sync Source button, held or
+(Shift + PMOD FIL ENV), until it moves, when the value jumps to it. Shift is the Sync Source button, held or
 double-pressed to latch; under it the ADSR knobs edit Env 3 and Env 4, every other knob nudges a secondary value by
 how far it moves, and the buttons get second jobs. The display shows real units: 737 Hz of cutoff, 1.25 s of
 attack, -12 semitones, or a clock division.
