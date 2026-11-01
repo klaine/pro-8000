@@ -766,7 +766,8 @@ updates. It takes about 25 seconds, silent, with `tUnE` on the display; incoming
 clock keeps running. A new firmware tunes by itself the first
 time if it finds no tables, or tables made for a different way of writing the CVs (0.7.8 and 0.7.9 each did this once after their
 update: its refresh holds slightly different voltages, and the old tables read up to 28 cents sharp with it). Retune
-after the synth has warmed up for best results.
+after the synth has warmed up for best results: the filters keep moving for about an hour after switching on, by nearly 200 cents at
+the low notes when measured on the synth, while the oscillators stay within a couple of cents.
 
 ## The web page
 
@@ -800,12 +801,15 @@ this manual says `build/pro800` (it needs Python 3.8 or later). `build/pro800 he
 build/pro800 settings
 build/pro800 params 1
 build/pro800 patches
-build/pro800 patch rename A07 Warm Pad
-build/pro800 factory import 12 B00
+build/pro800 patch rename P7 Warm Pad
+build/pro800 factory import 12 P101
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
 build/pro800 install build/pro800-0.9.4.syx --yes
 ```
+
+A forced factory import (`factory import <f> <slot> --force`) replaces the whole slot: the sequence that was there goes
+too.
 
 ## Updating, recovery and going back to stock
 

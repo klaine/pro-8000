@@ -58,6 +58,9 @@ One JSON file per patch, `<slot>-<name>.json`:
 | `sequence` | The step sequence (arp group and P48): `on`, `step` (a clock division), `clock`, `bpm`, `swing`, `once`, `keys` (both / 1 / 2), `arp`, `lanes`, `chord` (0-2 extra notes per step, 0.9.3; `lanes` + `chord` at most 4), `smooth` (lanes that glide, e.g. `"A"`) and `steps`, each `{note, gate, vel, prob, ratchets, a-d, n2, n3}` (`n2`, `n3`: chord notes, ±36 semitones from the step's note; `hold`: the notes that hold past the gate, 1 own + 2 `n2` + 4 `n3`) with defaults left out (`note` 0, `gate` 50, the key's velocity, always, one hit); `{"rest": true}` is a rest, `gate` 100 a tie |
 | `morph` | The morph target's slot (P59 only) |
 
+`lib/bundle.py` fails the build on a preset that breaks its rules: the slot 1-128 and unique, the name plain ASCII, at most 16
+characters, with no spaces at its edges.
+
 `lib/plan.py` turns the files into command lines and checks every name and range against the tool's tables
 (`tools/pro800.swift`), so a typo fails before anything reaches the synth. It's what `install.sh` runs; `plan.py
 presets/` prints the plan on its own.

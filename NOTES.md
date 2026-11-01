@@ -1777,23 +1777,29 @@ From the GitHub issues (#14, #15, #1). VALUE and `PAnL` tried on the synth; the 
   `sim_reg()`. Writing the watchdog is the top of a pass: the firmware runs in a fiber (Windows) or ucontext and comes back
   there, so `main()`'s endless loop needs no change. One pass is one millisecond exactly, so runs repeat to the
   millisecond. `hw.c` includes `controls.c` for its pin and key tables and feeds the ADC, GPIO and key RAM, so debounce,
-  the 40 ms key scan, hysteresis and the mux scan are the real ones. Stubbed: `sh.c`, `dac.c`, `tune.c`, `tuning.c`, USB, DIN,
-  the EEPROM (a file, so a power cycle is a new process on it), the HT16K33 (its RAM is what tests read).
-- **What it can't tell:** anything analog or timing on the hardware (a pass here is a flat 1 ms), USB, the bootloader.
-- **What the 265 tests cover** (a class each): boot on formatted, stock-format and untuned memory; manual mode; typing a
+  the 40 ms key scan, hysteresis and the mux scan are the real ones. It includes `din.c` too (from 2026-10-31), one UART
+  interrupt a byte, so what the socket throws away (SysEx) doesn't reach the firmware here either. Stubbed: `sh.c`,
+  `dac.c`, `tune.c`, `tuning.c`, USB, the EEPROM (a file, so a power cycle is a new process on it), the HT16K33 (its RAM is
+  what tests read). `midistat`'s second number is DIN bytes waiting.
+- **What it can't tell:** anything analog or timing on the hardware (a pass here is a flat 1 ms), USB (`usb_harness.c` covers
+  the driver's register writes only: the review's section below), the bootloader.
+- **What the 624 tests cover** (counted 2026-11-01, with the synced LFO times, the init sound's routes, the editor's Velocity knobs, the panel's Velocity routes and the route hold below; a class each, and 170 of them need `node`): boot on formatted, stock-format and untuned memory; manual mode; typing a
   slot; VALUE through the patches; saving; init, undo and compare; a damaged slot; every knob's display value and the
   envelope table; pickup after a load, a layer, LFO or envelope switch and with pickup off; Shift's secondaries and
   buttons; every Settings page, value and sub-page; the LFO controls; keyboard tracking; layers, links and voices per
   layer; MOD ASSIGN's sources, destinations, depths, scrolling and Browse; step recording and its steps; the clock
   sources, tap, SYNC IN and the beat LED; Tune; controllers on the display; two things at once (a load, a controller or a
   knob while a menu, a save, MOD ASSIGN or a typed number has the display); the envelope page; the face buttons; MIDI
-  (pedal, all notes off, the channel set, channel, 8CH and MPE modes, bend, DIN, the version and update-mode SysEx);
+  (pedal, all notes off, the channel set, channel, 8CH and MPE modes, bend, DIN, and over USB only the version and
+  update-mode SysEx);
   voice modes and unison; key-up, DAHDSR and cycling envelopes on the VCA; the sequencer playing, once, under the
   pedal, saved with the patch; everything the manual says a patch stores, round-tripped through a save, the init sound
-  and a power cycle; names; the scale snapping pitch; and that every text in the name tables has glyphs. Firmware
+  and a power cycle; names; the scale snapping pitch; that every text in the name tables has glyphs; and from the review
+  below MIDI floods, settings at rest, factory import, the host protocol, the clock after a tune, ticks held up,
+  single-wire routes, the USB driver, the crash record and handler, no crystal, the pages and the preset bundle. Firmware
   state the display can't show is read through the host SysEx (settings, parameters, routes, the engine probe, CVs).
 - The manual's envelope table said 150 and 310 ms at half; the curve gives 154 and 311, so the manual says that now.
-- **The editor's Range column, rings and "where" strings against the firmware** (`WebRanges`, 31 tests, needs `node`): the
+- **The editor's Range column, rings and "where" strings against the firmware** (`WebRanges`, 32 tests, needs `node`): the
   page's own `swingUnit()`, `routeSwing()`, `swingWhere()`, `modRange()` and `format()` are cut out of `index.html` and
   run in Node, and each destination gets a route from FIX (always 1) in the simulator, measured on the CVs in the
   destination's own unit: pitch A / B / both at five depths (the squared curve, cents under a semitone), cutoff, the
@@ -1810,7 +1816,13 @@ From the GitHub issues (#14, #15, #1). VALUE and `PAnL` tried on the synth; the 
   measurement's window has to come from the simulator's clock (`now()`): a probe runs 5 passes of its own, which
   inflated a 40 ms window by an eighth before `lfo_rate()` read the clock. From 0.9.4 the synced case is measured too:
   LFO 1 synced at 1/4 runs 2 Hz with no clock (120 BPM), and FIX +50 into its rate gives the page's 1/16 within 1 %
-  (`lfo_rate_long()`, ten 40 ms windows); the Range cell's main/under texts and `noteValue()`'s names are pinned.
+  (`lfo_rate_long()`, ten 40 ms windows); the Range cell's main/under texts and `noteValue()`'s names are pinned. A slot's
+  sustain scale is fixed in `DEST_SCALE` too: a sustain route's arc was a third of its reach.
+- **The pages' own code in Node** (2026-10-31, skipped without `node`): `run_node()` runs a page's script against a fake
+  clock and fake MIDI ports, and a line `REQ <hex>` from the script is a request for the simulated firmware, whose reply
+  comes back on stdin, so a page can be run against the real `main.c`. `WebInstaller` (13), `WebReconnect` (21),
+  `WebRestore` (3), `WebRestoreOnStock` (2), `WebSaveInASlot` (5), `WebMarkingTheMemory` (2), `WebSmallThings` (8), `WebVelocityKnobs` (38);
+  `PresetBundle` (4, Python) checks `presets/lib/bundle.py`.
 - **Bugs it found on its first runs, fixed:**
   - **The patch loaded at boot lost its knobs.** `synth_update()`'s first pass copies the panel into both layers until the
     knobs are primed, and at boot that ran after `load_patch()`: the patch's buttons and routes stayed, its knob values
@@ -1971,6 +1983,51 @@ matters:
 - `presets/lib/bundle.py` fails the build on a slot outside 1-128 or taken twice, and on a name that isn't plain ASCII, is over 16
   characters or has spaces at its edges.
 
+**How it was checked** (no synth): `python tools/test_panel.py`, 422 tests; `python tools/test_pro800.py`, 126 tests (468 and 133 with the synced LFO times, a section below), which replaces
+`run_self` at import so no test can start the tool on the real port; `scripts/build.sh --no-pack`.
+
+**Tried on the synth, 2026-11-01** (Windows, MIDI Services; `python tools/pro800.py`, this build)
+
+- **Install and boot:** `install` took 55 s including the 8 s port wait, the bootloader gave `01 00 00` after message 388 of 388, and
+  the new boot order runs. The whole EEPROM read the same before and after, and P69's settings, parameters and routes too.
+- **The crash record survives the bootloader:** `fault-test --yes` came back in 3.6 s with HardFault, CFSR `PRECISERR BFARVALID`, HFSR
+  `FORCED`, BFAR `0x30000000`, pc `0x08019A40`, streak 1. After 10 s `fault` showed the same record at streak 0. So the streak rule's
+  storage holds. Three crashes in a row and `CrSh` on the display weren't tried: only one crash, and nobody was watching the panel.
+- **USB flow control on Windows:** patch loads take about 14 ms each here, so an unpaced burst parks the ring. Separate sends of the
+  load request, 50, 200 and 500 of them: every acknowledgement came back, the slowest send was 17 ms and the whole run took as long
+  as the loads, so the host really waits. No send failed.
+- **One buffer held over about 1 s fails on Windows, though it arrives:** one `midiOutLongMsg` of 80 loads or more returned error 1
+  at 1.01 s, and every load in it was still done and acknowledged. 60 loads (0.73 s) passed. Neither tool nor page sends a buffer
+  that big (one message a send), so this needs a host program with a huge buffer, or a send that a format holds for its 2 s. It's
+  Windows MIDI Services' limit or the WinMM layer's; which wasn't looked into.
+- **Notes:** 600 note pairs with 24 patch loads among them, unpaced: no held keys and every voice idle afterwards.
+- **Autotune with traffic:** 25.4 s, 24 of 24 rows, 20316 messages sent during it with no send failing and no send pair over 1 ms; the
+  next request answered in 1 ms and `engine` showed nothing held. So discard mode keeps the host moving. All of this was read from
+  the firmware's state and the tuning comparator, not by ear: the line signal wasn't being monitored on the Move, so this build hasn't been heard.
+- **Settings at rest:** `set cc-a` reached the block; the block read back right after 2 s. (A stored 0 means the default, and `set`
+  takes 1-127, so putting CC 11 back leaves an explicit 11 in the block where a 0 was. It behaves the same.)
+- **Oscillators after a tune:** within about 2.4 cents from note 36 to 96. Note 36 (65 Hz) often reads an octave high (about 3 of 16
+  oscillators each run, even after `check`'s three tries, once +897, and a different few each time), which is `check`'s known
+  comparator effect at low pitch reaching further up than its comment says. The same oscillators read right on the next run. Whether
+  it got more frequent since 0.8.4 wasn't tested: nothing in the measuring code changed (src/tune.c untouched) but the old build wasn't run for comparison.
+
+- **The filters track far less well through a warm-up than the oscillators:** a tune during the morning's session (how long the synth had been on isn't known),
+  then the mean error at note 48 through those tables, every 5 minutes: +56, +89, +114, +134, +149, +162, +172, +179, +186, +191 cents
+  at 47 minutes, each step about 0.79 of the last, so about 25 cents still to come (a time constant near 21 minutes, estimated). The
+  error shrinks towards note 120, which hardly moves. The older tables (unchanged since at least 2026-10-30) read -247 cents at note 48 before that tune,
+  which would be the same effect the other way round if they were made warm. A tune at 50 minutes read within 4.3 cents on every filter. The oscillators
+  stayed within about 2 cents all along. It's the whole-scale error an uncompensated exponential converter would have with
+  temperature (our reading, not measured on the chips). Nothing in this build changes the CVs: `sh.c`'s tenths-to-cycles gives the
+  same values as before. So tune once it has warmed up, about an hour for the filters.
+
+**Not tried on the synth**
+
+- A host that sends CLEAR_FEATURE or SET_INTERFACE on a live connection (the toggle reset), macOS while parked, and a host sending
+  during the 2 s of a format.
+- **The Swift tool has not been compiled since these changes** (no swiftc on the Windows machine): run `scripts/tools.sh` on the Mac.
+- The no-crystal start, the third crash in a row, and the reconnect, the restore and the installer's tabs in a real browser against
+  the synth.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer.
@@ -2049,7 +2106,8 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 
 ## Plan
 
-1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 180 MHz,
+1. Skeleton: arm-none-eabi-gcc, linker script at `0x08010000`, `SCB->VTOR`, clock tree 8 MHz → 168 MHz (the chip's
+   limit is 180; the firmware runs 168, which also gives USB its 48 MHz),
    build script → `PRO800_update_gen` → `.syx`. First test: light a panel LED or the display.
 2. Before flashing anything: back up the patches (SynthTribe / SysEx) and keep the stock firmware `.syx` for
    recovery.
@@ -2257,3 +2315,16 @@ Decided by the owner: depth 0 no longer removes a route at once, so sweeping thr
   routes in ring order with their ranges; the macro knobs do the same for their inputs. Checked offline in the desktop
   app's browser with injected routes (five sources on the cutoff, two on Osc A, FIX and velocity into the VCA, LFO 1
   into the amp attack, random into glide); not yet against the synth.
+
+## Tried on the synth, 2026-11-01 (the build with the velocity routes, the Shift gestures and the hold at 0)
+
+Windows, `python tools/pro800.py`. This covers only what's listed; the sections above that say "not run on the synth" still hold for the rest.
+
+- **Install:** the bootloader gave `01 00 00` after message 394 of 394, and every EEPROM byte read the same before and after.
+- **A flash loses what isn't saved:** P68 had three unsaved edits in RAM (amp-rel 72, env3-sus 0, env3 to pitch 89) and the restart reloaded the stored values. They were put back by hand from the `params` and `routes` read just before. Buttons and the sequence weren't compared. Read the sound before a flash, or warn that it goes.
+- **The init sound's routes:** `patch init` listed velocity to VCA 40 and velocity to cutoff 20 on both layers, nothing saved. Played by hand with this build, the owner set the VCA's depth to 70 and kept the cutoff at 20: at the knob's maximum velocity is hardly heard in the filter, and it works once the knob comes down.
+- **The hold at 0, timed on one MIDI connection against 0x57:** a route at 0 was removed after 5.03-5.04 s in 4 of 4 runs. Back to -20 at 4 s, it was still there 3 s later. A row at 0 reads back in `routes` with its note.
+- **Synced LFO times:** with `lfo-sync clock`, `settings` prints `lfo-delay 60 (1/4)` and `lfo-fade 2 (off)`.
+- **Not tried on the synth:** anything heard (the line signal isn't monitored on the Move), the Shift gestures and M VOL's new level path (need hands on the panel), the editor's Velocity knobs in Chrome or Edge, the delay and fade's actual timing, the Swift tool.
+- **Tried by the owner, hands on the panel and ears on:** `VE.F` through 0 keeps the route; M VOL's new level path, the pickup gesture, the editor's Velocity knobs and the synced fades all work; the sound is fine. That is what set the VCA's depth to 70.
+- **Found while changing that depth, and fixed:** with pickup off, letting go of Shift while a knob's reading was still gliding jumped the knob's parameter to the knob, because what was left of the glide read as a move. On M VOL that's a jump in the volume. Waiting now compares the readings, not the glide (`synth_tick`'s `pickup_from`), for every knob behind the muxes. `test_with_pickup_off_letting_go_during_the_knobs_glide_moves_nothing` fails without it. The build the owner tried has the bug, with pickup on it can't happen.

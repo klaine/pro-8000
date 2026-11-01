@@ -79,7 +79,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   git.** `tools/web/sound-plan.js` holds what it shares with the editor: the preset-format code, `GLOBAL_ADDRESS` / `GLOBAL_MAGIC`,
   `nameBytes`, `badSlotPreset`, `formatReply`, `watchInstaller` and `markBothRoutes`, so a page must not redeclare them. Other MIDI software on the
   Mac breaks a flash (NOTES), the command-line flash too; the Chrome test uses a separate profile.
-- The preset bank: `presets/lib/bundle.py` bundles `presets/*.json` into one file for the editor's Patches tab;
+- The preset bank: `presets/lib/bundle.py` bundles `presets/*.json` into one file for the editor's Patches tab, and fails the
+  build on a bad slot, a bad name or a slot taken twice;
   `scripts/web.sh` writes `tools/web/presets.json` (git-ignored), `scripts/pages.sh` the site's `editor/presets.json`,
   and `scripts/build.sh` `build/pro8000-presets-<VERSION>.json`, which a release carries with the `.syx`.
 - `scripts/pages.sh` builds the GitHub Pages site (`docs/` → `build/pages/`, with the editor and installer from `tools/web/` as
