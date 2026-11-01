@@ -28,10 +28,11 @@ presets/install.sh                   # with the synth on USB
 presets/install.sh --only 41-48,62   # a few slots
 ```
 
-The installer runs one `build/pro800` command per step and prints it: `patch init`, the 13 latching buttons, every
+The installer runs one `build/pro800` command per step and prints it: `patch init`, the init sound's two routes off on
+each layer (`route 1 velocity vca 0` and so on: a preset has exactly the routes it lists), the 13 latching buttons, every
 knob, every setting, the mod routes, then `patch save P<n>` and `patch rename`. Each patch starts from the init
 sound, so a rerun gives the same result, and the order (P25 before P59) means the morph target exists before the patch
-that points at it. Options: `--tool <path>`, `--port <name>`, `PYTHON=`. About 5,600 commands in all; each one opens
+that points at it. Options: `--tool <path>`, `--port <name>`, `PYTHON=`. About 6,200 commands in all; each one opens
 MIDI and waits for the synth's acknowledgement, so the whole bank takes a while (`--only` for a group at a time).
 
 The sounds then load with a program change, with the number keys in preset mode, or from the web page's Patches

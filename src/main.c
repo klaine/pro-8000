@@ -362,7 +362,12 @@ static int load_patch(int n)
     return 1;
 }
 
-// PERF loads a basic sound: oscillator A saw at concert pitch, filter open, gate-like amp envelope, nothing else.
+// The init sound's velocity response, as depths of two ordinary routes on each layer. Change it here; the pages and
+// presets/lib/plan.py clear these same two routes before they build a preset (sound-plan.js: INIT_ROUTES).
+enum { INIT_VELOCITY_TO_VCA = 70, INIT_VELOCITY_TO_CUTOFF = 20 };
+
+// PERF loads a basic sound: oscillator A saw at concert pitch, filter open, gate-like amp envelope, velocity into the
+// VCA and the cutoff, nothing else.
 static void init_patch(void)
 {
     static const struct { uint8_t pot; uint16_t value; } values[] = {
@@ -380,8 +385,11 @@ static void init_patch(void)
         for (unsigned i = 0; i < sizeof values / sizeof values[0]; i++)
             patch.pots[l][values[i].pot] = values[i].value;
     patch.switches = 1u << SWITCH_A_SAW;
-    for (int l = 0; l < 2; l++)
+    for (int l = 0; l < 2; l++) {
         patch.extra[l][PARAM_LFO2_RATE - POT_COUNT] = 0x8000;
+        patch.routes[l][0] = (route_t){SRC_VELOCITY, DEST_VCA, INIT_VELOCITY_TO_VCA};
+        patch.routes[l][1] = (route_t){SRC_VELOCITY, DEST_CUTOFF, INIT_VELOCITY_TO_CUTOFF};
+    }
     patch.keytrack = 2;
     patch.layer_mode = LAYER_OFF;
     patch.split = 60; // LFOs free-running triangles, LFO 2 with no routing

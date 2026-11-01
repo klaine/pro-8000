@@ -111,7 +111,11 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   touch the user's sound. Note the loaded patch (`pro800 settings`), then `pro800 patch init` and
   `pro800 patch save P128`, test there, and reload the user's patch afterwards. P128 is the test slot: overwrite it
   freely if it holds the init sound or a test, but ask first if it holds a patch the user made. Put system-wide
-  settings you changed (MIDI channel, clock, CC A / B) back as they were.
+  settings you changed (MIDI channel, clock, CC A / B) back as they were. The init sound has two routes on each layer
+  (velocity → VCA 70, velocity → cutoff 20), so a level isn't full unless the velocity is 127: `play`'s default 100 gives
+  a gain of 0.85, so comparing with an older measurement needs `play --velocity 127`, or `route 1 velocity vca 0` for one
+  that shouldn't depend on velocity. In `tools/test_panel.py`, `Synth.no_routes()` is the route-free start for a test
+  about something else.
 - **Never** connect a debugger to unlock the flash: that erases the chip, bootloader included. Recovery is
   always through the bootloader (hold buttons 0 and 7 at power-up) and a stock firmware `.syx`.
 - The firmware must fit in 128 kB (the packer's limit, enforced by `link.ld`): sector 4 and the first half of

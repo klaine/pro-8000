@@ -4,6 +4,7 @@
 # the VALUE encoder and MIDI go in, and every test checks what the display and the LEDs show. No synth is needed.
 # A power cycle is a new process on the same EEPROM file. What each case should show comes from MANUAL.md.
 import base64
+import importlib.util
 import json
 import math
 import os
@@ -100,6 +101,8 @@ SWITCH = {n: i for i, n in enumerate(["A_SAW", "A_TRI", "A_SQUARE", "B_SAW", "B_
 BUTTON = {str(i): i for i in range(10)}
 BUTTON.update({n: 10 + i for i, n in enumerate(["PRESET", "PERF", "SETTINGS", "TUNE", "SHIFT", "CLOCK", "REC", "SEQ1", "SEQ2", "ARP_UP", "ASSIGN"])})
 CV_AMP1, CV_FIL1, CV_NOISE, CV_PW_A = 24, 16, 36, 38
+VELOCITY, VCA, CUTOFF = pro800.SOURCE_NAMES.index("velocity"), pro800.DEST_NAMES.index("vca"), pro800.DEST_NAMES.index("cutoff")
+INIT_ROUTES = [(VELOCITY, VCA, 70), (VELOCITY, CUTOFF, 20)]  # src/main.c, init_patch(); MANUAL, the mod matrix
 
 
 class Synth:
@@ -228,11 +231,25 @@ class Synth:
         b = reply[start + pro800.HEADER_SIZE + 2:]
         return {pro800.PARAM_NAMES[i]: ((b[1 + 2 * i] << 7 | b[2 + 2 * i]) * 99 + 8191) // 16383 for i in range(b[0])}
 
-    def routes(self, layer=0):
+    def route_table(self, layer=0):
+        """All 16 slots, as 57 sends them: source 0 is an empty one."""
         reply = self.request(0x57, layer)
         start = reply.index(pro800.SYSEX_HEADER + bytes([0x57, layer]))
         d = reply[start + pro800.HEADER_SIZE:]
-        return [(d[2 + 4 * r], d[3 + 4 * r], (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99) for r in range(16) if d[2 + 4 * r]]
+        return [(d[2 + 4 * r], d[3 + 4 * r], (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99) for r in range(16)]
+
+    def routes(self, layer=0):
+        return [r for r in self.route_table(layer) if r[0]]
+
+    def rest(self):
+        """A moment for a route taken off: 0 takes it at once."""
+        self.ms(50)
+
+    def no_routes(self):
+        """Takes every route off both layers: the start for a test about something else, as the init sound comes with two."""
+        for layer in (0, 1):
+            for source, dest, _ in self.routes(layer):
+                self.request(0x56, layer, source, dest, 0, 99)
 
     def cvs(self):
         return [int(x) for x in self.cmd("cv").split()]
@@ -905,6 +922,275 @@ class InitAndUndo(PanelTest):
         self.assertShows("P  1")
 
 
+class InitRoutes(PanelTest):
+    """The init sound's two velocity routes, on both layers, wherever the init sound comes from (MANUAL, Init)."""
+
+    def assertInit(self, why=None):
+        self.assertEqual(self.s.routes(0), INIT_ROUTES, why)
+        self.assertEqual(self.s.routes(1), INIT_ROUTES, why)
+
+    def assertNone(self, why=None):
+        self.assertEqual(self.s.routes(0), [], why)
+        self.assertEqual(self.s.routes(1), [], why)
+
+    def test_the_first_boot_on_formatted_memory(self):
+        self.assertEqual(self.s.settings()["patch"], 0)
+        self.assertInit("P1 is empty")
+
+    def test_a_format_and_the_boot_after_it(self):
+        self.s.no_routes()
+        self.store_patch(4)
+        self.s.request(0x5B)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertInit("the last patch's slot is empty now")
+
+    def test_perf(self):
+        self.s.no_routes()
+        self.s.press("PERF")
+        self.assertShows("InIt")
+        self.assertInit()
+
+    def test_an_empty_slot(self):
+        self.s.no_routes()
+        self.s.press("7")
+        self.s.ms(3100)
+        self.assertShows("P  7")
+        self.assertInit()
+
+    def test_an_empty_slot_from_the_host_and_by_program_change(self):
+        self.s.no_routes()
+        self.s.request(0x5C, 0, 6)
+        self.assertInit("5C")
+        self.s.no_routes()
+        self.s.midi(0xC0, 8)
+        self.s.ms(5)
+        self.assertEqual(self.s.settings()["patch"], 8)
+        self.assertInit("program change")
+
+    def test_5f(self):
+        self.s.no_routes()
+        self.assertIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x5F]), self.s.request(0x5F))
+        self.assertInit()
+
+    def test_a_save_keeps_them_as_ordinary_routes_and_a_reload_brings_them_back(self):
+        self.store_patch(9)
+        self.assertEqual(self.s.memory()[8 * 768 + 240:8 * 768 + 246], bytes(x for r in INIT_ROUTES for x in r), "store.c: routes at 240")
+        self.s.press("4")
+        self.s.ms(3100)
+        self.s.no_routes()
+        self.s.press("9")
+        self.s.ms(3100)
+        self.assertInit()
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.s.settings()["patch"], 8)
+        self.assertInit()
+
+    def test_they_take_two_of_each_layers_sixteen_slots(self):
+        for layer in (0, 1):
+            for dest in range(4, 18):
+                self.assertTrue(self.s.request(0x56, layer, 1, dest, 0, 99 + 5))
+            self.assertEqual(len(self.s.routes(layer)), 16)
+            self.assertNotIn(bytes([0x7F, 0x56]), self.s.request(0x56, layer, 1, 18, 0, 99 + 5), "the table is full")
+            self.assertEqual(self.s.routes(layer)[:2], INIT_ROUTES)
+
+    # what they do, measured
+    def voice(self, velocity, note=60):
+        """The gated voice of a note, its VCA gain and its filter's CV in semitones (the note is let go again)."""
+        self.s.note(note, velocity)
+        self.s.ms(100)
+        voices = self.s.gated()
+        self.assertEqual(len(voices), 1)
+        cvs = self.s.cvs()
+        self.s.note_off(note)
+        self.s.ms(1000)
+        return (cvs[CV_AMP1 + voices[0]] / 65535 - 0.07) / 0.93, cvs[CV_FIL1 + voices[0]] / CV_PER_SEMITONE  # synth.c: VCA_THRESHOLD
+
+    def test_velocity_on_the_vca(self):
+        self.assertAlmostEqual(self.voice(127)[0], 1, delta=0.002)
+        self.assertAlmostEqual(self.voice(64)[0], 1 - (1 - 64 / 127) * 70 / 99, delta=0.002)
+        self.assertAlmostEqual(self.voice(64)[0], 0.65, delta=0.005, msg="MANUAL's number")
+        self.s.no_routes()
+        self.assertAlmostEqual(self.voice(64)[0], 1, delta=0.002, msg="and it's the route that does it")
+
+    def test_velocity_on_the_cutoff_with_the_knob_down(self):
+        self.s.param(0, "cutoff", 0x2000)
+        self.s.ms(400)
+        high, low = self.voice(127)[1], self.voice(64)[1]
+        self.s.no_routes()
+        knob = self.voice(127)[1]
+        self.assertAlmostEqual(high - knob, 20 / 99 * 96, delta=0.05, msg="about 19 semitones above the knob")
+        self.assertAlmostEqual(low - knob, 64 / 127 * 20 / 99 * 96, delta=0.05)
+        self.assertAlmostEqual(high - low, (127 - 64) / 127 * 20 / 99 * 96, delta=0.05)
+
+    def test_layer_2_plays_them_too(self):
+        self.s.setting("layers", 1)  # split: from the split note up is layer 2
+        self.s.param(1, "cutoff", 0x2000)
+        self.s.ms(400)
+        gain, cv = self.voice(64, note=72)
+        self.assertAlmostEqual(gain, 1 - (1 - 64 / 127) * 70 / 99, delta=0.002)
+        self.s.request(0x56, 0, VELOCITY, VCA, 0, 99)
+        self.s.request(0x56, 0, VELOCITY, CUTOFF, 0, 99)
+        self.assertEqual(self.voice(64, note=72), (gain, cv), "layer 1's routes aren't what it plays")
+        self.s.no_routes()
+        self.assertAlmostEqual(cv - self.voice(64, note=72)[1], 64 / 127 * 20 / 99 * 96, delta=0.05)
+
+    def test_velocity_moves_a_low_notes_cutoff_with_the_knob_at_its_maximum(self):
+        """Full keyboard tracking takes a low note's cutoff well under the knob's top, so the route is in reach there without
+        the knob coming down: the CVs, not the sound. MANUAL, Init."""
+        reach = 126 / 127 * 20 / 99 * 96
+        top = {}
+        for note in (24, 36, 60, 96):
+            with self.subTest(note=note):
+                top[note], soft = self.voice(127, note)[1], self.voice(1, note)[1]
+                self.assertAlmostEqual(top[note] - soft, reach, delta=0.05, msg="the whole of it, no end stop")
+        self.assertAlmostEqual(top[60] - top[36], 24, delta=0.1, msg="full keyboard tracking: 2 octaves down, so note 36 at 127 is still under note 60")
+        self.s.no_routes()
+        self.assertEqual(self.voice(127, 36)[1], self.voice(1, 36)[1], "and it's the route that does it")
+
+    def test_with_layers_off_taking_them_off_leaves_layer_2s(self):
+        """Per layer, and layer 2 doesn't play with layers off: what's left there is saved, and plays once the patch has two
+        layers. MANUAL, Init."""
+        self.s.request(0x56, 0, VELOCITY, VCA, 0, 99)
+        self.s.request(0x56, 0, VELOCITY, CUTOFF, 0, 99)
+        self.assertEqual(self.s.settings()["layers"], 0, "layers off")
+        self.assertAlmostEqual(self.voice(64)[0], 1, delta=0.002, msg="layer 1's are gone, and it's layer 1 that plays")
+        self.store_patch(9)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.s.settings()["patch"], 8)
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), ([], INIT_ROUTES))
+        self.s.setting("layers", 1)  # split: from the split note up is layer 2
+        self.assertAlmostEqual(self.voice(64, note=40)[0], 1, delta=0.002)
+        self.assertAlmostEqual(self.voice(64, note=72)[0], 0.65, delta=0.005)
+
+    # a patch from before
+    def test_a_saved_patch_gets_none_added(self):
+        self.s.no_routes()
+        self.store_patch(5)
+        self.s.request(0x56, 1, 1, 13, 0, 99 - 20)
+        self.store_patch(6)
+        self.s.press("PERF")
+        self.assertInit()
+        self.s.press("5")
+        self.s.ms(3100)
+        self.assertNone()
+        self.s.press("6")
+        self.s.ms(3100)
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), ([], [(1, 13, -20)]))
+        self.s.press("5")
+        self.s.ms(3100)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.s.settings()["patch"], 4)
+        self.assertNone("and the boot's load adds none either")
+        self.s.request(0x5C, 0, 5)
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), ([], [(1, 13, -20)]))
+
+    def test_undo_brings_back_the_sound_before(self):
+        self.s.no_routes()
+        self.store_patch(5)
+        self.s.press("PERF")
+        self.assertInit()
+        self.s.hold("SHIFT")
+        self.s.press("PERF")
+        self.assertShows("Undo")
+        self.assertNone("the routes before")
+        self.s.press("PERF")
+        self.assertInit("again redoes")
+        self.s.let_go("SHIFT")
+
+    # on the panel
+    def test_mod_assign_lists_them(self):
+        for layer, button in ((0, "SEQ1"), (1, "SEQ2")):
+            with self.subTest(layer=layer + 1):
+                self.s.press(button)
+                self.s.ms(1100)
+                self.s.hold("ASSIGN")
+                self.s.ms(650)
+                self.s.let_go("ASSIGN")
+                self.assertShows("nod1", "a hold browses: there are routes")
+                self.s.history()
+                self.s.ms(800 + 600 * 4)
+                self.assertSaw(["VEL", "VCA", "  70"])
+                self.s.turn(1)
+                self.assertShows("nod2")
+                self.s.history()
+                self.s.ms(800 + 600 * 4)
+                self.assertSaw(["VEL", "CUt", "  20"])
+                self.s.turn(1)
+                self.assertShows("nod1", "two routes: round to the first")
+                self.s.hold("ASSIGN")
+                self.s.ms(650)
+                self.s.let_go("ASSIGN")
+                self.assertShows("P  1")
+
+    def test_touching_their_destinations_in_mod_assign_shows_their_depths(self):
+        for pot, depth in (("AMP_SUS", "  70"), ("CUTOFF", "  20")):
+            with self.subTest(pot=pot):
+                self.s.press("ASSIGN")
+                self.s.press("4")
+                self.s.pot(pot, 0.3)
+                self.s.pot(pot, 0.4)
+                self.s.ms(800)
+                self.assertShows(depth)
+                self.s.press("ASSIGN")
+                self.s.ms(100)
+        self.assertInit("looking changes nothing")
+
+    def test_turning_one_down_in_mod_assign_removes_it(self):
+        self.s.press("ASSIGN")
+        self.s.press("4")
+        self.s.pot("AMP_SUS", 0.3)
+        self.s.pot("AMP_SUS", 0.4)
+        self.s.ms(800)
+        for _ in range(35):
+            self.s.turn(-1)
+        self.assertShows("   0")
+        self.s.press("ASSIGN")
+        self.s.rest()
+        self.assertEqual(self.s.routes(0), INIT_ROUTES[1:], "the edit layer's")
+        self.assertEqual(self.s.routes(1), INIT_ROUTES)
+
+    def test_manual_mode_changes_no_routes(self):
+        """Manual mode makes the panel live; the mod matrix isn't on the panel, so the sound keeps the routes it had."""
+        self.manual()
+        self.assertInit("from the init sound on P1")
+        self.s.press("PRESET")
+        self.s.ms(100)
+        self.s.no_routes()
+        self.manual()
+        self.assertNone("from a sound without any")
+
+
+class NoInitRoutesOnStockMemory(PanelTest):
+    """Stock-format memory starts on the panel: no patch, no init sound, no routes."""
+    MEMORY = "stock"
+
+    def test_none_until_the_init_sound_is_asked_for(self):
+        self.assertShows("PAnL")
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), ([], []))
+        self.s.press("PRESET")
+        self.assertShows("nonE")
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), ([], []), "the slot is stock's: the sound stays")
+        self.s.press("PERF")
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), (INIT_ROUTES, INIT_ROUTES))
+
+
+class NoInitRoutesOnBlankMemory(PanelTest):
+    """Nor does memory never formatted, until an empty slot is loaded, which is the init sound."""
+    MEMORY = "blank"
+
+    def test_none_until_an_empty_slot_loads(self):
+        self.assertShows("PAnL")
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), ([], []))
+        self.s.press("PRESET")
+        self.assertTrue(self.s.led("PRESET"))
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), (INIT_ROUTES, INIT_ROUTES))
+
+
 class DamagedSlot(PanelTest):
     def test_shows_none_and_keeps_the_sound(self):
         self.store_patch(4)
@@ -1530,6 +1816,7 @@ class ModAssign(PanelTest):
         self.s.press("ASSIGN")
 
     def test_source_destination_depth(self):
+        self.s.no_routes()
         self.begin()
         self.s.press("4")
         self.s.pot("CUTOFF", 0.3)
@@ -1600,6 +1887,7 @@ class ModAssign(PanelTest):
         self.s.press("ASSIGN")
 
     def test_a_recent_knob_is_already_the_destination(self):
+        self.s.no_routes()
         self.manual()
         self.s.pot("CUTOFF", 0.4)
         self.s.ms(1100)
@@ -1612,6 +1900,7 @@ class ModAssign(PanelTest):
         self.assertEqual(self.s.routes()[0][:2], (4, 3))
 
     def test_depth_zero_removes_the_route(self):
+        self.s.no_routes()
         self.begin()
         self.s.press("4")
         self.s.pot("CUTOFF", 0.3)
@@ -1651,6 +1940,7 @@ class ModAssign(PanelTest):
         self.assertShows("P  1")
 
     def test_no_routes_hold_starts_assign(self):
+        self.s.no_routes()
         self.s.hold("ASSIGN")
         self.s.ms(650)
         self.s.let_go("ASSIGN")
@@ -1675,6 +1965,7 @@ class ModAssign(PanelTest):
 class Browse(PanelTest):
     def setUp(self):
         super().setUp()
+        self.s.no_routes()
         for dest in (3, 13, 15):
             self.s.request(0x56, 0, 4, dest, 0, 99 + 20)
         self.assertEqual(len(self.s.routes()), 3)
@@ -2347,6 +2638,7 @@ class ModAssignMore(PanelTest):
                 self.s.press("ASSIGN")
 
     def test_a_negative_depth_shows_its_sign(self):
+        self.s.no_routes()
         self.begin()
         self.s.press("4")
         self.s.pot("RESONANCE", 0.3)
@@ -2368,6 +2660,7 @@ class ModAssignMore(PanelTest):
         self.s.press("ASSIGN")
 
     def test_the_edit_layer_gets_the_route(self):
+        self.s.no_routes()
         self.s.press("SEQ2")
         self.begin()
         self.s.press("4")
@@ -2380,6 +2673,7 @@ class ModAssignMore(PanelTest):
         self.assertEqual(len(self.s.routes(1)), 1)
 
     def test_routes_are_saved_with_the_patch(self):
+        self.s.no_routes()
         self.begin()
         self.s.press("4")
         self.s.pot("RESONANCE", 0.3)
@@ -2390,7 +2684,7 @@ class ModAssignMore(PanelTest):
         self.store_patch(3)
         self.s.press("1")
         self.s.ms(3100)
-        self.assertEqual(self.s.routes(), [])
+        self.assertEqual(self.s.routes(), INIT_ROUTES, "P1 is empty: the init sound, not the saved route")
         self.s.press("3")
         self.s.ms(3100)
         self.assertEqual(len(self.s.routes()), 1)
@@ -2845,6 +3139,7 @@ class PatchStores(PanelTest):
     """What a patch stores, per the list under Patches: set it all, save, wreck it, load it back."""
 
     def make(self):
+        self.s.no_routes()
         self.s.param(0, "cutoff", 0x1000)
         self.s.param(1, "resonance", 0x3000)
         self.s.param(1, "env3-att", 0x2000)
@@ -2883,7 +3178,7 @@ class PatchStores(PanelTest):
         self.s.press("PERF")
         self.s.ms(1600)
         self.assertEqual(self.s.params(0)["cutoff"], 99, "the init sound replaced it")
-        self.assertEqual(self.s.routes(0), [])
+        self.assertEqual(self.s.routes(0), INIT_ROUTES)
         self.s.press("9")
         self.s.ms(3100)
         self.check()
@@ -3166,6 +3461,7 @@ class WebRanges(PanelTest):
         super().setUp()
         self.page = page_ranges()
         s = self.s
+        s.no_routes()  # each test measures one route
         s.setting("keytrack", 0)
         s.setting("env-curve 1", 1 | 4)  # amp and filter linear: stage times measure exactly
         s.setting("shape 1 1", 7)         # steps, one step on: an LFO that is always 1
@@ -3890,6 +4186,22 @@ class FactoryImport(PanelTest):
         self.assertEqual(self.s.seq_header()["length"], 16, "a cleared sequence")
         self.assertEqual(self.s.seq_header()["flags"] & 1, 0, "and off")
 
+    def test_a_factory_sound_gets_no_routes(self):
+        self.s.close()
+        with open(self.path, "r+b") as f:
+            record = bytearray(256)
+            record[:4] = bytes([0xA5, 0x16, 0x61, 0x00])
+            record[150:154] = b"Bell"
+            f.seek(0x19000 + 7 * 256)
+            f.write(record)
+        self.s = Synth(self.path)
+        self.s.ms(1600)
+        self.assertEqual(self.s.routes(0), INIT_ROUTES, "P1 is empty")
+        self.assertEqual(self.s.reply(0x51, 7, 0, 4, 1)[0], 0)
+        self.s.request(0x5C, 0, 4)
+        self.assertEqual(self.s.patch_info(4), (1, "Bell"))
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), ([], []))
+
 
 class HostProtocol(PanelTest):
     def assertSevenBit(self, reply):
@@ -3918,6 +4230,7 @@ class HostProtocol(PanelTest):
                 self.assertSevenBit(reply)
 
     def test_a_stored_patch_out_of_range_comes_back_in_range(self):
+        self.s.no_routes()  # the rewrite below is of the record's first route
         self.s.request(0x56, 0, 4, 3, 0, 99 + 30)
         self.store_patch(3)
         self.s.close()
@@ -4905,7 +5218,7 @@ def page_script(name):
 
 def run_node(script, synth=None):
     """Runs a script in Node and returns what it gives report(). A line "REQ <hex>" is a request for the simulated firmware:
-    it goes to synth.request() and what the firmware sent comes back on stdin."""
+    it goes to synth.request() and what the firmware sent comes back on stdin. "WAIT <ms>" runs the firmware that long."""
     folder = tempfile.mkdtemp(prefix="pro800page")
     path = os.path.join(folder, "page.js")
     with open(path, "w", encoding="utf-8") as f:
@@ -4916,6 +5229,10 @@ def run_node(script, synth=None):
         for line in process.stdout:
             if line.startswith("REQ "):
                 process.stdin.write(synth.request(*bytes.fromhex(line[4:].strip())).hex() + "\n")
+                process.stdin.flush()
+            elif line.startswith("WAIT "):  # the firmware's time passes under the page
+                synth.ms(int(line[5:]))
+                process.stdin.write("\n")
                 process.stdin.flush()
             elif line.startswith("OUT "):
                 return json.loads(line[4:])
@@ -5020,6 +5337,14 @@ URL.createObjectURL = () => "blob:worker";
 let bankToServe = null;
 globalThis.fetch = async name => name === "presets.json" && bankToServe ? { ok: true, json: async () => bankToServe } : { ok: false, status: 404 };
 """
+
+
+def load_plan_py():
+    """presets/lib/plan.py, as a module: its main() runs only as a script."""
+    spec = importlib.util.spec_from_file_location("plan", os.path.join(ROOT, "presets", "lib", "plan.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def installer(body, bank=None):
@@ -5217,6 +5542,16 @@ class WebInstaller(unittest.TestCase):
         report({ result: await drive(installPresets()) });
         """, bank=[{"slot": 1, "name": "Plain"}])
         self.assertIn("didn't read back", out["result"]["thrown"])
+
+    def test_the_install_takes_the_init_sounds_routes_off_first(self):
+        out = installer(self.RUN + """
+        await drive(installPresets());
+        report(midi.sent);
+        """, bank=[{"slot": 1, "name": "a", "routes": {"1": [["lfo", "vca", 5]]}}])
+        start = out.index([0x5F])
+        self.assertEqual(out[start + 1:start + 5], [[0x56, l, VELOCITY, d, 0, 99] for l in (0, 1) for d in (VCA, CUTOFF)])
+        self.assertIn([0x56, 0, 1, VCA, 0, 104], out[start + 5:])
+        self.assertLess(out.index([0x56, 0, 1, VCA, 0, 104]), out.index([0x5D, 0, 0]), "and it saves after")
 
     def test_a_bank_with_a_slot_out_of_range_isnt_offered(self):
         for slot in (0, 129, 1.5, "7", None):
@@ -5990,6 +6325,166 @@ class WebLfoTimes(unittest.TestCase):
         self.assertIn("With the clock, its delay and fade are note values too", sheet)
         for name in ("1-32", "8bAr"):
             self.assertIn(f'<code class="lcd">{name}</code>', sheet)
+
+
+@unittest.skipUnless(NODE, "needs node to run the page's code")
+class PresetRoutes(PanelTest):
+    """A sound built from JSON has exactly the routes it lists, whatever the init sound under it comes with: planSound()
+    (the editor's Load JSON, both bank installs) and plan.py (presets/install.sh), each against the simulated firmware."""
+
+    def plan_on_the_firmware(self, presets, save=False, each_ms=0):
+        """Each through planSound(), its messages to the firmware, each_ms of its time after each; saved in its slot if asked.
+        Returns what it reported."""
+        return run_node(source("tools", "web", "sound-plan.js") + ASK_THE_SIMULATOR + NODE_DRIVER % """
+        const failed = [], each = %d;
+        const firmwareMs = ms => new Promise(r => { answers.push(r); process.stdout.write("WAIT " + ms + "\\n"); });
+        for (const p of %s) {
+          const plan = planSound(p, () => true);
+          for (const m of plan.messages) {
+            if (!await ack(m)) failed.push(m);
+            if (each) await firmwareMs(each);
+          }
+          if (%s) await ack([0x5D, (p.slot - 1) >> 7, (p.slot - 1) & 0x7F]);
+        }
+        report({ failed });
+        """ % (each_ms, json.dumps(presets), "true" if save else "false"), self.s)
+
+    def assertLists(self, preset):
+        """Exactly the routes listed, each with its own Both mark and nothing marked besides. Which slot each has isn't the
+        preset's business: the init sound's two wait at 0 in slots 0 and 1 until a save or their 5 s, so a list goes round them.
+        Nothing here treats a depth 0 as absent: unsaved, the caller lets them go first (rest()); from a saved slot there are none."""
+        for layer in (0, 1):
+            listed = (preset.get("routes") or {}).get(str(layer + 1), [])
+            wanted = [(pro800.SOURCE_NAMES.index(r[0]), pro800.DEST_NAMES.index(r[1]), r[2], len(r) == 4) for r in listed]
+            st = self.s.settings()
+            both = st[f"route-both {layer + 1} (0-7)"] | st[f"route-both {layer + 1} (8-15)"] << 8
+            table = self.s.route_table(layer)
+            self.assertEqual(sorted((*r, bool(both >> i & 1)) for i, r in enumerate(table) if r[0]), sorted(wanted), f"{preset.get('name')}, layer {layer + 1}")
+            self.assertEqual([i for i, r in enumerate(table) if not r[0] and both >> i & 1], [], "a mark on an empty slot")
+
+    @staticmethod
+    def shipped():
+        out = []
+        folder = os.path.join(ROOT, "presets")
+        for name in sorted(os.listdir(folder)):
+            if name.endswith(".json"):
+                with open(os.path.join(folder, name), encoding="utf-8") as f:
+                    out.append(json.load(f))
+        return out
+
+    def test_a_json_gets_exactly_what_it_lists(self):
+        for preset in ({"name": "nothing"},
+                       {"name": "empty lists", "routes": {"1": [], "2": []}},
+                       {"name": "layer 1 only", "routes": {"1": [["lfo", "cutoff", 10]]}},
+                       {"name": "layer 2 only", "routes": {"2": [["lfo", "cutoff", 10]]}},
+                       {"name": "init's otherwise", "routes": {"1": [["lfo", "pitch", 9], ["velocity", "vca", -30]], "2": [["velocity", "cutoff", 77]]}},
+                       {"name": "both", "routes": {"1": [["lfo", "vca", 5], ["velocity", "cutoff", 33, "both"]], "2": [["env3", "resonance", 7, "both"]]}},
+                       {"name": "sixteen", "routes": {"1": [["lfo", d, 5] for d in pro800.DEST_NAMES[:16]], "2": [["env3", d, -5] for d in pro800.DEST_NAMES[:16]]}}):
+            with self.subTest(preset=preset["name"]):
+                out = self.plan_on_the_firmware([preset])
+                self.assertEqual(out["failed"], [], "every message taken")
+                self.s.rest()
+                self.assertLists(preset)
+
+    def test_the_editors_own_load_and_bank_install(self):
+        """The page's loadSound() and installBank(), cut out of index.html, on the firmware."""
+        page = source("tools", "web", "index.html")
+        one, two = ({"slot": 5, "name": "One", "routes": {"1": [["lfo", "vca", 5], ["velocity", "cutoff", 9, "both"]]}}, {"slot": 6, "name": "Two", "routes": {"2": [["env3", "resonance", 7, "both"]]}})
+        out = run_node(source("tools", "web", "sound-plan.js") + ASK_THE_SIMULATOR + """
+        const settings = new Proxy({}, { get: () => 0 }), shown = [];
+        let seqFor = null;
+        const refreshSettings = async () => true, refreshParams = async () => true, scanSlots = async () => {};
+        const jsonMsg = text => shown.push(text), bankMsg = text => shown.push(text), bankRun = f => f();
+        const document = { getElementById: () => ({}) };
+        """ + js_block(page, "async function loadSound(") + js_block(page, "async function installBank(") + NODE_DRIVER % """
+        await loadSound(%s, "the box");
+        report(shown);
+        """ % json.dumps(json.dumps(two)), self.s)
+        self.assertIn("into the sound", out[-1])
+        self.s.rest()
+        self.assertLists(two)
+        out = run_node(source("tools", "web", "sound-plan.js") + ASK_THE_SIMULATOR + """
+        const settings = new Proxy({}, { get: () => 0 }), shown = [];
+        let seqFor = null;
+        const refreshSettings = async () => true, refreshParams = async () => true, scanSlots = async () => {};
+        const bankMsg = text => shown.push(text);
+        """ + js_block(page, "async function installBank(") + NODE_DRIVER % """
+        await installBank(%s, "the file");
+        report(shown);
+        """ % json.dumps([one, two]), self.s)
+        self.assertIn("installed 2 presets", out[-1])
+        self.s.rest()
+        self.assertLists(two)  # the sound on the synth is the last one
+        self.s.request(0x5C, 0, 4)
+        self.assertLists(one)
+        self.s.request(0x5C, 0, 5)
+        self.assertLists(two)
+
+    def test_a_json_read_back_from_the_init_sound_keeps_its_routes(self):
+        routes = {"1": [["velocity", "vca", 70], ["velocity", "cutoff", 20]], "2": [["velocity", "vca", 70], ["velocity", "cutoff", 20]]}
+        self.plan_on_the_firmware([{"name": "as read", "routes": routes}])
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), (INIT_ROUTES, INIT_ROUTES))
+        self.s.rest()
+        self.assertEqual((self.s.routes(0), self.s.routes(1)), (INIT_ROUTES, INIT_ROUTES), "set again, they aren't waiting")
+
+    def test_the_whole_bank_saved_and_loaded(self):
+        bank = self.shipped()
+        self.assertEqual(len(bank), 66)
+        out = self.plan_on_the_firmware(bank, save=True)
+        self.assertEqual(out["failed"], [])
+        for preset in bank:  # no rest: what was saved holds no route at 0
+            self.s.request(0x5C, (preset["slot"] - 1) >> 7, (preset["slot"] - 1) & 0x7F)
+            self.assertLists(preset)
+
+    def test_sixteen_with_both_marks_saved_and_loaded(self):
+        """16 routes get past the init sound's two, the marks land on the right two, wherever those went."""
+        routes = [["lfo", d, 5] for d in pro800.DEST_NAMES[:16]]
+        routes[0].append("both")
+        routes[14].append("both")  # slot 0 by then
+        routes[15].append("both")  # slot 1
+        preset = {"name": "marked", "slot": 7, "routes": {"1": routes}}
+        self.assertEqual(self.plan_on_the_firmware([preset], save=True)["failed"], [])
+        self.s.request(0x5C, 0, 6)
+        self.assertLists(preset)
+
+    def test_a_firmware_whose_init_sound_has_none_takes_the_removals(self):
+        """The messages planSound() adds, against a route table without those routes: what any firmware before them replies."""
+        self.s.no_routes()
+        for layer in (0, 1):
+            for source_, dest, _ in INIT_ROUTES:
+                self.assertIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x56]), self.s.request(0x56, layer, source_, dest, 0, 99))
+
+    def test_install_sh_gets_exactly_what_each_preset_lists(self):
+        plan = load_plan_py()
+        for preset in self.shipped():
+            lines = plan.plan(preset)
+            self.assertEqual(lines[1:6], ["patch init", "route 1 velocity vca 0", "route 1 velocity cutoff 0", "route 2 velocity vca 0", "route 2 velocity cutoff 0"], "the removals come first")
+            for line in lines:
+                w = line.split()
+                if line == "patch init":
+                    self.s.request(0x5F)
+                elif w[0] == "route":
+                    depth = int(w[4]) + 99
+                    self.assertIn(bytes([0x7F, 0x56]), self.s.request(0x56, int(w[1]) - 1, pro800.SOURCE_NAMES.index(w[2]), pro800.DEST_NAMES.index(w[3]), depth >> 7, depth & 0x7F), line)
+            self.s.rest()
+            for layer in (0, 1):
+                listed = preset.get("routes", {}).get(str(layer + 1), [])
+                self.assertEqual(sorted(self.s.routes(layer)), sorted((pro800.SOURCE_NAMES.index(r[0]), pro800.DEST_NAMES.index(r[1]), r[2]) for r in listed), f"{preset['name']}, layer {layer + 1}")
+
+    def test_the_lists_of_what_the_init_sound_comes_with_are_the_firmwares(self):
+        out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % "report(INIT_ROUTES.map(([s, d]) => [JN.sources.indexOf(s) + 1, JN.dests.indexOf(d)]));")
+        wanted = [list(r[:2]) for r in self.s.routes(0)]
+        self.assertEqual(wanted, [list(r[:2]) for r in INIT_ROUTES])
+        self.assertEqual(out, wanted, "sound-plan.js")
+        self.assertEqual([[pro800.SOURCE_NAMES.index(s), pro800.DEST_NAMES.index(d)] for s, d in load_plan_py().INIT_ROUTES], wanted, "plan.py")
+
+    def test_every_page_path_from_the_init_sound_goes_through_plansound(self):
+        page, installer_page, shared = source("tools", "web", "index.html"), source("tools", "web", "install.html"), source("tools", "web", "sound-plan.js")
+        self.assertEqual(page.count("[0x5F]"), 1, "the Load the init sound button, which stays on it")
+        self.assertIn('ack([0x5F], 3000), "loaded the init sound', page)
+        self.assertEqual(installer_page.count("0x5F"), 0)
+        self.assertEqual(shared.count("[0x5F]"), 1)
+        self.assertEqual((page.count("planSound("), installer_page.count("planSound(")), (2, 2), "Load JSON and the bank; the install and its check")
 
 
 class PresetBundle(unittest.TestCase):

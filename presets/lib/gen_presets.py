@@ -33,7 +33,8 @@ SHARED = ["a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-
 BUTTONS = ["a-saw", "a-tri", "a-square", "b-saw", "b-tri", "b-square", "lfo-pw", "lfo-freq", "lfo-filter",
            "pmod-freq-a", "pmod-filter", "unison", "sync"]
 
-# PERF's init sound (main.c init_patch), as 0-99
+# PERF's init sound (main.c init_patch), as 0-99. Its two velocity routes aren't here on purpose: a preset has the routes
+# it lists and no others (plan.py and sound-plan.js remove those two first).
 LAYER_INIT = {"freq-a": 50, "freq-b": 50, "fine": 50, "cutoff": 99, "fil-env-amt": 50,
               "fil-att": 0, "fil-dec": 50, "fil-sus": 99, "fil-rel": 25,
               "amp-att": 0, "amp-dec": 50, "amp-sus": 99, "amp-rel": 25,

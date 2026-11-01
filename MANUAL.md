@@ -46,7 +46,7 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning). |
 | Preset | Preset mode (a patch loaded) ↔ manual mode (the panel is live). |
 | Rec | Save (blinks, choose the slot, Rec again). Hold Rec and press Seq 1: record sequence steps from MIDI (`rSEq`, see Sequencer). |
-| Perf | Load the init sound: one sawtooth, filter open. |
+| Perf | Load the init sound: one sawtooth, filter open, velocity on the volume and the cutoff. |
 | Settings | Opens the settings menu (keys 0-9). |
 | Tune | Autotune (about 25 s, silent). |
 
@@ -158,10 +158,22 @@ keep them).
 - **Edit:** a loaded patch's knobs are in pickup (with pickup off: until you move them) and its buttons keep their
   stored state until you press them.
   Press Preset for manual mode, where the whole panel is live as it is. The display shows `PAnL` there, as it shows
-  the slot in preset mode; a knob's value appears over it for a second.
+  the slot in preset mode; a knob's value appears over it for a second. The mod routes aren't on the panel, so they
+  stay as the sound had them (memory that starts on the panel, stock or never formatted, starts with none).
 - **Save:** press Rec (it blinks), choose a slot by number or with VALUE, then press Rec again (`donE`). You don't
   have to wait after typing: `5`, Rec saves to P5 at once. Preset cancels. The patch's name follows the sound into an empty slot.
-- **Init:** Perf loads a plain sound. Rec saves it anywhere.
+- **Init:** Perf loads a plain sound: one sawtooth, the filter open, and on each layer two ordinary mod routes,
+  velocity → VCA at 70 (full level at velocity 127, about 0.65 at 64) and velocity → cutoff at 20 (about 19 semitones
+  above the knob at 127). The cutoff knob starts at its maximum, but full keyboard tracking takes a low note's cutoff well
+  under that, so velocity changes how bright a low note is straight away (note 36: about 4 kHz at the softest, about
+  13 kHz at 127). From about middle C up that one is out of hearing until the knob comes down. They
+  take 2 of the layer's 16 routes; MOD ASSIGN lists them and depth 0 removes them. Each layer has its own: with layers off only layer 1 plays, so
+  taking layer 1's off leaves layer 2's in the patch, saved with it, and they play once the patch has two layers (Seq 2
+  picks layer 2 to edit). Rec saves it anywhere. An empty
+  slot and freshly formatted memory's P1 are this sound too. A patch saved earlier keeps the routes it was saved
+  with, and the preset bank, a preset or JSON file and a factory sound have only their own. An editor page or
+  `presets/install.sh` older than this firmware doesn't know about the two routes and leaves them in everything it
+  builds, so use the ones that came with the firmware.
 - **Names, export, backup and restore, the factory bank:** on the web page (Patches tab).
 - **Filling the slots after installing:** the firmware starts with no patches of its own, and slots that still hold
   the stock firmware's data show `nonE`. Saving a patch or installing a bank is enough for the synth to start on your
@@ -521,7 +533,8 @@ only plays it.
 
 ## Mod matrix (MOD ASSIGN)
 
-Each layer has 16 routes. A route adds source × depth (−99 to 99) to a destination.
+Each layer has 16 routes. A route adds source × depth (−99 to 99) to a destination. The init sound starts with two
+on each layer (velocity → VCA 70, velocity → cutoff 20; see Patches); any other sound has what it was saved with.
 
 1. Press **Arp Assign** (LED blinks, display `SrC`). The knobs go into pickup and stay there until you leave MOD
    ASSIGN, so touching one won't change the sound.
@@ -542,8 +555,8 @@ Each layer has 16 routes. A route adds source × depth (−99 to 99) to a destin
 **Browse:** hold Arp Assign for half a second (LED steady). Turn VALUE to step through the edit layer's routes by
 number, `nod1` to `nod9`, then `no10` to `no16` (n stands in for m on the display). When VALUE rests, the route
 shown cycles through its number, source, destination and depth. A short press opens the route shown for editing;
-holding Arp Assign again leaves, back to the patch number. If the layer has no routes yet, the hold starts MOD
-ASSIGN (`SrC`) as a press does.
+holding Arp Assign again leaves, back to the patch number. If the layer has no routes (the init sound has two, so
+there a hold browses them), the hold starts MOD ASSIGN (`SrC`) as a press does.
 
 Touching a destination shows its current depth. Seq 1 / Seq 2 and Arp Up-Dn still work while assigning.
 
@@ -635,6 +648,9 @@ LFOs, unless that LFO is linked. It's saved with the patch. The route stays on t
 the other one too, marked, where you can change its depth or switch it off. A single wire (levels, noise, resonance,
 pulse width, volume) counts it once, from the newest note. Copying a layer leaves it out, as it already plays there.
 On the panel, Arp Assign makes routes for one layer, and browsing shows a both-layers route only on its own layer.
+A Both route adds to the other layer's own routes rather than replacing them. The init sound has velocity → VCA and
+velocity → cutoff on each layer already, so marking one of those Both doubles it on the other layer (at velocity 64,
+a level of 0.8 becomes 0.6). For one shared response, take the other layer's copy off first.
 
 ### Ideas to try
 

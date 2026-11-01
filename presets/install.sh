@@ -1,9 +1,9 @@
 #!/bin/sh
 # presets/install.sh: load the preset bank (presets/*.json) into the PRO-800 over USB with build/pro800.
 #
-# Each preset starts from the init sound (`patch init`), gets its buttons, knobs, settings and mod routes, and is
-# saved to its slot (P1-P66) and renamed, so running this twice gives the same result. Every step is one
-# `build/pro800` command, printed as it runs.
+# Each preset starts from the init sound (`patch init`) with its routes removed, gets its buttons, knobs, settings and
+# mod routes, and is saved to its slot (P1-P66) and renamed, so running this twice gives the same result. Every step is
+# one `build/pro800` command, printed as it runs.
 #
 # usage: presets/install.sh [--dry-run] [--only <slots>] [--tool <path>] [--port <name>]
 #   --dry-run        print the commands instead of running them (no synth needed)

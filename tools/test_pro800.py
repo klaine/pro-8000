@@ -1015,6 +1015,7 @@ class Writes(unittest.TestCase):
             (("layer", "2"), [0x7E, 1]),
             (("route", "1", "lfo", "cutoff", "-99"), [0x56, 0, 1, 3, 0, 0]),
             (("route", "2", "macro2", "macro2", "99"), [0x56, 1, 27, 45, 1, 70]),
+            (("route", "2", "velocity", "cutoff", "0"), [0x56, 1, 4, 3, 0, 99]),  # plan.py's lines: takes the init sound's route off
             (("patch", "load", "P7"), [0x5C, 0, 6]),
             (("patch", "save", "P128"), [0x5D, 0, 127]),
             (("patch", "clear", "127"), [0x4F, 0, 127]),

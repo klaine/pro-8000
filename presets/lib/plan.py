@@ -44,6 +44,9 @@ LAYERS = ("1", "2")
 LFOS = ("1", "2")
 ENVS = ("amp", "filter", "env3", "env4")
 LINKS = ("amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter")
+# The routes the init sound comes with (src/main.c, init_patch; also tools/web/sound-plan.js): a preset has exactly the
+# routes it lists, so they go first, on both layers. A firmware whose init sound hasn't got them acknowledges the removals.
+INIT_ROUTES = (("velocity", "vca"), ("velocity", "cutoff"))
 
 
 class Bad(Exception):
@@ -198,6 +201,7 @@ def plan(patch):
     name = patch["name"]
     check(isinstance(name, str) and 1 <= len(name) <= 16 and all(0x20 <= ord(c) < 0x7F for c in name), "name: %r" % name)
     out = ["# P%d %s (%s)" % (slot, name, patch.get("group", "?")), "patch init"]
+    out.extend("route %s %s %s 0" % (layer, src, dest) for layer in LAYERS for src, dest in INIT_ROUTES)
     settings = dict(patch.get("settings", {}))
     if "layers" in settings:  # first, so layer 2 is there for what follows
         out.append(setting_line("layers", settings.pop("layers")))

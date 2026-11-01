@@ -2088,6 +2088,47 @@ Asked for: with an LFO in sync, its delay and fade in should be note times, like
 - **Checked** on the simulator's CVs (`LfoNoteTimes` in `tools/test_panel.py`), the page's code (`WebLfoTimes`) and the fake synth (`tools/test_pro800.py`). **It has not run on the synth**, and the Swift tool
   hasn't been compiled (no `swiftc` here): its text is only compared with the Python's. Counts as of this section: test_panel 468, test_pro800 133.
 
+## Velocity on the init sound (0.9.4, 2026-11-01; built and simulated, not on the synth)
+
+Asked for: new patches start with velocity wired to the VCA and the cutoff, and the editor gets a knob for each. The firmware
+and everything that builds on the init sound come first below, the editor's knobs after them.
+
+- **Two ordinary routes on both layers**, in the init sound's route table (`init_patch()`, depths in `INIT_VELOCITY_TO_VCA` = 70, 40 until it was tried on the synth
+  and `INIT_VELOCITY_TO_CUTOFF` = 20): slots 0 and 1 of 16. No new field, no format change, no new SysEx, so nothing here needs a
+  version check.
+- **What they do, measured on the simulator's CVs** (`InitRoutes`): the VCA's gain is 1 - (1 - v) x depth, so 1.00 at velocity 127
+  and 0.65 at 64 (0.85 at `play`'s default 100). The filter's CV is value x depth/99 x 96 semitones above the knob: +19.4 at 127,
+  +9.8 at 64. Init's cutoff knob is at its maximum, but that doesn't make the route inaudible until it comes down, as the first
+  version of this section said: see "The reviewers' findings" below.
+- **Who gets them:** Perf, an empty slot however it's loaded (keys, VALUE, program change, 5C), formatted memory's first boot on
+  P1, the 5F SysEx (`pro800 patch init`, the Patches tab's button). Shift + Perf still brings back the sound before.
+- **Who doesn't:** stock-format and never-formatted memory boot on the panel with no patch loaded and no routes, until Perf or an
+  empty slot's load. Manual mode needs a closer look than "no routes": `synth_manual()` only makes the knobs and switches live and
+  has never touched the routes, so from the init sound the panel keeps those two (from any patch, that patch's). Left so: the
+  mod matrix isn't on the panel, and clearing it would change every saved sound's manual mode.
+- **The leak, and its fix.** Everything that builds a sound from JSON starts from the init sound and relied on it having no
+  routes: `planSound()` (`sound-plan.js`: the editor's Load JSON, its Install bank, the installer page) and `plan.py`
+  (`presets/install.sh`). Left alone, every preset would have gained the two routes on both layers, a sixteen-route preset would
+  have lost a route, and a `"both"` route's bit (by slot, in list order) would have landed on the wrong route. Both now take the two
+  off right after 5F, on both layers (`INIT_ROUTES`, one list in each, compared with the firmware by a test). Depth 0 on a route
+  that isn't there has been acknowledged since `synth_set_route()` first existed, so a firmware without these routes takes the
+  extra messages as it is. A new pair in `init_patch()` means a new entry in both lists; a new depth doesn't.
+- **Looked at and left:** `.p8p` import, a backup's restore and the EEPROM commands write records, and a factory import converts a stock record: none starts from the init sound
+  (`init_patch()` has three callers: Perf, an empty slot, 5F), and a factory sound stays without routes (tested). `gen_presets.py`
+  takes only the init sound's knob values and lists each preset's own routes. The tools' text: `patch init` is "the basic sound
+  (osc A saw), as PERF does", still true; `routes` printing "no routes" reads the synth. Neither tool's code changed, and the
+  test table in `test_pro800.py` gained `route ... 0`, the line `plan.py` now sends.
+- **Tests:** `InitRoutes`, `NoInitRoutesOnStockMemory`, `NoInitRoutesOnBlankMemory`, `PresetRoutes` (the 66 presets through `planSound()`,
+  the editor's own `loadSound()` and `installBank()`, and `plan.py`'s lines, each on the firmware, compared with what the file lists), one
+  each in `FactoryImport` and `WebInstaller`. Each of the 29 was seen to fail with one of 16 temporary reverts, every file then
+  restored and its hash compared. Existing tests about something else start from `Synth.no_routes()`: `ModAssign`'s
+  source/destination/depth, recent knob, depth zero and no-routes hold; `Browse`'s `setUp`; `ModAssignMore`'s negative depth, edit
+  layer and routes-saved; `PatchStores.make`; `HostProtocol`'s out-of-range record; `WebRanges`' `setUp` (its
+  `test_velocity_into_the_vca` still passed without it, but only because its first loop happened to remove the route). Two expected
+  values truly changed, as the init sound replacing a saved sound now has its routes: `test_routes_are_saved_with_the_patch` and
+  `test_everything_comes_back` expect `INIT_ROUTES` where they expected `[]`.
+- **It has not run on the synth.** The timings measured earlier "on the init sound" (above) were without these two routes per voice;
+  they're slow routes, evaluated once a pass, and haven't been measured. Neither have the knobs: nothing here has touched a port.
 ## Real-unit ranges in the mod matrix and per-source rings on the knobs (2026-10-31)
 
 - The web page's Mod matrix got a Range column: `routeSwing()` turns a route into what it can add in the

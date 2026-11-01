@@ -126,11 +126,17 @@ const JSON_SETTINGS = [
   ...[1, 2].flatMap(n => [[`lfo-delay ${n}`, `lfoDelay${n}`, jInt(0, 99)], [`lfo-fade ${n}`, `lfoFade${n}`, jInt(0, 99)]]),
 ];
 
-// A preset-format object as the SysEx messages that build it, after the init sound, checked first; `has` tells
-// whether the firmware has a setting. Returns { messages, warnings }.
+// The routes the init sound comes with (main.c, init_patch; also presets/lib/plan.py): a preset has exactly the routes it
+// lists, so they go first, on both layers. A firmware whose init sound hasn't got them acknowledges the removals all the same.
+const INIT_ROUTES = [["velocity", "vca"], ["velocity", "cutoff"]];
+
+// A preset-format object as the SysEx messages that build it, after the init sound without its routes, checked first;
+// `has` tells whether the firmware has a setting. Returns { messages, warnings }.
 function planSound(j, has) {
   if (!j || typeof j !== "object" || Array.isArray(j)) bad("the JSON isn't an object");
   const messages = [[0x5F]], warnings = [], st = { ...(j.settings || {}) };
+  for (const layer of [0, 1])
+    for (const [source, dest] of INIT_ROUTES) messages.push([0x56, layer, JN.sources.indexOf(source) + 1, JN.dests.indexOf(dest), 0, 99]);
   const setting = (id, v) => messages.push([0x7D, id, v >> 7, v & 127]);
   const layersFirst = JSON_SETTINGS[0];
   if (st.layers !== undefined) { setting(SET_ID.layers, layersFirst[2].enc(st.layers, "layers")); delete st.layers; }
