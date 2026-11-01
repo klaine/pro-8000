@@ -3210,7 +3210,7 @@ function buildPanel() {
           touch("Keyboard tracking", ["Off", "Half", "Full"][2 - k]); setSetting(SET_ID.keytrack, 2 - k);
         }, "how far the cutoff follows the key; on the synth, the switch (a loaded patch's value holds until it moves)")),
       pflex(
-        velocityKnob(DEST_CUTOFF, "Velocity → Cutoff", -99, "How far a harder note opens the filter (negative: closes it), -99 to +99: velocity × depth / 99 × 96 semitones above the Cutoff knob, so at +20 velocity 127 adds about 19. With the Cutoff knob at the top a low note hears it all the same, as keyboard tracking takes its cutoff down; above about middle C it needs the knob down. It's the edit layer's route in the mod matrix below: 0 removes it, turning adds it, a double-click takes it off. On the synth, from 0.9.4: Shift + FIL ENV AMT (VE.F)."),
+        velocityKnob(DEST_CUTOFF, "Velocity → Cutoff", -99, "How far a harder note opens the filter (negative: closes it), -99 to +99: velocity × depth / 99 × 96 semitones above the Cutoff knob, so at +20 velocity 127 adds about 19. With the Cutoff knob at the top a low note hears it all the same, as keyboard tracking takes its cutoff down; above about middle C it needs the knob down. It's the edit layer's route in the mod matrix below: 5 s at 0 removes it, turning adds it, a double-click takes it off. On the synth, from 0.9.4: Shift + FIL ENV AMT (VE.F)."),
         h("div", { class: "grp" }, prow(...[0, 1, 2, 3].map(stage => knob(() => envSelectKnobs()[stage], ADSR_LABELS[stage]))), envCaption),
         h("div", { class: "env-side" }, viz("env", (g, w, ht) => drawEnv(selectedEnv()[1])(g, w, ht)), envTools(selectedEnv)))),
     h("div", { class: "loose loose-tune" }, knob(P.TUNE, "Macro 1"), power),

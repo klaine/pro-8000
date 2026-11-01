@@ -2117,7 +2117,7 @@ Nothing here is needed for the synth to work; this is what's open, consolidated 
 6. Build the per-voice modulation path as a general mod matrix, then add MPE and the 8-channel mono mode
    on top of it.
 
-## A synced LFO's delay and fade in note values (0.9.4, 2026-11-01; built and simulated, not on the synth)
+## A synced LFO's delay and fade in note values (0.9.4, 2026-11-01; built and simulated, then tried on the synth: see the end of these notes)
 
 Asked for: with an LFO in sync, its delay and fade in should be note times, like 1/32 or 2 bars.
 
@@ -2143,10 +2143,10 @@ Asked for: with an LFO in sync, its delay and fade in should be note times, like
   stayed 0.9.4: a synth still on an earlier 0.9.4 shows note values and acts in seconds, until it's flashed.
 - **Existing patches change timing, by design; their stored values don't.** With a synced LFO and a delay or fade: P62 Trance Gate (fade 56: 0.46 s → 1/4T, 333 ms at
   120 BPM), P66 BsSQ/LD.Split 1 (fade 85: 2.3 s → 2 bars, 4 s at 120 BPM), P68 Key-up WhopWhop (on the synth, not in `presets/`, so not looked at here). The presets' descriptions don't name those times.
-- **Checked** on the simulator's CVs (`LfoNoteTimes` in `tools/test_panel.py`), the page's code (`WebLfoTimes`) and the fake synth (`tools/test_pro800.py`). **It has not run on the synth**, and the Swift tool
+- **Checked** on the simulator's CVs (`LfoNoteTimes` in `tools/test_panel.py`), the page's code (`WebLfoTimes`) and the fake synth (`tools/test_pro800.py`). **At the time it had not run on the synth**, and the Swift tool
   hasn't been compiled (no `swiftc` here): its text is only compared with the Python's. Counts as of this section: test_panel 468, test_pro800 133.
 
-## Velocity on the init sound (0.9.4, 2026-11-01; built and simulated, not on the synth)
+## Velocity on the init sound (0.9.4, 2026-11-01; built and simulated, then tried on the synth: see the end of these notes)
 
 Asked for: new patches start with velocity wired to the VCA and the cutoff, and the editor gets a knob for each. The firmware
 and everything that builds on the init sound come first below, the editor's knobs after them.
@@ -2185,7 +2185,7 @@ and everything that builds on the init sound come first below, the editor's knob
   `test_velocity_into_the_vca` still passed without it, but only because its first loop happened to remove the route). Two expected
   values truly changed, as the init sound replacing a saved sound now has its routes: `test_routes_are_saved_with_the_patch` and
   `test_everything_comes_back` expect `INIT_ROUTES` where they expected `[]`.
-- **It has not run on the synth.** The timings measured earlier "on the init sound" (above) were without these two routes per voice;
+- **When this was written it hadn't run on the synth** (see the end of these notes for what has since). The timings measured earlier "on the init sound" (above) were without these two routes per voice;
   they're slow routes, evaluated once a pass, and haven't been measured. Neither have the knobs: nothing here has touched a port.
 - **The editor's two knobs** (`velocityKnob()` in `index.html`). A Velocity knob in the faceplate's filter section (Velocity → Cutoff,
   -99 to +99) and amp section (Velocity → VCA, 0 to 99). Each is the depth of the edit layer's route: it reads `layerRoutes`, writes with
@@ -2260,7 +2260,7 @@ and everything that builds on the init sound come first below, the editor's knob
   - **A drag across a layer change** wrote the first layer's starting depth to the second at the next pixel. `adjustable()` now remembers the layer a drag began on and ignores the pointer after a change, for every knob, since `knob()` and `settingKnob()` had the same gap; only the Velocity knobs have a test for it.
   - **Tests:** three in `InitRoutes`, two in `VelocityOnTheEngine`, seventeen in `WebVelocityKnobs`, each seen to fail with its fix reverted and every file restored and its hash compared. The driver's `touch` now keeps what it was told, and `showFirmware` can be replaced. Nothing here has touched a port: it's the simulator and the page's code on a fake DOM. The matrix's part was also run once in a real browser (the desktop app's), on a scratch copy of the page with `requestMIDIAccess` stubbed out and `layerRoutes` set by hand: the hold through `pointerdown` and `pointerup`, the rebuild with the focus put back, a menu's hold and the "none on its own" cell behave there as on the fake DOM, with nothing on the console. That copy is offline, so its knobs didn't paint and weren't looked at, and a real mouse drag wasn't tried. Counts as of this bullet: test_panel 560, test_pro800 133.
 
-## The Velocity routes on the panel, and pickup's gesture moved (0.9.4, 2026-11-01; built and simulated, not on the synth)
+## The Velocity routes on the panel, and pickup's gesture moved (0.9.4, 2026-11-01; built and simulated, then tried on the synth: see the end of these notes)
 
 Asked for: the two routes the init sound starts with get a panel gesture, the same ordinary routes as MOD ASSIGN and the editor's Velocity knobs. **None of this has run on the synth.**
 
@@ -2275,7 +2275,7 @@ Asked for: the two routes the init sound starts with get a panel gesture, the sa
 - **Left as they are.** Under Shift + Rec (compare) a turn edits the compared copy and is thrown away with it, as `nAC1` is. Shift drops a number being typed in a save, as it did, so a save to a typed slot goes back to the current one. The editor's Sound tab reads the routes on its 900 ms poll (`refreshParams()`), so its knobs should follow a panel edit as they do MOD ASSIGN's; read in the code, no test turns the panel with the page open. The sign shows as MOD ASSIGN's does: `-40`, and no plus.
 - **Tests:** `ShiftVelocityRoutes` (27) drives it all through the panel; `Shift` and `Pickup` have their `P.UP` cases on the new knob and no fewer. Ten of the fixes above were each reverted, seen to make a named test fail and restored with their hash compared: the full table, the negative route, the fraction, the stop on 0, the copies, `P.UP`'s knob, the level's source, Shift taking M VOL, a load leaving it waiting, MOD ASSIGN not freezing it. The two tests of `P.UP`'s fraction were each seen to fail before its fix went in, at the point the review named; the third new one, the knob coming down without Shift, describes what the code already did and has had no revert. No port was opened. Counts as of this section: test_panel 587, test_pro800 133.
 
-## A route at 0 waits 5 s (0.9.4, 2026-11-01; built and simulated, not on the synth)
+## A route at 0 waits 5 s (0.9.4, 2026-11-01; built and simulated, then tried on the synth: see the end of these notes)
 
 Decided by the owner: depth 0 no longer removes a route at once, so sweeping through 0 (+20 to -20), or stopping to hear it, loses nothing. **None of this has run on the synth.**
 
