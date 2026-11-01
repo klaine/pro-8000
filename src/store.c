@@ -119,12 +119,19 @@ static int is_stock(const uint8_t *b) { return b[0] == 0xA5 && b[1] == 0x16 && b
 
 // The settings kept here change on every step of a knob sweep and on every tap, and a write holds the engine and the CV
 // refresh for up to 5 ms. So their setters only mark the block, and store_poll() writes it once they have rested. RAM
-// stays the truth meanwhile; a power cut inside the rest loses the change.
+// stays the truth meanwhile; a power cut inside the rest loses the change. A chip that doesn't answer holds them for tens
+// of ms a try (eeprom.c's timeout, and a status read each 50 us), so after GLOBAL_TRIES failures it's left alone until the
+// next change.
 #define GLOBAL_REST_MS 1000u
-static int global_dirty, global_changed;
+#define GLOBAL_TRIES 3
+static int global_dirty, global_changed, global_failures;
 static uint32_t global_changed_at;
 
-static void global_mark(void) { global_dirty = global_changed = 1; }
+static void global_mark(void)
+{
+    global_dirty = global_changed = 1;
+    global_failures = 0;
+}
 
 static int write_global(void)
 {
@@ -140,17 +147,20 @@ static int write_global(void)
     put32(b + 12, checksum(b, 12));
     put16(b + 16, global.bpm); // the clock, outside the checksum (older blocks have anything here: range-checked)
     b[18] = global.clock_source;
-    if (!eeprom_write(GLOBAL_ADDRESS, b, sizeof b))
+    if (!eeprom_write(GLOBAL_ADDRESS, b, sizeof b)) {
+        global_failures++;
         return 0;
+    }
     global.valid = 1;
     global.format = FORMAT;
     global_dirty = 0; // whoever wrote it, it carries every setting
+    global_failures = 0;
     return 1;
 }
 
 void store_poll(uint32_t now)
 {
-    if (!global_dirty)
+    if (!global_dirty || global_failures >= GLOBAL_TRIES)
         return;
     if (global_changed) { // the setters don't know the time
         global_changed = 0;
@@ -163,7 +173,7 @@ void store_poll(uint32_t now)
 
 void store_flush(void)
 {
-    if (global_dirty)
+    if (global_dirty && global_failures < GLOBAL_TRIES)
         write_global();
 }
 
@@ -586,8 +596,9 @@ int store_last_patch(void) { return global.last_patch; }
 
 void store_set_last(int patch)
 {
-    if (!global.valid || global.last_patch == patch)
+    if (global.last_patch == patch)
         return;
     global.last_patch = (uint16_t)patch;
-    write_global();
+    if (global.valid) // on memory never formatted, this alone doesn't make it ours: the next block written carries it
+        write_global();
 }

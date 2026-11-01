@@ -18,8 +18,8 @@ void usb_midi_flush(void);
 void usb_midi_discard(int on);
 // Realtime bytes (F8-FF, data 0) and Song Position Pointer (F2, data = its 14 bits) skip the ring: the interrupt hands
 // each to `handler` with the cycle counter at arrival, so clock ticks keep their timing and none is lost while the
-// main loop is busy. They share the endpoint, so while it NAKs they wait with the rest, until the next read. Set it
-// before usb_init().
+// main loop is busy. They share the endpoint, so while it NAKs they wait with the rest: until 16 reads have made room, and
+// then behind whatever the host queued ahead of them (usb.c says how long that can be). Set it before usb_init().
 void usb_midi_realtime(void (*handler)(uint8_t status, uint16_t data, uint32_t cycles));
 // Sends USB MIDI event packets to the host (at most 16 at a time). Returns 0 if not configured or still busy.
 int usb_midi_write(const uint8_t *packets, int count);

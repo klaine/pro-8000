@@ -80,9 +80,9 @@
 //   51 <f> <n1> <n0> [<1>] copy factory patch f into slot n, converted; only into an empty slot unless the last
 //                          byte is 1; replies 51 <0 done, 1 slot not empty, 2 no such factory patch, 3 write error>
 //   5A <a2> <a1> <a0> <n> <2n nibbles>  write n (1-48) bytes to the patch EEPROM; acknowledged when written
-//   5B                     format: wipe every patch slot and mark the EEPROM as ours (format 2); replies 5B 0
-//                          <slots> <errors> (was: import the stock patches in place; replies
-//                          5B <converted, 2 × 7 bits> <errors>
+//   5B                     format: wipe every patch slot and mark the EEPROM as ours (format 2); replies
+//                          5B <slots, 2 × 7 bits> <1 if a write failed> (up to 0.9.3: 5B 00 <slots> <errors>, whose
+//                          count of 128 wasn't a MIDI data byte)
 //   5C <n1> <n0>           load patch n; 5D <n1> <n0> save the current sound to patch n (both acknowledged)
 //   5F                     load the init sound (as PERF does; acknowledged)
 //   56 <layer> <source> <dest> <d1> <d0>  set a route's depth (d1 << 7 | d0) - 99, 0 removes it; acknowledged
@@ -2057,8 +2057,9 @@ static void run_tuning(void)
 }
 
 // 0 when the crystal didn't start: no 48 MHz, so usb_init() would wait for ever for a core reset, and the OTG core's
-// clock stays off. usb_midi_read() and usb_midi_write() then just find nothing to do; a request over DIN reaches
-// enter_update_mode() all the same.
+// clock stays off. usb_midi_read() and usb_midi_write() then just find nothing to do. No request arrives at all then,
+// because din.c throws SysEx away: the bootloader takes buttons 0 and 7 at power-up, and the crash record waits for USB.
+// So enter_update_mode() can't run without USB today; its check is there in case that ever changes.
 static int usb_running;
 
 static void enter_update_mode(void)
@@ -2110,8 +2111,10 @@ static void handle_sysex(const uint8_t *message, int length)
     if (data_length == 2 && data[0] == 0x74) {
         direct_mode = data[1] != 0;
         synth_all_off();
-        if (!direct_mode)
+        if (!direct_mode) {
+            clock_primed = 0; // clock_run() hasn't run in direct mode: 13 to 25 s behind reads as ahead
             synth_init();
+        }
         reply[n++] = 0x7F;
         reply[n++] = 0x74;
     }

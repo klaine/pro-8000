@@ -1,6 +1,9 @@
 // What the last crash left behind. src/startup.c's handler writes it and main.c shows and reports it (SysEx 49). It
 // lives in RAM the startup code leaves alone, so it outlives the reset. The bootloader runs in between and may use that
-// RAM too: then a record is simply lost, and the bad magic or check word says so.
+// RAM too (not known yet: `pro800 fault-test` on the synth tells). Then the bad magic or check word says so and the record
+// is lost, and with it the streak: each crash counts as the first, so a firmware that crashes at boot would restart for
+// ever instead of stopping at the third, still with buttons 0 and 7 at power-up as the way out. If that turns out to
+// happen, the streak needs a place the bootloader can't touch, such as an RTC backup register.
 #ifndef FAULT_H
 #define FAULT_H
 

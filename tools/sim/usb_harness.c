@@ -1,11 +1,18 @@
 // The real src/usb.c against a model of the OTG core's registers, for tools/test_panel.py: `usbharness <scenario>` exits
 // 0 and prints "ok" and its counts, or names the failed check. The firmware's simulator (hw.c) replaces usb.c, so this
-// is what covers the driver's flow control. The interrupt is a plain call, made between the driver's functions.
+// is what covers the driver's flow control: its sequence of register writes against what the model below assumes. It
+// says nothing about the core itself, and only the synth can show the NAKs and the races are as assumed. The interrupt is
+// a plain call, made between the driver's functions and at the one point a test can reach inside them, as the driver goes
+// to mask the interrupt (preempt_hook).
 //
-// What the model does, from RM0390 chapter 30: the MIDI OUT endpoint takes one packet only while DOEPCTL's EPENA is set,
-// and clears EPENA as it does, otherwise it NAKs and the host keeps the packet. A packet shows in the receive FIFO as a
-// data entry and then a "transfer complete" entry, and popping that one raises XFRC, which the driver sees through
-// DAINT and OEPINT. sim_reg() can't tell a read from a write, so the writes that matter are noticed at the next access.
+// What the model does, from RM0390 chapter 30: the MIDI OUT endpoint takes one packet only while it is active (USBAEP),
+// enabled (EPENA), not NAKing (CNAK) and given a packet to take (DOEPTSIZ), otherwise it NAKs and the host keeps the
+// packet. Taking one clears EPENA, sets the NAK again and uses up DOEPTSIZ. EPENA can't be cleared by writing a 0, and a
+// bus reset clears only USBAEP, so an endpoint armed before a reset stays enabled: taken as the worst case, from memory of
+// the manual. The packet's DATA0/DATA1 must match the toggle the endpoint expects, or the core ACKs it and throws it away.
+// A packet shows in the receive FIFO as a data entry and then a "transfer complete" entry, and popping that one raises
+// XFRC, which the driver sees through DAINT and OEPINT. sim_reg() can't tell a read from a write, so the writes that
+// matter are noticed at the next access.
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +27,7 @@ extern void OTG_FS_IRQHandler(void);
 #define GINTSTS  (OTG + 0x014)
 #define GRXSTSP  (OTG + 0x020)
 #define DAINT    (OTG + 0x818)
+#define DIEPCTL1 (OTG + 0x920)
 #define DOEPCTL1 (OTG + 0xB20)
 #define DOEPINT0 (OTG + 0xB08)
 #define DOEPINT1 (OTG + 0xB28)
@@ -36,6 +44,10 @@ extern void OTG_FS_IRQHandler(void);
 #define RXFLUSH    (1u << 4)
 #define EPENA      (1u << 31)
 #define USBAEP     (1u << 15)
+#define CNAK       (1u << 26)
+#define SNAK       (1u << 27)
+#define SD0PID     (1u << 28)
+#define TSIZ_ONE_PACKET ((1u << 19) | 64u)
 #define XFRC       1u
 #define STUP       8u
 #define OTG_IRQ    (1u << 3)
@@ -65,8 +77,10 @@ static uint32_t *slot_of(uint32_t address)
 static uint32_t rx_fifo[256];
 static int fifo_head, fifo_tail, fifo_data_left;
 static uint32_t gintsts, daint, doepint[2], cycles;
-static int irq_masked, in_interrupt;
-static int naks, packets, arms, arms_while_armed, arms_unmasked;
+static int irq_masked, in_interrupt, configuring;
+static int naks, packets, lost, arms, arms_while_armed, arms_unmasked, arms_dead;
+static int out_enabled, out_naking = 1, out_toggle, host_toggle, out_toggle_resets, in_toggle_resets;
+static void (*preempt_hook)(void);
 
 static void fifo_put(uint32_t word)
 {
@@ -93,6 +107,22 @@ static void notice_writes(void)
     *mask = *unmask = 0;
     if (*reset & RXFLUSH)
         fifo_head = fifo_tail = fifo_data_left = 0;
+    uint32_t *out = slot_of(DOEPCTL1), *in = slot_of(DIEPCTL1);
+    if (*out & EPENA)
+        out_enabled = 1;
+    if (*out & CNAK)
+        out_naking = 0;
+    if (*out & SNAK)
+        out_naking = 1;
+    if (*out & SD0PID) {
+        out_toggle = 0;
+        out_toggle_resets++;
+    }
+    *out = (*out & ~(EPENA | CNAK | SNAK | SD0PID)) | (out_enabled ? EPENA : 0);
+    if (*in & SD0PID) {
+        in_toggle_resets++;
+        *in &= ~SD0PID;
+    }
     for (int ep = 0; ep < 2; ep++) { // writing ones clears; writing back what was read is cleared by interrupt()
         uint32_t *flags = slot_of(ep ? DOEPINT1 : DOEPINT0);
         if (*flags != doepint[ep]) {
@@ -105,6 +135,8 @@ static void notice_writes(void)
 volatile uint32_t *sim_reg(uint32_t address)
 {
     notice_writes();
+    if (address == NVIC_CLR && preempt_hook && !in_interrupt && !irq_masked)
+        preempt_hook();
     uint32_t *slot = slot_of(address);
     switch (address) {
     case GINTSTS:
@@ -134,8 +166,10 @@ volatile uint32_t *sim_reg(uint32_t address)
         break;
     case DOEPTSIZ1: // only midi_out_arm() touches it
         arms++;
-        if (*slot_of(DOEPCTL1) & EPENA)
+        if ((*slot_of(DOEPCTL1) & EPENA) && !configuring) // (SET_CONFIGURATION may find it enabled: nothing has used it up)
             arms_while_armed++;
+        if (!(*slot_of(DOEPCTL1) & USBAEP))
+            arms_dead++;
         if (!in_interrupt && !irq_masked)
             arms_unmasked++;
         break;
@@ -176,7 +210,11 @@ static int irq_open(void)
     return !irq_masked;
 }
 
-static int armed(void) { return (*slot_of(DOEPCTL1) & (EPENA | USBAEP)) == (EPENA | USBAEP); }
+static int armed(void)
+{
+    notice_writes(); // the driver's last write
+    return (*slot_of(DOEPCTL1) & (EPENA | USBAEP)) == (EPENA | USBAEP) && !out_naking && *slot_of(DOEPTSIZ1) == TSIZ_ONE_PACKET;
+}
 
 // The host sends one packet: 0 if the endpoint NAKs it.
 static int host_send(const uint32_t *words, int count)
@@ -185,8 +223,18 @@ static int host_send(const uint32_t *words, int count)
         naks++;
         return 0;
     }
+    if (host_toggle != out_toggle) { // taken for a retry of the last one
+        host_toggle = !host_toggle;
+        lost++;
+        return 1;
+    }
+    host_toggle = !host_toggle;
+    out_toggle = !out_toggle;
     packets++;
+    out_enabled = 0;
+    out_naking = 1;
     *slot_of(DOEPCTL1) &= ~EPENA;
+    *slot_of(DOEPTSIZ1) = 64u - (uint32_t)count * 4;
     fifo_put(1u | (uint32_t)count * 4 << 4 | OUT_DATA << 17);
     for (int i = 0; i < count; i++)
         fifo_put(words[i]);
@@ -197,17 +245,47 @@ static int host_send(const uint32_t *words, int count)
 
 static void bus_reset(void)
 {
+    *slot_of(DOEPCTL1) &= ~USBAEP;
     gintsts |= INT_USBRST;
+    interrupt();
+}
+
+static void control_request(uint32_t type, uint32_t request, uint32_t value, uint32_t index)
+{
+    fifo_put(0u | 8u << 4 | SETUP_DATA << 17);
+    fifo_put(type | request << 8 | value << 16);
+    fifo_put(index);
+    fifo_put(0u | SETUP_DONE << 17);
     interrupt();
 }
 
 static void set_configuration(void)
 {
-    fifo_put(0u | 8u << 4 | SETUP_DATA << 17);
-    fifo_put(9u << 8 | 1u << 16); // SET_CONFIGURATION 1
-    fifo_put(0);
-    fifo_put(0u | SETUP_DONE << 17);
-    interrupt();
+    host_toggle = 0;
+    configuring = 1;
+    control_request(0, 9, 1, 0);
+    configuring = 0;
+}
+
+#define SET_INTERFACE 11
+#define CLEAR_FEATURE 1
+#define TO_INTERFACE  1
+#define TO_ENDPOINT   2
+#define ENDPOINT_HALT 0
+
+// A pipe reset from the host: its own toggle goes back to DATA0, whatever the device does about it.
+static void clear_halt(uint32_t endpoint)
+{
+    if (endpoint == 1)
+        host_toggle = 0;
+    control_request(TO_ENDPOINT, CLEAR_FEATURE, ENDPOINT_HALT, endpoint);
+}
+
+static void set_interface(uint32_t interface)
+{
+    if (interface == 1)
+        host_toggle = 0;
+    control_request(TO_INTERFACE, SET_INTERFACE, 0, interface);
 }
 
 // --- the host's side and the main loop's ---
@@ -249,6 +327,8 @@ static int send_events(int count)
 }
 
 // One read, checked to be the next event in order. 0 when the ring is empty.
+static uint32_t rx_waiting(void) { return next_id - expected_id; }
+
 static int read_event(void)
 {
     uint8_t p[4];
@@ -268,6 +348,8 @@ static void read_events(int count)
         CHECK(read_event());
 }
 
+static int configured; // what the host has done, for the random walk
+
 static void start(void)
 {
     usb_midi_realtime(on_realtime);
@@ -277,6 +359,7 @@ static void start(void)
     CHECK(!armed());
     set_configuration();
     CHECK(armed());
+    configured = 1;
     arms = 0;
 }
 
@@ -294,10 +377,27 @@ static void check_clean(void)
 {
     CHECK(arms_while_armed == 0);
     CHECK(arms_unmasked == 0);
+    CHECK(arms_dead == 0);
+    CHECK(lost == 0);
     CHECK(irq_open());
 }
 
 // --- scenarios ---
+
+static void walk_hook_reset(void)
+{
+    preempt_hook = 0;
+    bus_reset();
+    configured = 0;
+}
+
+static void walk_hook_reset_and_configure(void)
+{
+    preempt_hook = 0;
+    bus_reset();
+    set_configuration();
+    configured = 1;
+}
 
 static void burst(void)
 {
@@ -485,13 +585,132 @@ static void realtime_bytes(void)
     check_clean();
 }
 
-// Random sends, reads and flushes, with resets and discard spells: nothing lost or out of order outside discard, and
-// an empty ring always has the endpoint open.
+// A host resetting a pipe, an odd number of packets in, when the endpoint expects DATA1 and the host starts from DATA0
+static void toggles(void)
+{
+    start();
+    CHECK(send_events(1));
+    int in = in_toggle_resets, out = out_toggle_resets;
+    clear_halt(0x01);
+    CHECK(send_events(1)); // arrives
+    CHECK(in_toggle_resets == in);
+    CHECK(out_toggle_resets == out + 1);
+    read_events(2);
+
+    CHECK(send_events(1));
+    clear_halt(0x81); // the IN pipe's: the OUT toggle runs on
+    CHECK(in_toggle_resets == in + 1);
+    CHECK(out_toggle_resets == out + 1);
+    CHECK(send_events(1));
+    read_events(2);
+
+    CHECK(send_events(1));
+    set_interface(1);
+    CHECK(in_toggle_resets == in + 2);
+    CHECK(send_events(1));
+    read_events(2);
+
+    // none of these reset a pipe, so the host's toggle and the endpoint's both run on
+    CHECK(send_events(1));
+    out = out_toggle_resets;
+    set_interface(0); // the audio control interface has no endpoints
+    clear_halt(0x02); // no such endpoint
+    control_request(0, CLEAR_FEATURE, 1, 0); // DEVICE_REMOTE_WAKEUP
+    control_request(TO_ENDPOINT, CLEAR_FEATURE, 1, 0x01); // no such feature
+    CHECK(out_toggle_resets == out);
+    CHECK(in_toggle_resets == in + 2);
+    CHECK(send_events(1));
+    read_events(2);
+
+    // parked it stays parked, and the first packet after it opens arrives
+    park();
+    set_interface(1);
+    CHECK(!armed());
+    read_events(1);
+    CHECK(armed());
+    CHECK(send_events(1));
+    while (read_event())
+        ;
+    CHECK(expected_id == next_id);
+
+    // before SET_CONFIGURATION the endpoints aren't ours to touch
+    bus_reset();
+    in = in_toggle_resets;
+    out = out_toggle_resets;
+    clear_halt(0x01);
+    set_interface(1);
+    CHECK(in_toggle_resets == in);
+    CHECK(out_toggle_resets == out);
+    set_configuration();
+    CHECK(send_events(1));
+    read_events(1);
+    check_clean();
+}
+
+// The interrupt comes in as the read that makes room goes to mask it: between its look at `parked` and the mask.
+static void hook_reset(void)
+{
+    preempt_hook = 0;
+    bus_reset();
+}
+
+static void hook_reset_and_configure(void)
+{
+    preempt_hook = 0;
+    bus_reset();
+    set_configuration();
+}
+
+static void preempted(void)
+{
+    start();
+    park();
+    read_events(1); // 47 waiting, and open again
+    CHECK(armed());
+    CHECK(send_events(16));
+    CHECK(!armed());
+    read_events(15); // 48 waiting
+    CHECK(!armed());
+    int arms_before = arms;
+    preempt_hook = hook_reset;
+    read_events(1);
+    CHECK(preempt_hook == 0);
+    CHECK(!armed()); // a dead endpoint isn't armed
+    CHECK(arms == arms_before);
+
+    set_configuration();
+    CHECK(armed());
+    while (armed())
+        CHECK(send_events(16));
+    while (rx_waiting() > 48)
+        read_events(1);
+    arms_before = arms;
+    preempt_hook = hook_reset_and_configure;
+    read_events(1);
+    CHECK(preempt_hook == 0);
+    CHECK(armed());
+    CHECK(arms == arms_before + 1); // SET_CONFIGURATION's: not a second one on top
+    check_clean();
+
+    // usb_midi_discard() looks only after the mask, so a reset before that needs nothing more
+    while (armed())
+        CHECK(send_events(16));
+    arms_before = arms;
+    preempt_hook = hook_reset;
+    usb_midi_discard(1);
+    CHECK(preempt_hook == 0);
+    CHECK(!armed());
+    CHECK(arms == arms_before);
+    usb_midi_discard(0);
+    check_clean();
+}
+
+// Random sends, reads and flushes, with resets, pipe resets and discard spells: nothing lost or out of order outside
+// discard, and an empty ring always has the endpoint open.
 static void random_walk(void)
 {
     start();
     uint32_t seed = 12345;
-    int configured = 1;
     for (int step = 0; step < 200000; step++) {
         seed = seed * 1664525u + 1013904223u;
         uint32_t r = seed >> 8;
@@ -525,13 +744,21 @@ static void random_walk(void)
             }
             break;
         case 32:
-            if (!configured) {
+            if (!configured || (r >> 8) % 16 == 0) { // a second SET_CONFIGURATION finds the endpoint live
                 set_configuration();
                 configured = 1;
             }
             break;
+        case 34:
+            if (configured)
+                (r >> 8) % 2 ? clear_halt(0x01) : set_interface(1);
+            break;
+        case 35:
+            preempt_hook = !configured ? 0 : (r >> 8) % 2 ? walk_hook_reset : walk_hook_reset_and_configure; // the next time it goes to mask
+            break;
         case 33:
             if (configured && (r >> 8) % 16 == 0) { // a spell of discarding, flushed at its end
+                preempt_hook = 0;
                 usb_midi_discard(1);
                 CHECK(armed());
                 for (int i = 0; i < 12; i++)
@@ -545,6 +772,7 @@ static void random_walk(void)
         }
         CHECK(irq_open());
     }
+    preempt_hook = 0;
     while (read_event())
         ;
     CHECK(expected_id == next_id);
@@ -563,6 +791,8 @@ int main(int argc, char **argv)
         {"reset", reset_clears_parked},
         {"discard", discard_mode},
         {"realtime", realtime_bytes},
+        {"toggles", toggles},
+        {"preempted", preempted},
         {"random", random_walk},
     };
     for (size_t i = 0; argc == 2 && i < sizeof scenarios / sizeof scenarios[0]; i++)
@@ -571,6 +801,6 @@ int main(int argc, char **argv)
             printf("ok naks=%d packets=%d arms=%d events=%u\n", naks, packets, arms, next_id);
             return 0;
         }
-    fprintf(stderr, "usage: usbharness burst|park|flush|reset|discard|realtime|random\n");
+    fprintf(stderr, "usage: usbharness burst|park|flush|reset|discard|realtime|toggles|preempted|random\n");
     return 2;
 }

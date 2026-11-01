@@ -80,7 +80,8 @@ A digit display can't show a plus sign, so positive values have none. A dot afte
 
 **Pickup off** (Shift + FIL ENV AMT, `P.UP` → `OFF`; or the web page's System tab, or `pro800 set pickup off`): a
 knob waiting like this takes over as soon as you move it, and the value jumps to where the knob is, as on the stock
-firmware. The dot still shows until you move it. It's a system setting that survives power-off; pickup is the default.
+firmware. The dot still shows until you move it. It's a system setting that survives power-off (stored about a second after the last change, see Settings menu); pickup
+is the default.
 Either way, a knob that was busy with something else (under Shift, in MOD ASSIGN, on the envelope page, during Seq +
 FREQ) waits from where it is when that ends, so letting go moves nothing; move it after and it takes over.
 
@@ -88,7 +89,7 @@ FREQ) waits from where it is when that ends, so letting go moves nothing; move i
 
 Play over USB MIDI or the 5-pin MIDI IN socket, on any channel, or on one: Shift + NOISE (`CHnL`) sets the MIDI
 channel, `ALL` (the default) or 1-16, also on the web page (Sound tab, by CC A / B) and with `pro800 set midi-channel`.
-It's a system setting, kept when you load patches. In the layer modes that play by channel it's the first of their
+It's a system setting, kept when you load patches and stored about a second after the last change (see Settings menu). In the layer modes that play by channel it's the first of their
 channels: channel mode plays layer 1 on it and layer 2 on the next, `8CH` voices 1-8 on it and the seven after,
 `nPE` takes it as the master and the eight after as the members (set 1, these are the channels in Layers below).
 Notes, controllers, bend, pressure and program changes on other channels are ignored; clock and SysEx aren't. Pitch bend is ±2 semitones by default (Settings key 7, per patch). The mod wheel adds LFO 1 depth and is also a mod
@@ -100,6 +101,8 @@ and CC 74 reach only its voice (see Layers). CC 74 is the `Timbre` mod source. T
 
 The 5-pin MIDI IN socket (from 0.7.6) takes the same notes, controllers, pressure, bend, program changes and clock,
 so a keyboard with a MIDI out plays the synth without a computer. SysEx (the web page, the tool, updates) needs USB.
+A burst of MIDI over USB is never lost: while the synth is busy, the computer waits. During Tune incoming notes are
+discarded, and the clock keeps running.
 The USB socket is a device port, so a USB-only keyboard needs a computer or a USB MIDI host box in between (or the
 web page's MIDI router).
 
@@ -673,7 +676,8 @@ When Shift is released the knobs go into pickup, as after loading a patch, so le
 ## Clock
 
 Synced LFOs, cycling envelopes and the sequence follow one clock, chosen with Shift + Sync Clock (`nIdI`, `Int`,
-`SYnC`; also the web page's Voice section or `pro800 set clock`), a system setting that survives power-off:
+`SYnC`; also the web page's Voice section or `pro800 set clock`), a system setting that survives power-off (stored about
+a second after the last change, see Settings menu):
 
 - **MIDI** (the default): MIDI clock, Start, Continue and Song Position as they come, from USB or the 5-pin
   socket. Without a clock the synced things run at the internal tempo.
@@ -704,10 +708,16 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 
 Settings live in the patch, so save the patch to keep them.
 
+**System-wide settings** need no save: the MIDI channel, CC A / B, knob pickup, the clock source and the tempo. They take
+effect and read back at once, and the synth stores them about a second after the last change, so a knob sweep or a run
+of taps costs one write to the memory. Turning the power off inside that second loses the change. An update, an
+autotune, loading another patch, a save on memory never formatted or a format stores them straight away.
+
 ## Tuning
 
 Tune measures every oscillator and filter and stores the tables in the EEPROM, where they survive firmware
-updates. It takes about 25 seconds, silent, with `tUnE` on the display. A new firmware tunes by itself the first
+updates. It takes about 25 seconds, silent, with `tUnE` on the display; incoming notes are discarded meanwhile, and the
+clock keeps running. A new firmware tunes by itself the first
 time if it finds no tables, or tables made for a different way of writing the CVs (0.7.8 and 0.7.9 each did this once after their
 update: its refresh holds slightly different voltages, and the old tables read up to 28 cents sharp with it). Retune
 after the synth has warmed up for best results.

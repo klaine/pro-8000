@@ -127,8 +127,10 @@ static void make_serial(void)
 // MIDI event packets from the host: written by the interrupt, read by the main loop. A USB packet holds up to 16 of
 // them, so the OUT endpoint is armed only with room for 16. Without it the endpoint stays disarmed ("parked"): the core
 // NAKs, the host's driver queues, and the read that makes room arms it again, so a burst of any size arrives whole.
-// Realtime bytes share the endpoint, so a parked endpoint delays them until the next drain: one tick normally, one
-// patch load at worst. That's why a long stall (an autotune) uses usb_midi_discard() instead.
+// Realtime bytes share the endpoint, so while it's parked they wait behind the NAKs and behind whatever the host queued
+// ahead of them. It opens again after 16 reads, not one: if those are patch loads that's 16 of them, and a format holds it
+// for its whole 2 s. A tick that waits is stamped late (lfo_clock_tick() keeps the tempo through that). That's why a long
+// stall (an autotune) uses usb_midi_discard() instead.
 #define RX_PACKETS 64
 #define RX_ROOM_TO_ARM (MIDI_SIZE / 4)
 static uint8_t rx_ring[RX_PACKETS][4];
@@ -221,6 +223,18 @@ static void configure_midi_endpoints(void)
     configured = 1;
 }
 
+// A host that resets a pipe resets its own data toggle to DATA0 (USB 2.0, 9.4.5), and the endpoint has to follow: the core
+// ACKs a packet with the wrong toggle and throws it away, as a retry of the last one, up to 16 events with no error anywhere.
+static void reset_midi_toggle(int out, int in)
+{
+    if (!configured)
+        return;
+    if (out)
+        DOEPCTL(MIDI_EP) |= EPCTL_SD0PID;
+    if (in)
+        DIEPCTL(MIDI_EP) |= EPCTL_SD0PID;
+}
+
 static uint32_t string_descriptor(int index, uint8_t *out)
 {
     if (index == 0) {
@@ -243,6 +257,7 @@ static void handle_setup(void)
     uint8_t request_type = setup[0] & 0xFF;
     uint8_t request = (setup[0] >> 8) & 0xFF;
     uint16_t value = setup[0] >> 16;
+    uint16_t index = setup[1] & 0xFFFF;
     uint16_t length = setup[1] >> 16;
 
     if ((request_type & 0x60) != 0) { // class/vendor requests: none needed for MIDI streaming
@@ -289,8 +304,16 @@ static void handle_setup(void)
         ep0_send(ep0_buffer, 2);
         return;
     case 11: // SET_INTERFACE: only alternate setting 0 exists
-    case 1:  // CLEAR_FEATURE
-    case 3:  // SET_FEATURE
+        if (index == 1) // the MIDI streaming interface, which has the endpoints
+            reset_midi_toggle(1, 1);
+        ep0_send(0, 0);
+        return;
+    case 1: // CLEAR_FEATURE
+        if ((request_type & 0x1F) == 2 && value == 0) // ENDPOINT_HALT
+            reset_midi_toggle(index == MIDI_EP, index == (0x80 | MIDI_EP));
+        ep0_send(0, 0);
+        return;
+    case 3: // SET_FEATURE
         ep0_send(0, 0);
         return;
     default:

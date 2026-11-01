@@ -49,11 +49,20 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   MIDI Services they stay connected and every program sees every reply (NOTES). The stock firmware answers only `version`,
   `backup` and `listen`.
 - `python tools/test_panel.py [-k name]`: the user-interaction tests, no synth needed, a few seconds. Builds the real firmware
-  with zig cc for this computer (`tools/sim/hw.c` is the hardware; `src/controls.c`, `display.c`, `main.c`, `synth.c` and the
-  rest run unchanged, `tools/sim/sim_regs.h` only redirects `REG()`) and drives it through knobs, buttons, VALUE and MIDI, one
-  millisecond a main-loop pass. Every test checks what the display or LEDs show; expected values come from `MANUAL.md`. A
-  change to the panel or the display gets a test here. A power cycle is a new process on the same EEPROM file. `WebRanges`
-  runs the editor's mod-range code in `node` against routes measured on the simulator's CVs (skipped without node).
+  with zig cc for this computer (`tools/sim/hw.c` is the hardware, one UART interrupt a byte for the real `src/din.c`, which it
+  includes as it does `controls.c`; `display.c`, `main.c`, `synth.c` and the rest run unchanged, `tools/sim/sim_regs.h` only
+  redirects `REG()` and `NVIC_IPR`) and drives it through knobs, buttons, VALUE and MIDI, one millisecond a main-loop pass. Every
+  test checks what the display or LEDs show; expected values come from `MANUAL.md`. A change to the panel or the display gets a
+  test here. A power cycle is a new process on the same EEPROM file; system-wide settings are stored after a second's rest, so a
+  test that power-cycles after one waits 1100 ms first. Simulator options: `--untuned`, `--no-crystal`, `--fault`, `--fault-old`,
+  `--fault-bad`; commands only the tests use: `midistat` (USB events and DIN bytes waiting, discard state, autotunes with discard
+  on and off), `writes` (EEPROM writes, and the count as the last autotune began), `eepromfail <0|1>`, `faultstore`. The simulator's
+  update mode saves the EEPROM file. `UsbDriver` runs `tools/sim/usb_harness.c`, the real `src/usb.c` against a model of the OTG
+  registers, built as `build/sim/usbharness` (USB itself stays stubbed in the simulator): a change to `usb.c` gets a test
+  there. It checks the driver's register writes against the model, not the chip. `WebRanges` runs the editor's mod-range code in
+  `node` against routes measured on the simulator's CVs; `WebInstaller`, `WebReconnect`, `WebRestore`, `WebSaveInASlot`,
+  `WebMarkingTheMemory` and `WebSmallThings` run the pages' code in `node` against fake ports or the simulated firmware (all
+  skipped without node), and `PresetBundle` checks `presets/lib/bundle.py`.
 - Flashing: `build/pro800 install build/pro800-<VERSION>.syx --yes` (or `update-mode`, then `flash`). Our firmware (from 0.0.8) handles the update-mode SysEx by erasing its
   own flash sector 4 and resetting; a build without working USB needs the buttons (0 and 7 at power-up).
 - The installer page `tools/web/install.html` (http://localhost:8800/install.html, on the site `editor/install.html`):
@@ -76,8 +85,10 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 - `tools/pro800.swift`: the USB MIDI tool (one file, CoreMIDI + AVFoundation).
 - `tools/pro800.py`: the same tool in Python for Windows (one file, WinMM through ctypes); `tools/test_pro800.py` tests it.
 - `tools/test_panel.py`, `tools/sim/`: the firmware on the host with simulated hardware, and the tests that use its panel.
+- `tools/sim/usb_harness.c`: the real `src/usb.c` against a model of the OTG core's registers, for the `UsbDriver` tests.
 - `src/`: `startup.c` (vector table, reset handler that cleans up after the bootloader), `link.ld`
-  (app at `0x08010000`, max 128 kB: flash sector 4 and half of sector 5), `regs.h` (the registers we use; no vendor headers), drivers, `main.c`.
+  (app at `0x08010000`, max 128 kB: flash sector 4 and half of sector 5), `regs.h` (the registers we use; no vendor headers), drivers, `main.c`,
+  `fault.h` (the crash record that outlives a reset, and the handler's logic).
 - `docs/`: the source of the two published guides (`index.html`, `how-it-works.html`, `sound-design.html`;
   `build.py` inlines `style.css` and `common.js`). They name the firmware version and describe its behaviour:
   keep them in step with `MANUAL.md` when a feature changes.
@@ -101,6 +112,6 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 - The EEPROM (`EEP_*` on PE1–PE6) holds the user's patches in our format (`src/store.h`). Write it only through
   `store.c` or the tool's `--yes` commands; keep `backup/2026-10-27/eeprom-stock.bin` (the way back to stock).
 - At startup, drive every S&H enable (`EN1`–`EN9`) high before anything else, so no CV channel samples
-  garbage.
+  garbage: `reset_body()` straight after the GPIO reset, before `.data` and `.bss`, and `main()` again first thing.
 - Porting p600fw code makes this firmware GPL v3.
 - Realtime: no allocation or blocking work in interrupt handlers once the CV refresh runs from one.

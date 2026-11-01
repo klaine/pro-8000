@@ -86,6 +86,7 @@ static struct {
 static volatile uint32_t ticks, last_tick, starts, jumps, song_ticks;
 static volatile uint8_t waiting, song_set;
 static volatile float tick_interval; // seconds; 0 until two ticks have arrived
+static volatile float odd_interval;  // an interval far from tick_interval, while it isn't known to be a new tempo; else 0
 static uint32_t seen_ticks, seen_starts, seen_jumps, wait_began;
 static int clock_running, hold; // hold: after Start or Continue, the LFOs on the grid wait where the next clock lands
 static int wait_open;           // the hold window since the last Start or Continue hasn't expired yet
@@ -165,10 +166,18 @@ void lfo_clock_tick(uint32_t cycles)
 {
     if (ticks > 0 || last_tick) {
         float measured = (float)(cycles - last_tick) / (float)system_hz;
-        if (measured > 0.002f && measured < 0.25f) // 10-1250 BPM
-            tick_interval = tick_interval > 0 && measured < 2 * tick_interval && measured > 0.5f * tick_interval
-                          ? tick_interval * 0.9f + measured * 0.1f
-                          : measured;
+        if (measured > 0.002f && measured < 0.25f) { // 10-1250 BPM
+            float interval = tick_interval, odd = odd_interval;
+            if (interval > 0 && measured < 2 * interval && measured > 0.5f * interval) {
+                tick_interval = interval * 0.9f + measured * 0.1f;
+                odd_interval = 0;
+            } else if (interval <= 0 || (measured < 2 * odd && measured > 0.5f * odd)) {
+                tick_interval = measured; // the first, or two alike: a new tempo
+                odd_interval = 0;
+            } else {
+                odd_interval = measured; // one on its own: a tick held up (USB parked behind patch loads) and the next on time
+            }
+        }
     }
     last_tick = cycles;
     waiting = 0;

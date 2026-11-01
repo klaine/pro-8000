@@ -1815,6 +1815,118 @@ From the GitHub issues (#14, #15, #1). VALUE and `PAnL` tried on the synth; the 
   - A program change during a save replaced the sound about to be stored, and moved the slot. It's ignored until the save ends.
   - The host's save moved the current slot without showing it. A controller's value now stays 1.5 s, as a knob's does.
 
+## A review before the release: boot path, crash record, USB flow control, settings at rest, the flash tool (0.9.4, 2026-10-31; built, not flashed)
+
+A review of the firmware, the tools and the pages, and its fixes. **Nothing in this section has been tried on the synth**: it
+was built and tested on a computer only, and "Not tried on the synth" below says what that leaves open. The firmware version
+stays 0.9.4.
+
+**What it found, in short**
+
+- A crash left no trace and looked like a hang (`Default_Handler` fed the watchdog for ever), and a dead crystal hung the boot.
+- USB MIDI lost anything over 64 events a stall, for example 64 sequence steps = 448 events unpaced, and a lost note-off is a
+  stuck note.
+- Every step of a knob sweep and every tap wrote the global block, and each write stalled the engine and the CV refresh for up
+  to 5 ms.
+- The tool flashed a cut-short file without a word, and failed a flash only when asked (`--require-ok`), and then only on the
+  last reply. `update-mode`, which leaves the synth without a firmware, took no `--yes`.
+- The host protocol's format reply had 0x80 inside the SysEx, and the pages' gate on stock memory never fired (Restore
+  everything, above).
+
+**The boot path** (`src/startup.c`). The bootloader jumps in with its clocks, interrupts and peripherals running, so the order
+matters:
+
+- `Reset_Handler` is naked and sets MSP and CONTROL before any code uses the stack: the bootloader's SP may be anything, and a
+  set FPCA or SPSEL would change how the first exception stacks.
+- `reset_body()`: VTOR, SysTick off, NVIC cleared, then **HSI before the peripheral reset**, because the reset mask holds PWR,
+  which must not reset under the bootloader's fast clock.
+- `sh_safe()` **straight after the GPIO reset**, which lets the S&H enables float, not after the bss loop. It reads
+  `RCC_AHB1ENR` back: the first write after a clock enable can be lost (errata), and that write sets the enables high.
+- FPU on, then `FPCCR` set explicitly (ASPEN and LSPEN, the reset values, which the bootloader may have changed), then `.data`,
+  `.bss`, `main()`. All of it before `.data` is registers and constants.
+- **No crystal:** the HSE wait feeds the watchdog, `clock_init()` returns 0 and the chip stays on HSI at 16 MHz. `usb_init()`
+  would wait for ever for a core reset without 48 MHz, so `main()` leaves USB off. DIN and the panel work; a DAC frame takes
+  504 us and the refresh runs roughly ten times slower (computed and estimated, not measured). **SysEx is USB only** (`din.c`
+  throws it away), so with a dead crystal no message reaches the bootloader, the crash record or any probe: the way to the
+  bootloader is buttons 0 and 7 at power-up, and the record can only be read once USB works. Whether the bootloader's own USB
+  runs without the crystal isn't known.
+- `wait_ready()` feeds the watchdog: a format is about 384 pages with no main loop in between.
+
+**The crash record** (`src/fault.h`, `src/startup.c`, `.noinit` in `link.ld`)
+
+- Every exception and every interrupt nothing asked for lands in `fault_entry`, naked, using only registers until SP is safe,
+  since a stack overflow must not fault again. SP goes back to the top of RAM, except when it's within 256 bytes of it: the
+  frame is up there then, and `fault_report()`'s own stack would overwrite pc and lr before they're read.
+- `fault_store()` in `fault.h` holds the logic, so the simulator's `faultstore` runs the same code. The frame is read only if
+  it's aligned and within RAM; otherwise pc and lr are 0. `.noinit` sits after `.bss`, so the startup code leaves it alone, and
+  it's NOLOAD, so it adds nothing to the `.bin`.
+- **The streak:** the first and second crash reset; the third without 10 s of uptime between them stays put feeding the
+  watchdog, so a crash at boot stops and a power cycle holding 0 and 7 reaches the bootloader. After 10 s of running the streak
+  clears and the rest of the record stays for the probe. A start with a streak shows `CrSh` for 1.5 s, where the version goes.
+- **SysEx 49** (read-only, USB) replies `49 <present 0/1> <streak, clamped to 127> <exception 0-112> <pc> <lr> <exc_return>
+  <cfsr> <hfsr> <mmfar> <bfar>`, each 32-bit value five bytes high first (v>>28, >>21, >>14, >>7, v, each & 0x7F), 39 data bytes
+  all under 0x80. With no record, present is 0 and the rest 0. **SysEx 4A 43 52** has no reply: it stores waiting settings and
+  crashes. Any other length or data after 4A does nothing.
+- **What a real provoke should leave:** exception 3, hfsr 0x40000000 (FORCED), cfsr 0x00008200 (BFARVALID + PRECISERR), bfar
+  0x30000000, pc inside `fault_provoke`. A cfsr of UNDEFINSTR (0x00010000) instead means the address answered and the `udf`
+  caught it.
+- **What it can't do:** the bootloader runs between the crash and the next start and may use that RAM, and an overflow can trash
+  it; the check word rejects a bad record. That doesn't only lose the record, it loses the streak: each crash counts as the first,
+  so a boot crash would restart for ever (no EEPROM wear, and buttons 0 and 7 still work). `fault-test` on the synth decides this;
+  if it happens, the streak moves to an RTC backup register. A hang and a watchdog reset are neither recorded nor counted.
+- To read the machine code: zig 0.17's objdump has no disassembler and the ELF has no symbols, so `zig cc -S` with the firmware's
+  flags plus `-Wno-unused-command-line-argument`, and decode the vectors from the `.bin`.
+
+**USB flow control** (`src/usb.c`). MIDI input now makes the host wait instead of dropping.
+
+- On XFRC the OUT endpoint re-arms only with room for 16 events (one full 64-byte packet) in the 64-slot ring, which holds 63.
+  Otherwise it stays disarmed ("parked"): the core NAKs and the host's driver queues. The `usb_midi_read()` or `usb_midi_flush()`
+  that brings room back to 16 re-arms it, with the OTG interrupt masked. So outside discard mode a burst of any size arrives whole
+  and in order.
+- Parked is cleared by a bus reset. SET_CONFIGURATION decides afresh from the room left (a nearly full ring stays parked until the
+  next read). Stale XFRC flags are cleared at both.
+- `usb_midi_discard(on)` keeps the old policy for long stalls: the endpoint stays armed and a full ring drops. Both autotunes
+  (panel and SysEx 0x75) use it, through `tune_dropping_midi()`, so a 30 s stall neither blocks the host nor replays stale notes,
+  and `drop_stale_midi()` still flushes at the end. A format (about 2 s) just NAKs.
+- **Clock ticks can wait now.** Realtime bytes and Song Position share the endpoint. A parked endpoint reopens only after 16 reads,
+  and a tick also waits behind whatever the host queued ahead of it: about 400 ms behind 16 program changes at about 25 ms each, and
+  the full 2 s of a format. They aren't lost, but their stamps are that late. A parked ring needs at least 48 non-realtime events
+  waiting during a stall, so neither a lone patch load nor clock alone parks it.
+- **Tick timing:** `lfo_clock_tick()` treats one interval outside half to double the tempo as a late or early tick. A new tempo
+  needs two such intervals alike, so a real jump takes hold one tick later than before.
+- `handle_midi()` takes at most 64 events a call (four calls a pass), because re-arming in the read means a host flood might never
+  run dry. A SysEx cut by the bound carries on at the next call. It reads DIN before USB, so a USB flood can't starve the socket;
+  at 31250 baud DIN can't use up the bound.
+- Compiler barriers sit before the ring indexes are published in `usb.c` and `din.c`.
+- CLEAR_FEATURE (endpoint halt) and SET_INTERFACE now reset the endpoint's data toggle (USB 2.0, 9.4.5): a host resets its own, and
+  the core ACKs a packet with the wrong toggle and throws it away, up to 16 events with no error anywhere.
+- **`tools/sim/usb_harness.c`** (`build/sim/usbharness <scenario>`, class `UsbDriver`): the real `usb.c` against a model of the OTG
+  registers; scenarios `burst`, `park`, `flush`, `reset`, `discard`, `realtime`, `toggles`, `preempted`, `random`. It tests the
+  driver's register writes against the model, and passing it is not evidence of the NAK or race behaviour on the chip. EPENA
+  set-only, and a bus reset clearing only USBAEP, are worst-case assumptions from memory of RM0390, not checked against the manual.
+
+**Settings at rest** (`src/store.c`). CC A / B, the MIDI channel, pickup, the clock source and tempo.
+
+- The setters only mark the global block; reads show the new value at once. `store_poll(now)`, once a pass, writes it a second after
+  the last change, so a sweep or a tap series costs one write. A power cut inside that second loses the change.
+- `store_flush()` runs before update mode, an autotune, a crash on purpose and the host's raw EEPROM reads and writes (0x5A, 0x79).
+  A patch load, a save on unformatted memory and a format carry the settings anyway, as any write of the block does. If the settings
+  change while the host is writing an image, the block lands on top after a second, as an immediate write would have done before.
+- Writes retry at most 3 times until the next setter call, each failed try costing tens of ms by arithmetic (about 34 ms, not
+  measured).
+
+**Smaller fixes**
+
+- The format reply is `5B 01 00 <failed>`: it was 00 80, with 0x80 inside the SysEx. Readers compute `b[0] << 7 | b[1]`, which reads
+  the old form as 128 too. 0x79 past the end of the chip gets no reply, as 0x5A does.
+- Sequence BPM from the host clamps to 255 (the field is a byte); under 30 still becomes 120. Route depth and macro offsets from a
+  stored patch clamp to +-99 at load. A forced factory import clears the slot's sequence.
+- The internal clock re-primes after every autotune and after direct mode. Before, a tune of 13 to 25 s left no ticks until the cycle
+  counter wrapped (about 25.6 s at 168 MHz). The beat light kept free-running meanwhile and jumped back when the ticks returned, so the symptom is a
+  phase jump (about 60 ms at 120 BPM after the simulator's 25 s tune), not a dark light.
+- Single-wire routes use a layer's last voice only while that voice is still on that layer. After a split change, that layer's
+  single-wire routes contribute nothing until it plays a new note.
+
 ## Backlog
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer.

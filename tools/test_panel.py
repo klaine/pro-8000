@@ -98,7 +98,7 @@ SWITCH = {n: i for i, n in enumerate(["A_SAW", "A_TRI", "A_SQUARE", "B_SAW", "B_
                                       "PMOD_FILTER", "UNISON", "KEYTRACK_HALF", "KEYTRACK_FULL", "SYNC"])}
 BUTTON = {str(i): i for i in range(10)}
 BUTTON.update({n: 10 + i for i, n in enumerate(["PRESET", "PERF", "SETTINGS", "TUNE", "SHIFT", "CLOCK", "REC", "SEQ1", "SEQ2", "ARP_UP", "ASSIGN"])})
-CV_AMP1, CV_FIL1, CV_NOISE = 24, 16, 36
+CV_AMP1, CV_FIL1, CV_NOISE, CV_PW_A = 24, 16, 36, 38
 
 
 class Synth:
@@ -506,6 +506,33 @@ class Boot(PanelTest):
 
 class BootOnBlankMemory(PanelTest):
     MEMORY = "blank"
+
+    def test_a_patch_loaded_while_a_setting_rests_is_the_one_it_boots_on(self):
+        self.s.setting("pickup", 0)
+        self.s.ms(200)
+        self.s.request(0x5C, 0, 4)
+        self.assertEqual(self.s.settings()["patch"], 4)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.s.settings()["patch"], 4)
+        self.assertEqual(self.s.settings()["pickup"], 0)
+
+    def test_a_patch_loaded_before_a_setting_too(self):
+        self.s.request(0x5C, 0, 4)
+        self.s.ms(1100)
+        self.s.setting("pickup", 0)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.s.settings()["patch"], 4)
+
+    def test_a_load_alone_doesnt_make_the_memory_ours(self):
+        start = int(self.s.cmd("writes").split()[0])
+        self.s.request(0x5C, 0, 4)
+        self.s.ms(1100)
+        self.assertEqual(int(self.s.cmd("writes").split()[0]), start)
+        self.assertEqual(self.s.memory()[0x1F400:0x1F404], bytes(4))
 
     def test_stays_on_the_panel(self):
         self.assertShows("PAnL")
@@ -3780,6 +3807,47 @@ class SettingsRest(PanelTest):
         self.s.ms(1100)
         self.assertEqual(self.stored_cc_a(), 0x55, "an image written back stays as written")
 
+    def read_global(self):
+        a = self.CC_A
+        return self.s.request(0x79, a >> 14, a >> 7 & 0x7F, a & 0x7F, 1)
+
+    def test_a_chip_that_fails_gets_three_tries_and_then_rest_until_the_next_change(self):
+        self.s.cmd("eepromfail 1")
+        start = self.writes()
+        self.s.setting("cc-a", 77)
+        self.s.ms(3500)
+        self.assertEqual(self.writes(), start + 3, "a try a second")
+        self.s.ms(10000)
+        self.assertEqual(self.writes(), start + 3, "and no more: each holds the engine for tens of ms")
+        self.assertEqual(self.s.settings()["cc-a"], 77, "the value still counts")
+        self.assertTrue(self.read_global(), "what stores it first leaves it alone too")
+        self.assertEqual(self.writes(), start + 3)
+        self.s.cmd("eepromfail 0")
+        self.s.ms(3000)
+        self.assertEqual(self.writes(), start + 3)
+        self.s.setting("cc-a", 78)
+        self.s.ms(1100)
+        self.assertEqual(self.writes(), start + 4, "a new change tries again, and it carries the lot")
+        self.assertEqual(self.stored_cc_a(), 78)
+
+    def test_three_failures_by_any_route_count(self):
+        self.s.cmd("eepromfail 1")
+        self.s.setting("cc-a", 77)
+        start = self.writes()
+        for _ in range(5):
+            self.assertTrue(self.read_global())
+        self.assertEqual(self.writes(), start + 3)
+        self.s.ms(3000)
+        self.assertEqual(self.writes(), start + 3)
+
+    def test_a_chip_that_recovers_inside_the_tries_is_written(self):
+        self.s.cmd("eepromfail 1")
+        self.s.setting("cc-a", 77)
+        self.s.ms(1100)
+        self.s.cmd("eepromfail 0")
+        self.s.ms(1100)
+        self.assertEqual(self.stored_cc_a(), 77)
+
     def test_a_read_of_the_memory_sees_it(self):
         self.s.setting("cc-a", 77)
         a = self.CC_A
@@ -3831,10 +3899,22 @@ class HostProtocol(PanelTest):
         self.assertEqual(self.s.request(0x5B), pro800.SYSEX_HEADER + bytes([0x5B, 1, 0, 0, 0xF7]))
 
     def test_every_reply_is_seven_bit(self):
-        for request in ((0x54,), (0x55,), (0x48,), (0x46, 0, 8), (0x4C,), (0x4D, 0, 0), (0x53, 0), (0x53, 1), (0x57, 0), (0x57, 1), (0x58,),
-                        (0x5E, 0, 0), (0x50, 0), (0x6D,), (0x7C,), (0x77, 0), (0x79, 0, 0, 0, 48), (0x75,), (0x08, 0x00)):
+        """The worst there is to report: a stored patch with every byte at FF, a crash record with high bits, and the format"""
+        self.s.request(0x56, 0, 4, 3, 0, 99 + 30)
+        self.store_patch(3)
+        self.s.close()
+        rewrite_record(self.path, 3, *[(offset, 0xFF) for offset in range(4, 508) if offset not in (240, 241)], (242, 0x80))  # the first route stays one, depth -128
+        self.s = Synth(self.path, "--fault")
+        self.s.ms(1600)
+        self.assertEqual(self.s.settings()["patch"], 2, "it loaded")
+        for request in ((0x54,), (0x55,), (0x48,), (0x46, 0, 8), (0x4C,), (0x4D, 0, 0), (0x4D, 0, 1), (0x4D, 1, 0), (0x4D, 1, 1),
+                        (0x53, 0), (0x53, 1), (0x57, 0), (0x57, 1), (0x58,), (0x49,), (0x4F, 0, 2), (0x5E, 0, 2), (0x50, 0), (0x51, 0, 0, 9),
+                        (0x6D,), (0x7C,), (0x7E, 0), (0x7E, 1), (0x77, 0), (0x78, 0, 0, 0), (0x79, 0, 0, 0, 48), (0x79, 0, 0, 40, 48),
+                        (0x7A, 1), (0x75,), (0x08, 0x00), (0x5B,)):
             with self.subTest(request=request):
-                self.assertSevenBit(self.s.request(*request))
+                reply = self.s.request(*request)
+                self.assertTrue(reply, "it is answered, or this says nothing")
+                self.assertSevenBit(reply)
 
     def test_a_stored_patch_out_of_range_comes_back_in_range(self):
         self.s.request(0x56, 0, 4, 3, 0, 99 + 30)
@@ -3887,8 +3967,8 @@ class ClockAfterATune(PanelTest):
             was = lit
         return out
 
-    def assertSteady(self):
-        beats = self.beats()
+    def assertSteady(self, span=2500):
+        beats = self.beats(span)
         self.assertGreaterEqual(len(beats), 4, beats)
         for a, b in zip(beats, beats[1:]):
             self.assertLess(abs(b - a - 500), 30, f"120 BPM, beats at {beats}")
@@ -3900,6 +3980,78 @@ class ClockAfterATune(PanelTest):
     def test_a_tune_asked_for_over_midi(self):
         self.s.request(0x75)
         self.assertSteady()
+
+    def test_leaving_direct_mode_after_long_enough_for_the_counter_to_read_ahead(self):
+        self.s.request(0x74, 1)
+        self.s.ms(13000)
+        self.s.request(0x74, 0)
+        self.assertSteady(span=14000)  # the light runs on at the last tempo, and without its ticks jumps after 12.5 s
+
+
+class ClockTicksHeldUp(PanelTest):
+    """A tick that waited behind a parked USB endpoint is stamped late and the next on time, which measures short. The
+    position and an LFO on the grid must not run ahead for that one tick. The probe's LFO 1 phase shows them."""
+    TICK = 21  # ms: about 119 BPM
+    EIGHTH = 12  # ticks: LFO 1's cycle here
+    PHASE = 2 * 5 + 8 * 3 + 3 + 16  # in the probe's reply, after the held keys, the voices, keytrack and the switches
+
+    def setUp(self):
+        super().setUp()
+        self.s.setting("lfo-sync", 1)
+        self.s.pot("LFO_FREQ", 9 / 14)  # 1-8 of the 15 divisions
+        self.s.ms(300)
+        self.s.midi(0xFA)
+        self.count = 0
+        self.ticks(48)
+
+    def tick(self):
+        self.s.midi(0xF8)
+        self.count += 1
+
+    def ticks(self, n, every=TICK):
+        for _ in range(n):
+            self.tick()
+            self.s.ms(every)
+
+    def phase(self):
+        """As of the next millisecond, which the reply goes out in; 5 ms have passed when it's back"""
+        return self.s.reply(0x55)[self.PHASE] / 100
+
+    def assertOnTheGrid(self, since, delta=0.05):
+        position = self.count - 1 + (since + 1) / self.TICK
+        self.assertAlmostEqual(self.phase(), position / self.EIGHTH % 1, delta=delta, msg=f"{position} ticks in")
+
+    def test_a_late_tick_and_the_next_on_time(self):
+        self.s.ms(15)
+        self.tick()  # 36 ms after the last
+        self.s.ms(6)
+        self.tick()  # 6 ms: under half the tempo
+        self.s.ms(14)
+        self.assertOnTheGrid(14)
+        self.s.ms(2)
+        self.tick()  # and on time from there
+        self.s.ms(14)
+        self.assertOnTheGrid(14)
+
+    def test_a_tick_later_than_two_intervals_with_the_next_right_behind(self):
+        self.s.ms(25)
+        self.tick()  # 46 ms
+        self.tick()  # at once: too short to count
+        self.s.ms(3)
+        self.tick()  # 3 ms
+        self.s.ms(14)
+        self.assertOnTheGrid(14, delta=0.1)  # its position jumped two ticks, which the phase follows over a cycle
+
+    def test_a_real_change_of_tempo_takes_over(self):
+        slow = 84
+        self.s.ms(slow - self.TICK)
+        self.tick()  # on its own it could be a late one
+        self.s.ms(slow)
+        self.ticks(36, slow)  # and they go on like that, for long enough to settle on the grid
+        self.tick()
+        self.s.ms(30)
+        position = self.count - 1 + 31 / slow
+        self.assertAlmostEqual(self.phase(), position / self.EIGHTH % 1, delta=0.05, msg=f"{position} ticks in, at the new tempo")
 
 
 class SingleWireRoutes(PanelTest):
@@ -3923,9 +4075,47 @@ class SingleWireRoutes(PanelTest):
         self.s.ms(5)
         self.assertGreater(self.s.cvs()[CV_NOISE], 0, "layer 1 has played again")
 
+    def test_a_route_on_both_layers_follows_the_layer_that_still_has_its_voice(self):
+        velocity, noise = pro800.SOURCE_NAMES.index("velocity"), pro800.DEST_NAMES.index("noise")
+        self.s.setting("layers", pro800.LAYER_MODES.index("split"))
+        self.s.setting("split", 60)
+        self.s.request(0x56, 0, velocity, noise, 198 >> 7, 198 & 0x7F)
+        self.s.setting("route-both 1 (0-7)", 1)
+        self.s.note(48)  # layer 1
+        self.s.ms(10)
+        self.s.note(72)  # layer 2, the newest
+        self.s.ms(5)
+        self.assertGreater(self.s.cvs()[CV_NOISE], 0)
+        self.s.setting("layer-voices", 7)  # that voice is layer 1's now, and layer 2 has played nothing
+        self.s.ms(5)
+        self.assertGreater(self.s.cvs()[CV_NOISE], 0, "the route, once, from layer 1's voice")
+
+    def test_lfo_to_pw_fades_in_with_the_voice_that_is_still_layer_1s(self):
+        """LFO 1 fades in over a voice's first second or so. The last to play has moved to layer 2 and only just started"""
+        self.s.param(0, "lfo-amount", 16383)
+        self.s.param(0, "lfo-freq", 12000)
+        self.s.param(0, "a-pw", 8000)
+        self.s.setting("lfo-delay", 80)  # about 1.8 s
+        self.s.set_button("LFO_PW", 1)
+        self.s.set_button("A_SQUARE", 1)
+        self.s.ms(100)
+        for i in range(5):
+            self.s.note(60 + i)
+        self.s.ms(3000)
+        self.s.note(70)
+        self.s.setting("layers", pro800.LAYER_MODES.index("stack"))
+        self.s.ms(5)
+        widths = set()
+        for _ in range(60):
+            self.s.ms(5)
+            widths.add(self.s.cvs()[CV_PW_A])
+        self.assertGreater(max(widths) - min(widths), 1000, "voice 1 is well past its delay")
+
+
 
 class UsbDriver(unittest.TestCase):
-    """The real src/usb.c against a model of the OTG core (tools/sim/usb_harness.c): the checks are in there."""
+    """The real src/usb.c against a model of the OTG core (tools/sim/usb_harness.c): the checks are in there. They cover the
+    driver's register writes against what the model assumes, not the core: what it assumes stays to be seen on the synth."""
 
     @classmethod
     def setUpClass(cls):
@@ -3955,6 +4145,12 @@ class UsbDriver(unittest.TestCase):
 
     def test_a_realtime_byte_still_reaches_the_handler(self):
         self.run_scenario("realtime")
+
+    def test_a_pipe_reset_from_the_host_loses_no_packet(self):
+        self.run_scenario("toggles")
+
+    def test_an_interrupt_as_the_driver_goes_to_mask_it(self):
+        self.run_scenario("preempted")
 
     def test_a_random_walk_loses_nothing_and_never_stays_parked_on_an_empty_ring(self):
         self.assertGreater(self.run_scenario("random")["naks"], 0)
@@ -4115,27 +4311,28 @@ class NoCrystal(CrashTest):
         self.assertEqual(self.amp(), silent)
         self.assertGreater(self.s.midi_stat()["usb"], 0, "nothing reads it")
 
-    def test_a_reply_over_din_is_dropped_and_the_loop_goes_on(self):
+    def test_no_request_gets_in_over_din(self):
+        """src/din.c throws SysEx away, so without USB no message reaches the bootloader, the crash record or a probe."""
         silent = self.amp()
-        self.s.cmd("din " + (pro800.SYSEX_HEADER + b"\x08\x00\xF7").hex())
-        self.s.ms(5)
-        self.assertEqual(self.s.cmd("out"), "")
+        for request in (b"\x03\x30", b"\x08\x00", b"\x49", b"\x4A\x43\x52"):
+            with self.subTest(request.hex()):
+                self.s.cmd("din " + (pro800.SYSEX_HEADER + request + b"\xF7").hex())
+                self.assertEqual(self.s.cmd("ms 5"), "ok")
+                self.assertEqual(self.s.cmd("out"), "")
         self.s.din(0x90, 60, 100)
         self.s.ms(500)
-        self.assertGreater(self.amp(), silent)
-
-    def test_update_mode_over_din_leaves_the_unclocked_usb_core_alone(self):
-        self.s.cmd("din " + (pro800.SYSEX_HEADER + b"\x03\x30\xF7").hex())
-        self.assertEqual(self.s.cmd("ms 5"), "update mode")
+        self.assertGreater(self.amp(), silent, "the loop goes on and the SysEx left nothing behind")
 
 
 class EveryName(unittest.TestCase):
     def test_every_text_for_the_display_has_glyphs(self):
-        main = open(os.path.join(ROOT, "src", "main.c")).read()
+        with open(os.path.join(ROOT, "src", "main.c"), encoding="utf-8") as f:
+            main = f.read()
         texts = set(re.findall(r'display_text\("([^"]*)"\)', main))
         for table in re.findall(r"(?:names?|modes|curves|values)\[[^\]]*\](?:\[[^\]]*\])* = \{(.*?)\};", main, re.S):
             texts.update(re.findall(r'"([^"\n]*)"', table))
-        lfo = open(os.path.join(ROOT, "src", "lfo.c")).read()
+        with open(os.path.join(ROOT, "src", "lfo.c"), encoding="utf-8") as f:
+            lfo = f.read()
         for table in re.findall(r"names?\[[^\]]*\](?:\[[^\]]*\])* = \{(.*?)\};", lfo, re.S):
             texts.update(re.findall(r'"([^"\n]*)"', table))
         self.assertGreater(len(texts), 80)

@@ -37,7 +37,8 @@ __attribute__((naked)) static void fault_entry(void)
 }
 
 // Three crashes in a row with no 10 s of uptime between them stay here feeding the watchdog, as every crash used to, so
-// a crash at boot can't reboot for ever and a power cycle holding buttons 0 and 7 reaches the bootloader.
+// a crash at boot doesn't reboot for ever (as long as the record survives the bootloader: src/fault.h) and a power cycle
+// holding buttons 0 and 7 reaches the bootloader.
 __attribute__((used, noreturn))
 static void fault_report(uint32_t frame, uint32_t ipsr, uint32_t exc_return)
 {

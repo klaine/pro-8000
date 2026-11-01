@@ -1,6 +1,6 @@
 // The PRO-800's hardware for the firmware on a computer, so tests can use the panel and read the display. The real
-// src/main.c, synth.c, lfo.c, seq.c, store.c, display.c and controls.c run unchanged (with their debounce, key scan
-// and pot hysteresis) against this file; tools/test_panel.py builds it and drives it through stdin and stdout.
+// src/main.c, synth.c, lfo.c, seq.c, store.c, display.c, controls.c and din.c run unchanged (with their debounce, key
+// scan and pot hysteresis) against this file; tools/test_panel.py builds it and drives it through stdin and stdout.
 //
 // Each main-loop pass is exactly one millisecond of firmware time: the firmware runs in a fiber that comes back here
 // when it refreshes the watchdog, at the top of a pass. Nothing else moves the clock once the loop runs, so a run is
@@ -14,8 +14,9 @@
 //   disp                    <ms> and the display RAM  hist               display changes since last asked: <ms>:<ram> ...
 //   cv                      every CV                  gates              every gate
 //   save                    write the EEPROM file     quit
-//   midistat                USB and DIN events waiting, discard on, autotunes with discard on and with it off
+//   midistat                USB events and DIN bytes waiting, discard on, autotunes with discard on and with it off
 //   writes                  how many EEPROM writes the firmware has asked for, and how many as the last autotune began
+//   eepromfail <0|1>        every write fails from now on, as with a chip whose status stays busy, or works again
 //   faultstore <kind> <n>   src/fault.h's handler logic on a made-up stack, as exception n: prints 1 to reset, 0 to stay
 //
 // Options after the EEPROM file: --untuned; --no-crystal, where clock_init() fails and USB stays off; --fault, as if the
@@ -35,7 +36,7 @@
 #include "controls.c" // the real thing, whose pin and key tables the simulated inputs need
 #include "clock.h"
 #include "dac.h"
-#include "din.h"
+#include "din.c" // the real thing too: what it throws away (SysEx) must not reach the firmware here either
 #include "eeprom.h"
 #include "fault.h"
 #include "sh.h"
@@ -183,10 +184,12 @@ static const char *eeprom_path;
 void eeprom_init(void) {}
 void eeprom_read(uint32_t a, uint8_t *data, uint32_t n) { memcpy(data, eeprom + a, n); }
 uint8_t eeprom_status(void) { return 0; }
-static int eeprom_writes, writes_at_tune;
+static int eeprom_writes, writes_at_tune, eeprom_failing;
 int eeprom_write(uint32_t a, const uint8_t *data, uint32_t n)
 {
     eeprom_writes++;
+    if (eeprom_failing)
+        return 0;
     memcpy(eeprom + a, data, n);
     return 1;
 }
@@ -203,10 +206,9 @@ static void eeprom_save(void)
 // --- MIDI ---
 
 #define RING 8192
-static uint8_t usb_in[RING][4], din_in[RING][4];
-static int usb_in_head, usb_in_tail, din_in_head, din_in_tail;
+static uint8_t usb_in[RING][4];
+static int usb_in_head, usb_in_tail;
 static void (*usb_realtime)(uint8_t, uint16_t, uint32_t);
-static void (*din_realtime)(uint8_t, uint16_t, uint32_t);
 static uint8_t out_bytes[1u << 20];
 static int out_count;
 
@@ -246,39 +248,35 @@ int usb_midi_write(const uint8_t *packets, int count)
             out_bytes[out_count++] = packets[4 * i + 1 + k];
     return 1;
 }
-void din_init(void (*handler)(uint8_t, uint16_t, uint32_t)) { din_realtime = handler; }
-void din_midi_flush(void) { din_in_tail = din_in_head; }
-int din_midi_read(uint8_t packet[4])
+
+// The socket: one UART interrupt a byte
+static void send_din(const uint8_t *m, int n)
 {
-    if (din_in_tail == din_in_head)
-        return 0;
-    memcpy(packet, din_in[din_in_tail], 4);
-    din_in_tail = (din_in_tail + 1) % RING;
-    return 1;
+    for (int i = 0; i < n; i++) {
+        UART_SR = SR_RXNE;
+        UART_DR = m[i];
+        UART4_IRQHandler();
+    }
 }
 
-static void push_packet(int din, uint8_t cin, uint8_t a, uint8_t b, uint8_t c)
+static void push_packet(uint8_t cin, uint8_t a, uint8_t b, uint8_t c)
 {
-    uint8_t *packet = din ? din_in[din_in_head] : usb_in[usb_in_head];
+    uint8_t *packet = usb_in[usb_in_head];
     packet[0] = cin;
     packet[1] = a;
     packet[2] = b;
     packet[3] = c;
-    if (din)
-        din_in_head = (din_in_head + 1) % RING;
-    else
-        usb_in_head = (usb_in_head + 1) % RING;
+    usb_in_head = (usb_in_head + 1) % RING;
 }
 
 // Whole messages only, as USB MIDI packets
-static void send_midi(int din, const uint8_t *m, int n)
+static void send_midi(const uint8_t *m, int n)
 {
     for (int i = 0; i < n;) {
         uint8_t status = m[i];
         if (status >= 0xF8) {
-            void (*handler)(uint8_t, uint16_t, uint32_t) = din ? din_realtime : usb_realtime;
-            if (handler)
-                handler(status, 0, cycles);
+            if (usb_realtime)
+                usb_realtime(status, 0, cycles);
             i++;
         } else if (status == 0xF0) {
             int end = i;
@@ -286,13 +284,13 @@ static void send_midi(int din, const uint8_t *m, int n)
                 end++;
             int k = i;
             for (; end - k >= 3; k += 3)
-                push_packet(din, 4, m[k], m[k + 1], m[k + 2]);
+                push_packet(4, m[k], m[k + 1], m[k + 2]);
             int left = end - k + 1;
-            push_packet(din, left == 1 ? 5 : left == 2 ? 6 : 7, m[k], left > 1 ? m[k + 1] : 0, left > 2 ? m[k + 2] : 0);
+            push_packet(left == 1 ? 5 : left == 2 ? 6 : 7, m[k], left > 1 ? m[k + 1] : 0, left > 2 ? m[k + 2] : 0);
             i = end + 1;
         } else {
             int high = status >> 4, length = high == 0xC || high == 0xD ? 2 : 3;
-            push_packet(din, (uint8_t)high, status, m[i + 1], length == 3 ? m[i + 2] : 0);
+            push_packet((uint8_t)high, status, m[i + 1], length == 3 ? m[i + 2] : 0);
             i += length;
         }
     }
@@ -538,8 +536,10 @@ int main(int argc, char **argv)
             encoder_wait = 0;
             printf("ok\n");
         } else if (!strncmp(line, "midi ", 5) || !strncmp(line, "din ", 4)) {
-            int din = line[0] == 'd';
-            send_midi(din, bytes, parse_hex(line + (din ? 4 : 5), bytes, (int)sizeof bytes));
+            if (line[0] == 'd')
+                send_din(bytes, parse_hex(line + 4, bytes, (int)sizeof bytes));
+            else
+                send_midi(bytes, parse_hex(line + 5, bytes, (int)sizeof bytes));
             printf("ok\n");
         } else if (!strncmp(line, "out", 3)) {
             for (int i = 0; i < out_count; i++)
@@ -567,10 +567,13 @@ int main(int argc, char **argv)
                 printf("%u ", gate_values[i]);
             printf("\n");
         } else if (!strncmp(line, "midistat", 8)) {
-            printf("%d %d %d %d %d\n", (usb_in_head - usb_in_tail + RING) % RING, (din_in_head - din_in_tail + RING) % RING,
+            printf("%d %d %d %d %d\n", (usb_in_head - usb_in_tail + RING) % RING, (int)((rx_head - rx_tail + RX_BYTES) % RX_BYTES),
                    usb_discard, tunes_discarding, tunes_not_discarding);
         } else if (!strncmp(line, "writes", 6)) {
             printf("%d %d\n", eeprom_writes, writes_at_tune);
+        } else if (sscanf(line, "eepromfail %d", &a) == 1) {
+            eeprom_failing = a;
+            printf("ok\n");
         } else if (sscanf(line, "faultstore %7s %d", text, &a) == 2) {
             printf("%d\n", fault_store_on(text, (uint32_t)a));
         } else if (!strncmp(line, "save", 4)) {
