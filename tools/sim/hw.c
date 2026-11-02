@@ -13,6 +13,9 @@
 //   midi <hex> / din <hex>  bytes into USB / DIN      out                what the firmware sent to USB, as hex
 //   disp                    <ms> and the display RAM  hist               display changes since last asked: <ms>:<ram> ...
 //   cv                      every CV                  gates              every gate
+//   held                    every CV as the S&Hs hold it, as last written
+//   vcaahead                how many times a VCA opened on a cutoff far from the voice's own
+//   later <n> <hex>         bytes into USB at the firmware's nth read of it from now, to land between two ticks
 //   save                    write the EEPROM file     quit
 //   midistat                USB events and DIN bytes waiting, discard on, autotunes with discard on and with it off
 //   writes                  how many EEPROM writes the firmware has asked for, and how many as the last autotune began
@@ -228,8 +231,13 @@ void usb_disconnect(void)
 void usb_midi_flush(void) { usb_in_tail = usb_in_head; }
 static int usb_discard, tunes_discarding, tunes_not_discarding;
 void usb_midi_discard(int on) { usb_discard = on; }
+static void send_midi(const uint8_t *m, int n);
+static uint8_t later_bytes[16];
+static int later_count, later_reads;
 int usb_midi_read(uint8_t packet[4])
 {
+    if (later_reads && !--later_reads)
+        send_midi(later_bytes, later_count);
     if (!usb_started || usb_in_tail == usb_in_head)
         return 0;
     memcpy(packet, usb_in[usb_in_tail], 4);
@@ -307,10 +315,46 @@ void sh_set(cv_t cv, uint16_t value) { cv_values[cv] = value; }
 void sh_gate(gate_t gate, int on) { gate_values[gate] = (uint8_t)(on != 0); }
 void sh_set_timing(uint32_t settle, uint32_t sample) { (void)settle; (void)sample; }
 void sh_timing(uint32_t *settle, uint32_t *sample) { *settle = *sample = 0; }
-void sh_refresh(void) {}
-void sh_refresh_pitch(unsigned voices) { (void)voices; }
-void sh_refresh_cutoff(unsigned voices) { (void)voices; }
-void sh_refresh_vca(unsigned skip) { (void)skip; }
+// What the S&Hs hold: sh_set() only changes what the next refresh writes. As sh.c, a voice's VCA goes with its pitch and its
+// cutoff, after them. A VCA that opens on a cutoff more than two semitones from the voice's own (256 a semitone,
+// tuning_note_cv() here) is counted.
+static uint16_t cv_held[CV_COUNT];
+static unsigned vca_ahead;
+static void hold_vca(int v)
+{
+    int behind = (int)cv_values[CV_FIL1 + v] - (int)cv_held[CV_FIL1 + v];
+    if (!cv_held[CV_AMP1 + v] && cv_values[CV_AMP1 + v] && (behind > 512 || behind < -512))
+        vca_ahead++;
+    cv_held[CV_AMP1 + v] = cv_values[CV_AMP1 + v];
+}
+void sh_refresh(void)
+{
+    for (int i = 0; i < CV_COUNT; i++)
+        cv_held[i] = cv_values[i];
+}
+void sh_refresh_pitch(unsigned voices)
+{
+    for (int v = 0; v < VOICE_COUNT; v++)
+        if (voices >> v & 1) {
+            cv_held[CV_OSC_A1 + v] = cv_values[CV_OSC_A1 + v];
+            cv_held[CV_OSC_B1 + v] = cv_values[CV_OSC_B1 + v];
+            hold_vca(v);
+        }
+}
+void sh_refresh_cutoff(unsigned voices)
+{
+    for (int v = 0; v < VOICE_COUNT; v++)
+        if (voices >> v & 1) {
+            cv_held[CV_FIL1 + v] = cv_values[CV_FIL1 + v];
+            hold_vca(v);
+        }
+}
+void sh_refresh_vca(unsigned skip)
+{
+    for (int v = 0; v < VOICE_COUNT; v++)
+        if (!(skip >> v & 1))
+            hold_vca(v);
+}
 void sh_refresh_global(void) {}
 void sh_hold(void) {}
 void sh_refresh_dac_setup(void) {}
@@ -562,6 +606,16 @@ int main(int argc, char **argv)
             for (int i = 0; i < CV_COUNT; i++)
                 printf("%u ", cv_values[i]);
             printf("\n");
+        } else if (!strncmp(line, "held", 4)) {
+            for (int i = 0; i < CV_COUNT; i++)
+                printf("%u ", cv_held[i]);
+            printf("\n");
+        } else if (!strncmp(line, "vcaahead", 8)) {
+            printf("%u\n", vca_ahead);
+        } else if (sscanf(line, "later %d %*s", &a) == 1) {
+            later_reads = a;
+            later_count = parse_hex(strchr(line + 6, ' ') + 1, later_bytes, (int)sizeof later_bytes);
+            printf("ok\n");
         } else if (!strncmp(line, "gates", 5)) {
             for (int i = 0; i < GATE_COUNT; i++)
                 printf("%u ", gate_values[i]);

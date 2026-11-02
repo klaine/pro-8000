@@ -85,6 +85,8 @@
 //                          count of 128 wasn't a MIDI data byte)
 //   5C <n1> <n0>           load patch n; 5D <n1> <n0> save the current sound to patch n (both acknowledged)
 //   5F                     load the init sound (as PERF does; acknowledged)
+//   60                     undo the last load or init, again redoes (as Shift + PERF, 0.9.5); replies
+//                          60 <1, 0 with nothing to undo> <the name of the sound now playing>
 //   56 <layer> <source> <dest> <d1> <d0>  set a route's depth (d1 << 7 | d0) - 99, 0 removes it; acknowledged
 //   58                     timing; replies 58 <engine, refresh, pass, longest pass, panel poll, display, passes/s, ticks: µs,
 //                          passes in the last second: 3 × 7 bits each>
@@ -319,6 +321,16 @@ static void undo_swap_back(void)
     if (preset_mode)
         store_set_last(current_patch);
     undo_state = undo_swap; // pressed again: redo
+}
+
+// Shift + PERF and the host's 60. Returns 0 with nothing to bring back.
+static int undo_or_redo(void)
+{
+    if (undo_valid)
+        undo_swap_back();
+    display_text(undo_valid ? "Undo" : "no");
+    display_until = ms_ticks + 1000;
+    return undo_valid;
 }
 
 static void init_patch(void);
@@ -1664,12 +1676,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             }
             return;
         case BUTTON_PERF: // undo the last load or init
-            if (undo_valid) {
-                undo_swap_back();
-                display_text("Undo");
-            } else
-                display_text("no");
-            display_until = ms_ticks + 1000;
+            undo_or_redo();
             return;
         case BUTTON_PRESET: // save to the current slot
             display_text(preset_mode && save_patch(current_patch) ? "donE" : "no");
@@ -2490,6 +2497,12 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = 0x7F;
         reply[n++] = 0x5F;
     }
+    if (data_length == 1 && data[0] == 0x60) {
+        reply[n++] = 0x60;
+        reply[n++] = (uint8_t)undo_or_redo();
+        for (int i = 0; i < PATCH_NAME && loaded_name[i]; i++)
+            reply[n++] = loaded_name[i] & 0x7F;
+    }
     if (data_length == 3 && data[0] == 0x5E && (data[1] << 7 | data[2]) < PATCH_COUNT) {
         int slot = data[1] << 7 | data[2];
         patch_t patch;
@@ -2670,8 +2683,8 @@ static void advance_sequence(void)
 
 // The CV refresh with the fast ticks run in between (synth_tick(): envelopes, LFOs and the routes from them), so
 // those move more often than the engine's pass. Before each tick MIDI is read and the sequence advanced, so a note
-// starts within a tick rather than a pass: a voice that just started gets its pass terms and its pitch at once, so
-// its VCA never opens on the old note. Each tick writes two voices' pitch, every other tick the cutoffs, and every
+// starts within a tick rather than a pass: a voice that just started gets its pass terms, pitch and cutoff at once, so
+// its VCA never opens on the old note or the old cutoff. Each tick writes two voices' pitch, every other tick the cutoffs, and every
 // tick the VCAs (alongside the DAC80501 channels at their address, the rest on their own); the global CVs go once a
 // pass, mostly alongside too. Silent voices' pitch and cutoff only have to be held: one of them is refreshed each
 // pass, in turn, so no pass is much longer than the others.
@@ -2695,6 +2708,7 @@ static void refresh_cvs(void)
             if (started) {
                 synth_prepare_voices(started);
                 sh_refresh_pitch(started);
+                sh_refresh_cutoff(started); // on an odd tick the cutoffs wait, and the VCA would open on the old one
                 fresh |= started;
             }
         }

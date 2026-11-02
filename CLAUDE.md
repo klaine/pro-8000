@@ -35,7 +35,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     `set env-delay|env-hold <layer> <env> <0-99>` (0.9.0), `set env-count <layer> <env> loop|1-99` (cycles), `set env-tempo <layer> none|amp,…` (stage times in note values), `settings`, `params`, `param <layer> <name> <0-99>`
     (M TUNE is `macro1` from 0.9.0), `layer 1|2`, `route`, `routes`,
     `clock <bpm> [seconds]`, `timing`.
-  - Patches also: `patch rename <slot> <name>`, `factory` (list), `factory import <f> <slot> [--force]`.
+  - Patches also: `patch undo` (the last load or init, again redoes; 0.9.5), `patch rename <slot> <name>`, `factory` (list), `factory import <f> <slot> [--force]`.
   - From 0.8.0: 128 patches (P1-P128, program change 0-127), 768-byte records with the step sequence inside
     (`src/store.c`; `src/seq.c`, edited on the web page; `seq` prints it; from 0.9.3 `seq set chord=0-2` and `seq step … n2+4 n3+7 h1` for chords and held notes). 0.7.x records are wiped at the first start.
   - The WebMIDI page `scripts/web.sh` → http://localhost:8800 (Chrome/Edge; the desktop app's built-in browser
@@ -63,7 +63,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   test here. A power cycle is a new process on the same EEPROM file; system-wide settings are stored after a second's rest, so a
   test that power-cycles after one waits 1100 ms first. Simulator options: `--untuned`, `--no-crystal`, `--fault`, `--fault-old`,
   `--fault-bad`; commands only the tests use: `midistat` (USB events and DIN bytes waiting, discard state, autotunes with discard
-  on and off), `writes` (EEPROM writes, and the count as the last autotune began), `eepromfail <0|1>`, `faultstore`. The simulator's
+  on and off), `writes` (EEPROM writes, and the count as the last autotune began), `eepromfail <0|1>`, `faultstore`, `held` (the CVs as the S&Hs hold them, which the refreshes write as `sh.c` does), `vcaahead` (VCAs opened on a cutoff far from the voice's own), `later <n> <hex>` (bytes at the firmware's nth USB read, to land between two ticks). The simulator's
   update mode saves the EEPROM file. `UsbDriver` runs `tools/sim/usb_harness.c`, the real `src/usb.c` against a model of the OTG
   registers, built as `build/sim/usbharness` (USB itself stays stubbed in the simulator): a change to `usb.c` gets a test
   there. It checks the driver's register writes against the model, not the chip. `WebRanges` runs the editor's mod-range code in

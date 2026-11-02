@@ -91,6 +91,7 @@ Probe (our firmware 0.0.9+):
   pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob>] [x<ratchets>] [a<v>]… [n2<v>] [n3<v>] [h<v>]  one step (a-d: lanes, -99..99; n2, n3: chord notes, semitones from the step's note; h: notes held past the gate, 1 own + 2 Note 2 + 4 Note 3)
   pro800 set morph <slot|none>          the morph target patch
   pro800 patch init                     load the basic sound (osc A saw), as PERF does
+  pro800 patch undo                     undo the last load or init, again redoes, as Shift + PERF does (0.9.5)
   pro800 patch rename <slot> <name>     rename a patch (up to 16 characters)
   pro800 factory                        list the stock factory bank (100 patches, kept in the EEPROM)
   pro800 factory import <f> <slot> [--force]  copy factory patch f (0-99) into a slot (empty unless --force)
@@ -1898,6 +1899,15 @@ def patch_command():
         if not acked([0x5F], timeout=3):
             fail("no reply")
         show("loaded the init sound")
+        return
+    if args == ["undo"]:  # the last load or init, as Shift + PERF
+        reply = midi().request([0x60], expect=[0x60], timeout=3)
+        if reply is None:
+            fail("no reply (firmware 0.9.5 or later?)")
+        b = reply_data(reply, 1, 1)
+        if not b[0]:
+            fail("nothing to undo")
+        show("undone: now " + (bytes(b[1:]).decode("ascii", "replace") or "(no name)"))
         return
     n = slot_number(args[1]) if len(args) == 2 and args[0] in ("load", "save", "clear") else None
     if n is None:

@@ -56,6 +56,7 @@ class FakeSynth:
         self.sent = []
         self.receive = None
         self.settings = [0] * 96
+        self.undo = [1, *b"Pad"]
         self.buttons = [0] * 16
         self.steps = {}
         self.params = [[0] * 36, [0] * 36]
@@ -191,6 +192,8 @@ class FakeSynth:
             pass
         elif c == 0x49:
             self.reply(0x49, *self.fault_body())
+        elif c == 0x60:
+            self.reply(0x60, *self.undo)
         elif c == 0x4A:
             if self.crashes and d[1:3] == b"\x43\x52":
                 streak = self.crash["streak"] + 1 if self.crash else 1
@@ -807,7 +810,7 @@ class StockError(unittest.TestCase):
             self.reply(0x01, 0x00, 0x01)
 
     def test_is_not_taken_for_success(self):
-        for argv in (("patch", "load", "P1"), ("patch", "save", "P1"), ("patch", "clear", "P1"), ("patch", "init"),
+        for argv in (("patch", "load", "P1"), ("patch", "save", "P1"), ("patch", "clear", "P1"), ("patch", "init"), ("patch", "undo"),
                      ("direct", "on"), ("settings",), ("params", "1"), ("patches",), ("tune",), ("seq",), ("seq", "set", "on=1"),
                      ("routes",), ("factory",), ("factory", "import", "1", "P1"), ("format", "--yes"), ("state",), ("engine",),
                      ("timing",), ("fault",), ("set", "env-curve", "1", "amp", "linear"), ("tuning",)):
@@ -1033,6 +1036,7 @@ class Writes(unittest.TestCase):
             (("patch", "save", "P128"), [0x5D, 0, 127]),
             (("patch", "clear", "127"), [0x4F, 0, 127]),
             (("patch", "init"), [0x5F]),
+            (("patch", "undo"), [0x60]),
             (("patch", "rename", "P2", "Foo"), [0x59, 0, 1, 0x46, 0x6F, 0x6F]),
             (("factory", "import", "5", "P128", "--force"), [0x51, 5, 0, 127, 1]),
             (("format", "--yes"), [0x5B]),

@@ -881,6 +881,30 @@ class InitAndUndo(PanelTest):
         self.s.ms(1100)
         self.assertShows("P  2")
 
+    def undo_from_the_host(self):
+        reply = self.s.request(0x60)
+        start = reply.index(pro800.SYSEX_HEADER + b"\x60") + len(pro800.SYSEX_HEADER) + 1
+        return reply[start], reply[start + 1:reply.index(0xF7, start)]
+
+    def test_undo_from_the_host_as_shift_perf(self):
+        self.s.request(0x52, 0, 8, 0x60, 0)
+        self.store_patch(2)
+        self.s.request(0x59, 0, 1, *b"Pad")
+        self.s.request(0x5C, 0, 1)  # with its name
+        self.s.press("PERF")
+        self.assertEqual(self.s.params()["resonance"], 0)
+        self.assertEqual(self.undo_from_the_host(), (1, b"Pad"))
+        self.assertEqual(self.s.params()["resonance"], 74)
+        self.assertShows("Undo")
+        self.assertEqual(self.undo_from_the_host(), (1, b"Init"), "again redoes, and the name says so")
+        self.assertEqual(self.s.params()["resonance"], 0)
+
+    def test_undo_from_the_host_with_nothing_to_undo(self):
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.undo_from_the_host()[0], 0)
+        self.assertShows("no")
+
     def test_undo_with_nothing_to_undo(self):
         self.power_cycle()
         self.s.ms(1600)
@@ -3185,6 +3209,71 @@ class MonoEnvelopes(PanelTest):
             self.s.note_off(50)
             self.s.request(0x56, 0, pro800.SOURCE_NAMES.index(source), pro800.DEST_NAMES.index("pitch"), 0, 99)
             self.s.rest()
+
+
+class FilterBeforeVca(PanelTest):
+    """Issue 17: a voice's VCA mustn't open on a cutoff the S&H still holds from before, or a closed filter lets a click through."""
+
+    def setUp(self):
+        super().setUp()
+        self.s.no_routes()
+        self.s.param(0, "amp-att", 0)
+        self.s.param(0, "amp-rel", 0)
+        self.s.ms(20)
+
+    def held(self):
+        return [int(x) for x in self.s.cmd("held").split()]
+
+    def released_chord(self, base=60):
+        for i in range(8):
+            self.s.note(base + i)
+        self.s.ms(20)
+        for i in range(8):
+            self.s.note_off(base + i)
+        self.s.ms(50)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_a_note_landing_between_two_ticks_writes_its_cutoff_first(self):
+        self.s.setting("keytrack", 2)  # so a note far from the last one needs another cutoff
+        self.s.ms(5)
+        for reads in range(1, 9):
+            with self.subTest(reads=reads):
+                self.released_chord(20)
+                self.s.cmd("later %d %s" % (reads, bytes((0x90, 110, 100)).hex()))
+                self.s.ms(4)
+                self.assertTrue(self.s.gated(), "it played")
+                self.assertEqual(self.s.cmd("vcaahead"), "0")
+                self.s.note_off(110)
+                self.s.ms(20)
+
+    def test_a_silent_voice_follows_the_cutoff_knob(self):
+        self.s.param(0, "cutoff", 16383)
+        self.released_chord()
+        self.s.param(0, "cutoff", 0)
+        self.s.ms(30)  # every voice's turn, one a pass
+        cvs = self.s.cvs()
+        for v in range(8):
+            self.assertLess(cvs[CV_FIL1 + v], 25000, f"voice {v}, was 50176 with the knob up")
+            self.assertEqual(self.held()[CV_FIL1 + v], cvs[CV_FIL1 + v], f"voice {v}, in its S&H")
+
+    def test_a_silent_voices_vca_stays_shut(self):
+        self.s.param(0, "cutoff", 16383)
+        self.released_chord()
+        self.s.param(0, "cutoff", 0)
+        self.s.ms(30)
+        self.assertEqual([self.held()[CV_AMP1 + v] for v in range(8)], [0] * 8)
+
+    def test_the_issues_steps_never_open_a_vca_on_the_old_cutoff(self):
+        self.s.param(0, "cutoff", 16383)
+        self.released_chord()
+        self.s.param(0, "cutoff", 0)
+        self.s.ms(30)
+        for i in range(8):
+            self.s.cmd("later %d %s" % (i % 4 + 1, bytes((0x90, 60 + i, 100)).hex()))  # any tick of a pass
+            self.s.ms(4)
+            self.s.note_off(60 + i)
+            self.s.ms(20)
+        self.assertEqual(self.s.cmd("vcaahead"), "0")
 
 
 class Retrigger(PanelTest):
@@ -6595,6 +6684,92 @@ class WebSmallThings(unittest.TestCase):
                 self.assertIn("isn't a preset bank", case["shown"][0])
         self.assertEqual(out["looked"], 1, "a good one goes on")
 
+    def test_the_init_buttons(self):
+        page = source("tools", "web", "index.html")
+        self.assertRegex(page[page.index("<header>"):page.index("</header>")], r'<button[^>]*id="init-top"[^>]*>Init</button>')
+        out = run_node(NODE_DRIVER % ("""
+        let patchName = "Pad", seqFor = "1:70", calls = [], answer = true;
+        const ack = async (m, t) => { calls.push(m); return answer; };
+        const refreshSettings = async () => { calls.push(["settings", seqFor]); }, refreshParams = async () => { calls.push("params"); };
+        """ + js_block(page, "async function loadInitSound(") + """
+        const out = { ok: await loadInitSound(), name: patchName, calls };
+        answer = false; calls = []; patchName = "Pad"; seqFor = "1:70";
+        out.failed = { ok: await loadInitSound(), name: patchName, seq: seqFor, calls };
+        report(out);
+        """))
+        self.assertEqual(out["calls"], [[0x5F], ["settings", None], "params"], "the page reads the sound back, and the sequence that's gone")
+        self.assertEqual((out["ok"], out["name"]), (True, "Init"))
+        self.assertEqual(out["failed"], {"ok": False, "name": "Pad", "seq": "1:70", "calls": [[0x5F]]}, "no answer: nothing changes")
+
+    def test_the_patch_arrows(self):
+        page = source("tools", "web", "index.html")
+        header = page[page.index("<header>"):page.index("</header>")]
+        self.assertLess(header.index('class="screen"'), header.index('id="patch-prev"'))
+        self.assertLess(header.index('id="patch-prev"'), header.index('id="patch-next"'))
+        out = run_node(FAKE_CLOCK + """
+        let settings = { patch: 70 }, patchNameFor = 70, sent = [], read = 0, isOffline = false, shown = [], failed = [], answers = [], release = null;
+        const offline = () => isOffline, slotLabel = n => "P" + (n + 1), touch = (l, v) => shown.push(v), noAnswer = w => failed.push(w);
+        let last = 0;
+        const ack = async m => { sent.push(m.slice()); last = m[1] << 7 | m[2]; if (release) await new Promise(r => { release = r; }); return answers.length ? answers.shift() : true; };
+        const refreshSettings = async () => { read++; settings.patch = last; }, refreshParams = async () => {};
+        """ + js_block(page, "let steppedTo") + "\n" + js_block(page, "function stepPatch(") + "\n" + js_block(page, "async function loadStepped(") + NODE_DRIVER % """
+        const out = {};
+        stepPatch(1); await advance(79); out.waits = sent.length; await advance(2); await settle();
+        out.next = sent.splice(0); out.nameFor = patchNameFor; out.read = read;
+        for (let i = 0; i < 3; i++) { stepPatch(1); await advance(30); }
+        await advance(100); await settle();
+        out.run = sent.splice(0); out.shown = shown.slice(-3);
+        settings.patch = 0; stepPatch(-1); await advance(100); await settle();
+        out.down = sent.splice(0);
+        settings.patch = 127; stepPatch(1); await advance(100); await settle();
+        out.up = sent.splice(0);
+        settings.patch = 9; answers = [false]; stepPatch(1); await advance(100); await settle();
+        out.damaged = sent.splice(0); out.failed = failed; stepPatch(1); await advance(100); await settle();
+        out.past = sent.splice(0);
+        release = () => {}; settings.patch = 20; stepPatch(1); await advance(100); await settle();
+        stepPatch(1); await advance(100); await settle();
+        out.during = sent.splice(0); const r = release; release = null; r(); await settle(); await advance(100); await settle();
+        out.after = sent.splice(0);
+        isOffline = true; stepPatch(1); await advance(100); await settle();
+        out.offline = sent.splice(0);
+        report(out);
+        """)
+        self.assertEqual(out["waits"], 0, "the load waits for the rest")
+        self.assertEqual(out["next"], [[0x5C, 0, 71]])
+        self.assertEqual((out["nameFor"], out["read"]), (-1, 1), "the new name, and the page reads the sound back")
+        self.assertEqual(out["run"], [[0x5C, 0, 74]], "a run of clicks loads where it ends")
+        self.assertEqual(out["shown"], ["P73", "P74", "P75"], "and shows where it is at once")
+        self.assertEqual(out["down"], [[0x5C, 0, 127]], "P1 goes round to P128")
+        self.assertEqual(out["up"], [[0x5C, 0, 0]], "P128 goes round to P1")
+        self.assertEqual((out["damaged"], out["failed"]), ([[0x5C, 0, 10]], ["P11"]))
+        self.assertEqual(out["past"], [[0x5C, 0, 11]], "the next click gets past a slot that won't load")
+        self.assertEqual(out["during"], [[0x5C, 0, 21]], "one load at a time")
+        self.assertEqual(out["after"], [[0x5C, 0, 22]], "and then the one that was waiting")
+        self.assertEqual(out["offline"], [], "not connected: nothing is sent")
+
+    def test_the_undo_button(self):
+        page = source("tools", "web", "index.html")
+        self.assertRegex(page[page.index("<header>"):page.index("</header>")], r'<button[^>]*id="undo-top"[^>]*data-needs="unisonVoices"[^>]*>Undo</button>')
+        out = run_node(NODE_DRIVER % ("""
+        let patchName = "Init", patchNameFor = 1, seqFor = "1:1", settings = { patch: 70 }, calls = [], answer = null;
+        const ask = async (m, e, t) => { calls.push(m); return answer; };
+        const refreshSettings = async () => { calls.push(["settings", seqFor]); patchName = "stored"; }, refreshParams = async () => { calls.push("params"); };
+        """ + js_block(page, "async function undoSound(") + """
+        const out = { none: await undoSound(), noneCalls: calls };
+        calls = []; answer = [0x60, 0];
+        out.nothing = await undoSound(); out.nothingName = patchName; out.nothingCalls = calls;
+        calls = []; answer = [0x60, 1, 80, 97, 100];
+        out.done = await undoSound(); out.name = patchName; out.nameFor = patchNameFor; out.calls = calls;
+        report(out);
+        """))
+        self.assertEqual((out["none"], out["noneCalls"]), (None, [[0x60]]))
+        self.assertEqual((out["nothing"], out["nothingName"], out["nothingCalls"]), (False, "Init", [[0x60]]))
+        self.assertEqual(out["calls"], [[0x60], ["settings", None], "params"], "the page reads the sound back, and its sequence")
+        self.assertEqual((out["done"], out["name"], out["nameFor"]), (True, "Pad", 70), "the reply's name, not the slot's")
+
+    def test_the_mod_matrix_has_no_long_tip(self):
+        self.assertNotIn("Sixteen routes per layer", source("tools", "web", "index.html"))
+
     def test_the_unison_knobs(self):
         page = source("tools", "web", "index.html")
         out = run_node(source("tools", "web", "sound-plan.js") + """
@@ -6964,8 +7139,8 @@ class PresetRoutes(PanelTest):
 
     def test_every_page_path_from_the_init_sound_goes_through_plansound(self):
         page, installer_page, shared = source("tools", "web", "index.html"), source("tools", "web", "install.html"), source("tools", "web", "sound-plan.js")
-        self.assertEqual(page.count("[0x5F]"), 1, "the Load the init sound button, which stays on it")
-        self.assertIn('ack([0x5F], 3000), "loaded the init sound', page)
+        self.assertEqual(page.count("[0x5F]"), 1, "the Init buttons, which stay on it")
+        self.assertIn('ack([0x5F], 3000);', js_block(page, "async function loadInitSound("))
         self.assertEqual(installer_page.count("0x5F"), 0)
         self.assertEqual(shared.count("[0x5F]"), 1)
         self.assertEqual((page.count("planSound("), installer_page.count("planSound(")), (2, 2), "Load JSON and the bank; the install and its check")

@@ -2002,7 +2002,7 @@ static void sample_lfos(void)
 static void voice_cvs(int v, int cutoff, int pitch)
 {
     const voice_t *x = &voices[v];
-    if (x->amp.stage == ENV_IDLE) { // silent: its VCA is closed, and its pitch and cutoff can't be heard
+    if (x->amp.stage == ENV_IDLE) { // silent: its VCA is closed, and its pitch and cutoff can't be heard (voice_slow())
         sh_set(CV_AMP1 + v, 0);
         return;
     }
@@ -2288,5 +2288,9 @@ static void voice_slow(int v, float dt)
         x->cutoff_env = (q->env_amount + mod[DEST_FIL_ENV_AMT]) * FILTER_ENV_SEMITONES;
         x->vca_slow = mod[DEST_VCA];
         voice_cvs(v, 1, 1);
+        // silent: the cutoff keeps up with its knob anyway (refresh_cvs() writes one such voice a pass), or the next
+        // note's first moment would pass through the filter as it was when the voice last played
+        if (x->amp.stage == ENV_IDLE)
+            sh_set(CV_FIL1 + v, tuning_note_cv(TUNING_ROW_FILTER + v, x->cutoff_rest));
     }
 }
