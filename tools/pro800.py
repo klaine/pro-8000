@@ -55,7 +55,7 @@ Probe (our firmware 0.0.9+):
                                         free|first|every|voice|one-shot|one-shot-voice, lfo-cycles / lfo2-cycles <1-99>
                                         (how many cycles a one shot runs), lfo-restart steps|keys (what restarts the LFOs with a sequence on), layers off|split|stack|channel|8ch|mpe, split <note>,
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
-                                        bend <1-12> (semitones), detune <0-50> (unison, cents), drift <0-99>,
+                                        bend <1-12> (semitones), detune <0-100> (unison, cents), unison-voices <2-8>, drift <0-99>,
                                         scale off|major|minor|dorian|…|chromatic, root C..B,
                                         voice <layer> poly|mono|legato last|low|high,
                                         shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
@@ -1200,6 +1200,7 @@ SETTING_NAMES = (["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo
                  + ["env-tempo 1", "env-tempo 2", "midi-channel",
                     "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles",
                     "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)", "route-both 2 (0-7)", "route-both 2 (8-15)",
+                    "unison-voices",
                     "env-select", "preset-mode", "patch", "morph"])
 LINK_NAMES = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 CURVE_NAMES = ["analog", "linear", "swell"]
@@ -1267,8 +1268,10 @@ def set_setting():
         setting = (3, v)
     elif n == 2 and name == "bend" and (v := int_in(args[1], 1, 12)) is not None:
         setting = (25, v)
-    elif n == 2 and name == "detune" and (v := int_in(args[1], 0, 50)) is not None:
+    elif n == 2 and name == "detune" and (v := int_in(args[1], 0, 100)) is not None:
         setting = (26, v)
+    elif n == 2 and name == "unison-voices" and (v := int_in(args[1], 2, 8)) is not None:
+        setting = (91, v)
     elif n == 2 and name == "drift" and (v := int_in(args[1], 0, 99)) is not None:
         setting = (29, v)
     elif n == 2 and name == "scale" and args[1] in SCALE_NAMES:
@@ -1423,11 +1426,11 @@ def setting_text(i, v):
         return "1 cycle (one shot)" if v == 1 else f"{v} cycles (one shot)"
     if i == 86:
         return "steps (a sequence's notes restart the LFOs)" if v == 0 else "keys (the keys restart them, not a sequence's steps)"
-    if i == 91:
+    if i == 92:
         return at(["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"], v)
-    if i == 93:
-        return slot_name(v)
     if i == 94:
+        return slot_name(v)
+    if i == 95:
         return "none" if v == 0 else slot_name(v - 1)
     return None
 

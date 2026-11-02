@@ -2332,3 +2332,20 @@ Windows, `python tools/pro800.py`. This covers only what's listed; the sections 
 ## CC 74 is cutoff after all (0.9.4, 2026-11-01)
 
 0.9.4 had moved cutoff to CC 79, as 74 was taken for Timbre first and never reached the knob. The owner wants the usual numbers: cutoff 74, resonance 71. So 74 moves the knob and still feeds the `Timbre` source. In `8CH` and `nPE` it's Timbre alone: MPE keyboards send it for each note, and it mustn't sweep the other voices' cutoff (P57 and P58 route it). CC A or B set to 74 keeps it off the knob, as it does for any other number. CC 79 does nothing now; it was never released. A patch outside those modes with a route from Timbre now gets the knob moving as well: none in the bank. Simulated only so far.
+
+## Unison voices, detune to 100, mono restarts Env 3 / 4 (0.9.5, 2026-11-02)
+
+Issues 29, 30, 31. `stack_size()` is how many voices a unison note takes: the patch's 2-8 (`unison_voices`, record byte 355, 0 = 8), no more than the layer has. `stacked()` is unison in poly with room for two stacks or more; then `layer_note_on()` allocates by stack, `allocate()` stepping over each stack's first voice, and a note off needs no change as it already matches each voice's note. Otherwise unison is the one line it was. Mono and legato always play one line, on one stack. The spread in `voice_slow()` runs across a stack.
+
+- **The setting filled the settings reply:** the new one is number 91, which moves the four read-only ones to 92-95 in the tools' tables and takes the 54 reply to 203 bytes, so `SYSEX_MAX` went up by 2. The page tells this firmware by the setting (`FEATURES.unisonVoices`), and against an older one hides the voices knob and stops the detune knob at 50, which that firmware would refuse above.
+- **Detune:** only the range moved. A route to detune stays ±50 cents at depth 99, as rescaling it would change every patch with one.
+- **Env 3 / 4 in mono:** reported as not retriggering on legato notes, and P71 showed why (Env 3 → Pitch A and B at full depth, sustain 99, mono + unison). Measured with its values in the simulator, adding D3 to a held F3 moved the cutoff 54 semitones and the pitch 0.00: every envelope re-attacked from its level, and Env 3's was already 1. The retrigger had always happened; there was nowhere to go. `gate_on()` now zeroes Env 3 / 4 in `VOICE_MONO`, outside the per-channel modes. Other envelopes: see the next section. Legato doesn't change.
+- **Not tried on the synth yet.**
+
+## A replayed note's attack, and the sustain's lag (0.9.5, 2026-11-02)
+
+Issues 32 and 33, by the same reporter, who wondered whether they were one bug. They aren't: 32 is the cause of 31 again, and 33 is the shape of the decay.
+
+- **Issue 32:** every retrigger attacked from the level, so with a long attack a note played 20 ms into its release took 415 ms to 90 % and not the 2530 ms of a fresh one (simulator, attack knob 85). A retrigger now fades out first, linearly, full scale in `RETRIGGER_FADE_S` (8 ms), then attacks from 0. It's in `ENV_DELAY` (`fading`), before any delay, so the replayed note takes the same 2530 ms. Below `RETRIGGER_FADE_ATTACK_S` (30 ms of attack) it still attacks from the level: from 0.8 that's over in a few ms, and a fade would be a gap and no gain, so plucks and leads keep what they had. It reaches any envelope that retriggers, also poly, a stolen voice and legato's first note. A voice that's silent has nothing to fade, so a first note isn't held up.
+- **Issue 33:** there's no sustain stage. `ENV_DECAY` goes on heading for the sustain level at the decay's rate, so a knob move took as long as a decay (90 to 20: 0 ms at decay knob 10, 125 ms at 60, 1030 ms at 85). Past the decay's time (`timer >= decay_s`) the rate is now `SUSTAIN_FOLLOW_S`, 20 ms to -60 dB of the way, so under 20 ms for any decay. That also speeds up modulation routed to a sustain. Turning the decay up while holding a key gives the slow rate back until the timer passes the new time.
+- **Not tried on the synth yet**, nor heard: whether the 8 ms fade is clean on the real VCAs is the thing to listen for. The test only says no step is over a quarter of the level in 1 ms.

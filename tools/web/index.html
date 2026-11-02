@@ -586,7 +586,7 @@
         <tr><td><kbd>5</kbd></td><td><code class="lcd">trAC</code> keytracking</td></tr>
         <tr><td><kbd>6</kbd></td><td><code class="lcd">En.x</code> envelope mode (<kbd>Arp Up-Dn</kbd>: <code class="lcd">tr.x</code> trigger, <code class="lcd">tI.x</code> timing, <code class="lcd">CU.x</code> curve, <code class="lcd">Cn.x</code> cycles; ATT / DEC: delay / hold)</td></tr>
         <tr><td><kbd>7</kbd></td><td><code class="lcd">bEnd</code> bend range, 1-12 st</td></tr>
-        <tr><td><kbd>8</kbd></td><td><code class="lcd">dEtU</code> unison detune, 0-50 ct</td></tr>
+        <tr><td><kbd>8</kbd></td><td><code class="lcd">dEtU</code> unison detune, 0-100 ct</td></tr>
         <tr><td><kbd>9</kbd></td><td><code class="lcd">UOIC</code> voice mode <code class="lcd">POLY</code> <code class="lcd">nono</code> <code class="lcd">LEG</code></td></tr>
         <tr><td><kbd>0</kbd></td><td><code class="lcd">drFt</code> drift, 0-99</td></tr>
       </table>
@@ -615,7 +615,7 @@
 
     <section class="cs cs-wide">
       <h3>On the web page only</h3>
-      <p class="small">A Velocity knob in the faceplate's filter and amp sections, each the edit layer's route to the cutoff or the VCA, as the mod matrix lists it. The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key)<span data-needs="lfoRestart">, and whether its steps or your keys restart the LFOs</span> ·<span data-needs="routeBoth"> a mod route on both layers (Both, in the two-layer modes) ·</span>
+      <p class="small">A Velocity knob in the faceplate's filter and amp sections, each the edit layer's route to the cutoff or the VCA, as the mod matrix lists it. The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key)<span data-needs="lfoRestart">, and whether its steps or your keys restart the LFOs</span> ·<span data-needs="routeBoth"> a mod route on both layers (Both, in the two-layer modes) ·</span><span data-needs="unisonVoices"> Unison voices, 2-8 per note (2 plays 4 notes, 3 or 4 play 2, 5 to 8 one line) ·</span>
         LFO step patterns · scale and root · morph target and source · note priority · Mutate · mod routes from Seq A-D
         and to Morph · patch names, export, the factory bank · copying an LFO or envelope from the other layer.</p>
     </section>
@@ -1318,6 +1318,7 @@ const FEATURES = {
   lfoOneShot: ["lfoCycles1", "one shot LFOs"],
   lfoRestart: ["lfoRestart", "LFO restarts from a sequence's keys"],
   routeBoth: ["routeBoth1Lo", "mod routes on both layers"],
+  unisonVoices: ["unisonVoices", "unison voices, and unison detune to 100 cents"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1848,7 +1849,7 @@ function knob(i, text) {
 function modelKnob(text, get, set, show, reset, title) {
   const d = dial("uni"), val = h("span", { class: "val" }, "–");
   const dl = h("div", { class: "dial", role: "slider", "aria-label": text }, d.svg);
-  adjustable(dl, get, u => { set(Math.min(1, Math.max(0, u))); paintAll(); }, () => { set(reset); paintAll(); });
+  adjustable(dl, get, u => { set(Math.min(1, Math.max(0, u))); paintAll(); }, () => { set(typeof reset === "function" ? reset() : reset); paintAll(); });
   paints.push(() => { const u = get(); d.turn(u); val.textContent = show(u); });
   return h("div", { class: "knob", title }, dl, h("span", { class: "lbl" }, text), val);
 }
@@ -2951,18 +2952,30 @@ function seqSection() {
 const SCALES = ["Off", "Major", "Minor", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Harmonic minor", "Pentatonic major",
   "Pentatonic minor", "Blues", "Whole tone", "Chromatic"];
 const MORPH_DEST = 24;
-// a 0-99 setting as a knob
-function settingKnob(key, label, title, show = u => String(Math.round(u * 99))) {
+// a setting as a knob: 0-99, or `min` to what `max()` says, with a double-click going back to `reset` (in the knob's 0..1)
+function settingKnob(key, label, title, show = u => String(Math.round(u * 99)), { min = 0, max = () => 99, reset = () => 0 } = {}) {
   const K = typeof key === "function" ? key : () => key; // a function: the setting follows the edit layer
   let local = null, at = 0, timer = 0, localKey = null;
   const get = () => local !== null && Date.now() - at < 1500 && localKey === K() ? local
-    : settings && settings[K()] !== undefined ? settings[K()] / 99 : 0; // 0 for a setting this firmware hasn't got
+    : settings && settings[K()] !== undefined ? (settings[K()] - min) / (max() - min) : 0; // 0 for a setting this firmware hasn't got
   return modelKnob(label, get, u => {
     if (offline()) return;
     local = u; at = Date.now(); localKey = K(); touch(label, show(u));
     const id = SET_ID[K()];
-    clearTimeout(timer); timer = setTimeout(() => setSetting(id, Math.round(u * 99)), 60);
-  }, show, 0, title);
+    clearTimeout(timer); timer = setTimeout(() => setSetting(id, min + Math.round(u * (max() - min))), 60);
+  }, show, reset, title);
+}
+// Unison's knobs: a firmware without the voices stops its detune at 50 cents
+const detuneMax = () => feature("unisonVoices") ? 100 : 50;
+function unisonDetuneKnob() {
+  return settingKnob("detune", "Unison detune", "cents between a stack's outermost voices in unison (per patch)",
+    u => `${Math.round(u * detuneMax())} ct`, { max: detuneMax, reset: () => 14 / detuneMax() });
+}
+function unisonVoicesKnob() {
+  const e = settingKnob("unisonVoices", "Unison voices", "the voices a note takes in unison (per patch): 2 plays 4 notes at once, 3 or 4 play 2, 5 to 8 play one",
+    u => String(2 + Math.round(u * 6)), { min: 2, max: () => 8, reset: () => 1 });
+  e.dataset.needs = "unisonVoices";
+  return e;
 }
 // A Velocity knob on the faceplate: the depth of the edit layer's route Velocity → dest, the very route the mod matrix
 // lists, read from layerRoutes and written with setRoute, so nothing is kept here but the few milliseconds' position of
@@ -3267,8 +3280,7 @@ function buildPanel() {
       row(mutateControls()),
       row(settingSelect("Bend", Array.from({ length: 12 }, (_, k) => `±${k + 1} st`),
           () => settings && settings.bend - 1, v => setSetting(SET_ID.bend, v + 1), "pitch bend range (per patch)"),
-        settingSelect("Unison detune", Array.from({ length: 51 }, (_, k) => `${k} ct`),
-          () => settings && settings.detune, v => setSetting(SET_ID.detune, v), "cents between the outermost voices in unison (per patch)"))),
+        unisonDetuneKnob(), unisonVoicesKnob())),
     matrix,
     seqSection());
   box.append(face, h("div", { class: "extras-head" }, "Beyond the panel"), extras);

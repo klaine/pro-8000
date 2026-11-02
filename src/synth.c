@@ -47,7 +47,7 @@
 // itself is gone (autotune keeps the voices in tune).
 //
 // Voice modes per layer: poly, mono (every new note retriggers) or legato, with last / low / high note priority;
-// unison plays the layer's mono line on all its voices. Drift wanders each voice's pitch and cutoff slowly at random
+// unison stacks 2-8 voices on a note: as many notes as fit in the layer's voices in poly, else one line. Drift wanders each voice's pitch and cutoff slowly at random
 // (up to 15 cents and a semitone). Scale quantize snaps a voice's pitch, the note plus its common pitch modulation
 // (LFOs, routes to pitch A + B), to a scale from a root: random and LFO pitch modulation plays melodies, and keys
 // off the scale snap too. Morph: a second patch's knob values (the morph target), reached by the Morph mod
@@ -94,6 +94,9 @@
 #define DECAY_MIN_S           0.003f
 #define DECAY_MAX_S           20.0f // decay and release, to -60 dB
 #define ATTACK_OVERSHOOT      1.5f
+#define SUSTAIN_FOLLOW_S      0.02f // once a decay's time is up, the level follows the sustain this fast
+#define RETRIGGER_FADE_S      0.008f // a retrigger fades out first, full scale in this long, so the attack is the whole attack
+#define RETRIGGER_FADE_ATTACK_S 0.03f // not below this attack: it's over before it could be heard, and needs no gap
 #define SWELL_OCTAVES         5.0f  // the swell curve's attack: 2^5 from SWELL_OFFSET below 0 to 1 above it
 #define SWELL_OFFSET          (1.0f / 31.0f)
 #define MACRO_DEAD_ZONE       0.02f // M TUNE as Macro 1: this far either side of the middle reads 0
@@ -114,10 +117,11 @@ typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_RELEASE, ENV_HOLD, ENV_REST,
 typedef struct {
     env_stage_t stage;
     float level; // 0..1
-    float timer; // seconds in ENV_DELAY / ENV_HOLD / ENV_REST, and in ENV_DECAY when key-up triggered
+    float timer; // seconds in ENV_DELAY / ENV_HOLD / ENV_REST / ENV_DECAY
     float phase; // synced cycling: 0..1 through the cycle
     float start; // synced cycling: the level the current attack started from
     uint8_t cycles; // cycles finished since it was triggered (it stops at the count)
+    uint8_t fading; // ENV_DELAY: retriggered, and may fade out before anything else
 } env_t;
 
 // One envelope's settings, worked out once per layer and pass; the envelopes advance by any dt from them (the amp
@@ -125,7 +129,8 @@ typedef struct {
 typedef struct {
     float attack, decay, release; // how fast the distance left to go shrinks: log2 per second (< 0: at once); on
                                   // the linear curve full scale per second, and the swell attack's growth
-    float sustain;
+    float sustain, follow;        // the level, and the rate it's followed at once the decay's time is up
+    int retrigger_fade;           // the attack is long enough to fade out for on a retrigger
     float hold, rest;             // seconds (cycling; hold also DAHDSR's)
     float delay, decay_s;         // seconds: DAHDSR's delay, and a key-up envelope's decay before it releases
     int cycle, curve, key_up;
@@ -256,6 +261,7 @@ static int split_note = 60;
 static uint8_t held[LAYERS][HELD_MAX];
 static int held_count[LAYERS];
 static int unison;
+static int unison_voices = VOICE_COUNT; // the voices a note takes in unison, 2-8
 
 void synth_init(void)
 {
@@ -876,6 +882,7 @@ void synth_apply_patch(const patch_t *patch)
         lfo_fade[w] = patch->lfo_fade[w] > 99 ? 99 : patch->lfo_fade[w];
     }
     unison = sw(SWITCH_UNISON);
+    unison_voices = patch->unison_voices >= 2 && patch->unison_voices <= VOICE_COUNT ? patch->unison_voices : VOICE_COUNT;
     for (int l = 0; l < LAYERS; l++) {
         voice_mode[l] = patch->voice_mode >> (4 * l) & 3;
         priority[l] = patch->voice_mode >> (4 * l + 2) & 3;
@@ -946,6 +953,7 @@ void synth_capture_patch(patch_t *patch)
     patch->scale = (uint8_t)synth_scale();
     patch->bend_range = (uint8_t)bend_range;
     patch->detune = (uint8_t)(detune + 1); // 0 means "not stored"
+    patch->unison_voices = (uint8_t)unison_voices;
     for (int w = 0; w < 2; w++) {
         patch->lfo_sync[w] = (uint8_t)lfo_sync[w];
         patch->lfo_trigger[w] = (uint8_t)lfo_trigger[w];
@@ -967,16 +975,18 @@ void synth_manual(void)
 // --- notes ---
 
 // Within one layer's voices: the voice already on this note, then the oldest silent one, then the quietest released
-// (so a long tail plays on while a nearly silent one is taken), then the oldest.
-static int allocate(int layer, uint8_t note)
+// (so a long tail plays on while a nearly silent one is taken), then the oldest. In stacks of `size` voices, by each
+// stack's first voice (its voices play together); the voices left over don't play.
+static int allocate(int layer, uint8_t note, int size)
 {
     int first, end, best = -1;
     layer_voices(layer, &first, &end);
-    for (int v = first; v < end; v++)
+    end -= (end - first) % size;
+    for (int v = first; v < end; v += size)
         if (voices[v].note == note && (voices[v].gate || voices[v].amp.stage != ENV_IDLE))
             return v;
     for (int pass = 0; pass < 3 && best < 0; pass++)
-        for (int v = first; v < end; v++) {
+        for (int v = first; v < end; v += size) {
             voice_t *x = &voices[v];
             int ok = pass == 0 ? !x->gate && x->amp.stage == ENV_IDLE : pass == 1 ? !x->gate : 1;
             if (ok && (best < 0 || (pass == 1 ? x->amp.level < voices[best].amp.level
@@ -1018,8 +1028,9 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
             x->lfo_age = 0;
     }
     if (retrigger) {
-        // from the current level, so a stolen voice doesn't click (ENV_DELAY goes on to the attack at once without
-        // a delay); key-up envelopes fade out instead, until the key is let go
+        // from the current level, so a stolen voice doesn't click, with a long attack after a short fade (env_update(),
+        // ENV_DELAY goes on to the attack at once without a delay); key-up envelopes fade out instead, until the key is
+        // let go
         int up = key_up_envs(layer_of((int)(x - voices)));
         env_t *envs[] = {&x->amp, &x->filter, &x->env3, &x->env4};
         for (int i = 0; i < 4; i++) {
@@ -1028,7 +1039,12 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
                     envs[i]->stage = ENV_RELEASE;
                 continue;
             }
+            // In mono, Env 3 / 4 start again from 0: from a high sustain they would have nowhere to go, and a modulation
+            // envelope has no click to hide
+            if (i >= 2 && voice_mode[layer_of((int)(x - voices))] == VOICE_MONO && !per_channel())
+                envs[i]->level = 0;
             envs[i]->stage = ENV_DELAY;
+            envs[i]->fading = 1;
             envs[i]->timer = 0;
             envs[i]->phase = 0; // synced cycling starts its cycle here
             envs[i]->start = envs[i]->level;
@@ -1046,6 +1062,7 @@ static void gate_off(voice_t *x, int key_up)
     for (int i = 0; i < 4; i++)
         if (up >> i & 1) {
             envs[i]->stage = ENV_DELAY;
+            envs[i]->fading = 0;
             envs[i]->timer = 0;
             envs[i]->phase = 0;
             envs[i]->start = envs[i]->level;
@@ -1054,6 +1071,14 @@ static void gate_off(voice_t *x, int key_up)
                 x->fresh = 1; // its pitch goes out before the VCA opens
         } else if (envs[i]->stage != ENV_IDLE)
             envs[i]->stage = ENV_RELEASE;
+}
+
+// How many voices a unison note takes on this layer: the patch's number, as far as the layer has them
+static int stack_size(int layer)
+{
+    int first, end;
+    layer_voices(layer, &first, &end);
+    return unison_voices < end - first ? unison_voices : end - first;
 }
 
 static int layer_gated(int layer)
@@ -1077,8 +1102,16 @@ static void remove_held(int layer, uint8_t note)
         }
 }
 
-// Mono, legato and unison play one line: the held note the priority picks
-static int mono(int layer) { return unison || voice_mode[layer] != VOICE_POLY; }
+// Unison in poly with room for more than one stack: each note takes its own
+static int stacked(int layer)
+{
+    int first, end;
+    layer_voices(layer, &first, &end);
+    return unison && voice_mode[layer] == VOICE_POLY && (end - first) / stack_size(layer) > 1;
+}
+
+// Mono, legato and unison with one stack play one line: the held note the priority picks
+static int mono(int layer) { return voice_mode[layer] != VOICE_POLY || (unison && !stacked(layer)); }
 
 static uint8_t priority_note(int layer)
 {
@@ -1094,8 +1127,7 @@ static uint8_t priority_note(int layer)
 static void mono_voices(int layer, int *first, int *end)
 {
     layer_voices(layer, first, end);
-    if (!unison)
-        *end = *first + 1; // mono / legato: the layer's first voice
+    *end = *first + (unison ? stack_size(layer) : 1); // mono / legato: the layer's first voice
 }
 
 // A note started on voice v of `layer`. A linked LFO is one LFO for both layers, so "the first key" counts both.
@@ -1132,9 +1164,12 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
         return;
     }
     int was_gated = layer_gated(layer);
-    int v = allocate(layer, note);
-    gate_on(&voices[v], note, velocity, 1);
-    lfos_note_on(layer, v, !was_gated);
+    int size = stacked(layer) ? stack_size(layer) : 1;
+    int v = allocate(layer, note, size);
+    for (int i = v; i < v + size; i++) {
+        gate_on(&voices[i], note, velocity, 1);
+        lfos_note_on(layer, i, !was_gated);
+    }
     last_voice[layer] = v;
 }
 
@@ -1379,7 +1414,17 @@ void synth_pitch_bend(int value, int layers)
 int synth_bend_range(void) { return bend_range; }
 void synth_set_bend_range(int semitones) { bend_range = semitones < 1 ? 1 : semitones > 12 ? 12 : semitones; }
 int synth_detune(void) { return detune; }
-void synth_set_detune(int cents) { detune = cents < 0 ? 0 : cents > 50 ? 50 : cents; }
+void synth_set_detune(int cents) { detune = cents < 0 ? 0 : cents > 100 ? 100 : cents; }
+int synth_unison_voices(void) { return unison_voices; }
+
+void synth_set_unison_voices(int n)
+{
+    n = n < 2 ? 2 : n > VOICE_COUNT ? VOICE_COUNT : n;
+    if (n == unison_voices)
+        return;
+    synth_all_off(); // no voice changes stack while it's gated
+    unison_voices = n;
+}
 
 void synth_mod_wheel(uint8_t value, int layers)
 {
@@ -1471,6 +1516,8 @@ static void env_rates(env_rates_t *r, const float *p, int layer, int e)
     r->decay = stage_rate(r->decay_s, fall);
     r->release = cycle ? r->decay : stage_rate(STAGE_TIME(3, p[rel], 0), fall);
     r->sustain = p[sus];
+    r->follow = stage_rate(SUSTAIN_FOLLOW_S, fall);
+    r->retrigger_fade = STAGE_TIME(0, p[att], cycle) >= RETRIGGER_FADE_ATTACK_S;
     r->hold = cycle ? STAGE_TIME(2, p[sus], 1) : dahdsr ? EXTRA_TIME(env_hold[layer][e]) : 0;
     r->rest = cycle ? STAGE_TIME(3, p[rel], 1) : 0;
     r->delay = dahdsr ? EXTRA_TIME(env_delay[layer][e]) : 0;
@@ -1587,6 +1634,13 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
         e->level = 0;
         break;
     case ENV_DELAY: // the level goes on falling as in a release meanwhile
+        if (e->fading && r->retrigger_fade) {
+            e->level -= dt / RETRIGGER_FADE_S;
+            if (e->level > 0)
+                break;
+            e->level = 0;
+        }
+        e->fading = 0;
         e->timer += dt;
         if (e->timer < r->delay) {
             e->level = fall_to(e->level, 0, r->release, dt, linear);
@@ -1618,7 +1672,7 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
         break;
     case ENV_DECAY:
         if (!r->cycle) { // then follows the sustain knob while held; a key-up envelope releases after its decay
-            e->level = fall_to(e->level, r->sustain, r->decay, dt, linear);
+            e->level = fall_to(e->level, r->sustain, e->timer >= r->decay_s ? r->follow : r->decay, dt, linear);
             e->timer += dt;
             if (r->key_up && e->timer >= r->decay_s)
                 e->stage = ENV_RELEASE;
@@ -2198,9 +2252,9 @@ static void voice_slow(int v, float dt)
 
         int first, end;
         layer_voices(l, &first, &end);
-        int n = end - first;
+        int n = stack_size(l);
         float cents = (float)detune + last_mod[l][DEST_DETUNE] * 50.0f;
-        float spread = unison && n > 1 ? ((float)(v - first) / (float)(n - 1) - 0.5f) * cents / 100.0f : 0;
+        float spread = unison && n > 1 ? ((float)((v - first) % n) / (float)(n - 1) - 0.5f) * cents / 100.0f : 0;
         // glide and the envelope stages with their routes (times scale by 2^(4 × mod): 16× at full depth)
         x->glide_k = mod[DEST_GLIDE] != 0 && q->glide_s > 0
                    ? 1.0f - fast_exp2(-dt / (q->glide_s * fast_exp2(4.0f * mod[DEST_GLIDE])) * 1.4427f) : q->glide_k;

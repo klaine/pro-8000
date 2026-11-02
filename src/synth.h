@@ -250,11 +250,14 @@ float synth_knob_glide_s(float knob);
 // M TUNE is Macro 1's knob (0.9.0): -1..1, 0 in the middle (with a little dead zone), added to the macro's offset
 // and whatever is routed into it.
 float synth_knob_macro(float knob);
-// Per patch: pitch bend range (1-12 semitones) and unison detune (0-50 cents between the outermost voices).
+// Per patch: pitch bend range (1-12 semitones), unison detune (0-100 cents between a stack's outermost voices) and
+// the voices a note takes in unison (2-8; changing it releases every voice).
 int synth_bend_range(void);
 void synth_set_bend_range(int semitones);
 int synth_detune(void);
 void synth_set_detune(int cents);
+int synth_unison_voices(void);
+void synth_set_unison_voices(int n);
 int synth_pot_pending(int pot);
 // Pickup (on, the default): a knob in pickup takes over once it reaches or sweeps past the stored value. Off (jump):
 // it takes over as soon as it moves from where it was when it started waiting, jumping the value to its position.

@@ -1460,12 +1460,12 @@ class Shift(PanelTest):
                 self.assertShows(word)
                 self.s.ms(1600)
 
-    def test_detune_stays_0_to_50(self):
+    def test_detune_stays_0_to_100(self):
         self.s.hold("SHIFT")
         for f in (0.5, 1.0, 0.0, 1.0, 0.0, 1.0):
             self.s.pot("MASTER_TUNE", f)
         self.s.ms(600)
-        self.assertShows("  50")
+        self.assertShows(" 100")
         self.s.let_go("SHIFT")
 
     def test_copying_a_layer(self):
@@ -3011,6 +3011,332 @@ class VoiceModes(PanelTest):
         self.s.note_off(60)
         self.s.switch("UNISON")
 
+    def test_unison_voices_and_how_many_notes_fit(self):
+        self.s.switch("UNISON")
+        for voices, notes in ((2, 4), (3, 2), (4, 2), (5, 1), (6, 1), (7, 1), (8, 1)):
+            self.s.setting("unison-voices", voices)
+            keys = range(60, 60 + notes + 1)
+            for i, key in enumerate(keys):
+                self.s.note(key)
+                if i < notes:
+                    self.assertEqual(len(self.s.gated()), voices * (i + 1), f"{voices} voices, note {i + 1}")
+            # one more note: a whole stack goes to it (one line: it takes the stack over), and the count stays
+            self.assertEqual(len(self.s.gated()), voices * notes, f"{voices} voices, all taken")
+            for key in keys:
+                self.s.note_off(key)
+            self.s.ms(1)
+
+    def test_unison_voices_leave_the_spare_voices_silent(self):
+        self.s.switch("UNISON")
+        self.s.setting("unison-voices", 3)
+        for key in (60, 62, 64):
+            self.s.note(key)
+        self.assertEqual(self.s.gated(), [0, 1, 2, 3, 4, 5])
+
+    def test_a_note_off_releases_its_whole_stack(self):
+        self.s.switch("UNISON")
+        self.s.setting("unison-voices", 2)
+        self.s.note(60)
+        self.s.note(64)
+        self.s.note_off(60)
+        self.assertEqual(len(self.s.gated()), 2)
+
+    def test_mono_and_legato_play_one_stack(self):
+        self.s.switch("UNISON")
+        self.s.setting("unison-voices", 2)
+        for mode in (1, 2):
+            self.s.setting("voice 1", mode)
+            self.s.note(60)
+            self.s.note(64)
+            self.assertEqual(len(self.s.gated()), 2, f"mode {mode}")
+            self.s.note_off(60)
+            self.s.note_off(64)
+
+    def test_unison_voices_in_a_layer_of_four(self):
+        self.s.switch("UNISON")
+        self.s.setting("layers", 2)  # stack: 4 + 4
+        self.s.setting("unison-voices", 2)
+        self.s.note(60)
+        self.s.note(64)
+        self.s.note(67)  # steals the first stack on each layer
+        self.assertEqual(len(self.s.gated()), 8)
+        self.s.note_off(64)
+        self.assertEqual(len(self.s.gated()), 4)
+        self.s.note_off(67)
+        self.s.setting("unison-voices", 8)  # no more than the layer has: one line on its four
+        self.s.note(60)
+        self.assertEqual(len(self.s.gated()), 8)
+
+    def test_changing_unison_voices_releases_the_notes(self):
+        self.s.switch("UNISON")
+        self.s.setting("unison-voices", 4)
+        self.s.note(60)
+        self.s.setting("unison-voices", 2)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_unison_voices_outside_2_to_8_are_refused(self):
+        self.s.setting("unison-voices", 3)
+        self.s.setting("unison-voices", 1)
+        self.s.setting("unison-voices", 9)
+        self.assertEqual(self.setting_value("unison-voices"), 3)
+
+    def test_unison_voices_stay_in_the_patch(self):
+        self.s.setting("unison-voices", 3)
+        self.s.ms(10)
+        self.store_patch(5)
+        self.s.setting("unison-voices", 6)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.s.press("PRESET")
+        self.type_number(5)
+        self.s.ms(1100)
+        self.assertEqual(self.setting_value("unison-voices"), 3)
+
+    def test_a_patch_from_before_unison_voices_plays_all_eight(self):
+        self.assertEqual(self.setting_value("unison-voices"), 8)
+        self.s.switch("UNISON")
+        self.s.note(60)
+        self.assertEqual(len(self.s.gated()), 8)
+
+    def setting_value(self, name):
+        d = self.s.reply(0x54)
+        i = pro800.SETTING_NAMES.index(name)
+        return d[1 + 2 * i] << 7 | d[2 + 2 * i]
+
+
+class MonoEnvelopes(PanelTest):
+    """Mono restarts Env 3 and 4 from 0, so a high sustain still sweeps (P71: Env 3 → pitch at sustain 99). Pitch shows the
+    level: the route's CV, less the note's own semitones."""
+
+    def setUp(self):
+        super().setUp()
+        self.s.no_routes()
+        for name in ("amp", "fil", "env3", "env4"):
+            self.s.param(0, name + "-att", 9000)
+            self.s.param(0, name + "-dec", 3000)
+            self.s.param(0, name + "-sus", 16383)
+            self.s.param(0, name + "-rel", 12000)
+
+    def route(self, source):
+        i = pro800.SOURCE_NAMES.index(source)
+        self.s.request(0x56, 0, i, pro800.DEST_NAMES.index("pitch"), 198 >> 7, 198 & 0x7F)
+        self.s.ms(20)
+
+    def sweep(self, ms=400):
+        """How far the pitch moves, in semitones, sampled every 5 ms from now."""
+        cvs = []
+        for _ in range(ms // 5):
+            self.s.ms(5)
+            cvs.append(self.s.cvs()[0])
+        return (max(cvs) - min(cvs)) / CV_PER_SEMITONE
+
+    def test_a_legato_note_sweeps_again(self):
+        self.s.setting("voice 1", 1)
+        for source in ("env3", "env4"):
+            self.route(source)
+            self.s.note(53)
+            self.s.ms(3000)
+            self.s.note(50)
+            self.assertGreater(self.sweep(), 10, source)
+            self.s.note_off(53)
+            self.s.note_off(50)
+            self.s.ms(10)
+            self.s.request(0x56, 0, pro800.SOURCE_NAMES.index(source), pro800.DEST_NAMES.index("pitch"), 0, 99)
+            self.s.rest()
+
+    def test_back_to_a_held_note_sweeps_again(self):
+        self.s.setting("voice 1", 1)
+        self.route("env3")
+        self.s.note(53)
+        self.s.note(50)
+        self.s.ms(3000)
+        self.s.note_off(50)
+        self.assertGreater(self.sweep(), 10)
+
+    def test_a_press_in_the_release_sweeps_again(self):
+        self.s.setting("voice 1", 1)
+        self.route("env3")
+        self.s.note(53)
+        self.s.ms(3000)
+        self.s.note_off(53)
+        self.s.ms(50)  # the long release has hardly begun
+        self.s.note(53)
+        self.assertGreater(self.sweep(), 10)
+
+    def test_legato_mode_does_not(self):
+        self.s.setting("voice 1", 2)
+        self.route("env3")
+        self.s.note(53)
+        self.s.ms(3000)
+        self.s.note(50)
+        self.assertLess(self.sweep(), 0.1)
+
+    def test_a_short_attack_on_the_amp_and_filter_envelopes_goes_on_from_where_they_are(self):
+        self.s.setting("voice 1", 1)
+        for source in ("amp-env", "filter-env"):
+            self.route(source)
+            self.s.param(0, "amp-att", 0)
+            self.s.param(0, "fil-att", 0)
+            self.s.note(53)
+            self.s.ms(3000)
+            self.s.note(50)
+            self.assertLess(self.sweep(), 0.1, source)
+            self.s.note_off(53)
+            self.s.note_off(50)
+            self.s.request(0x56, 0, pro800.SOURCE_NAMES.index(source), pro800.DEST_NAMES.index("pitch"), 0, 99)
+            self.s.rest()
+
+
+class Retrigger(PanelTest):
+    """A retriggered envelope with a long attack fades out first, so the note has its whole attack (issue 32). A short attack
+    goes on from where it is, as nothing could be heard of the fade but a gap."""
+
+    def setUp(self):
+        super().setUp()
+        self.s.no_routes()
+        self.s.param(0, "amp-sus", 16383)
+        self.s.param(0, "amp-rel", 60 * 16383 // 99)
+        self.s.ms(20)
+
+    def level(self, voice=0):
+        return self.s.cvs()[CV_AMP1 + voice]
+
+    def rise(self, voice, top):
+        """ms until the voice's VCA is at 90 % of the top"""
+        for n in range(0, 12000, 5):
+            if self.level(voice) >= 0.9 * top:
+                return n
+            self.s.ms(5)
+        self.fail("it never got there")
+
+    def played_long(self):
+        self.s.param(0, "amp-att", 85 * 16383 // 99)
+        self.s.ms(20)
+        self.s.note(60)
+        self.s.ms(9000)
+        return self.level()
+
+    def test_a_note_in_its_release_has_the_whole_attack_again(self):
+        top = self.played_long()
+        self.s.note_off(60)
+        self.s.ms(20)
+        self.assertGreater(self.level(), 0.5 * top, "the release has hardly begun")
+        self.s.note(60)
+        replayed = self.rise(0, top)
+        self.s.note_off(60)
+        self.s.ms(30000)
+        self.s.note(60)
+        fresh = self.rise(self.s.gated()[0], top)
+        self.assertAlmostEqual(replayed, fresh, delta=30)
+
+    def test_the_fade_is_short_and_has_no_jump(self):
+        top = self.played_long()
+        self.s.note(60)  # the note it's on, once more
+        levels = [self.level()]
+        for _ in range(12):
+            self.s.ms(1)
+            levels.append(self.level())
+        self.assertLess(min(levels), 0.2 * top, "down in the 12 ms")
+        for a, b in zip(levels, levels[1:]):
+            self.assertLess(a - b, 0.25 * top, f"a step, not a click: {levels}")
+
+    def test_a_short_attack_doesnt_dip(self):
+        self.s.param(0, "amp-att", 8 * 16383 // 99)
+        self.s.ms(20)
+        self.s.note(60)
+        self.s.ms(2000)
+        top = self.level()
+        self.s.note(60)
+        for _ in range(12):
+            self.s.ms(1)
+            self.assertGreater(self.level(), 0.9 * top)
+
+    def test_mono_with_a_long_attack(self):
+        self.s.setting("voice 1", 1)
+        top = self.played_long()
+        self.s.note(64)  # 60 held
+        self.s.ms(20)
+        self.assertLess(self.level(), 0.3 * top)
+        self.assertGreater(self.rise(0, top), 1000)
+
+    def test_legato_keeps_on(self):
+        self.s.setting("voice 1", 2)
+        top = self.played_long()
+        self.s.note(64)
+        self.s.ms(20)
+        self.assertGreater(self.level(), 0.9 * top)
+
+    def test_a_first_note_isnt_held_up(self):
+        self.s.param(0, "amp-att", 85 * 16383 // 99)
+        self.s.ms(20)
+        self.s.note(60)
+        self.s.ms(1)
+        before = self.level()
+        self.s.ms(5)
+        self.assertGreater(self.level(), before, "rising from its first milliseconds")
+
+
+class Sustain(PanelTest):
+    """Once the decay's time is up the level follows the sustain knob, whatever the decay (issue 33)."""
+
+    def setUp(self):
+        super().setUp()
+        self.s.no_routes()
+        self.s.param(0, "cutoff", 10 * 16383 // 99)
+        self.s.param(0, "fil-env-amt", 16383)
+        self.s.param(0, "fil-att", 0)
+
+    def cutoff(self):
+        return self.s.cvs()[CV_FIL1 + self.s.gated()[0]]
+
+    def time_to_follow(self, decay):
+        self.s.param(0, "fil-dec", decay * 16383 // 99)
+        self.s.param(0, "fil-sus", 90 * 16383 // 99)
+        self.s.note(60)
+        self.s.ms(30000)
+        high = self.cutoff()
+        self.s.param(0, "fil-sus", 20 * 16383 // 99)
+        self.s.ms(5000)
+        low = self.cutoff()
+        self.s.param(0, "fil-sus", 90 * 16383 // 99)
+        self.s.ms(5000)
+        self.assertAlmostEqual(self.cutoff(), high, delta=40)
+        self.s.param(0, "fil-sus", 20 * 16383 // 99)
+        n = 0
+        while abs(self.cutoff() - low) > 0.1 * abs(high - low) and n < 5000:
+            self.s.ms(1)
+            n += 1
+        self.s.note_off(60)
+        self.s.ms(100)
+        return n
+
+    def test_any_decay_follows_the_knob_at_once(self):
+        for decay in (10, 60, 85):
+            self.assertLess(self.time_to_follow(decay), 20, f"decay {decay}")
+
+    def test_the_decay_still_takes_its_time(self):
+        self.s.param(0, "fil-dec", 85 * 16383 // 99)
+        self.s.param(0, "fil-sus", 0)
+        self.s.note(60)
+        self.s.ms(5)
+        top = self.cutoff()
+        self.s.ms(1000)
+        middle = self.cutoff()
+        self.s.ms(25000)
+        bottom = self.cutoff()
+        self.assertGreater(middle, bottom + 0.2 * (top - bottom), "falling a second in")
+        self.assertLess(middle, top)
+
+    def test_turning_the_sustain_during_the_decay_doesnt_cut_it_short(self):
+        self.s.param(0, "fil-dec", 85 * 16383 // 99)
+        self.s.param(0, "fil-sus", 50 * 16383 // 99)
+        self.s.note(60)
+        self.s.ms(5)
+        top = self.cutoff()
+        self.s.param(0, "fil-sus", 0)
+        self.s.ms(200)
+        self.assertGreater(self.cutoff(), top - 0.5 * top, "still on its way")
+
     def test_the_panel_setting_page_changes_the_mode(self):
         self.s.press("SETTINGS", "9")
         self.s.ms(700)
@@ -3878,6 +4204,19 @@ class WebRanges(PanelTest):
         self.assertAlmostEqual(2 ** self.swing(41, 50)["hi"], with_route / base, delta=0.4)
         where = self.page["where"]["41,50"]
         self.assertAlmostEqual(number_in(where)[0], with_route, delta=with_route * 0.1, msg=where)
+
+    def test_unison_detune_reaches_100_cents_and_a_stack_spreads_by_it(self):
+        self.s.switch("UNISON")
+        self.s.setting("detune", 100)
+        self.s.setting("unison-voices", 3)
+        self.s.note(60)
+        self.s.note(72)
+        self.s.ms(100)
+        cvs = self.s.cvs()
+        for first in (0, 3):
+            stack = cvs[first:first + 3]
+            self.assertAlmostEqual((max(stack) - min(stack)) / CV_PER_SEMITONE * 100, 100, delta=1)
+            self.assertAlmostEqual(stack[1] - stack[0], stack[2] - stack[1], delta=2, msg="evenly")
 
     def test_unison_detune_in_cents(self):
         self.s.setting("detune", 0)
@@ -6255,6 +6594,37 @@ class WebSmallThings(unittest.TestCase):
                 self.assertEqual(len(case["shown"]), 1)
                 self.assertIn("isn't a preset bank", case["shown"][0])
         self.assertEqual(out["looked"], 1, "a good one goes on")
+
+    def test_the_unison_knobs(self):
+        page = source("tools", "web", "index.html")
+        out = run_node(source("tools", "web", "sound-plan.js") + """
+        let settings = { detune: 14, unisonVoices: 3 }, sent = [], newFirmware = true;
+        const offline = () => false, touch = () => {}, feature = () => newFirmware, setSetting = (id, v) => sent.push([id, v]);
+        const modelKnob = (label, get, set, show, reset) => ({ get, set, show, reset, dataset: {} });
+        const setTimeout = f => f(), clearTimeout = () => {};
+        """ + js_block(page, "function settingKnob(") + "\n" + js_block(page, "const detuneMax")
+            + "\n" + js_block(page, "function unisonDetuneKnob(") + "\n" + js_block(page, "function unisonVoicesKnob(") + NODE_DRIVER % """
+        const detune = unisonDetuneKnob(), voices = unisonVoicesKnob(), out = {};
+        out.needs = voices.dataset.needs;
+        out.at = [detune.get(), voices.get()];
+        out.shown = [detune.show(1), detune.show(0), voices.show(0), voices.show(1), voices.show(1 / 6)];
+        out.reset = [Math.round(detune.reset() * 100), voices.reset()];
+        detune.set(1); voices.set(0); voices.set(1); voices.set(0.5);
+        out.sent = sent;
+        newFirmware = false; sent = [];
+        const old = unisonDetuneKnob();
+        old.set(1);
+        out.old = { sent, shown: old.show(1) };
+        report(out);
+        """)
+        self.assertEqual(out["needs"], "unisonVoices")
+        self.assertAlmostEqual(out["at"][0], 0.14)
+        self.assertAlmostEqual(out["at"][1], 1 / 6)
+        self.assertEqual(out["shown"], ["100 ct", "0 ct", "2", "8", "3"])
+        self.assertEqual(out["reset"], [14, 1], "a double-click: the defaults, 14 cents and 8 voices")
+        detune_id, voices_id = pro800.SETTING_NAMES.index("detune"), pro800.SETTING_NAMES.index("unison-voices")
+        self.assertEqual(out["sent"], [[detune_id, 100], [voices_id, 2], [voices_id, 8], [voices_id, 5]])
+        self.assertEqual(out["old"], {"sent": [[detune_id, 50]], "shown": "50 ct"}, "older firmware refuses more than 50")
 
     def test_the_pages_compile_with_the_shared_script(self):
         """A const in both would stop a page dead, and only a browser would otherwise show it."""

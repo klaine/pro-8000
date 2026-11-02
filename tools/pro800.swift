@@ -62,7 +62,7 @@ Probe (our firmware 0.0.9+):
                                         free|first|every|voice|one-shot|one-shot-voice, lfo-cycles / lfo2-cycles <1-99>
                                         (how many cycles a one shot runs), lfo-restart steps|keys (what restarts the LFOs with a sequence on), layers off|split|stack|channel|8ch|mpe, split <note>,
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
-                                        bend <1-12> (semitones), detune <0-50> (unison, cents), drift <0-99>,
+                                        bend <1-12> (semitones), detune <0-100> (unison, cents), unison-voices <2-8>, drift <0-99>,
                                         scale off|major|minor|dorian|…|chromatic, root C..B,
                                         voice <layer> poly|mono|legato last|low|high,
                                         shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
@@ -1004,7 +1004,7 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
     + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
     + ["env-tempo 1", "env-tempo 2", "midi-channel",
        "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles", "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)",
-       "route-both 2 (0-7)", "route-both 2 (8-15)",
+       "route-both 2 (0-7)", "route-both 2 (8-15)", "unison-voices",
        "env-select", "preset-mode", "patch", "morph"]
 let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
@@ -1057,8 +1057,10 @@ func setSetting() {
         (id, v) = (3, note)
     } else if args.count == 2, args[0] == "bend", let st = Int(args[1]), (1...12).contains(st) {
         (id, v) = (25, st)
-    } else if args.count == 2, args[0] == "detune", let ct = Int(args[1]), (0...50).contains(ct) {
+    } else if args.count == 2, args[0] == "detune", let ct = Int(args[1]), (0...100).contains(ct) {
         (id, v) = (26, ct)
+    } else if args.count == 2, args[0] == "unison-voices", let n = Int(args[1]), (2...8).contains(n) {
+        (id, v) = (91, n)
     } else if args.count == 2, args[0] == "drift", let a = Int(args[1]), (0...99).contains(a) {
         (id, v) = (29, a)
     } else if args.count == 2, args[0] == "scale", let i = scaleNames.firstIndex(of: args[1]) {
@@ -1234,9 +1236,9 @@ func settings() {
             text = on.isEmpty ? "none" : on.joined(separator: ",")
         case 84, 85: text = v == 1 ? "1 cycle (one shot)" : "\(v) cycles (one shot)"
         case 86: text = v == 0 ? "steps (a sequence's notes restart the LFOs)" : "keys (the keys restart them, not a sequence's steps)"
-        case 91: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 93: text = slotName(v)
-        case 94: text = v == 0 ? "none" : slotName(v - 1)
+        case 92: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 94: text = slotName(v)
+        case 95: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")

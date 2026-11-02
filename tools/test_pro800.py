@@ -55,7 +55,7 @@ class FakeSynth:
         self.firmware = firmware
         self.sent = []
         self.receive = None
-        self.settings = [0] * 95
+        self.settings = [0] * 96
         self.buttons = [0] * 16
         self.steps = {}
         self.params = [[0] * 36, [0] * 36]
@@ -296,11 +296,11 @@ class SwiftParity(unittest.TestCase):
         self.assertEqual(names, pro800.SETTING_NAMES)
 
     def test_setting_names(self):
-        self.assertEqual(len(pro800.SETTING_NAMES), 95)
+        self.assertEqual(len(pro800.SETTING_NAMES), 96)
         self.assertEqual(pro800.SETTING_NAMES.index("midi-channel"), 77)
         self.assertEqual(pro800.SETTING_NAMES.index("env-count 2 env4"), 74)
         self.assertEqual(pro800.SETTING_NAMES.index("lfo-restart"), 86)
-        self.assertEqual(pro800.SETTING_NAMES[91:], ["env-select", "preset-mode", "patch", "morph"])
+        self.assertEqual(pro800.SETTING_NAMES[91:], ["unison-voices", "env-select", "preset-mode", "patch", "morph"])
 
     def test_lfo_note_times_read_the_same(self):
         """Swift can't run here: the same formula, version and condition as pro800.py's, read off the source."""
@@ -411,7 +411,7 @@ class ReadOnly(unittest.TestCase):
         s = self.synth.settings
         s[0], s[2], s[4], s[13], s[25], s[26] = 1, 2, 2, 5, 12, 25
         s[38], s[43], s[48], s[50], s[66], s[67] = 104, 120, 1 | 2 << 2, 99, 3, 7
-        s[77], s[83], s[86], s[93], s[94] = 5, 65, 1, 127, 1
+        s[77], s[83], s[86], s[94], s[95] = 5, 65, 1, 127, 1
         self.synth.buttons[0], self.synth.buttons[15] = 1, 1
         self.synth.steps[(1, 1)] = (4, 0b0101)
         out, code = run(self.synth, "settings")
@@ -717,7 +717,7 @@ class Stock(unittest.TestCase):
 
 class ShortReplies(unittest.TestCase):
     CASES = [
-        (("settings",), b"\x54", 3),  # says 95 settings, holds one
+        (("settings",), b"\x54", 3),  # says 96 settings, holds one
         (("settings",), b"\x54", 1),  # not even the count
         (("params", "1"), b"\x53", 4),
         (("params", "1"), b"\x53", 2),
@@ -993,7 +993,8 @@ class Writes(unittest.TestCase):
             (("set", "cycle", "1", "amp,env4"), [0x7D, 15, 0, 9]),
             (("set", "cycle-sync", "2", "env4", "1/32"), [0x7D, 24, 0, 15]),
             (("set", "bend", "12"), [0x7D, 25, 0, 12]),
-            (("set", "detune", "50"), [0x7D, 26, 0, 50]),
+            (("set", "detune", "100"), [0x7D, 26, 0, 100]),
+            (("set", "unison-voices", "3"), [0x7D, 91, 0, 3]),
             (("set", "voice", "2", "legato", "high"), [0x7D, 28, 0, 10]),
             (("set", "drift", "99"), [0x7D, 29, 0, 99]),
             (("set", "scale", "chromatic"), [0x7D, 30, 0, 12]),

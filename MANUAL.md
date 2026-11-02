@@ -1,6 +1,6 @@
 # PRO-8000: user manual
 
-For PRO-8000 0.9.4, an alternative firmware for the Behringer PRO-800, flashed through the synth's own bootloader.
+For PRO-8000 0.9.5, an alternative firmware for the Behringer PRO-800, flashed through the synth's own bootloader.
 It's an independent project, not affiliated with Behringer or Music Tribe. It exists because Music Tribe, Behringer's
 parent company, published [PRO800-Firmware-Packer](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer):
 the main-board
@@ -128,10 +128,18 @@ CC 74 also feeds the `Timbre` mod source, for routes. In the `8CH` and `nPE` mod
 ### Voice modes, drift, scale, morph
 
 - **Voice mode** (per layer; Settings key 9 `UOIC`, or the web page): `POLY`, mono (`nono`: one voice, every new
-  note retriggers the envelopes) or legato (`LEG`: one voice, retriggers only after all keys are up). Note priority
-  (web page): last, low or high note; it also applies to unison, which plays the same line on all the layer's
-  voices. In the two-layer modes, a layer in mono or legato (without unison) takes one voice and the other layer
-  gets the other seven (from 0.8.3; otherwise four each).
+  note retriggers the envelopes) or legato (`LEG`: one voice, retriggers only after all keys are up). In mono, Env 3
+  and Env 4 start again from 0 on every new note, so a high sustain still sweeps (from 0.9.5; a route from them to the
+  VCA can step there). The amp and filter envelopes do that with an attack of 30 ms or more, after a short fade so
+  they don't click (see Envelopes). Note
+  priority (web page): last, low or high note; it also applies to unison when it plays one line. In the two-layer modes,
+  a layer in mono or legato (without unison) takes one voice and the other layer gets the other seven (from 0.8.3;
+  otherwise four each).
+- **Unison voices** (web page, per patch, 2-8, default 8; 0.9.5): how many voices each note takes with the Unison
+  button on. In poly, as many notes play as fit: 2 voices play 4 notes, 3 or 4 play 2, 5 to 8 play one line. With
+  3 voices, two voices stay silent. In mono or legato it's one line on that many voices. In the two-layer modes the
+  notes fit in the layer's own voices, so with four each, 2 voices play 2 notes per layer and 3 or more play one line.
+  Unison detune (Settings key 8 `dEtU`, Shift + M TUNE, or the web page's knob; 0-100 cents) spreads each note's voices.
 - **Drift** (Settings key 0 `drFt`, 0-99): each voice's pitch (up to 15 cents) and cutoff (up to a semitone) wander
   slowly at random, so stacked notes and unison breathe like an old poly.
 - **Scale** (web page: scale and root): the pitch of each voice, with its common pitch modulation (LFO → Freq, LFO
@@ -368,7 +376,15 @@ point (` 1.25`, ` 12.5`).
 
 Decay and release times are how long the fall takes to reach −60 dB, so a release showing 2 s is gone at 2 s.
 The attack has the concave shape of an analog envelope: it shoots up first and eases into the top. Decay and
-release fall exponentially. Sustain is a level, 0-99. The engine's pass takes about 1.2 ms with one voice sounding
+release fall exponentially. Sustain is a level, 0-99: once the decay's time is up, the level follows the knob and
+what's routed to it within about 20 ms, whatever the decay (0.9.5). Before that it's on its way there at the decay's rate.
+
+A note that retriggers a sounding envelope (a note in its release, a stolen voice, each new note in mono) has its whole
+attack: an attack of 30 ms or more first fades the level to 0 in up to 8 ms (0.9.5). A shorter attack rises from
+where the level is, as it's over before a fade could be heard as anything but a gap. In mono, Env 3 and Env 4 start
+again from 0 whatever their attack. Legato notes don't retrigger.
+
+The engine's pass takes about 1.2 ms with one voice sounding
 and about 2.4 ms with all eight (measured on the synth), and within it the VCAs get a new value four times and the
 cutoffs twice: with eight voices the VCAs move about every 0.6 ms and the cutoffs about every 1.2 ms, with one voice
 every 0.3 and 0.6 ms, so attacks below that sound like an instant attack. MIDI is read and the sequence advanced
@@ -683,7 +699,7 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 | LFO FREQ | The selected LFO's delay (`dLY`, 0-99: off, 20 ms to 5 s; synced, it shows the note value, `0`, `1-32` .. `8bAr`) |
 | LFO AMOUNT | The selected LFO's fade-in (`FAdE`, the same) |
 | GLIDE | Drift (`drFt`, 0-99) |
-| M TUNE | Unison detune (`dEtU`, 0-50 cents) |
+| M TUNE | Unison detune (`dEtU`, 0-100 cents) |
 | FINE | Pitch-bend range (`bEnd`, 1-12 semitones) |
 | CUTOFF | Macro 1's offset (`nAC1`, -99 to 99): a hand-set input to the macro, saved in the patch |
 | RESONANCE | Macro 2's offset (`nAC2`) |
@@ -748,7 +764,7 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 | 5 | `trAC`: keyboard tracking (also the switch) | `OFF`, `HALF`, `FULL` |
 | 6 | `En.A` / `En.F` / `En.3` / `En.4`: envelope mode (6 again: next one; Arp Up-Dn: its trigger `tr.A`, timing `tI.A`, curve `CU.A`, cycles `Cn.A`; ATT / DEC: delay / hold) | `AdSr`, `dAHd`, `CYCL`, `8bAr` … `1-32`; trigger `dn`, `UP`; timing `SEC`, `SYnC`; curve `AnLG`, `LIn`, `SUEL`; cycles `LOOP`, `1` … `99` |
 | 7 | `bEnd`: pitch bend range | 1-12 semitones (default 2) |
-| 8 | `dEtU`: unison detune, cents between the outermost voices | 0-50 (default 14) |
+| 8 | `dEtU`: unison detune, cents between the outermost voices | 0-100 (default 14) |
 | 9 | `UOIC`: the edit layer's voice mode | `POLY`, `nono`, `LEG` |
 | 0 | `drFt`: drift | 0-99 |
 
@@ -805,7 +821,7 @@ build/pro800 patch rename P7 Warm Pad
 build/pro800 factory import 12 P101
 build/pro800 set shape 1 2 drift
 build/pro800 route 1 env3 lfo-amount 30
-build/pro800 install build/pro800-0.9.4.syx --yes
+build/pro800 install build/pro800-0.9.5.syx --yes
 ```
 
 A forced factory import (`factory import <f> <slot> --force`) replaces the whole slot: the sequence that was there goes

@@ -40,7 +40,7 @@
 //                          9-12 LFO shapes (layer 1 LFO 1, LFO 2, layer 2 LFO 1, LFO 2), 13-14 LFO 2 routing per layer,
 //                          15-16 cycling envelopes per layer, 17-24 synced cycling per envelope: layer 1 amp,
 //                          filter, Env 3, Env 4, then layer 2; 0 free, else clock division + 1), 25 bend range
-//                          (1-12 semitones), 26 unison detune (0-50 cents), 27-28 voice modes per layer (mode 0 poly
+//                          (1-12 semitones), 26 unison detune (0-100 cents), 27-28 voice modes per layer (mode 0 poly
 //                          1 mono 2 legato | priority 0 last 1 low 2 high << 2), 29 drift (0-99), 30 scale (0 off,
 //                          synth.h SCALE_*), 31 root (0-11), 32-35 LFO 1 delay, LFO 1 fade, LFO 2 delay, LFO 2 fade
 //                          (0-99), 36-37 CC A / CC B source numbers (1-127, system-wide), 38-41 macro offsets
@@ -116,7 +116,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 201 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 203 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -476,7 +476,7 @@ static int setting_count(int page)
 {
     static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3,
                                            ENV_MODE_COUNT,
-                                           12, 51,            // bend 1-12 semitones, detune 0-50 cents
+                                           12, 101,           // bend 1-12 semitones, detune 0-100 cents
                                            3, 100};           // the edit layer's voice mode, drift 0-99
     if (page == PAGE_LFO_TRIGGER && alt_page)
         return 99; // 1-99 cycles
@@ -1024,7 +1024,7 @@ static void shift_turn(int pot, int delta)
 {
     static const struct { uint8_t pot; char name[5]; int16_t low, high; } table[] = {
         {POT_LFO_FREQ, "dLY", 0, 99},    {POT_LFO_AMOUNT, "FAdE", 0, 99}, {POT_GLIDE, "drFt", 0, 99},
-        {POT_MASTER_TUNE, "dEtU", 0, 50}, {POT_FINE, "bEnd", 1, 12},      {POT_CUTOFF, "nAC1", -99, 99},
+        {POT_MASTER_TUNE, "dEtU", 0, 100}, {POT_FINE, "bEnd", 1, 12},      {POT_CUTOFF, "nAC1", -99, 99},
         {POT_RESONANCE, "nAC2", -99, 99}, {POT_A_LEVEL, "CC.A", 1, 127},   {POT_B_LEVEL, "CC.b", 1, 127},
         {POT_NOISE, "CHnL", 0, 16},      {POT_PMOD_FIL_ENV, "P.UP", 0, 1}, {POT_MASTER_VOL, "VE.A", 0, 99},
         {POT_FIL_ENV_AMT, "VE.F", -99, 99},
@@ -1929,7 +1929,8 @@ typedef enum {
     SET_LFO_RESTART,                                     // a sequence's LFO restarts: 0 from its steps, 1 from the keys
     SET_ROUTE_BOTH, // 4 of them: layer 1's routes 0-7 and 8-15, then layer 2's: a bit per slot, plays on both layers
     SET_ROUTE_BOTH_END = SET_ROUTE_BOTH + 3,
-    SET_WRITABLE,                                        // read-only from here
+    SET_UNISON_VOICES,                                   // the voices a note takes in unison, 2-8
+    SET_WRITABLE,                                       // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
 _Static_assert(8 + 2 + 2 * SET_COUNT + 1 <= SYSEX_MAX, "the settings reply fits");
@@ -1959,6 +1960,7 @@ static int host_setting_get(int id)
     case SET_ROOT: return synth_scale() >> 4;
     case SET_LFO1_CYCLES: case SET_LFO2_CYCLES: return lfo_cycles[id == SET_LFO2_CYCLES];
     case SET_LFO_RESTART: return synth_lfo_restart_keys();
+    case SET_UNISON_VOICES: return synth_unison_voices();
     case SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END:
         return synth_route_both((id - SET_ROUTE_BOTH) / 2) >> 8 * ((id - SET_ROUTE_BOTH) % 2) & 0xFF;
     case SET_LFO1_DELAY: case SET_LFO2_DELAY: return lfo_delay[id == SET_LFO2_DELAY];
@@ -1994,7 +1996,7 @@ static int host_setting_set(int id, int value)
     static const uint16_t counts[SET_WRITABLE] = {
         LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, 2, 2,
         LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8, 16, 16,
-        [SET_CYCLE_SYNC ... SET_CYCLE_SYNC + 7] = LFO_DIVISIONS + 1, [SET_BEND] = 13, [SET_DETUNE] = 51,
+        [SET_CYCLE_SYNC ... SET_CYCLE_SYNC + 7] = LFO_DIVISIONS + 1, [SET_BEND] = 13, [SET_DETUNE] = 101,
         [SET_VOICE_L1] = 11, [SET_VOICE_L2] = 11, [SET_DRIFT] = 100, [SET_SCALE] = SCALE_COUNT, [SET_ROOT] = 12,
         [SET_LFO1_DELAY ... SET_LFO2_FADE] = 100, [SET_CC_A] = 128, [SET_CC_B] = 128,
         [SET_MACRO_L1_1 ... SET_MACRO_L2_2] = 199, [SET_CLOCK_SOURCE] = 3, [SET_BPM] = 301,
@@ -2004,9 +2006,9 @@ static int host_setting_set(int id, int value)
         [SET_MIDI_CHANNEL] = 17,
         [SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B] = OSC_TUNE_MODE_COUNT, [SET_PICKUP] = 2, [SET_LAYER_LINK] = LINK_ALL + 1,
         [SET_LFO1_CYCLES] = 100, [SET_LFO2_CYCLES] = 100, [SET_LFO_RESTART] = 2,
-        [SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END] = 256,
+        [SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END] = 256, [SET_UNISON_VOICES] = VOICE_COUNT + 1,
     };
-    if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id])
+    if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id] || (id == SET_UNISON_VOICES && value < 2))
         return 0;
     switch (id) {
     case SET_LFO1_SYNC: case SET_LFO2_SYNC: lfo_sync[id == SET_LFO2_SYNC] = (lfo_sync_t)value; break;
@@ -2029,6 +2031,7 @@ static int host_setting_set(int id, int value)
     case SET_SCALE: synth_set_scale(value | (synth_scale() & ~15)); break;
     case SET_ROOT: synth_set_scale((synth_scale() & 15) | value << 4); break;
     case SET_LFO_RESTART: synth_set_lfo_restart_keys(value); break;
+    case SET_UNISON_VOICES: synth_set_unison_voices(value); break;
     case SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END: {
         int layer = (id - SET_ROUTE_BOTH) / 2, shift = 8 * ((id - SET_ROUTE_BOTH) % 2);
         synth_set_route_both(layer, (synth_route_both(layer) & ~(0xFF << shift)) | value << shift);

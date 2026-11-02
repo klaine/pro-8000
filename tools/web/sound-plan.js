@@ -18,6 +18,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "lfoCycles1", "lfoCycles2", // a one shot's cycles, 1-99 (0 is taken as 1)
   "lfoRestart", // a sequence's LFO restarts: 0 from its steps, 1 from the keys
   "routeBoth1Lo", "routeBoth1Hi", "routeBoth2Lo", "routeBoth2Hi", // per layer, a bit per route slot: plays on both layers
+  "unisonVoices", // the voices a note takes in unison, 2-8
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -119,7 +120,7 @@ const JSON_SETTINGS = [
     [`env-tempo ${l}`, `envTempo${l}`, jBits(JN.envs)],
     ...[1, 2].map(m => [`macro ${l} ${m}`, `macro${l}${m}`, { dec: v => v - 99, enc: (x, k) => jInt(-99, 99).enc(x, k) + 99 }]),
   ]),
-  ["bend", "bend", jInt(1, 12)], ["detune", "detune", jInt(0, 50)], ["drift", "drift", jInt(0, 99)],
+  ["bend", "bend", jInt(1, 12)], ["detune", "detune", jInt(0, 100)], ["unison-voices", "unisonVoices", jInt(2, 8)], ["drift", "drift", jInt(0, 99)],
   ["scale", "scale", jOne(["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor",
     "pentatonic-major", "pentatonic-minor", "blues", "whole-tone", "chromatic"])],
   ["root", "root", jOne(["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"])],
