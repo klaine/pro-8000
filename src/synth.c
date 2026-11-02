@@ -248,6 +248,7 @@ static uint8_t switch_override[SWITCH_COUNT], switch_value[SWITCH_COUNT], switch
 static int keytrack_setting = 2;
 static route_t routes[LAYERS][ROUTES];
 static uint16_t route_both[LAYERS]; // bit r: routes[layer][r] plays on the other layer's voices too
+static uint16_t route_via[LAYERS][ROUTES]; // each route's Via (mod.h)
 // A route turned to 0 stays in its slot, playing nothing, until it has rested there for ROUTE_HOLD_MS (synth_route_poll()):
 // bit r says it's on its way out, and route_zero_at when it reached 0 (0: the poll hasn't timed it yet).
 static uint16_t route_waiting[LAYERS];
@@ -662,9 +663,65 @@ int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth)
     if (slot < 0)
         return 0;
     routes[layer][slot] = (route_t){(uint8_t)source, (uint8_t)dest, (int8_t)depth};
+    route_via[layer][slot] = 0;
     route_both[layer] &= (uint16_t)~(1u << slot);
     route_waiting[layer] &= (uint16_t)~(1u << slot);
     return 1;
+}
+
+static int via_allowed(unsigned via, unsigned dest)
+{
+    if (via <= VIA_NUMBER_MAX)
+        return 1;
+    unsigned s = via - VIA_SOURCE;
+    if (via < VIA_SOURCE || s == SRC_NONE || s >= SRC_COUNT || s == SRC_FIXED)
+        return 0;
+    return !((s == SRC_MACRO1 || s == SRC_MACRO2) && (dest == DEST_MACRO1 || dest == DEST_MACRO2));
+}
+
+int synth_move_route(int layer, mod_source_t source, mod_dest_t dest, mod_source_t to_source, mod_dest_t to_dest, int depth)
+{
+    if (to_source == SRC_NONE || to_source >= SRC_COUNT || to_dest >= DEST_COUNT || !depth)
+        return 0;
+    depth = depth < -99 ? -99 : depth > 99 ? 99 : depth;
+    int from = -1, to = -1;
+    for (int r = 0; r < ROUTES; r++) {
+        const route_t *x = &routes[layer][r];
+        if (from < 0 && x->source == source && x->dest == dest)
+            from = r;
+        if (to < 0 && x->source == to_source && x->dest == to_dest)
+            to = r;
+    }
+    if (from < 0 || to == from || to >= 0) { // nothing to move, or it lands on a route that's there: that one's depth
+        if (!synth_set_route(layer, to_source, to_dest, depth))
+            return 0;
+        if (from >= 0 && to != from) {
+            routes[layer][from] = (route_t){0};
+            route_via[layer][from] = 0;
+            route_both[layer] &= (uint16_t)~(1u << from);
+            route_waiting[layer] &= (uint16_t)~(1u << from);
+        }
+        return 1;
+    }
+    routes[layer][from] = (route_t){(uint8_t)to_source, (uint8_t)to_dest, (int8_t)depth};
+    route_waiting[layer] &= (uint16_t)~(1u << from);
+    if (!via_allowed(route_via[layer][from], to_dest))
+        route_via[layer][from] = 0;
+    return 1;
+}
+
+int synth_route_via(int layer, int slot) { return route_via[layer][slot]; }
+
+int synth_set_route_via(int layer, mod_source_t source, mod_dest_t dest, int via)
+{
+    if (via < 0 || !via_allowed((unsigned)via, dest))
+        return 0;
+    for (int r = 0; r < ROUTES; r++)
+        if (routes[layer][r].source == source && routes[layer][r].dest == dest && source != SRC_NONE) {
+            route_via[layer][r] = (uint16_t)(via == 100 ? 0 : via);
+            return 1;
+        }
+    return 0;
 }
 
 void synth_route_poll(uint32_t now)
@@ -678,6 +735,7 @@ void synth_route_poll(uint32_t now)
                 route_zero_at[l][r] = now | 1;
             else if ((int32_t)(now - route_zero_at[l][r]) >= ROUTE_HOLD_MS) {
                 routes[l][r] = (route_t){0};
+                route_via[l][r] = 0;
                 route_both[l] &= (uint16_t)~bit;
                 route_waiting[l] &= (uint16_t)~bit;
             }
@@ -820,6 +878,7 @@ void synth_apply_patch(const patch_t *patch)
             route_t x = patch->routes[l][r];
             x.depth = x.depth < -99 ? -99 : x.depth > 99 ? 99 : x.depth;
             routes[l][r] = x.source < SRC_COUNT && x.dest < DEST_COUNT ? x : (route_t){0};
+            route_via[l][r] = via_allowed(patch->route_via[l][r], routes[l][r].dest) ? patch->route_via[l][r] : 0;
         }
         route_waiting[l] = 0; // a depth 0 in a record (only a hand-made one has any) stays, playing nothing, until it's edited or saved away
         for (int w = 0; w < 2; w++)
@@ -912,6 +971,7 @@ void synth_capture_patch(patch_t *patch)
         patch->route_both[l] = route_both[l];
         for (int r = 0; r < ROUTES; r++) { // a route at 0 isn't part of the sound; each stays in its slot, so the Both bits hold
             patch->routes[l][r] = routes[l][r].depth ? routes[l][r] : (route_t){0};
+            patch->route_via[l][r] = routes[l][r].depth ? route_via[l][r] : 0;
             if (!routes[l][r].depth)
                 patch->route_both[l] &= (uint16_t)~(1u << r);
         }
@@ -1288,7 +1348,11 @@ void synth_copy_layer(int from, int to)
         if (per_layer[i])
             layer_param[to][i] = layer_param[from][i];
     for (int r = 0; r < ROUTES; r++) // a both-layers route already plays on `to`: a copy would count it twice; one at 0 is no route to copy
-        routes[to][r] = route_both[from] >> r & 1 || !routes[from][r].depth ? (route_t){0} : routes[from][r];
+    {
+        int copied = !(route_both[from] >> r & 1) && routes[from][r].depth;
+        routes[to][r] = copied ? routes[from][r] : (route_t){0};
+        route_via[to][r] = copied ? route_via[from][r] : 0;
+    }
     route_both[to] = 0;
     route_waiting[to] = 0;
     for (int w = 0; w < 2; w++) {
@@ -1898,12 +1962,17 @@ static int bipolar(int source)
 
 // The routes the fast ticks evaluate (synth_tick()): from the envelopes and LFOs into pitch, cutoff and the VCA.
 // The rest, slower sources and fast ones into depths, rates and the single wires, go once per pass.
-static int fast_route(const route_t *r)
+static int fast_source(int source)
 {
-    int source = r->source;
-    int fast_source = source == SRC_LFO || source == SRC_LFO2 || source == SRC_FILTER_ENV || source == SRC_AMP_ENV
-                   || source == SRC_ENV3 || source == SRC_ENV4 || source == SRC_LFO_UNI || source == SRC_LFO2_UNI;
-    return fast_source && (r->dest <= DEST_CUTOFF || r->dest == DEST_VCA);
+    return source == SRC_LFO || source == SRC_LFO2 || source == SRC_FILTER_ENV || source == SRC_AMP_ENV
+        || source == SRC_ENV3 || source == SRC_ENV4 || source == SRC_LFO_UNI || source == SRC_LFO2_UNI;
+}
+
+static int via_source(unsigned via) { return via >= VIA_SOURCE ? (int)(via - VIA_SOURCE) : SRC_NONE; }
+
+static int fast_route(const route_t *r, unsigned via) // a Via that moves fast is the route moving fast
+{
+    return (fast_source(r->source) || fast_source(via_source(via))) && (r->dest <= DEST_CUTOFF || r->dest == DEST_VCA);
 }
 
 // Adds the routes of `layer` evaluated for `voice` into mod[] (DEST_COUNT entries): the fast ones (fast_route()) or
@@ -1950,8 +2019,9 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
             if (owner != layer && !both)
                 continue;
             const route_t *x = &routes[owner][r];
-            if (x->source == SRC_NONE || x->dest >= DEST_COUNT || fast_route(x) != fast
-                || macro_source(x->source) != phase
+            unsigned via = route_via[owner][r];
+            if (x->source == SRC_NONE || x->dest >= DEST_COUNT || fast_route(x, via) != fast
+                || (!fast && (macro_source(x->source) || macro_source(via_source(via))) != phase)
                 || (both && !one_layer() && summed_wire(x->dest) && layer != newest_layer()))
                 continue;
             float value = source_value(&voices[voice], voice, layer, x->source);
@@ -1965,6 +2035,8 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
             }
             if (x->dest <= DEST_PITCH) // pitch: a squared depth curve, fine near zero for vibrato
                 depth *= depth < 0 ? -depth : depth;
+            if (via) // after the depth's curve, so it scales the result in a straight line
+                depth *= via_source(via) ? source_value(&voices[voice], voice, layer, via_source(via)) : (float)via / 100.0f;
             mod[x->dest] += value * depth;
         }
     }
@@ -1978,6 +2050,9 @@ typedef struct {
 static layer_params_t lp[LAYERS]; // from the last synth_update()
 static float last_mod[LAYERS][DEST_COUNT]; // the layer-level routes (from its most recent voice), per pass
 static void voice_slow(int v, float dt);
+
+// What multiplies by 2^(4 x mod), rates and times: routes and Vias add up, and past 2^8 either way it's no use to anyone
+static float exp_mod(float m) { return m < -2.0f ? -2.0f : m > 2.0f ? 2.0f : m; }
 
 // From the last synth_update(), for the ticks: each envelope's rates, and each LFO's rate knob and rate modulation
 static env_rates_t rates[LAYERS][4]; // amp, filter, Env 3, Env 4
@@ -2150,8 +2225,8 @@ void synth_update(float dt)
         // LFOs (lfo.c, advanced in the ticks): rate or clock division from the rate knobs
         lfo_knob[l][0] = p[POT_LFO_FREQ];
         lfo_knob[l][1] = p[PARAM_LFO2_RATE];
-        lfo_octaves[l][0] = last_mod[l][DEST_LFO_RATE] * MOD_LFO_OCTAVES;
-        lfo_octaves[l][1] = last_mod[l][DEST_LFO2_RATE] * MOD_LFO_OCTAVES;
+        lfo_octaves[l][0] = exp_mod(last_mod[l][DEST_LFO_RATE]) * MOD_LFO_OCTAVES;
+        lfo_octaves[l][1] = exp_mod(last_mod[l][DEST_LFO2_RATE]) * MOD_LFO_OCTAVES;
         fast_routes[l] = uses_env34[l] = 0;
         for (int n = 0; n < 2 * ROUTES; n++) { // as evaluate_routes()
             int owner = n < ROUTES ? l : 1 - l, r = n % ROUTES;
@@ -2160,8 +2235,9 @@ void synth_update(float dt)
             const route_t *x = &routes[owner][r];
             if (x->source == SRC_NONE || x->dest >= DEST_COUNT)
                 continue;
-            fast_routes[l] |= fast_route(x);
-            uses_env34[l] |= x->source == SRC_ENV3 || x->source == SRC_ENV4;
+            unsigned via = (unsigned)via_source(route_via[owner][r]);
+            fast_routes[l] |= fast_route(x, route_via[owner][r]);
+            uses_env34[l] |= x->source == SRC_ENV3 || x->source == SRC_ENV4 || via == SRC_ENV3 || via == SRC_ENV4;
         }
         float glide = synth_knob_glide_s(p[POT_GLIDE]); // time constant, s
         lp[l] = (layer_params_t){
@@ -2247,8 +2323,8 @@ static void voice_slow(int v, float dt)
         // the terms the ticks build on (voice_cvs()); the fast routes they evaluate themselves
         float mod[DEST_COUNT] = {0};
         evaluate_routes(l, v, mod, 0);
-        x->lfo_octaves[0] = mod[DEST_LFO_RATE] * MOD_LFO_OCTAVES;
-        x->lfo_octaves[1] = mod[DEST_LFO2_RATE] * MOD_LFO_OCTAVES;
+        x->lfo_octaves[0] = exp_mod(mod[DEST_LFO_RATE]) * MOD_LFO_OCTAVES;
+        x->lfo_octaves[1] = exp_mod(mod[DEST_LFO2_RATE]) * MOD_LFO_OCTAVES;
 
         int first, end;
         layer_voices(l, &first, &end);
@@ -2257,14 +2333,14 @@ static void voice_slow(int v, float dt)
         float spread = unison && n > 1 ? ((float)((v - first) % n) / (float)(n - 1) - 0.5f) * cents / 100.0f : 0;
         // glide and the envelope stages with their routes (times scale by 2^(4 × mod): 16× at full depth)
         x->glide_k = mod[DEST_GLIDE] != 0 && q->glide_s > 0
-                   ? 1.0f - fast_exp2(-dt / (q->glide_s * fast_exp2(4.0f * mod[DEST_GLIDE])) * 1.4427f) : q->glide_k;
+                   ? 1.0f - fast_exp2(-dt / (q->glide_s * fast_exp2(4.0f * exp_mod(mod[DEST_GLIDE]))) * 1.4427f) : q->glide_k;
         x->env_modded = 0;
         for (int e = 0; e < 4; e++) {
             const float *m = &mod[DEST_AMP_ATT + 4 * e]; // attack, decay, sustain, release
             x->env_modded |= m[0] != 0 || m[1] != 0 || m[2] != 0 || m[3] != 0;
-            x->env_rate_mul[e][0] = m[0] ? fast_exp2(-4.0f * m[0]) : 1.0f;
-            x->env_rate_mul[e][1] = m[1] ? fast_exp2(-4.0f * m[1]) : 1.0f;
-            x->env_rate_mul[e][2] = m[3] ? fast_exp2(-4.0f * m[3]) : 1.0f;
+            x->env_rate_mul[e][0] = m[0] ? fast_exp2(-4.0f * exp_mod(m[0])) : 1.0f;
+            x->env_rate_mul[e][1] = m[1] ? fast_exp2(-4.0f * exp_mod(m[1])) : 1.0f;
+            x->env_rate_mul[e][2] = m[3] ? fast_exp2(-4.0f * exp_mod(m[3])) : 1.0f;
             x->env_sus_add[e] = m[2];
         }
         float depth = clamp01(q->depth + mod[DEST_LFO_AMOUNT]);

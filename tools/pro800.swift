@@ -79,6 +79,8 @@ Probe (our firmware 0.0.9+):
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
   pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99; 5 s at 0 removes it); pro800 routes lists them
   pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
+  pro800 route-move <layer> <src> <dest> <new src> <new dest> <depth>  a route becomes another at once, in its slot (0.9.5)
+  pro800 route-via <layer> <src> <dest> <number 0.01-8|source>  what the route is multiplied by (0.9.5; 1 is plain)
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
                                         replies on stdout as hex; over one MIDI connection
@@ -1652,6 +1654,45 @@ func route() {
     print("layer \(layer): \(args[1]) → \(args[2]) = \(depth)")
 }
 
+// pro800 route-move <layer 1|2> <source> <dest> <new source> <new dest> <depth>: at once, in its slot with its Both mark
+func routeMove() {
+    guard args.count == 6, let layer = Int(args[0]), layer == 1 || layer == 2,
+          let src = sourceNames.firstIndex(of: args[1]), src > 0, let dest = destNames.firstIndex(of: args[2]),
+          let src2 = sourceNames.firstIndex(of: args[3]), src2 > 0, let dest2 = destNames.firstIndex(of: args[4]),
+          let depth = Int(args[5]), (-99...99).contains(depth), depth != 0 else {
+        fail("usage: pro800 route-move <layer 1|2> <source> <destination> <new source> <new destination> <depth -99..99, not 0>")
+    }
+    let d = depth + 99
+    probeAck(Midi(port: portName), [0x61, UInt8(layer - 1), UInt8(src), UInt8(dest), UInt8(src2), UInt8(dest2), UInt8(d >> 7), UInt8(d & 0x7F)])
+    print("layer \(layer): \(args[1]) → \(args[2]) is now \(args[3]) → \(args[4]) = \(depth)")
+}
+
+// A Via as 62 takes it and 63 gives it (src/mod.h): a number 0.01-8 in hundredths, or 1000 + a source; nil if it's neither
+func viaFromText(_ text: String) -> Int? {
+    if let s = sourceNames.firstIndex(of: text), s > 0, text != "fixed" { return 1000 + s }
+    guard let x = Double(text) else { return nil }
+    let hundredths = Int((x * 100).rounded())
+    return (1...800).contains(hundredths) ? hundredths : nil
+}
+
+func viaText(_ via: Int) -> String {
+    if via >= 1000 { return via - 1000 < sourceNames.count ? sourceNames[via - 1000] : String(via) }
+    return String(format: "%g", Double(via == 0 ? 100 : via) / 100)
+}
+
+// pro800 route-via <layer 1|2> <source> <dest> <number|source>: source x depth x via
+func routeVia() {
+    guard args.count == 4, let layer = Int(args[0]), layer == 1 || layer == 2,
+          let src = sourceNames.firstIndex(of: args[1]), src > 0, let dest = destNames.firstIndex(of: args[2]),
+          let via = viaFromText(args[3]) else {
+        fail("usage: pro800 route-via <layer 1|2> <source> <destination> <number 0.01-8|source>")
+    }
+    guard acked(Midi(port: portName), [0x62, UInt8(layer - 1), UInt8(src), UInt8(dest), UInt8(via >> 7), UInt8(via & 0x7F)]) else {
+        fail("not set: no such route, a macro on a route into a macro, or firmware before 0.9.5")
+    }
+    print("layer \(layer): \(args[1]) → \(args[2]) via \(viaText(via))")
+}
+
 // pro800 route-both <layer 1|2> <source> <dest> on|off: the route plays on the other layer too (settings 87-90: a bit per slot)
 func routeBoth() {
     guard args.count == 4, let layer = Int(args[0]), layer == 1 || layer == 2,
@@ -1685,15 +1726,20 @@ func routeBothMasks(_ midi: Midi) -> [Int]? {
 func routes() {
     let midi = Midi(port: portName)
     let both = routeBothMasks(midi) ?? [0, 0]
+    var noVia = false
     for layer in 0..<2 {
         guard let reply = midi.request([0x57, UInt8(layer)], expect: [0x57, UInt8(layer)], timeout: 2) else {
             fail("no reply (firmware 0.5.0 or later?)")
         }
         let b = replyData(reply, 2)
         var lines = [String]()
+        let viaReply = noVia ? nil : midi.request([0x63, UInt8(layer)], expect: [0x63, UInt8(layer)], timeout: 0.5)
+        noVia = viaReply == nil // firmware before 0.9.5: once is enough
+        let vias = viaReply.map { replyData($0, 2) } ?? []
         for i in stride(from: 0, to: b.count - 3, by: 4) where b[i] != 0 && Int(b[i]) < sourceNames.count && Int(b[i + 1]) < destNames.count {
             let depth = (Int(b[i + 2]) << 7 | Int(b[i + 3])) - 99
             lines.append("  \(sourceNames[Int(b[i])]) → \(destNames[Int(b[i + 1])]): \(depth)"
+                         + (vias.count > i / 2 + 1 && (Int(vias[i / 2]) << 7 | Int(vias[i / 2 + 1])) != 0 ? " via \(viaText(Int(vias[i / 2]) << 7 | Int(vias[i / 2 + 1])))" : "")
                          + (both[layer] >> (i / 4) & 1 != 0 ? " (both layers)" : "")
                          + (depth != 0 ? "" : " (plays nothing; 5 s at 0 removes it)"))
         }
@@ -2157,6 +2203,8 @@ case "eeprom": eeprom()
 case "route": route()
 case "routes": routes()
 case "route-both": routeBoth()
+case "route-move": routeMove()
+case "route-via": routeVia()
 case "timing": timing()
 case "engine": engine()
 case "sysex": sysexPipe()

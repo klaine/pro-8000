@@ -131,6 +131,15 @@ const JSON_SETTINGS = [
 // lists, so they go first, on both layers. A firmware whose init sound hasn't got them acknowledges the removals all the same.
 const INIT_ROUTES = [["velocity", "vca"], ["velocity", "cutoff"]];
 
+// A route's Via in the preset format, after "via:": a number 0.01-8, or a source but fixed. As 62 takes it, or null.
+function viaFromText(text) {
+  const s = JN.sources.indexOf(text) + 1;
+  if (s) return text === "fixed" ? null : 1000 + s;
+  const x = text === "" ? NaN : Math.round(+text * 100);
+  return x >= 1 && x <= 800 ? x : null;
+}
+const viaToText = via => via >= 1000 ? JN.sources[via - 1001] : String(via / 100);
+
 // A preset-format object as the SysEx messages that build it, after the init sound without its routes, checked first;
 // `has` tells whether the firmware has a setting. Returns { messages, warnings, both }: send the messages, then markBothRoutes().
 function planSound(j, has) {
@@ -175,14 +184,24 @@ function planSound(j, has) {
     if (layer !== "1" && layer !== "2") bad(`routes: layer "1" or "2", not ${JSON.stringify(layer)}`);
     if (!Array.isArray(list) || list.length > 16) bad(`routes ${layer}: a list of up to 16`);
     for (const r of list) {
-      if (!Array.isArray(r) || !(r.length === 3 || (r.length === 4 && r[3] === "both"))) bad(`route: [source, destination, depth] or [source, destination, depth, "both"], not ${JSON.stringify(r)}`);
+      const marks = Array.isArray(r) ? r.slice(3) : [];
+      if (!Array.isArray(r) || r.length < 3 || marks.filter(m => m === "both").length > 1 || marks.filter(m => m !== "both").length > 1 || marks.some(m => m !== "both" && !String(m).startsWith("via:")))
+        bad(`route: [source, destination, depth], then "both" and "via:..." if it has them, not ${JSON.stringify(r)}`);
       const s = JN.sources.indexOf(r[0]) + 1, d = JN.dests.indexOf(r[1]);
       if (!s) bad(`route source: ${JSON.stringify(r[0])}`);
       if (d < 0) bad(`route destination: ${JSON.stringify(r[1])}`);
       const depth = jInt(-99, 99).enc(r[2], `depth of ${r[0]} → ${r[1]}`) + 99;
       messages.push([0x56, layer - 1, s, d, depth >> 7, depth & 0x7F]);
+      const via = marks.find(m => m !== "both");
+      if (via && r[2]) { // a listed depth 0 lands nowhere
+        const v = viaFromText(via.slice(4));
+        if (v === null) bad(`route via: a number 0.01-8 or a source but fixed, not ${JSON.stringify(via)}`);
+        if (v >= 1000 && v - 1000 >= 26 && r[1].startsWith("macro")) bad(`route ${r[0]} → ${r[1]}: a macro can't be the Via of a route into a macro`);
+        if (has("unisonVoices")) messages.push([0x62, layer - 1, s, d, v >> 7, v & 0x7F]);
+        else warnings.push(`routes ${layer}: "via": this firmware hasn't got it`);
+      }
     }
-    const marked = list.filter(r => r.length === 4 && r[2]); // a listed depth 0 lands nowhere
+    const marked = list.filter(r => r.includes("both") && r[2]); // a listed depth 0 lands nowhere
     if (marked.length && !has(`routeBoth${layer}Lo`)) warnings.push(`routes ${layer}: "both": this firmware hasn't got it`);
     else if (marked.length) both.push([layer - 1, marked.map(r => [JN.sources.indexOf(r[0]) + 1, JN.dests.indexOf(r[1])])]);
   }

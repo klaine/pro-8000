@@ -88,6 +88,11 @@
 //   60                     undo the last load or init, again redoes (as Shift + PERF, 0.9.5); replies
 //                          60 <1, 0 with nothing to undo> <the name of the sound now playing>
 //   56 <layer> <source> <dest> <d1> <d0>  set a route's depth (d1 << 7 | d0) - 99, 0 removes it; acknowledged
+//   61 <layer> <source> <dest> <new source> <new dest> <d1> <d0>  that route becomes another at once, in its slot with
+//                          its Both mark, depth (d1 << 7 | d0) - 99, not 0 (0.9.5); acknowledged
+//   62 <layer> <source> <dest> <v1> <v0>  set that route's Via, v1 << 7 | v0 (mod.h: 1-800 a number in hundredths, 1000 +
+//                          a source; 0.9.5); acknowledged, or nothing if it can't be
+//   63 <layer>             the layer's Vias; replies 63 <layer> then per route slot <v1> <v0> (0.9.5)
 //   58                     timing; replies 58 <engine, refresh, pass, longest pass, panel poll, display, passes/s, ticks: µs,
 //                          passes in the last second: 3 × 7 bits each>
 //   57 <layer>             the layer's routes; replies 57 <layer> then per route <source> <dest> <d1> <d0>
@@ -1254,7 +1259,8 @@ static int env_knob(int pot, int *env, int *stage)
     };
     if (!stages[pot])
         return 0;
-    *env = pot <= POT_AMP_ATT ? 0 : synth_env_select() + 1; // POT_AMP_REL..POT_AMP_ATT come first
+    int select = synth_env_select(), amp = pot <= POT_AMP_ATT; // POT_AMP_REL..POT_AMP_ATT come first
+    *env = select == 3 ? (amp ? 3 : 2) : amp ? 0 : select + 1;  // Shift (3): the filter knobs edit Env 3, the amp knobs Env 4
     *stage = stages[pot] - 1;
     return 1;
 }
@@ -2465,6 +2471,28 @@ static void handle_sysex(const uint8_t *message, int length)
         if (synth_set_route(data[1], (mod_source_t)data[2], (mod_dest_t)data[3], depth)) {
             reply[n++] = 0x7F;
             reply[n++] = 0x56;
+        }
+    }
+    if (data_length == 8 && data[0] == 0x61 && data[1] < 2) {
+        int depth = (data[6] << 7 | data[7]) - 99;
+        if (synth_move_route(data[1], (mod_source_t)data[2], (mod_dest_t)data[3], (mod_source_t)data[4], (mod_dest_t)data[5], depth)) {
+            reply[n++] = 0x7F;
+            reply[n++] = 0x61;
+        }
+    }
+    if (data_length == 6 && data[0] == 0x62 && data[1] < 2) {
+        if (synth_set_route_via(data[1], (mod_source_t)data[2], (mod_dest_t)data[3], data[4] << 7 | data[5])) {
+            reply[n++] = 0x7F;
+            reply[n++] = 0x62;
+        }
+    }
+    if (data_length == 2 && data[0] == 0x63 && data[1] < 2) {
+        reply[n++] = 0x63;
+        reply[n++] = data[1];
+        for (int r = 0; r < ROUTES; r++) {
+            int via = synth_route_via(data[1], r);
+            reply[n++] = (uint8_t)(via >> 7);
+            reply[n++] = (uint8_t)(via & 0x7F);
         }
     }
     if (data_length == 2 && data[0] == 0x57 && data[1] < 2) {

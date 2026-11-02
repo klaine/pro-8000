@@ -211,6 +211,13 @@ int synth_route(int layer, mod_source_t source, mod_dest_t dest);
 // it back, and a new route that finds no empty slot takes its. Returns 0 only when a new route finds neither.
 #define ROUTE_HOLD_MS 5000
 int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth);
+// A route's Via (mod.h). Setting it returns 0 if there's no such route, it's no Via, or it's a macro on a route into a macro,
+// which would depend on its own result. A new route starts at a number of 1.
+int synth_route_via(int layer, int slot);
+int synth_set_route_via(int layer, mod_source_t source, mod_dest_t dest, int via);
+// A route becomes another at once, in its slot with its Both mark, with no hold at 0. Onto a route that's there, that one
+// takes the depth and this one goes. Returns 0 for a depth of 0 or what's no route.
+int synth_move_route(int layer, mod_source_t source, mod_dest_t dest, mod_source_t to_source, mod_dest_t to_dest, int depth);
 void synth_route_poll(uint32_t now);
 const route_t *synth_routes(int layer); // ROUTES entries; source SRC_NONE = unused
 // Bit r: route r of this layer plays on the other layer's voices too, in the two-layer modes (0.9.3)

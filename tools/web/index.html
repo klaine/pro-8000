@@ -274,6 +274,13 @@
   .sec > h2 { position: absolute; top: 0; left: 12px; transform: translateY(-50%); margin: 0; padding: 0 8px;
               background: linear-gradient(var(--bg) 50%, var(--well) 50%); color: var(--text); }
   .sec > h2::before { display: none; }
+  /* A section that folds away: its title is the button, and with it folded only the frame and the title stay */
+  .sec-toggle { border: 0; background: none; padding: 0; border-radius: 0; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+  .sec-toggle:hover { color: var(--accent); }
+  .sec-toggle i { display: inline-block; font-style: normal; margin-right: 6px; transition: transform .12s; }
+  .sec.collapsed .sec-toggle i { transform: rotate(-90deg); }
+  .sec.collapsed { padding: 10px 14px; }
+  .sec.collapsed > :not(h2) { display: none !important; }
   .sec .row { justify-content: space-between; }
   .sec-tools { display: flex; gap: 6px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
   .sec-tools select { flex: 1; }
@@ -410,11 +417,27 @@
   .stat { display: inline-block; background: var(--panel); border: 1px solid #0c0c0d; border-radius: 8px; padding: 8px 12px; margin: 0 8px 8px 0; min-width: 120px; }
   .stat b { display: block; font-size: 18px; }
   .stat span { color: var(--dim); font-size: 12px; }
+  /* The columns are set, so what the Range cells say can't move a slider under the mouse. The Depth column gets the rest:
+     at least 2 px a step, so one step can be picked without zooming. */
+  table.routes-table { table-layout: fixed; min-width: 1330px; }
+  .routes-table col:nth-child(1) { width: 150px; }
+  .routes-table col:nth-child(2) { width: 175px; }
+  .routes-table col:nth-child(3) { width: 195px; }
+  .routes-table col:nth-child(5) { width: 200px; }
+  /* A hidden cell takes no column, so with Layers hidden the buttons are in the sixth and the seventh (the footer's colspan) stays empty */
+  .routes-table col:nth-child(6) { width: 96px; }
+  .routes-table col:nth-child(7) { width: 0; }
+  .routes-table:has(th.both-cell:not([hidden])) col:nth-child(6) { width: 64px; }
+  .routes-table:has(th.both-cell:not([hidden])) col:nth-child(7) { width: 96px; }
+  .routes-table select { width: 100%; min-width: 0; }
+  .dest-cell, .via-cell { display: flex; gap: 4px; align-items: center; }
+  .dest-cell select, .via-cell select { flex: 1; width: auto; }
+  .via-cell input[type=number] { width: 62px; flex: none; }
   .depth-cell { display: flex; gap: 6px; align-items: center; }
-  .depth-cell input[type=range] { width: 140px; accent-color: var(--accent); }
+  .depth-cell input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
   .depth-cell output { font: 12px var(--mono); width: 30px; text-align: right; }
-  td.range { font-size: 12px; white-space: nowrap; line-height: 1.25; }
-  td.range small { display: block; color: var(--dim); font-size: 11px; }
+  td.range { font-size: 12px; white-space: nowrap; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; }
+  td.range small { display: block; min-height: 1.25em; color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
   tr.new-head td { border-top: 2px dashed var(--edge); color: var(--dim); font-size: 12px; padding-top: 10px; border-bottom: 0; }
   tr.new-head td, tr.new-route td { background: var(--bg); }
   @media (max-width: 600px) { td.actions { white-space: normal; } }
@@ -621,7 +644,7 @@
 
     <section class="cs cs-wide">
       <h3>On the web page only</h3>
-      <p class="small">A Velocity knob in the faceplate's filter and amp sections, each the edit layer's route to the cutoff or the VCA, as the mod matrix lists it. The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key)<span data-needs="lfoRestart">, and whether its steps or your keys restart the LFOs</span> ·<span data-needs="routeBoth"> a mod route on both layers (Both, in the two-layer modes) ·</span><span data-needs="unisonVoices"> Unison voices, 2-8 per note (2 plays 4 notes, 3 or 4 play 2, 5 to 8 one line) ·</span>
+      <p class="small">A Velocity knob in the faceplate's filter and amp sections, each the edit layer's route to the cutoff or the VCA, as the mod matrix lists it. The step sequencer, its piano roll, lanes and chords, arpeggio, probability and ratchets (the panel only plays it, from a key)<span data-needs="lfoRestart">, and whether its steps or your keys restart the LFOs</span> ·<span data-needs="routeBoth"> a mod route on both layers (Both, in the two-layer modes) ·</span><span data-needs="unisonVoices"> a mod route's Via, a number or another source that multiplies it ·</span><span data-needs="unisonVoices"> Unison voices, 2-8 per note (2 plays 4 notes, 3 or 4 play 2, 5 to 8 one line) ·</span>
         LFO step patterns · scale and root · morph target and source · note priority · Mutate · mod routes from Seq A-D
         and to Morph · patch names, export, the factory bank · copying an LFO or envelope from the other layer.</p>
     </section>
@@ -634,13 +657,16 @@
     <div class="row macros" id="macros"></div>
     <div class="row"><span class="dim small">the layer you're editing</span>
       <button id="matrix-refresh">Refresh</button><span class="msg" id="matrix-msg"></span></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Source</th><th>Destination</th><th>Depth</th><th>Range</th><th class="both-cell">Layers</th><th></th></tr></thead>
+    <div class="table-wrap"><table class="routes-table">
+      <colgroup><col><col><col><col><col><col><col></colgroup>
+      <thead><tr><th>Source</th><th title="what the route is multiplied by: source × via × depth. A number, or another source">Via</th><th>Destination</th><th>Depth</th><th>Range</th><th class="both-cell">Layers</th><th></th></tr></thead>
       <tbody id="routes"></tbody>
-      <tfoot><tr class="new-head"><td colspan="6">New route: pick a source, a destination and a depth, then
+      <tfoot><tr class="new-head"><td colspan="7">New route: pick a source, a destination and a depth, then
         Add route. It does nothing until it's added.</td></tr>
-        <tr class="new-route"><td><select id="new-source"></select></td><td><select id="new-dest"></select></td>
-        <td><div class="depth-cell"><input type="range" id="new-depth" min="-99" max="99" value="50"><output id="new-depth-out">50</output></div></td>
+        <tr class="new-route"><td><select id="new-source"></select></td>
+        <td><div class="via-cell"><select id="new-via"></select><input id="new-via-number" type="number" min="0.01" max="8" step="0.01" value="1" aria-label="Via number"></div></td>
+        <td><select id="new-dest"></select></td>
+        <td><div class="depth-cell"><input class="dp" type="range" id="new-depth" min="-99" max="99" value="50" title="with the slider clicked, the arrow keys move it one step"><output id="new-depth-out">50</output></div></td>
         <td class="range" id="new-range"></td>
         <td class="both-cell"></td>
         <td class="actions"><button class="primary" id="add-route">Add route</button></td></tr></tfoot>
@@ -1403,6 +1429,21 @@ function cycleShares(bit) {
   return w.map(x => sum < 0.001 ? .25 : x / sum); // attack, hold, fall, rest
 }
 function cycleShare(bit, stage) { return cycleShares(bit)[[0, 2, 1, 3][stage]]; }
+// A synced cycle's knobs are weights, so as a weight a knob can go nowhere: the only one above 0 is 100 % wherever it stands,
+// and one at its top can't take more. Here a knob sets its share of the cycle, and the others make room in proportion. What's
+// stored stays weights, so nothing sounds different. With the others all at 0 (it was at 100 %), what they had before comes
+// back, or else the rest takes it: the cycle has to go somewhere.
+const cycleMix = new Map();
+function setCycleShare(bit, stage, share) {
+  const [, , a, d, s, r] = envOf(bit), knobs = [a, s, d, r], me = [0, 2, 1, 3][stage], key = `${paramsLayer}:${settings && settings.patch}:${bit}`;
+  share = Math.min(1, Math.max(0, share));
+  const now = cycleShares(bit), others = knobs.map((_, k) => k === me ? 0 : now[k]), sum = others.reduce((x, y) => x + y, 0);
+  if (sum > 0.001) cycleMix.set(key, others.map(x => x / sum));
+  const mix = cycleMix.get(key)?.some((x, k) => x > 0 && k !== me) ? cycleMix.get(key) : knobs.map((_, k) => k === (me === 3 ? 2 : 3) ? 1 : 0);
+  const shares = knobs.map((_, k) => k === me ? share : (1 - share) * mix[k]), top = Math.max(...shares);
+  knobs.forEach((knob, k) => { if (k !== me) setParam(knob, shares[k] / top); });
+  setParam(knobs[me], shares[me] / top); // last: the screen says this one
+}
 // the firmware's curve (synth.c knob_time): an exponential offset to start at the minimum
 const knobTime = (k, min, max) => min + (max - min) * (2 ** (k * 12) - 1) / 4095;
 function envTime(stage, k, cyc) {
@@ -1447,7 +1488,7 @@ const STEPS_SHAPE = 7;
 // LFO depth bars: mod-matrix routes from LFO 1 / LFO 2 (sources 1 / 11) to these destinations
 const LFO_SOURCE = [1, 11];
 const LFO_TARGETS = [["VCA", [9]], ["Cutoff", [3]], ["Pitch A", [0]], ["Pitch B", [1]], ["PWM", [14, 15]]];
-let layerRoutes = null; // the edit layer's routes: [{layer, slot, source, dest, depth, both}]
+let layerRoutes = null; // the edit layer's routes: [{layer, slot, source, dest, depth, both, via}]
 let routesLayer = null; // the layer layerRoutes was read from (paramsLayer moves first, on a change of layer)
 let otherRoutes = [];   // the other layer's routes that play on this one too (same form)
 const ROUTES = 16;      // per layer, src/mod.h
@@ -1472,28 +1513,32 @@ const DEST_SCALE = { 0: 24 / 72, 1: 24 / 72, 2: 24 / 72, 3: 96 / 120, 4: 0.5, 5:
 const BIPOLAR_SOURCES = new Set([1, 11, 9, 10, 12, 13, 14, 15, 20, 26, 27]);
 const SQUARED_DESTS = new Set([0, 1, 2]);
 const FIXED_SOURCE = 25;
+// A route's Via (src/mod.h): 0 a number of 1, up to 800 a number in hundredths, VIA_SOURCE + a source
+const VIA_SOURCE = 1000;
+const viaName = via => via >= VIA_SOURCE ? SOURCES[via - VIA_SOURCE] : "×" + (via || 100) / 100;
 const routeOf = (source, dest) => [...layerRoutes, ...otherRoutes].find(x => x.source === source && x.dest === dest);
 // The knob's whole range (lo, hi), each source's share of it (parts, in route order) and the routes as text
 function modRange(knob) {
   const r = { lo: 0, hi: 0, who: [], parts: [] };
   if (!layerRoutes) return r;
   const bySource = new Map();
-  for (const { source, dest, depth } of [...layerRoutes, ...otherRoutes]) {
+  for (const { source, dest, depth, via = 0 } of [...layerRoutes, ...otherRoutes]) {
     const knobs = DEST_KNOBS[dest];
     if (!knobs || !knobs.includes(knob) || !depth) continue;
     const scale = DEST_SCALE[dest] ?? (dest >= 25 && dest <= 40 ? 4 / 12 : 0);
+    const viaSource = via >= VIA_SOURCE ? via - VIA_SOURCE : 0;
     let d = Math.abs(depth) / 99;
     if (SQUARED_DESTS.has(dest)) d *= d;
-    const span = d * scale;
+    const span = d * scale * (via && !viaSource ? via / 100 : 1); // a source as Via: as far as it can reach
     // into the VCA or the volume a 0..1 source counts down from full, and FIX turns it down by its depth
     const down = (dest === 9 || dest === 43) && !BIPOLAR_SOURCES.has(source);
     let p = bySource.get(source);
     if (!p) bySource.set(source, p = { lo: 0, hi: 0, who: [] });
-    if (BIPOLAR_SOURCES.has(source)) { p.lo += span; p.hi += span; }
+    if (BIPOLAR_SOURCES.has(source) || BIPOLAR_SOURCES.has(viaSource)) { p.lo += span; p.hi += span; }
     else if (down && depth < 0 && source !== FIXED_SOURCE) { /* no reach of its own: routeSwing() */ }
     else if (down || depth < 0) p.lo += span; else p.hi += span;
-    const sw = routeSwing(source, dest, depth);
-    p.who.push(`${SOURCES[source] || "source " + source} ${depth > 0 ? "+" : ""}${depth} → ${DESTS[dest]}${sw ? ` (${sw.text})` : ""}`);
+    const sw = routeSwing(source, dest, depth, via);
+    p.who.push(`${SOURCES[source] || "source " + source}${via ? ` via ${viaName(via)}` : ""} ${depth > 0 ? "+" : ""}${depth} → ${DESTS[dest]}${sw ? ` (${sw.text})` : ""}`);
   }
   for (const p of bySource.values()) { r.lo += p.lo; r.hi += p.hi; r.parts.push(p); r.who.push(...p.who); }
   return r;
@@ -1523,19 +1568,23 @@ function swingUnit(dest) {
 // a 0-to-1 source one way (the depth's sign), FIX a fixed offset; into the VCA or the volume a 0-to-1 source counts
 // down from full (FIX: down by the depth); at a negative depth it counts up, and the gain is already full, so it has no
 // reach of its own (it only takes back some of another route's drop). Pitch depths are squared; times and rates are multiplied.
-function routeSwing(source, dest, depth) {
+function routeSwing(source, dest, depth, via = 0) {
   if (!depth || dest >= DESTS.length) return null;
   if ((dest === 9 || dest === 43) && depth < 0 && !BIPOLAR_SOURCES.has(source) && source !== FIXED_SOURCE) return { lo: 0, hi: 0, text: "none on its own" };
   const [full, fmt] = swingUnit(dest);
   let d = depth / 99;
   if (SQUARED_DESTS.has(dest)) d *= Math.abs(d);
-  const m = d * full, bip = BIPOLAR_SOURCES.has(source), down = (dest === 9 || dest === 43) && !bip;
+  const viaSource = via >= VIA_SOURCE ? via - VIA_SOURCE : 0, exp = rateDest(dest) || timeDest(dest);
+  let m = d * full * (via && !viaSource ? via / 100 : 1); // a source as Via: as far as it can reach
+  if (exp) m = Math.max(-8, Math.min(8, m));               // exp_mod() in the firmware
+  const bip = BIPOLAR_SOURCES.has(source) || BIPOLAR_SOURCES.has(viaSource), down = (dest === 9 || dest === 43) && !BIPOLAR_SOURCES.has(source);
   let lo, hi;
   if (bip) { lo = -Math.abs(m); hi = Math.abs(m); }
-  else if (source === FIXED_SOURCE) lo = hi = down ? -Math.abs(m) : m;
+  else if (source === FIXED_SOURCE && !viaSource) lo = hi = down ? -Math.abs(m) : m;
   else { const x = down ? -m : m; lo = Math.min(x, 0); hi = Math.max(x, 0); }
   const mul = timeDest(dest), s = x => !x ? (mul ? "×1" : "0") : (x > 0 && !mul ? "+" : "") + fmt(x);
-  const text = lo === hi ? s(hi) : !mul && lo === -hi ? "±" + fmt(hi) : `${s(lo)} to ${s(hi)}`;
+  const text = viaSource && lo !== -hi ? "up to " + s(lo || hi) // nothing at its bottom, so the far end says it
+    : (viaSource ? "up to " : "") + (lo === hi ? s(hi) : !mul && lo === -hi ? "±" + fmt(hi) : `${s(lo)} to ${s(hi)}`);
   return { lo, hi, text };
 }
 // Where that takes the knob from where it stands, when the unit is a frequency or a time: "1.2 kHz – 4.6 kHz", one
@@ -1816,18 +1865,21 @@ function knob(i, text) {
   const lbl = h("span", { class: "lbl" }, text);
   const e = h("div", { class: "knob" + (SHARED.has(i0) ? " shared" : ""), title: (NAMES[i0] || text) + (SHARED.has(i0) ? " (shared by both layers)" : "") },
     dl, lbl, val);
-  adjustable(dl, () => params ? params[I()] : 0, v => { setParam(I(), v); paintAll(); },
+  // On a synced cycling envelope the dial is the stage's share of the cycle, not its weight
+  const syncedEnv = n => ENV_KNOB[n] && cycleSync(ENV_KNOB[n][0]) ? ENV_KNOB[n] : null;
+  const dialAt = n => { const e = syncedEnv(n); return e ? cycleShare(e[0], e[1]) : params[n]; };
+  adjustable(dl, () => params ? dialAt(I()) : 0, v => { const e = syncedEnv(I()); if (e) setCycleShare(e[0], e[1], v); else setParam(I(), v); paintAll(); },
     () => { if (I() in DEFAULTS) { setParam(I(), DEFAULTS[I()]); paintAll(); } });
   dl.addEventListener("focus", () => params && touch(label(I()), format(I(), params[I()])));
   paints.push(() => {
     if (!params || params[I()] === undefined) return; // not there yet, or a parameter this firmware hasn't got
-    const n = I(), u = params[n];
+    const n = I(), u = dialAt(n);
     d.turn(u);
     const m = modRange(n);
     d.range(u, m.lo, m.hi, m.parts);
     dl.classList.toggle("modded", m.lo + m.hi > 0);
     dl.title = m.who.length ? `modulated by${m.parts.length > 1 ? " (rings, outer to inner):" : ""} ` + m.who.join(", ") : "";
-    val.textContent = format(n, u);
+    val.textContent = format(n, params[n]);
     dl.setAttribute("aria-valuetext", val.textContent);
     if (typeof i === "function") e.title = label(n);
     e.classList.toggle("linked", paramsLayer === 1 && linkOn(paramLink(n)));
@@ -2131,6 +2183,22 @@ function drawLfo(which) {
 
 // --- sections ---
 const sec = (id, title, ...body) => h("section", { class: `sec sec-${id}` }, h("h2", {}, title), ...body);
+// A section whose title folds it away, open until someone folds it, and remembered in this browser under `key`
+function collapsible(section, key) {
+  const title = section.querySelector("h2"), button = h("button", { type: "button", class: "sec-toggle" }, h("i", { "aria-hidden": "true" }, "▾"), title.textContent);
+  const read = () => { try { return JSON.parse(localStorage.getItem("pro800-folded")) || {}; } catch (e) { return {}; } };
+  const show = folded => { section.classList.toggle("collapsed", folded); button.setAttribute("aria-expanded", String(!folded)); };
+  button.onclick = () => {
+    const folded = !section.classList.contains("collapsed"), all = read();
+    if (folded) all[key] = true; else delete all[key];
+    try { localStorage.setItem("pro800-folded", JSON.stringify(all)); } catch (e) {}
+    show(folded);
+    paintAll(); // what's drawn to its size has none while it's folded
+  };
+  title.replaceChildren(button);
+  show(!!read()[key]);
+  return section;
+}
 const row = (...kids) => h("div", { class: "row" }, ...kids);
 // A group's link: layer 2 plays layer 1's values, and editing it on layer 2 edits layer 1. Only in the two-layer modes.
 function linkChip(link, what) {
@@ -2218,8 +2286,7 @@ function envSection(env) {
   return sec(`env${envIndex(bit)}`, title,
     h("div", { class: "sec-tools" }, envTools(env)),
     viz("env", drawEnv(bit)),
-    h("div", { class: "krow" }, knob(a, "Attack"), knob(d, "Decay"), knob(s, "Sustain"), knob(r, "Release")),
-    h("span", { class: "dim small" }, `also on the faceplate's filter knobs: Env select ${bit === 4 ? "in the middle" : "up"}`));
+    h("div", { class: "krow" }, knob(a, "Attack"), knob(d, "Decay"), knob(s, "Sustain"), knob(r, "Release")));
 }
 function lfoSection(which) {
   const n = which + 1, shapeKey = () => `shape${paramsLayer + 1}${n}`;
@@ -3069,12 +3136,12 @@ function macroKnob(k) {
     const ins = [], outs = [], parts = new Map(); // each source's share of the ring
     for (const r of layerRoutes || []) {
       if (r.dest === 44 + k) {
-        const sw = routeSwing(r.source, r.dest, r.depth);
-        ins.push(`${SOURCES[r.source]} ${signed(r.depth)}${sw ? ` (${sw.text})` : ""}`);
-        const span = Math.abs(r.depth) / 99 / 2; // a full-depth input moves the macro by 1: half the knob's travel
+        const sw = routeSwing(r.source, r.dest, r.depth, r.via), via = r.via || 0, viaSource = via >= VIA_SOURCE ? via - VIA_SOURCE : 0;
+        ins.push(`${SOURCES[r.source]}${via ? ` via ${viaName(via)}` : ""} ${signed(r.depth)}${sw ? ` (${sw.text})` : ""}`);
+        const span = Math.abs(r.depth) / 99 / 2 * (via && !viaSource ? via / 100 : 1); // a full-depth input moves the macro by 1: half the knob's travel
         let p = parts.get(r.source);
         if (!p) parts.set(r.source, p = { lo: 0, hi: 0 });
-        if (BIPOLAR_SOURCES.has(r.source)) { p.lo += span; p.hi += span; } else if (r.depth > 0) p.hi += span; else p.lo += span;
+        if (BIPOLAR_SOURCES.has(r.source) || BIPOLAR_SOURCES.has(viaSource)) { p.lo += span; p.hi += span; } else if (r.depth > 0) p.hi += span; else p.lo += span;
       }
       if (r.source === 26 + k) outs.push(`${DESTS[r.dest]} ${signed(r.depth)}`);
     }
@@ -3231,7 +3298,7 @@ function buildPanel() {
   const extras = h("div", { class: "extras" },
     ...ENVS.slice(2).map(envSection),
     lfoSection(0), lfoSection(1),
-    sec("voice", "Voice",
+    collapsible(sec("voice", "Voice",
       settingSelect("Layers", ["Off: one sound, 8 voices", "Split", "Stack", "By MIDI channel (ch 2 = layer 2)",
           "A voice per MIDI channel (ch 1-8), each with its own bend, pressure and CC 74", "MPE (ch 1 master, ch 2-9 a voice each, 48 semitones of bend)"],
         () => settings && settings.layers, v => setSetting(SET_ID.layers, v)),
@@ -3271,9 +3338,9 @@ function buildPanel() {
       row(mutateControls()),
       row(settingSelect("Bend", Array.from({ length: 12 }, (_, k) => `±${k + 1} st`),
           () => settings && settings.bend - 1, v => setSetting(SET_ID.bend, v + 1), "pitch bend range (per patch)"),
-        unisonDetuneKnob(), unisonVoicesKnob())),
-    matrix,
-    seqSection());
+        unisonDetuneKnob(), unisonVoicesKnob())), "voice"),
+    collapsible(matrix, "matrix"),
+    collapsible(seqSection(), "sequencer"));
   box.append(face, h("div", { class: "extras-head" }, "Beyond the panel"), extras);
   // layer buttons in the header
   document.querySelectorAll("#layers .led").forEach(b => {
@@ -3285,19 +3352,30 @@ function buildPanel() {
 }
 
 // --- talking to the synth ---
+// A layer's Vias, a value per slot, or null from firmware before them. Its build may carry 0.9.5's number and every setting
+// too, so only asking tells; once, as a firmware that doesn't answer would hold up every poll.
+let viaAnswers = true;
+async function readVias(layer) {
+  if (!viaAnswers) return null;
+  const d = await ask([0x63, layer], [0x63, layer], 1000);
+  if (!d) { viaAnswers = false; return null; }
+  return Array.from({ length: ROUTES }, (_, r) => d[2 + 2 * r] << 7 | d[3 + 2 * r]);
+}
 async function refreshLayerRoutes() {
   const layer = paramsLayer, d = await ask([0x57, layer], [0x57, layer], 1000);
   if (!d) return;
-  const parse = (d, layer) => {
+  const parse = (d, layer, vias) => {
     const list = [], mask = routeBothMask(layer);
     for (let r = 0; r < ROUTES; r++)
-      if (d[2 + 4 * r]) list.push({ layer, slot: r, source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, both: !!(mask >> r & 1) });
+      if (d[2 + 4 * r]) list.push({ layer, slot: r, source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, both: !!(mask >> r & 1), via: vias ? vias[r] : 0 });
     return list;
   };
+  const vias = await readVias(layer);
   const other = routesBothShown() && routeBothMask(1 - layer) ? await ask([0x57, 1 - layer], [0x57, 1 - layer], 1000) : null;
-  layerRoutes = parse(d, layer);
+  const otherVias = other && await readVias(1 - layer);
+  layerRoutes = parse(d, layer, vias);
   routesLayer = layer;
-  otherRoutes = other ? parse(other, 1 - layer).filter(r => r.both) : [];
+  otherRoutes = other ? parse(other, 1 - layer, otherVias).filter(r => r.both) : [];
   paintAll();
   renderRoutes();
 }
@@ -3393,7 +3471,11 @@ async function copyLfo(which) {
     const marks = routeBothMask(to), kept = marks & ~mine.reduce((bits, r) => bits | 1 << r.slot, 0);
     if (kept !== marks) ok = await set7D(`routeBoth${to + 1}Lo`, kept & 255) && await set7D(`routeBoth${to + 1}Hi`, kept >> 8);
     for (const r of mine) await setRoute(to, src, r.dest, 0);
-    for (const r of theirs) if (!await setRoute(to, src, r.dest, r.depth)) full++;
+    const vias = await readVias(from);
+    for (const r of theirs) {
+      if (!await setRoute(to, src, r.dest, r.depth)) full++;
+      else if (vias) await setRouteVia(to, src, r.dest, vias[r.slot] || 100);
+    }
   } else ok = false;
   const status = document.getElementById("status");
   status.textContent = !ok ? "Copying failed (firmware 0.6.6 or later?)" : full ?
@@ -3478,15 +3560,39 @@ const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount
 const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 42, 43]);
 const options = (list, skip) => list.map((t, i) => i === skip ? "" :
   `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");
+// The Via menu: Number, then every source but Fixed, which is the number 1, and no macro on a route into a macro (it would
+// depend on its own result)
+const viaOptions = dest => `<option value="0">Number</option>` + SOURCES.map((t, i) => !i || i === FIXED_SOURCE || (i >= 26 && dest >= 44) ? "" :
+  `<option value="${VIA_SOURCE + i}">${t}</option>`).join("");
+// What a Via menu and its number box say, as 62 takes it
+const viaOf = (menu, box) => +menu.value || Math.max(1, Math.min(800, Math.round(+box.value * 100) || 100));
+function showVia(menu, box, via) {
+  menu.value = via >= VIA_SOURCE ? via : 0;
+  box.value = via >= VIA_SOURCE ? box.value : (via || 100) / 100;
+  box.hidden = via >= VIA_SOURCE;
+}
 document.getElementById("new-source").innerHTML = options(SOURCES, 0);
 document.getElementById("new-dest").innerHTML = options(DESTS, -1);
+document.getElementById("new-via").innerHTML = viaOptions(0);
+document.getElementById("new-via").onchange = () => { document.getElementById("new-via-number").hidden = !!+document.getElementById("new-via").value; paintNewRange(); };
+document.getElementById("new-via-number").oninput = () => paintNewRange();
 document.getElementById("new-depth").oninput = e => { document.getElementById("new-depth-out").textContent = e.target.value; paintNewRange(); };
-document.getElementById("new-source").onchange = document.getElementById("new-dest").onchange = paintNewRange;
+document.getElementById("new-source").onchange = paintNewRange;
+document.getElementById("new-dest").onchange = () => { // into a macro, a macro is no Via
+  const menu = document.getElementById("new-via"), dest = +document.getElementById("new-dest").value, was = menu.value;
+  menu.innerHTML = viaOptions(dest);
+  menu.value = was;
+  if (menu.value !== was) { menu.value = 0; document.getElementById("new-via-number").hidden = false; }
+  paintNewRange();
+};
 paintNewRange();
 
 async function setRoute(layer, src, dest, depth) {
   const d = depth + 99;
   return ack([0x56, layer, src, dest, d >> 7, d & 0x7F]);
+}
+async function setRouteVia(layer, src, dest, via) {
+  return ack([0x62, layer, src, dest, via >> 7, via & 0x7F]);
 }
 async function setRouteBoth(route, on) {
   const key = `routeBoth${route.layer + 1}${route.slot < 8 ? "Lo" : "Hi"}`, bit = 1 << route.slot % 8;
@@ -3502,7 +3608,7 @@ let routeRowHeld = false, routeRowBusyUntil = 0;
 const ROUTE_ROW_HOLD = 1500, ROUTE_MENU_HOLD = 10000;
 for (const type of ["pointerup", "pointercancel", "blur"]) window.addEventListener(type, () => { routeRowHeld = false; });
 const routeRowInUse = () => routeRowHeld || Date.now() < routeRowBusyUntil;
-const ROW_CONTROLS = ["input", ".s", ".d", ".both", ".del"];
+const ROW_CONTROLS = [".dp", ".s", ".v", ".vn", ".d", ".both", ".del"];
 function renderRoutes(force) {
   const body = document.getElementById("routes");
   if (!layerRoutes) return;
@@ -3516,25 +3622,27 @@ function renderRoutes(force) {
   body.innerHTML = "";
   let used = 0;
   for (const route of [...layerRoutes, ...otherRoutes]) {
-    const { layer, source: src, dest, depth, both } = route, own = layer === paramsLayer;
+    const { layer, source: src, dest, depth, both, via = 0 } = route, own = layer === paramsLayer;
     if (src >= SOURCES.length || dest >= DESTS.length) continue;
     if (own && depth) used++;
     const tr = document.createElement("tr");
     tr.innerHTML = `<td><select class="s">${options(SOURCES, 0)}</select></td>
-      <td><select class="d">${options(DESTS, -1)}</select> ${WIRE.has(dest) ? '<span class="tag" title="a single wire for all voices: it follows the most recently played note">wire</span>' : ""}${own ? "" : ` <span class="tag">layer ${layer + 1}'s</span>`}</td>
-      <td><div class="depth-cell"><input type="range" min="-99" max="99" value="${depth}"><output>${depth}</output></div></td>
+      <td><div class="via-cell"><select class="v">${viaOptions(dest)}</select><input class="vn" type="number" min="0.01" max="8" step="0.01" value="1" aria-label="Via number"></div></td>
+      <td><div class="dest-cell"><select class="d">${options(DESTS, -1)}</select>${WIRE.has(dest) ? '<span class="tag" title="a single wire for all voices: it follows the most recently played note">wire</span>' : ""}${own ? "" : `<span class="tag">layer ${layer + 1}'s</span>`}</div></td>
+      <td><div class="depth-cell"><input class="dp" type="range" min="-99" max="99" value="${depth}" title="with the slider clicked, the arrow keys move it one step"><output>${depth}</output></div></td>
       <td class="range"></td>
       <td class="both-cell"><button type="button" class="chip both" aria-pressed="${both}" title="this route plays on both layers' voices, each reading its own velocity, envelopes and LFOs. It takes one slot, on the layer it was made on. A wire destination counts once, from the newest note">Both</button></td>
       <td class="actions"><button class="del">Remove</button></td>`;
     tr.querySelector(".s").value = src; tr.querySelector(".d").value = dest;
-    const range = tr.querySelector("input"), out = tr.querySelector("output");
+    const range = tr.querySelector(".dp"), out = tr.querySelector("output"), viaMenu = tr.querySelector(".v"), viaBox = tr.querySelector(".vn");
+    showVia(viaMenu, viaBox, via);
     tr._paintRange = () => {
-      paintRange(tr.querySelector(".range"), src, dest, +range.value || 0);
+      paintRange(tr.querySelector(".range"), src, dest, +range.value || 0, viaOf(viaMenu, viaBox));
       if (!+range.value) tr.querySelector(".range").replaceChildren("–", h("small", {}, `plays nothing; ${ROUTE_HOLD_TEXT} at 0 takes it off`));
     };
     tr._paintRange();
     let timer = 0;
-    tr._route = `${layer}:${src}:${dest}`;
+    tr._route = `${layer}:${route.slot}`; // a moved route keeps its slot, so its menu keeps the focus
     if (focused && focused.row === tr._route) refocus = tr.querySelector(focused.control);
     range.addEventListener("pointerdown", () => { routeRowHeld = true; });
     tr.querySelector(".s").onpointerdown = tr.querySelector(".d").onpointerdown = () => { routeRowBusyUntil = Date.now() + ROUTE_MENU_HOLD; };
@@ -3542,9 +3650,11 @@ function renderRoutes(force) {
       timer = setTimeout(async () => { await setRoute(layer, src, dest, +range.value || 0); refreshLayerRoutes(); }, 40); }; // the knobs and rings follow
     range.onchange = () => { routeRowHeld = false; if (+range.value === 0) loadRoutes(); };
     const move = async () => {
-      const s2 = +tr.querySelector(".s").value, d2 = +tr.querySelector(".d").value;
+      const s2 = +tr.querySelector(".s").value, d2 = +tr.querySelector(".d").value, to = depth || 50, d = to + 99;
+      if (await ack([0x61, layer, src, dest, s2, d2, d >> 7, d & 0x7F])) { loadRoutes(); return; } // at once, in its slot, Both and all
+      // a firmware from before 61: the old one waits out its hold at 0 beside the new one
       await setRoute(layer, src, dest, 0);
-      if (!await setRoute(layer, s2, d2, depth || 50)) msg("matrix-msg", "Couldn't set that route", "bad");
+      if (!await setRoute(layer, s2, d2, to)) msg("matrix-msg", "Couldn't set that route", "bad");
       else if (both) { // its new slot starts as one layer's
         await refreshLayerRoutes();
         const moved = layerRoutes.find(r => r.source === s2 && r.dest === d2);
@@ -3553,27 +3663,36 @@ function renderRoutes(force) {
       loadRoutes();
     };
     tr.querySelector(".s").onchange = move; tr.querySelector(".d").onchange = move;
-    tr.querySelector(".s").disabled = tr.querySelector(".d").disabled = !own; // on the layer it was made on
+    const sendVia = async () => {
+      if (!await setRouteVia(layer, src, dest, viaOf(viaMenu, viaBox))) msg("matrix-msg", viaAnswers ? "The synth didn't take that Via" : "This firmware has no Via", "bad");
+      loadRoutes();
+    };
+    viaMenu.onchange = viaBox.onchange = sendVia;
+    viaMenu.onpointerdown = () => { routeRowBusyUntil = Date.now() + ROUTE_MENU_HOLD; };
+    viaBox.onfocus = viaBox.oninput = () => { routeRowBusyUntil = Date.now() + ROUTE_MENU_HOLD; tr._paintRange(); }; // being typed in: not rebuilt
+    tr.querySelector(".s").disabled = tr.querySelector(".d").disabled = viaMenu.disabled = viaBox.disabled = !own; // on the layer it was made on
+    if (!viaAnswers) viaMenu.disabled = viaBox.disabled = true;
     tr.querySelector(".both").onclick = async () => { await setRouteBoth(route, !both); loadRoutes(); };
     tr.querySelector(".del").onclick = async () => { await setRoute(layer, src, dest, 0); loadRoutes(); };
     body.appendChild(tr);
   }
-  if (!body.children.length) body.innerHTML = `<tr><td colspan="6" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
+  if (!body.children.length) body.innerHTML = `<tr><td colspan="7" class="muted">No routes on layer ${paramsLayer + 1} yet.</td></tr>`;
   if (refocus) refocus.focus({ preventScroll: true });
   document.getElementById("add-route").disabled = used >= 16;
   paintAll(); // the macro knobs' rings and wiring follow the routes
 }
 // A Range cell: the route's reach in the destination's units and, for a cutoff, a rate or a time, where that takes
 // the knob from where it stands (which follows the knob, so the cells are repainted with the knobs)
-function paintRange(cell, src, dest, depth) {
-  const sw = routeSwing(src, dest, depth), where = sw ? swingWhere(dest, sw) : "";
+function paintRange(cell, src, dest, depth, via = 0) {
+  const sw = routeSwing(src, dest, depth, via), where = sw ? swingWhere(dest, sw) : "";
   // an LFO rate reads best as the rates it reaches (Hz, or note values when synced), its octaves under them
   const [text, under] = rateDest(dest) && where ? [where, sw.text] : [sw ? sw.text : "–", where];
   cell.replaceChildren(text, h("small", {}, under));
 }
 function paintNewRange() { // hoisted: the new-route row's handlers above call it
   paintRange(document.getElementById("new-range"), +document.getElementById("new-source").value,
-    +document.getElementById("new-dest").value, +document.getElementById("new-depth").value);
+    +document.getElementById("new-dest").value, +document.getElementById("new-depth").value,
+    viaOf(document.getElementById("new-via"), document.getElementById("new-via-number")));
 }
 paints.push(() => {
   for (const tr of document.getElementById("routes").children) if (tr._paintRange) tr._paintRange();
@@ -3597,6 +3716,10 @@ document.getElementById("add-route").onclick = async () => {
   const depth = +document.getElementById("new-depth").value;
   if (!depth) { msg("matrix-msg", "A depth of 0 is no route", "bad"); return; }
   if (!await setRoute(paramsLayer, src, dest, depth)) msg("matrix-msg", routesFull(), "bad");
+  else {
+    const via = viaOf(document.getElementById("new-via"), document.getElementById("new-via-number"));
+    if (via !== 100 && !await setRouteVia(paramsLayer, src, dest, via)) msg("matrix-msg", "Added, but the synth didn't take that Via", "bad");
+  }
   loadRoutes();
 };
 
@@ -3839,11 +3962,11 @@ async function readSound() {
   }
   out.routes = {};
   for (const layer of [0, 1]) {
-    const d = await ask([0x57, layer], [0x57, layer], 1000), list = [];
+    const d = await ask([0x57, layer], [0x57, layer], 1000), list = [], vias = await readVias(layer);
     if (!d) bad("the synth didn't send its routes");
     for (let r = 0; r < ROUTES; r++)
       if (d[2 + 4 * r] && (d[4 + 4 * r] << 7 | d[5 + 4 * r]) !== 99) list.push([JN.sources[d[2 + 4 * r] - 1], JN.dests[d[3 + 4 * r]], (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, // one at 0 isn't saved either
-        ...(routeBothMask(layer) >> r & 1 ? ["both"] : [])]);
+        ...(routeBothMask(layer) >> r & 1 ? ["both"] : []), ...(vias && vias[r] ? [`via:${viaToText(vias[r])}`] : [])]);
     if (list.length) out.routes[layer + 1] = list;
   }
   const h = await ask([0x48], [0x48], 1000);
@@ -4210,6 +4333,7 @@ document.getElementById("tables").onclick = async () => {
 };
 
 async function afterConnect() {
+  viaAnswers = true;
   await refreshSettings();
   await refreshParams();
   showTab(tab);

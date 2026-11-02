@@ -72,6 +72,8 @@ Probe (our firmware 0.0.9+):
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
   pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99; 5 s at 0 removes it); pro800 routes lists them
   pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
+  pro800 route-move <layer> <src> <dest> <new src> <new dest> <depth>  a route becomes another at once, in its slot (0.9.5)
+  pro800 route-via <layer> <src> <dest> <number 0.01-8|source>  what the route is multiplied by (0.9.5; 1 is plain)
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
                                         replies on stdout as hex; over one MIDI connection
@@ -1969,6 +1971,47 @@ def route():
     show(f"layer {layer}: {args[1]} → {args[2]} = {depth}")
 
 
+# pro800 route-move <layer 1|2> <source> <dest> <new source> <new dest> <depth>: at once, in its slot with its Both mark
+def route_move():
+    known = len(args) == 6 and all(a and a in SOURCE_NAMES for a in (args[1], args[3])) and all(a in DEST_NAMES for a in (args[2], args[4]))
+    layer = int_in(args[0], 1, 2) if len(args) == 6 else None
+    depth = int_in(args[5], -99, 99) if len(args) == 6 else None
+    if not known or layer is None or not depth:
+        fail("usage: pro800 route-move <layer 1|2> <source> <destination> <new source> <new destination> <depth -99..99, not 0>")
+    d = depth + 99
+    probe_ack([0x61, layer - 1, SOURCE_NAMES.index(args[1]), DEST_NAMES.index(args[2]), SOURCE_NAMES.index(args[3]), DEST_NAMES.index(args[4]), d >> 7, d & 0x7F])
+    show(f"layer {layer}: {args[1]} → {args[2]} is now {args[3]} → {args[4]} = {depth}")
+
+
+# A Via as 62 takes it and 63 gives it (src/mod.h): a number 0.01-8 in hundredths, or 1000 + a source; None if it's neither
+def via_from_text(text):
+    if text in SOURCE_NAMES and text and text != "fixed":
+        return 1000 + SOURCE_NAMES.index(text)
+    try:
+        hundredths = round(float(text) * 100)
+    except ValueError:
+        return None
+    return hundredths if 1 <= hundredths <= 800 else None
+
+
+def via_text(via):
+    if via >= 1000:
+        return SOURCE_NAMES[via - 1000] if via - 1000 < len(SOURCE_NAMES) else str(via)
+    return f"{(via or 100) / 100:g}"
+
+
+# pro800 route-via <layer 1|2> <source> <dest> <number|source>: source x depth x via
+def route_via():
+    known = len(args) == 4 and args[1] and args[1] in SOURCE_NAMES and args[2] in DEST_NAMES
+    layer = int_in(args[0], 1, 2) if len(args) == 4 else None
+    via = via_from_text(args[3]) if len(args) == 4 else None
+    if not known or layer is None or via is None:
+        fail("usage: pro800 route-via <layer 1|2> <source> <destination> <number 0.01-8|source>")
+    if not acked([0x62, layer - 1, SOURCE_NAMES.index(args[1]), DEST_NAMES.index(args[2]), via >> 7, via & 0x7F]):
+        fail("not set: no such route, a macro on a route into a macro, or firmware before 0.9.5")
+    show(f"layer {layer}: {args[1]} → {args[2]} via {via_text(via)}")
+
+
 # pro800 route-both <layer 1|2> <source> <dest> on|off: the route plays on the other layer too (settings 87-90: a bit per slot)
 def route_both():
     names = source_and_dest()
@@ -2007,16 +2050,21 @@ def route_both_masks():
 # pro800 routes: both layers' mod routes
 def routes():
     both = route_both_masks() or [0, 0]
+    no_via = False
     for layer in range(2):
         reply = midi().request([0x57, layer], expect=[0x57, layer], timeout=2)
         if reply is None:
             fail("no reply (firmware 0.5.0 or later?)")
         b = reply_data(reply, 2)
         lines = []
+        via = None if no_via else midi().request([0x63, layer], expect=[0x63, layer], timeout=0.5)
+        no_via = via is None  # firmware before 0.9.5: once is enough
+        vias = reply_data(via, 2) if via is not None else b""
         for i in range(0, len(b) - 3, 4):
             if b[i] != 0 and b[i] < len(SOURCE_NAMES) and b[i + 1] < len(DEST_NAMES):
                 depth = (b[i + 2] << 7 | b[i + 3]) - 99
                 lines.append(f"  {SOURCE_NAMES[b[i]]} → {DEST_NAMES[b[i + 1]]}: {depth}"
+                             + (f" via {via_text(vias[i // 2] << 7 | vias[i // 2 + 1])}" if len(vias) > i // 2 + 1 and (vias[i // 2] << 7 | vias[i // 2 + 1]) else "")
                              + (" (both layers)" if both[layer] >> (i // 4) & 1 else "")
                              + ("" if depth else " (plays nothing; 5 s at 0 removes it)"))
         show(f"layer {layer + 1}: " + ("\n" + "\n".join(lines) if lines else "no routes"))
@@ -2495,7 +2543,7 @@ COMMANDS = {
     "direct": direct, "cv": cv, "gate": gate, "measure": measure, "tune": tune, "tuning": tuning, "check": check,
     "dac-test": dac_test, "sh-waits": sh_waits, "dac-heal": dac_heal, "panel": panel, "state": state, "set": set_setting,
     "settings": settings, "params": params, "param": param, "factory": factory, "seq": seq, "layer": layer_command,
-    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "timing": timing, "engine": engine,
+    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "route-move": route_move, "route-via": route_via, "timing": timing, "engine": engine,
     "sysex": sysex_pipe, "cc": cc, "bend": bend, "eeprom-write": eeprom_write, "format": format_patches,
     "patch": patch_command, "patches": patches, "clock": clock_out, "leds": leds, "update-mode": update_mode,
     "flash": flash, "install": install, "port-present": port_present, "fault": fault, "fault-test": fault_test,

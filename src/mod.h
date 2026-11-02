@@ -70,6 +70,12 @@ typedef enum {
 
 #define ROUTES 16 // per layer
 
+// A route's Via multiplies what it adds: source x depth x via. Stored per route beside it: 0 is a number of 1, as in every
+// record from before it; 1 to VIA_NUMBER_MAX a number in hundredths; VIA_SOURCE + a source, that source's value (not
+// SRC_FIXED: that's the number 1).
+#define VIA_NUMBER_MAX 800
+#define VIA_SOURCE     1000
+
 typedef struct {
     uint8_t source; // SRC_NONE = unused
     uint8_t dest;

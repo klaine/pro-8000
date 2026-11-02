@@ -1951,6 +1951,63 @@ class ModAssign(PanelTest):
         self.s.press("ASSIGN")
         self.assertEqual(self.s.routes()[0][:2], (4, 3))
 
+    def move_route(self, source, dest, to_source, to_dest, depth, layer=0):
+        names, dests, d = pro800.SOURCE_NAMES, pro800.DEST_NAMES, depth + 99
+        return bytes([0x7F, 0x61]) in self.s.request(0x61, layer, names.index(source), dests.index(dest), names.index(to_source), dests.index(to_dest), d >> 7, d & 0x7F)
+
+    def route_row(self, source, dest, depth):
+        return (pro800.SOURCE_NAMES.index(source), pro800.DEST_NAMES.index(dest), depth)
+
+    def test_a_moved_route_goes_at_once_in_its_slot(self):
+        self.s.no_routes()
+        for dest, depth in (("pitch-a", 10), ("pitch-b", 20), ("cutoff", 30)):
+            self.s.request(0x56, 0, pro800.SOURCE_NAMES.index("lfo"), pro800.DEST_NAMES.index(dest), (depth + 99) >> 7, (depth + 99) & 0x7F)
+        self.assertTrue(self.move_route("lfo", "pitch-b", "lfo", "resonance", 20))
+        table = self.s.route_table()
+        self.assertEqual(table[1], self.route_row("lfo", "resonance", 20), "in its slot, with no wait")
+        self.assertEqual(len(self.s.routes()), 3, "and nothing left behind")
+
+    def test_a_moved_route_keeps_its_both_mark(self):
+        self.s.no_routes()
+        self.s.setting("layers", 2)
+        self.s.request(0x56, 0, pro800.SOURCE_NAMES.index("lfo"), pro800.DEST_NAMES.index("cutoff"), (30 + 99) >> 7, (30 + 99) & 0x7F)
+        i = pro800.SETTING_NAMES.index("route-both 1 (0-7)")
+        self.s.request(0x7D, i, 0, 1)
+        self.assertTrue(self.move_route("lfo", "cutoff", "env3", "cutoff", 30))
+        d = self.s.reply(0x54)
+        self.assertEqual(d[1 + 2 * i] << 7 | d[2 + 2 * i], 1)
+
+    def test_a_route_moved_onto_another_gives_it_the_depth(self):
+        self.s.no_routes()
+        for dest, depth in (("pitch-a", 10), ("pitch-b", 20)):
+            self.s.request(0x56, 0, pro800.SOURCE_NAMES.index("lfo"), pro800.DEST_NAMES.index(dest), (depth + 99) >> 7, (depth + 99) & 0x7F)
+        self.assertTrue(self.move_route("lfo", "pitch-a", "lfo", "pitch-b", 44))
+        self.assertEqual(self.s.routes(), [self.route_row("lfo", "pitch-b", 44)])
+
+    def test_moving_a_route_in_a_full_table(self):
+        self.s.no_routes()
+        for d in range(16):
+            self.s.request(0x56, 0, pro800.SOURCE_NAMES.index("lfo"), d, 0, 104)
+        self.assertEqual(len(self.s.routes()), 16)
+        self.assertTrue(self.move_route("lfo",
+                                        pro800.DEST_NAMES[3], "env3", pro800.DEST_NAMES[3], 5), "it needs no other slot")
+        self.assertEqual(self.s.route_table()[3], self.route_row("env3", pro800.DEST_NAMES[3], 5))
+
+    def test_moving_a_route_refuses_a_depth_of_0(self):
+        self.s.no_routes()
+        self.s.request(0x56, 0, pro800.SOURCE_NAMES.index("lfo"), pro800.DEST_NAMES.index("cutoff"), 0, 120)
+        self.assertFalse(self.move_route("lfo", "cutoff", "env3", "cutoff", 0))
+        self.assertEqual(len(self.s.routes()), 1)
+
+    def test_a_route_waiting_at_0_moved_doesnt_go(self):
+        self.s.no_routes()
+        lfo, cutoff = pro800.SOURCE_NAMES.index("lfo"), pro800.DEST_NAMES.index("cutoff")
+        self.s.request(0x56, 0, lfo, cutoff, 0, 120)
+        self.s.request(0x56, 0, lfo, cutoff, 0, 99)  # on its way out
+        self.assertTrue(self.move_route("lfo", "cutoff", "env3", "resonance", 50))
+        self.s.rest()
+        self.assertEqual(self.s.routes(), [self.route_row("env3", "resonance", 50)])
+
     def test_depth_zero_removes_the_route(self):
         self.s.no_routes()
         self.begin()
@@ -3211,6 +3268,269 @@ class MonoEnvelopes(PanelTest):
             self.s.rest()
 
 
+class Via(PanelTest):
+    """A route's Via: source x via x depth. What it does is read from the CVs."""
+
+    def setUp(self):
+        super().setUp()
+        self.s.no_routes()
+        self.s.param(0, "amp-sus", 16383)
+        self.s.ms(20)
+
+    def route(self, source, dest, depth=99, layer=0):
+        d = depth + 99
+        return bytes([0x7F, 0x56]) in self.s.request(0x56, layer, pro800.SOURCE_NAMES.index(source), pro800.DEST_NAMES.index(dest), d >> 7, d & 0x7F)
+
+    def via(self, source, dest, value, layer=0):
+        value = 1000 + pro800.SOURCE_NAMES.index(value) if isinstance(value, str) else value
+        return bytes([0x7F, 0x62]) in self.s.request(0x62, layer, pro800.SOURCE_NAMES.index(source), pro800.DEST_NAMES.index(dest), value >> 7, value & 0x7F)
+
+    def vias(self, layer=0):
+        reply = self.s.request(0x63, layer)
+        start = reply.index(pro800.SYSEX_HEADER + bytes([0x63, layer])) + pro800.HEADER_SIZE + 2
+        return [reply[start + 2 * r] << 7 | reply[start + 2 * r + 1] for r in range(16)]
+
+    def pitch(self):
+        gated = self.s.gated()  # a new note takes the oldest silent voice
+        return self.s.cvs()[gated[0] if gated else 0] / CV_PER_SEMITONE
+
+    def fixed_pitch_swing(self, via):
+        """How many semitones Fixed -> Pitch A at 99 adds to a held note, with this Via."""
+        self.s.note(40)
+        self.s.ms(20)
+        base = self.pitch()
+        self.route("fixed", "pitch-a")
+        if via is not None:
+            self.assertTrue(self.via("fixed", "pitch-a", via))
+        self.s.ms(20)
+        moved = self.pitch() - base
+        self.s.note_off(40)
+        self.route("fixed", "pitch-a", 0)
+        self.s.rest()
+        return moved
+
+    def test_a_number_multiplies_the_pitch_range(self):
+        self.assertAlmostEqual(self.fixed_pitch_swing(None), 24, delta=0.1)
+        self.assertAlmostEqual(self.fixed_pitch_swing(200), 48, delta=0.1)
+        self.assertAlmostEqual(self.fixed_pitch_swing(25), 6, delta=0.1)
+
+    def test_a_source_multiplies_it_too(self):
+        self.s.note(40)
+        self.s.ms(20)
+        base = self.pitch()
+        self.route("fixed", "pitch-a")
+        self.assertTrue(self.via("fixed", "pitch-a", "mod-wheel"))
+        self.s.ms(20)
+        self.assertAlmostEqual(self.pitch(), base, delta=0.1, msg="the wheel is down")
+        self.s.cc(1, 127)
+        self.s.ms(20)
+        self.assertAlmostEqual(self.pitch() - base, 24, delta=0.3, msg="the wheel is up")
+
+    def test_an_lfo_rate_is_exactly_an_octave_at_depth_99_via_a_quarter(self):
+        s = self.s
+        s.setting("lfo-sync", 1)
+        s.setting("lfo-trigger", 1)
+        s.setting("shape 1 1", 2)
+        s.param(0, "lfo-freq", 42 * 16383 // 99)  # 1/4: 500 ms before any clock
+        self.route("lfo", "pitch")
+        self.route("fixed", "lfo-rate")
+        self.assertTrue(self.via("fixed", "lfo-rate", 25))
+        s.ms(20)
+        s.note(60)
+        wraps, last = [], None
+        for ms in range(4000):
+            s.ms(1)
+            cv = s.cvs()[0]
+            if last is not None and last - cv > 2000:
+                wraps.append(ms)
+            last = cv
+        periods = [b - a for a, b in zip(wraps, wraps[1:])]
+        self.assertAlmostEqual(sum(periods) / len(periods), 250, delta=1)
+
+    def test_a_via_that_moves_fast_makes_the_route_fast(self):
+        s = self.s
+        self.route("fixed", "cutoff")
+        self.assertTrue(self.via("fixed", "cutoff", "env3"))
+        s.param(0, "env3-att", 0)
+        s.param(0, "env3-dec", 40 * 16383 // 99)
+        s.param(0, "env3-sus", 0)
+        s.ms(20)
+        s.note(60)
+        seen = []
+        for _ in range(60):
+            s.ms(1)
+            seen.append(s.cvs()[CV_FIL1])
+        self.assertGreater(max(seen) - min(seen), 5 * CV_PER_SEMITONE, "Env 3 runs, read only by the Via")
+
+    def test_an_envelope_via_itself_is_squared(self):
+        s = self.s
+        s.param(0, "env3-att", 0)
+        s.param(0, "env3-dec", 16383)  # slow, so it can be read as it falls
+        s.param(0, "env3-sus", 8192)   # a level of about 0.5, and it stays there
+        self.route("env3", "pitch-a")
+        s.ms(20)
+        s.note(40)
+        s.ms(120000)
+        base_plain = self.pitch()
+        s.note_off(40)
+        s.ms(2000)
+        self.assertTrue(self.via("env3", "pitch-a", "env3"))
+        s.ms(20)
+        s.note(40)
+        s.ms(120000)
+        squared = self.pitch()
+        s.note_off(40)
+        s.ms(2000)
+        self.route("env3", "pitch-a", 0)
+        s.rest()
+        s.note(40)
+        s.ms(20)
+        off = self.pitch()
+        level = (base_plain - off) / 24
+        self.assertAlmostEqual(level, 0.5, delta=0.02)
+        self.assertAlmostEqual((squared - off) / 24, level * level, delta=0.02, msg="0.5 x 0.5")
+
+    def test_a_macro_as_via(self):
+        s = self.s
+        s.note(40)
+        s.ms(20)
+        base = self.pitch()
+        self.route("fixed", "macro1", 50)
+        self.route("fixed", "pitch-a")
+        self.assertTrue(self.via("fixed", "pitch-a", "macro1"))
+        s.ms(30)
+        self.assertAlmostEqual(self.pitch() - base, 24 * 50 / 99, delta=0.3)
+
+    def test_what_isnt_a_via_is_refused(self):
+        self.route("lfo", "cutoff")
+        self.route("lfo", "macro1")
+        before = self.vias()
+        for value in (801, 999, 1000, 1000 + pro800.SOURCE_NAMES.index("fixed"), 1000 + len(pro800.SOURCE_NAMES)):
+            self.assertFalse(self.via("lfo", "cutoff", value), value)
+        self.assertFalse(self.via("lfo", "macro1", "macro2"), "it would depend on its own result")
+        self.assertFalse(self.via("lfo", "pitch-a", 200), "no such route")
+        self.assertEqual(self.vias(), before)
+
+    def test_a_number_of_1_reads_as_none(self):
+        self.route("lfo", "cutoff")
+        self.assertTrue(self.via("lfo", "cutoff", 100))
+        self.assertEqual(self.vias()[0], 0)
+
+    def test_it_stays_in_the_patch(self):
+        self.route("lfo", "cutoff")
+        self.route("env3", "pitch-a")
+        self.via("lfo", "cutoff", 25)
+        self.via("env3", "pitch-a", "mod-wheel")
+        self.s.ms(10)
+        self.store_patch(5)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.s.request(0x5C, 0, 4)
+        wheel = 1000 + pro800.SOURCE_NAMES.index("mod-wheel")
+        self.assertEqual(self.vias()[:2], [25, wheel])
+
+    def test_a_new_route_in_an_old_slot_starts_at_1(self):
+        self.route("lfo", "cutoff")
+        self.via("lfo", "cutoff", 25)
+        self.route("lfo", "cutoff", 0)
+        self.s.rest()
+        self.assertEqual(self.vias()[0], 0)
+        self.route("env3", "pitch-a")
+        self.assertEqual(self.vias()[0], 0)
+
+    def test_a_moved_route_keeps_its_via(self):
+        names, dests = pro800.SOURCE_NAMES, pro800.DEST_NAMES
+        self.route("lfo", "cutoff")
+        self.via("lfo", "cutoff", 300)
+        self.s.request(0x61, 0, names.index("lfo"), dests.index("cutoff"), names.index("env3"), dests.index("pitch-a"), 0, 120)
+        self.assertEqual(self.vias()[0], 300)
+
+    def test_a_macro_via_doesnt_move_into_a_macro(self):
+        names, dests = pro800.SOURCE_NAMES, pro800.DEST_NAMES
+        self.route("lfo", "cutoff")
+        self.via("lfo", "cutoff", "macro1")
+        self.s.request(0x61, 0, names.index("lfo"), dests.index("cutoff"), names.index("lfo"), dests.index("macro2"), 0, 120)
+        self.assertEqual(self.vias()[0], 0)
+
+    def test_copying_a_layer_takes_it_along(self):
+        self.route("lfo", "cutoff")
+        self.via("lfo", "cutoff", 300)
+        self.s.hold("SHIFT")
+        self.s.press("SEQ2")
+        self.s.let_go("SHIFT")
+        self.s.ms(10)
+        self.assertEqual(self.s.routes(1), self.s.routes(0))
+        self.assertEqual(self.vias(1)[0], 300)
+
+    def test_rates_and_times_stop_at_256_times(self):
+        s = self.s
+        s.note(60)
+        self.route("fixed", "lfo-rate")
+        self.via("fixed", "lfo-rate", 800)
+        self.route("fixed", "amp-rel")
+        self.via("fixed", "amp-rel", 800)
+        self.route("fixed", "lfo2-rate")
+        self.via("fixed", "lfo2-rate", 800)
+        for _ in range(200):
+            s.ms(5)
+        self.assertEqual(len(s.gated()), 1, "and it all goes on running")
+        self.assertEqual(s.request(0x54)[:1] != b"", True, "the firmware still answers")
+
+    def test_the_tool_prints_it(self):
+        self.route("lfo", "cutoff")
+        self.via("lfo", "cutoff", 25)
+        self.assertEqual(pro800.via_text(25), "0.25")
+        self.assertEqual(pro800.via_text(0), "1")
+        self.assertEqual(pro800.via_text(1005), "mod-wheel")
+        self.assertEqual(pro800.via_from_text("0.25"), 25)
+        self.assertEqual(pro800.via_from_text("mod-wheel"), 1005)
+        for bad in ("fixed", "9", "0", "foo"):
+            self.assertIsNone(pro800.via_from_text(bad), bad)
+
+
+class ShiftOnASyncedEnvelope(PanelTest):
+    """Under Shift the ADSR knobs are Env 3's and Env 4's, and the display speaks for those, not the filter's and the amp's."""
+
+    def turned(self, pot, name):
+        self.s.pot(pot, 0.3)
+        self.s.hold("SHIFT")
+        self.s.ms(10)
+        self.s.param(0, name + "-att", 0)  # the knob takes over at once
+        self.s.param(0, name + "-dec", 8192)
+        self.s.param(0, name + "-sus", 0)
+        self.s.param(0, name + "-rel", 0)
+        self.s.ms(10)
+        self.s.pot(pot, 0.0)
+        self.s.pot(pot, 0.5)
+        self.s.ms(150)
+        shown = readable(self.s.digits())
+        self.s.let_go("SHIFT")
+        return shown
+
+    def test_env_3_shows_its_share(self):
+        self.s.setting("cycle 1", 4)
+        self.s.setting("cycle-sync 1 env3", 2)
+        self.assertEqual(self.turned("FIL_ATT", "env3"), "  50")
+
+    def test_env_4_shows_its_share(self):
+        self.s.setting("cycle 1", 8)
+        self.s.setting("cycle-sync 1 env4", 2)
+        self.assertEqual(self.turned("AMP_ATT", "env4"), "  50")
+
+    def test_without_shift_the_filter_and_amp_envelopes_still_show_theirs(self):
+        self.s.setting("cycle 1", 2)
+        self.s.setting("cycle-sync 1 filter", 2)
+        self.s.param(0, "fil-att", 0)
+        self.s.param(0, "fil-dec", 8192)
+        self.s.param(0, "fil-sus", 0)
+        self.s.param(0, "fil-rel", 0)
+        self.s.ms(10)
+        self.s.pot("FIL_ATT", 0.0)
+        self.s.pot("FIL_ATT", 0.5)
+        self.s.ms(150)
+        self.assertEqual(readable(self.s.digits()), "  50")
+
+
 class FilterBeforeVca(PanelTest):
     """Issue 17: a voice's VCA mustn't open on a cutoff the S&H still holds from before, or a closed filter lets a click through."""
 
@@ -3861,7 +4181,7 @@ RANGE_BLOCKS = ["const P = {", "const ENVS = [", "const ENV_KNOB = {};", "for (c
                 "const envIndex", "function cycleSync(", "const envOf", "function cycleShares(", "function cycleShare(", "const knobTime",
                 "function envTime(", "const envFlag", "const QUARTERS", "const envTempo", "const noteStep", "const noteName", "const noteSeconds",
                 "const DIVISIONS", "function seconds(", "function lfoHz(", "function format(", "const DEST_KNOBS", "const DEST_SCALE",
-                "const BIPOLAR_SOURCES", "const FIXED_SOURCE", "const SQUARED_DESTS", "const timeDest", "const rateDest", "const factor",
+                "const BIPOLAR_SOURCES", "const FIXED_SOURCE", "const VIA_SOURCE", "const viaName", "const SQUARED_DESTS", "const timeDest", "const rateDest", "const factor",
                 "function swingUnit(", "function routeSwing(", "function swingWhere(", "const SOURCES", "const DESTS", "function modRange(",
                 "function hertz(", "function noteValue(", "function paintRange("]
 
@@ -3923,7 +4243,7 @@ def number_in(text):
 def firmware_constants():
     synth = source("src", "synth.c")
     c = {name: float(v) for name, v in re.findall(r"#define (\w+)\s+([\d.]+)f", synth)}
-    c["TIME_OCTAVES"] = float(re.search(r"fast_exp2\(-?(\d+\.\d+)f \* m\[", synth).group(1))
+    c["TIME_OCTAVES"] = float(re.search(r"fast_exp2\(-?(\d+\.\d+)f \* exp_mod\(m\[", synth).group(1))
     c["DETUNE_CENTS"] = float(re.search(r"DEST_DETUNE\] \* (\d+\.\d+)f", synth).group(1))
     c["GLIDE_OCTAVES"] = float(re.search(r"0\.002f \* fast_exp2\(knob \* (\d+\.\d+)f\)", synth).group(1))
     c["LFO_KNOB_OCTAVES"] = float(re.search(r"0\.05f \* fast_exp2\(knob \* (\d+\.\d+)f\)", source("src", "lfo.c")).group(1))
@@ -6747,6 +7067,128 @@ class WebSmallThings(unittest.TestCase):
         self.assertEqual(out["after"], [[0x5C, 0, 22]], "and then the one that was waiting")
         self.assertEqual(out["offline"], [], "not connected: nothing is sent")
 
+    def test_via_in_the_preset_format(self):
+        out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
+        const has = () => true, plan = j => planSound(j, has), last = j => plan(j).messages.filter(m => m[0] === 0x62);
+        const refused = r => { try { plan({ routes: { 1: [r] } }); return null; } catch (e) { return e.message; } };
+        report({
+          number: last({ routes: { 1: [["lfo", "cutoff", 5, "via:0.25"]] } }),
+          source: last({ routes: { 2: [["lfo", "cutoff", 5, "both", "via:mod-wheel"]] } }),
+          both: plan({ routes: { 1: [["lfo", "cutoff", 5, "via:2", "both"]] } }).both.length,
+          none: last({ routes: { 1: [["lfo", "cutoff", 5]] } }),
+          old: (({ messages, warnings }) => [messages.filter(m => m[0] === 0x62).length, warnings.length])(planSound({ routes: { 1: [["lfo", "cutoff", 5, "via:2"]] } }, () => false)),
+          bad: [["lfo", "cutoff", 5, "via:fixed"], ["lfo", "cutoff", 5, "via:9"], ["lfo", "cutoff", 5, "via:"], ["lfo", "macro1", 5, "via:macro2"], ["lfo", "cutoff", 5, "via:2", "via:3"], ["lfo", "cutoff", 5, "x"]].map(refused),
+          text: [viaToText(25), viaToText(100), viaToText(1005), viaFromText(viaToText(1005))],
+        });
+        """)
+        self.assertEqual(out["number"], [[0x62, 0, 1, 3, 0, 25]])
+        self.assertEqual(out["source"], [[0x62, 1, 1, 3, 1005 >> 7, 1005 & 0x7F]])
+        self.assertEqual(out["both"], 1)
+        self.assertEqual(out["none"], [])
+        self.assertEqual(out["old"], [0, 1], "older firmware: a warning, not a failed install")
+        for why in out["bad"]:
+            self.assertIsNotNone(why)
+        self.assertEqual(out["text"], ["0.25", "1", "mod-wheel", 1005])
+
+    def test_via_in_plan_py(self):
+        plan = load_plan_py()
+        src = source("presets", "lib", "plan.py")
+        self.assertIn("route-via %s %s %s %s", src)
+
+    def test_the_via_range_text(self):
+        page = source("tools", "web", "index.html")
+        out = run_node("\n".join(js_block(page, b) for b in ("const SOURCES", "const DESTS", "const BIPOLAR_SOURCES", "const SQUARED_DESTS", "const FIXED_SOURCE", "const VIA_SOURCE", "const timeDest", "const rateDest", "const factor", "function swingUnit(", "function routeSwing(")) + NODE_DRIVER % """
+        const t = (...a) => routeSwing(...a).text;
+        report({ plain: t(1, 0, 99), two: t(1, 0, 99, 200), quarter: t(25, 18, 99, 25), wheel: t(1, 3, 99, 1005), oneWay: t(4, 3, 99, 1005), bip: t(4, 3, 99, 1001), capped: t(25, 18, 99, 800) });
+        """)
+        self.assertEqual(out["plain"], "±24 st")
+        self.assertEqual(out["two"], "±48 st")
+        self.assertEqual(out["quarter"], "+1 oct")
+        self.assertEqual(out["wheel"], "up to ±96 st")
+        self.assertEqual(out["oneWay"], "up to +96 st")
+        self.assertEqual(out["bip"], "up to ±96 st", "a source as Via that swings both ways flips the route")
+        self.assertEqual(out["capped"], "+8 oct", "exp_mod()")
+
+    def test_the_sections_fold(self):
+        page = source("tools", "web", "index.html")
+        for call in ('collapsible(sec("voice", "Voice",', 'collapsible(matrix, "matrix")', 'collapsible(seqSection(), "sequencer")'):
+            self.assertIn(call, page)
+        out = run_node("""
+        let store = {}, painted = 0, broken = false;
+        const localStorage = { getItem: k => { if (broken) throw new Error("no"); return store[k] ?? null; }, setItem: (k, v) => { if (broken) throw new Error("no"); store[k] = v; } };
+        const paintAll = () => painted++;
+        const el = (tag, text) => { const e = { tag, textContent: text || "", attrs: {}, kids: [], classes: new Set(), setAttribute(k, v) { e.attrs[k] = v; }, replaceChildren(...k) { e.kids = k; },
+          classList: { toggle(c, on) { on ? e.classes.add(c) : e.classes.delete(c); }, contains: c => e.classes.has(c) } }; return e; };
+        const h = (tag, attrs, ...kids) => { const e = el(tag); e.kids = kids; return e; };
+        const section = title => { const s = el("section"), t = el("h2", title); s.querySelector = () => t; s.title = t; return s; };
+        """ + js_block(page, "function collapsible(") + NODE_DRIVER % """
+        const out = {};
+        const a = collapsible(section("Voice"), "voice"), button = a.title.kids[0];
+        out.first = [a.classes.has("collapsed"), button.attrs["aria-expanded"], button.kids[1], painted];
+        button.onclick();
+        out.folded = [a.classes.has("collapsed"), button.attrs["aria-expanded"], store["pro800-folded"], painted];
+        const b = collapsible(section("Voice"), "voice"), other = collapsible(section("Sequencer"), "sequencer");
+        out.again = [b.classes.has("collapsed"), other.classes.has("collapsed")];
+        button.onclick();
+        out.open = [a.classes.has("collapsed"), store["pro800-folded"]];
+        store["pro800-folded"] = "not json";
+        out.bad = collapsible(section("Voice"), "voice").classes.has("collapsed");
+        broken = true;
+        const c = collapsible(section("Voice"), "voice");
+        c.title.kids[0].onclick();
+        out.noStorage = c.classes.has("collapsed");
+        report(out);
+        """)
+        self.assertEqual(out["first"], [False, "true", "Voice", 0], "open by default")
+        self.assertEqual(out["folded"], [True, "false", '{"voice":true}', 1])
+        self.assertEqual(out["again"], [True, False], "remembered, each by its own")
+        self.assertEqual(out["open"], [False, "{}"])
+        self.assertFalse(out["bad"], "what can't be read is open")
+        self.assertTrue(out["noStorage"], "and without storage it still folds")
+
+    def test_a_synced_envelopes_knob_sets_its_share(self):
+        page = source("tools", "web", "index.html")
+        out = run_node("""
+        let params = [], paramsLayer = 0, settings = { patch: 5 }, sent = [];
+        const A = 0, H = 1, F = 2, R = 3;
+        const envOf = () => ["", 4, A, F, H, R];
+        const setParam = (i, v) => { sent.push(i); params[i] = v; };
+        """ + js_block(page, "function cycleShares(") + "\n" + js_block(page, "function cycleShare(") + "\nconst cycleMix = new Map();\n" + js_block(page, "function setCycleShare(") + NODE_DRIVER % """
+        const start = (a, d, s, r) => { params = []; params[A] = a; params[F] = d; params[H] = s; params[R] = r; cycleMix.clear(); sent = []; };
+        const read = () => ({ attack: +cycleShare(4, 0).toFixed(3), fall: +cycleShare(4, 1).toFixed(3), hold: +cycleShare(4, 2).toFixed(3), rest: +cycleShare(4, 3).toFixed(3), top: +Math.max(...params).toFixed(3) });
+        const out = {};
+        start(1, 1, 0, 0); setCycleShare(4, 0, 0.7); out.up = read(); out.lastSent = sent[sent.length - 1];
+        start(1, 1, 0, 0); setCycleShare(4, 0, 1); out.all = read(); setCycleShare(4, 0, 0.5); out.back = read();
+        start(0.5, 0, 0, 0); setCycleShare(4, 0, 0.6); out.alone = read();
+        start(0, 0, 0, 1); setCycleShare(4, 3, 0.4); out.restAlone = read();
+        start(0.2, 0.4, 0.2, 0.2); setCycleShare(4, 2, 0.5); out.keeps = read();
+        start(0, 0, 0, 0); setCycleShare(4, 0, 0.1); out.empty = read();
+        start(1, 1, 0, 0); setCycleShare(4, 0, 0); out.none = read();
+        start(1, 1, 0, 0); setCycleShare(4, 0, 2); out.clamped = read();
+        report(out);
+        """)
+        self.assertEqual(out["up"], {"attack": 0.7, "fall": 0.3, "hold": 0, "rest": 0, "top": 1}, "at its top, it can still take more")
+        self.assertEqual(out["lastSent"], 0, "the screen says the one being turned")
+        self.assertEqual(out["all"]["attack"], 1)
+        self.assertEqual(out["back"], {"attack": 0.5, "fall": 0.5, "hold": 0, "rest": 0, "top": 1}, "through 100 % and back, the fall comes back")
+        self.assertEqual(out["alone"], {"attack": 0.6, "fall": 0, "hold": 0, "rest": 0.4, "top": 1}, "the only knob above 0 moves: the rest takes the time")
+        self.assertEqual(out["restAlone"], {"attack": 0, "fall": 0.6, "hold": 0, "rest": 0.4, "top": 1})
+        self.assertEqual(out["keeps"], {"attack": 0.125, "fall": 0.25, "hold": 0.5, "rest": 0.125, "top": 1}, "the others keep their proportions")
+        self.assertEqual(out["empty"]["attack"], 0.1)
+        self.assertEqual(out["none"], {"attack": 0, "fall": 1, "hold": 0, "rest": 0, "top": 1})
+        self.assertEqual(out["clamped"]["attack"], 1)
+
+    def test_the_knobs_use_it_on_a_synced_envelope(self):
+        page = source("tools", "web", "index.html")
+        block = js_block(page, "function knob(i, text)")
+        self.assertIn("setCycleShare(e[0], e[1], v)", block)
+        self.assertIn("cycleShare(e[0], e[1])", block)
+
+    def test_the_mod_matrix_columns_are_set(self):
+        page = source("tools", "web", "index.html")
+        self.assertIn('<table class="routes-table">', page)
+        self.assertRegex(page, r"table\.routes-table \{ table-layout: fixed;", "or a Range cell's text moves the slider under the mouse")
+
     def test_the_undo_button(self):
         page = source("tools", "web", "index.html")
         self.assertRegex(page[page.index("<header>"):page.index("</header>")], r'<button[^>]*id="undo-top"[^>]*data-needs="unisonVoices"[^>]*>Undo</button>')
@@ -7175,7 +7617,7 @@ class El {
   querySelector(sel) {
     if (!this.q[sel]) {
       this.q[sel] = new El(sel);
-      if (sel === "input") this.q[sel].value = (this.html.match(/type="range"[^>]*value="(-?\d+)"/) || [])[1];
+      if (sel === ".dp") this.q[sel].value = (this.html.match(/type="range"[^>]*value="(-?\d+)"/) || [])[1];
     }
     return this.q[sel];
   }
@@ -7212,7 +7654,7 @@ async function settle() { // until nothing is due: the 60 ms before a write, and
 const status = () => document.getElementById("status");
 const writes = () => sent.filter(m => m[0] === 0x56);
 const state = k => ({ u: (parseFloat(k.find("k-ptr").getAttribute("transform").slice(7)) + 135) / 270, val: k.find("val").text, out: k.classList.contains("out"), title: k.title });
-const rows = () => byId.routes.kids.filter(tr => tr.q[".s"]).map(tr => [+tr.q[".s"].value, +tr.q[".d"].value, +tr.q["input"].value]);
+const rows = () => byId.routes.kids.filter(tr => tr.q[".s"]).map(tr => [+tr.q[".s"].value, +tr.q[".d"].value, +tr.q[".dp"].value]);
 const down = k => { const d = k.find("dial"); d.focus(); d.fire("pointerdown", { clientY: 0 }); };
 const move = (k, px) => k.find("dial").fire("pointermove", { clientY: -px });
 const up = k => k.find("dial").fire("pointerup");
@@ -7240,8 +7682,8 @@ def velocity_page():
     page = source("tools", "web", "index.html")
     blocks = RANGE_BLOCKS + ["const ROUTES", "const routesFull", "const routesTaken", "const ROUTE_HOLD_TEXT", "const routeBothMask", "const LINK_FILTER", "const twoLayers", "const linkOn", "const routesBothShown",
                              "const FEATURES", "const feature", "const missingFeatures", "function linkedView(", "function linkedWrites(", "const paramLink",
-                             "async function setRoute(", "async function setRouteBoth(", "async function refreshLayerRoutes(", "async function setSetting(",
-                             "async function refreshSettings(", "async function refreshParams(", "const WIRE", "const options", "let routeRowHeld", "const ROUTE_ROW_HOLD",
+                             "async function setRoute(", "async function setRouteVia(", "async function setRouteBoth(", "let viaAnswers", "async function readVias(", "async function refreshLayerRoutes(", "async function setSetting(",
+                             "async function refreshSettings(", "async function refreshParams(", "const WIRE", "const options", "const viaOptions", "const viaOf", "function showVia(", "let routeRowHeld", "const ROUTE_ROW_HOLD",
                              'for (const type of ["pointerup"', "const routeRowInUse", "const ROW_CONTROLS", "function renderRoutes(", "async function loadRoutes(",
                              "function adjustable(", "const RING_R", "function dial(", "const SRC_VELOCITY", "let velocitySaid", "const velocityStatus", "function velocityUnsay(", "function velocityKnob(",
                              "const LFO_SOURCE", "async function readParams(", "async function copyParams(", "const set7D", "async function copyLfo("]
@@ -7591,7 +8033,7 @@ class WebVelocityKnobs(PanelTest):
     def test_a_matrix_edit_repaints_the_knob(self):
         out = self.run_page("""
         // the slider: no refresh of the row under it, the knob and the firmware follow
-        const tr = byId.routes.kids[0], range = tr.q["input"];
+        const tr = byId.routes.kids[0], range = tr.q[".dp"];
         document.activeElement = range;
         range.value = "55"; range.oninput();
         await settle();
@@ -7599,8 +8041,8 @@ class WebVelocityKnobs(PanelTest):
         document.activeElement = null;
         // a cutoff ring and knob from the same place
         const row2 = byId.routes.kids[1];
-        document.activeElement = row2.q["input"];
-        row2.q["input"].value = "-33"; row2.q["input"].oninput();
+        document.activeElement = row2.q[".dp"];
+        row2.q[".dp"].value = "-33"; row2.q[".dp"].oninput();
         await settle();
         const slid2 = [state(cutoff).val, modRange(P.CUTOFF).lo];
         document.activeElement = null;
@@ -7614,9 +8056,10 @@ class WebVelocityKnobs(PanelTest):
         const added = state(vca).val;
         // moved to another source: not the velocity route any more
         const moved = byId.routes.kids.find(r => +r.q[".d"].value === 9);
+        const place = byId.routes.kids.indexOf(moved);
         moved.q[".s"].value = "5"; await moved.q[".s"].onchange();
         await settle();
-        report({ slid, slid2, removed, added, left: state(vca).val, cut: state(cutoff).val });
+        report({ slid, slid2, removed, added, left: state(vca).val, cut: state(cutoff).val, place, rows: rows() });
         """)
         self.assertEqual(out["slid"][0], "+55")
         self.assertTrue(out["slid"][2], "the row under the slider isn't rebuilt")
@@ -7626,6 +8069,8 @@ class WebVelocityKnobs(PanelTest):
         self.assertEqual(out["added"], "+33")
         self.assertEqual(out["left"], "off")
         self.assertEqual(out["cut"], "-33")
+        self.assertEqual(out["rows"][out["place"]], [5, 9, 33], "the row itself changes")
+        self.assertEqual([r for r in out["rows"] if r[0] == 4 and r[1] == 9], [], "with nothing left behind to wait out its hold")
 
     def test_mod_assign_on_the_synth_reaches_the_knob(self):
         s = self.s
@@ -7659,7 +8104,7 @@ class WebVelocityKnobs(PanelTest):
 
     # focus stays on a slider after the mouse lets go, in Chrome for as long as nothing else is clicked
     SLIDE = """
-        const tr = byId.routes.kids[0], range = tr.q["input"];
+        const tr = byId.routes.kids[0], range = tr.q[".dp"];
         range.fire("pointerdown");
         document.activeElement = range;
         range.value = "55"; range.oninput();
@@ -7674,7 +8119,7 @@ class WebVelocityKnobs(PanelTest):
         skew = 2000;
         await poll();
         const row = byId.routes.kids[0];
-        report({ knob: state(vca).val, rows: rows(), rebuilt: row !== tr, focused: document.activeElement === row.q["input"] });
+        report({ knob: state(vca).val, rows: rows(), rebuilt: row !== tr, focused: document.activeElement === row.q[".dp"] });
         """)
         self.assertEqual(out["knob"], "+77")
         self.assertEqual(out["rows"], [[VELOCITY, VCA, 77], [VELOCITY, CUTOFF, 20]])
@@ -7687,7 +8132,7 @@ class WebVelocityKnobs(PanelTest):
         skew = 2000;
         await setLayer(1);
         const row = byId.routes.kids[0], knob = state(vca).val, list = rows();
-        row.q["input"].value = "70"; row.q["input"].oninput();
+        row.q[".dp"].value = "70"; row.q[".dp"].oninput();
         await settle();
         report({ knob, list, writes: writes() });
         """)
@@ -7699,7 +8144,7 @@ class WebVelocityKnobs(PanelTest):
 
     def test_a_row_being_held_isnt_rebuilt_until_it_lets_go(self):
         out = self.run_page("""
-        const tr = byId.routes.kids[0], range = tr.q["input"];
+        const tr = byId.routes.kids[0], range = tr.q[".dp"];
         range.fire("pointerdown");
         document.activeElement = range;
         range.value = "55"; range.oninput();
@@ -7707,7 +8152,7 @@ class WebVelocityKnobs(PanelTest):
         await ask([0x56, 0, 4, 9, 0, 99 + 77], [0x7F, 0x56]);
         skew = 2000;
         await poll();
-        const during = [byId.routes.kids[0] === tr, tr.q["input"].value];
+        const during = [byId.routes.kids[0] === tr, tr.q[".dp"].value];
         window.fire("pointerup");
         await poll();
         report({ during, rows: rows() });
@@ -7718,7 +8163,7 @@ class WebVelocityKnobs(PanelTest):
     def test_a_slider_lets_go_with_its_change_too(self):
         """If the pointer's release went astray: a slider's change event is the release as well."""
         out = self.run_page("""
-        const tr = byId.routes.kids[0], range = tr.q["input"];
+        const tr = byId.routes.kids[0], range = tr.q[".dp"];
         range.fire("pointerdown");
         range.value = "55"; range.oninput();
         await settle();
@@ -7881,7 +8326,7 @@ class WebVelocityKnobs(PanelTest):
         self.both_on_layer_1()
         out = self.run_page("""
         await loadRoutes();
-        const tr = byId.routes.kids[0], range = tr.q["input"];
+        const tr = byId.routes.kids[0], range = tr.q[".dp"];
         range.value = "0"; range.oninput();
         await settle();
         range.onchange();

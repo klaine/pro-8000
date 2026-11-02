@@ -227,8 +227,10 @@ def plan(patch):
         check(len(routes) <= 16, "layer %s has more than 16 routes" % layer)
         seen = set()
         for r in routes:
-            check(isinstance(r, list) and (len(r) == 3 or (len(r) == 4 and r[3] == "both")),
-                  "route must be [source, dest, depth] or [source, dest, depth, \"both\"]: %r" % (r,))
+            marks = r[3:] if isinstance(r, list) else []
+            check(isinstance(r, list) and len(r) >= 3 and marks.count("both") <= 1 and len(marks) - marks.count("both") <= 1
+                  and all(m == "both" or str(m).startswith("via:") for m in marks),
+                  "route must be [source, dest, depth], then \"both\" and \"via:...\" if it has them: %r" % (r,))
             src, dest, depth = r[:3]
             check(src in SOURCES, "source: %s" % src)
             check(dest in DESTS, "destination: %s" % dest)
@@ -237,8 +239,20 @@ def plan(patch):
             check((src, dest) not in seen, "route %s -> %s twice on layer %s" % (src, dest, layer))
             seen.add((src, dest))
             out.append("route %s %s %s %d" % (layer, src, dest, depth))
-            if len(r) == 4:  # 0.9.3: it plays on the other layer's voices too
+            if "both" in marks:  # 0.9.3: it plays on the other layer's voices too
                 out.append("route-both %s %s %s on" % (layer, src, dest))
+            for m in marks:  # 0.9.5: a number 0.01-8, or a source but fixed
+                if m != "both":
+                    via = m[4:]
+                    if via in SOURCES:
+                        check(via != "fixed", "route via: fixed is the number 1")
+                        check(not (via.startswith("macro") and dest.startswith("macro")), "a macro can't be the Via of a route into a macro")
+                    else:
+                        try:
+                            in_range(float(via), 0.01, 8, "via of %s -> %s" % (src, dest))
+                        except ValueError:
+                            check(False, "route via: a number 0.01-8 or a source: %s" % via)
+                    out.append("route-via %s %s %s %s" % (layer, src, dest, via))
     if patch.get("sequence"):
         out.extend(sequence_lines(patch["sequence"]))
     if patch.get("morph"):

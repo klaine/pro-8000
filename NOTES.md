@@ -2369,3 +2369,33 @@ The Patches tab's button and the new one share `loadInitSound()`. It asks for no
 The arrows beside the patch name (`stepPatch()`) step as VALUE does: every slot in turn, empty ones included, round at the ends, the load after 80 ms of rest. A load that fails keeps the place, or a damaged slot would stop a run of clicks there.
 
 The mod matrix's long paragraph on the page is gone at the owner's asking, as it took most of a screen; `MANUAL.md` has the same ground.
+
+## The mod matrix's sliders and a changed destination (0.9.5, 2026-11-02)
+
+- **A step at a time:** the sliders were 140 px for 199 values. The table has set columns now, and Depth takes what's left, at least 2 px a step (`min-width` of the table; narrower windows scroll it).
+- **The jump while sliding:** the table was auto-layout, so a Range cell's text resized its column and the others with it. Measured with four routes at 900 px wide: the slider's left edge at 425 px, 392 at depth 0, where "plays nothing; 5 s at 0 takes it off" comes up. At 1317 px and at 700 px it stayed put, which is why it looked like an occasional glitch, and zooming the page in is what brings it on. `table-layout: fixed` takes the text out of it. The widths are on `<col>`s, because a column whose cells are hidden still counts (the footer's `colspan`), and with Layers hidden it took half of what Depth should get.
+- **A changed source or destination:** the page set the old route to 0 and added the new one, so both stood there for the 5 s of the hold, the new row at the end. SysEx 61 (`synth_move_route()`, `route-move` in the tools) changes the slot in place: no hold, Both kept, the row where it was, and it can't be refused for a full table. Onto a route that's already there, that one takes the depth and the moved one goes. The page falls back on the old way if 61 gets no answer, for firmware before it, which the settings can't tell apart: a build of 0.9.5 from before this has `unisonVoices` too.
+
+## Via: source x via x depth (0.9.5, 2026-11-02)
+
+Born of LFO 1's rate switching between 1/4 and 1/8: an exact octave is depth 24.75, which only 49 into a macro and 50 out of it came near. Now it's depth 99 via 0.25.
+
+- **Stored** as a u16 per route beside the routes (`route_via`, record bytes 356-419): 0 is the number 1, as every older record has it, 1-800 a number in hundredths, 1000 + a source. A new route starts at 1, and the value goes with its slot through a move, a copy of a layer, a both-layers route (the owner's) and undo.
+- **In the sum:** after the depth's curve, so it's linear: `mod += value x depth x via`. Into the VCA or the volume a 0..1 source counts down from full, and Via scales that drop, so via 0 is no velocity effect and not silence.
+- **Timing:** a route is fast if its source or its Via moves fast (`fast_route()`), and Env 3 / 4 as a Via count as being read (`uses_env34`). A macro as a Via puts a slow route in the second phase, with the routes the macros feed. A route into a macro can't have one (`via_allowed()`): nothing to read yet.
+- **Limits:** `exp_mod()` holds what's multiplied by 2^(4 x mod), rates and times, at +-2, or 256x. Stacked routes could always pass that; via 8 made it easy, and at 2^32 an LFO's phase step would overflow `(int)` in `advance()`. Pitch isn't limited here: past the table's ends `tuning_note_cv()` carries on along the nearest segment and stops at the DAC's range, so a very wide sweep goes out of tune near its ends and then flattens. Where that is on this synth hasn't been measured.
+- **Host:** 62 sets a route's Via, 63 reads a layer's, and 57 stays as it was. Nothing in the settings marks a build with them, so the page asks once per connection and stops if nothing answers (`viaAnswers`), and disables the Via controls.
+- **The page's Range** multiplies by a number, and with a source as Via says "up to" and its reach at full: what it reads when the source is at its top. The knobs' red arcs do the same.
+- **Not on the panel.** A route edited there keeps its Via, unseen: a route that's stronger or weaker than its depth says.
+- **Not tried on the synth yet**, including whether the extra read and multiply shows in `timing`.
+
+## Sections that fold (0.9.5, 2026-11-02)
+
+Voice, Mod matrix and Sequencer: `collapsible()` makes the title a button and folds with a class, leaving the section's own children and layout alone (Voice's grid has `display: contents` rows). Open by default; what's folded is kept per browser in `pro800-folded`, as it's one person's view of the page and no part of the sound. What's folded goes on being painted and polled like the rest; canvases have no size then and skip themselves, and unfolding repaints.
+
+## Shift's envelope knobs on the display (0.9.5, 2026-11-02)
+
+`env_knob()` in `main.c`, which tells the display which envelope a knob is, took `env_select + 1` for the filter knobs and 0 for the amp knobs. Under Shift `env_select` is 3, so Env 3's knobs asked about an envelope 4 that isn't there and Env 4's about the amp envelope: a synced cycling or note-value Env 3 / 4 read as a time under Shift, where the manual says a share of the cycle or a note value. Only the text was wrong, the values went where they should.
+
+Reported with it, in the editor: a synced envelope's knob that seems locked. Its knobs are weights, so the only one above 0 is 100 % wherever it stands, and one at its top can't take more from a neighbour. The page's knobs now set the share (`setCycleShare()`): the dial reads the share, the others make room in proportion, and the weights go out scaled so the largest is at the top. No change in the firmware or a record, and a move of the share leaves the other stages' proportions as they were, including through 100 % and back within a session (`cycleMix`). With nothing to go back to, the rest takes the time. The panel is still weights, as a physical knob can't move the others'. On the panel pickup also holds a knob until it comes within 1.5 % of its stored value, near the end of the pot's travel for a value of 99; that wasn't what was reported, so it's as it was, and a real pot that falls short of its end hasn't been measured.
+

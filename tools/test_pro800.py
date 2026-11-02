@@ -57,6 +57,8 @@ class FakeSynth:
         self.receive = None
         self.settings = [0] * 96
         self.undo = [1, *b"Pad"]
+        self.has_via = True
+        self.vias = [[0] * 16, [0] * 16]
         self.buttons = [0] * 16
         self.steps = {}
         self.params = [[0] * 36, [0] * 36]
@@ -192,6 +194,11 @@ class FakeSynth:
             pass
         elif c == 0x49:
             self.reply(0x49, *self.fault_body())
+        elif c == 0x63:
+            if self.has_via:
+                self.reply(0x63, d[1], *[b for v in self.vias[d[1]] for b in (v >> 7, v & 0x7F)])
+        elif c == 0x62:
+            self.ack(0x62)
         elif c == 0x60:
             self.reply(0x60, *self.undo)
         elif c == 0x4A:
@@ -1030,6 +1037,10 @@ class Writes(unittest.TestCase):
             (("param", "1", "amp-rel", "0"), [0x52, 0, 0, 0, 0]),
             (("layer", "2"), [0x7E, 1]),
             (("route", "1", "lfo", "cutoff", "-99"), [0x56, 0, 1, 3, 0, 0]),
+            (("route-move", "2", "lfo", "pitch-a", "env3", "pitch-b", "49"), [0x61, 1, 1, 0, 7, 1, 1, 20]),
+            (("route-via", "1", "lfo", "cutoff", "0.25"), [0x62, 0, 1, 3, 0, 25]),
+            (("route-via", "2", "lfo", "cutoff", "8"), [0x62, 1, 1, 3, 800 >> 7, 800 & 0x7F]),
+            (("route-via", "1", "lfo", "cutoff", "mod-wheel"), [0x62, 0, 1, 3, 1005 >> 7, 1005 & 0x7F]),
             (("route", "2", "macro2", "macro2", "99"), [0x56, 1, 27, 45, 1, 70]),
             (("route", "2", "velocity", "cutoff", "0"), [0x56, 1, 4, 3, 0, 99]),  # plan.py's lines: takes the init sound's route off
             (("patch", "load", "P7"), [0x5C, 0, 6]),
