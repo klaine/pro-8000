@@ -1,0 +1,157 @@
+{
+ "slot": 75,
+ "name": "Walk On Glass",
+ "group": "arp",
+ "notes": {
+  "sound": "A warm slow pad under a glassy pluck an octave up that wanders through whatever chord you hold, climbing two notes and falling back one, brightening as it climbs. Change chords and the line carries on from the nearest note. Clock-synced, 120 BPM until a clock arrives.",
+  "shows": "The Walk arp over two octaves, a touch of Chaos, and arp note position into the pluck's cutoff."
+ },
+ "buttons": [
+  "a-saw",
+  "b-tri"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 66,
+   "b-level": 72,
+   "resonance": 22
+  },
+  "1": {
+   "fine": 53,
+   "cutoff": 44,
+   "fil-env-amt": 62,
+   "fil-att": 66,
+   "fil-dec": 72,
+   "fil-sus": 60,
+   "fil-rel": 72,
+   "amp-att": 64,
+   "amp-dec": 74,
+   "amp-sus": 80,
+   "amp-rel": 74,
+   "lfo2-rate": 15
+  },
+  "2": {
+   "freq-a": 66,
+   "freq-b": 66,
+   "fine": 52,
+   "cutoff": 34,
+   "fil-env-amt": 76,
+   "fil-att": 0,
+   "fil-dec": 48,
+   "fil-sus": 0,
+   "fil-rel": 46,
+   "amp-att": 0,
+   "amp-dec": 60,
+   "amp-sus": 0,
+   "amp-rel": 54
+  }
+ },
+ "settings": {
+  "layers": "stack",
+  "voice 1": "poly last",
+  "voice 2": "mono last",
+  "keytrack": "full",
+  "arp-range": 2,
+  "arp-chaos": 6,
+  "shape 1 2": "sine",
+  "lfo-fade 2": 0
+ },
+ "routes": {
+  "1": [
+   [
+    "voice",
+    "pitch-b",
+    5
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    5
+   ],
+   [
+    "velocity",
+    "vca",
+    30
+   ],
+   [
+    "velocity",
+    "amp-att",
+    -20
+   ]
+  ],
+  "2": [
+   [
+    "arp-note",
+    "cutoff",
+    34
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ],
+   [
+    "velocity",
+    "filter-env-amount",
+    12
+   ]
+  ]
+ },
+ "sequence": {
+  "on": true,
+  "step": "1/8",
+  "clock": true,
+  "keys": "2",
+  "arp": "walk",
+  "steps": [
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   },
+   {
+    "gate": 60
+   }
+  ]
+ }
+}

@@ -31,6 +31,7 @@ typedef enum {
     SRC_VOICE,                 // the voice's place in its layer, 0..1: a different offset on every voice
     SRC_FIXED,                 // always 1: a route is a plain offset
     SRC_MACRO1, SRC_MACRO2,    // the macros: whatever is routed into DEST_MACRO1 / 2, -1..1 (once a pass)
+    SRC_ARP_NOTE,              // where the note sits in the arp's notes, 0 lowest..1 highest, kept for the note; 0 for any other note
     SRC_COUNT
 } mod_source_t;
 
@@ -53,6 +54,7 @@ typedef enum {
     DEST_DETUNE, // unison detune, a wire: ±50 cents at depth 99
     DEST_VOLUME, // master volume, a wire; a 0..1 source counts down from full, as with the VCA
     DEST_MACRO1, DEST_MACRO2, // the macros (SRC_MACRO1 / 2)
+    DEST_ARP_CHAOS, // adds to the patch's arp Chaos: per layer, from the most recently played voice, read at each step
     DEST_COUNT
 } mod_dest_t;
 #define DEST_NONE 0xFF
@@ -75,6 +77,10 @@ typedef enum {
 // SRC_FIXED: that's the number 1).
 #define VIA_NUMBER_MAX 800
 #define VIA_SOURCE     1000
+
+// A route's depth in tenths is depth x 10 + its fine part, stored beside it. `depth` stays the nearest whole number, and never
+// 0 on a route that plays (0.1 is depth 1, fine -9), so firmware from before it plays that. 0 (every older record): a whole depth.
+#define ROUTE_FINE_MAX 9
 
 typedef struct {
     uint8_t source; // SRC_NONE = unused

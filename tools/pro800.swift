@@ -62,7 +62,7 @@ Probe (our firmware 0.0.9+):
                                         free|first|every|voice|one-shot|one-shot-voice, lfo-cycles / lfo2-cycles <1-99>
                                         (how many cycles a one shot runs), lfo-restart steps|keys (what restarts the LFOs with a sequence on), layers off|split|stack|channel|8ch|mpe, split <note>,
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
-                                        bend <1-12> (semitones), detune <0-100> (unison, cents), unison-voices <2-8>, drift <0-99>,
+                                        bend <1-12> (semitones), detune <0-100> (unison, cents), unison-voices <2-8>, arp-range <1-3> (octaves), arp-extend none|octave|fifth|seventh|ninth, arp-chaos <0-99>, drift <0-99>,
                                         scale off|major|minor|dorian|…|chromatic, root C..B,
                                         voice <layer> poly|mono|legato last|low|high,
                                         shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
@@ -77,7 +77,7 @@ Probe (our firmware 0.0.9+):
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
-  pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99; 5 s at 0 removes it); pro800 routes lists them
+  pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, in steps of 0.1 from 0.9.5; 5 s at 0 removes it); pro800 routes lists them
   pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
   pro800 route-move <layer> <src> <dest> <new src> <new dest> <depth>  a route becomes another at once, in its slot (0.9.5)
   pro800 route-via <layer> <src> <dest> <number 0.01-8|source>  what the route is multiplied by (0.9.5; 1 is plain)
@@ -1007,7 +1007,7 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
     + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
     + ["env-tempo 1", "env-tempo 2", "midi-channel",
        "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles", "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)",
-       "route-both 2 (0-7)", "route-both 2 (8-15)", "unison-voices",
+       "route-both 2 (0-7)", "route-both 2 (8-15)", "unison-voices", "arp-range", "arp-extend", "arp-chaos",
        "env-select", "preset-mode", "patch", "morph"]
 let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
@@ -1032,7 +1032,8 @@ func setSetting() {
     let table: [String: (UInt8, [String])] = ["lfo-sync": (0, ["free", "clock"]), "lfo-trigger": (1, triggerModes),
                                                "layers": (2, layerModes), "keytrack": (4, ["off", "half", "full"]),
                                                "lfo2-sync": (5, ["free", "clock"]), "lfo2-trigger": (6, triggerModes),
-                                               "lfo": (8, ["1", "2"]), "lfo-restart": (86, ["steps", "keys"])]
+                                               "lfo": (8, ["1", "2"]), "lfo-restart": (86, ["steps", "keys"]), "arp-range": (92, ["1", "2", "3"]),
+                                               "arp-extend": (93, ["none", "octave", "fifth", "seventh", "ninth"])]
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger \(triggerModes.joined(separator: "|")) | lfo-cycles|lfo2-cycles <1-99> | lfo-restart steps|keys | " +
         "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | " +
         "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
@@ -1064,6 +1065,8 @@ func setSetting() {
         (id, v) = (26, ct)
     } else if args.count == 2, args[0] == "unison-voices", let n = Int(args[1]), (2...8).contains(n) {
         (id, v) = (91, n)
+    } else if args.count == 2, args[0] == "arp-chaos", let n = Int(args[1]), (0...99).contains(n) {
+        (id, v) = (94, n)
     } else if args.count == 2, args[0] == "drift", let a = Int(args[1]), (0...99).contains(a) {
         (id, v) = (29, a)
     } else if args.count == 2, args[0] == "scale", let i = scaleNames.firstIndex(of: args[1]) {
@@ -1239,9 +1242,11 @@ func settings() {
             text = on.isEmpty ? "none" : on.joined(separator: ",")
         case 84, 85: text = v == 1 ? "1 cycle (one shot)" : "\(v) cycles (one shot)"
         case 86: text = v == 0 ? "steps (a sequence's notes restart the LFOs)" : "keys (the keys restart them, not a sequence's steps)"
-        case 92: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 94: text = slotName(v)
-        case 95: text = v == 0 ? "none" : slotName(v - 1)
+        case 92: text = v == 0 ? "1 octave" : "\(v + 1) octaves"
+        case 93: text = ["none", "octave", "fifth", "seventh", "ninth"][safe: v] ?? text
+        case 95: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 97: text = slotName(v)
+        case 98: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
@@ -1308,7 +1313,7 @@ func param() {
 }
 
 // pro800 seq: the loaded patch's step sequence
-let arpModeNames = ["off", "up", "down", "updown", "random", "played"]
+let arpModeNames = ["off", "up", "down", "updown", "random", "played", "walk"]
 
 // pro800 seq set key=value…: the sequence's header, read first, the given keys changed (SysEx 47)
 func seqSet() {
@@ -1399,7 +1404,7 @@ func seqStep() {
 
 func arpText(_ d: [UInt8]) -> String {
     guard d.count > 9, d[9] != 0 else { return "" }
-    return ", arp " + (["off", "up", "down", "up-down", "random", "played"][safe: Int(d[9])] ?? "?")
+    return ", arp " + (["off", "up", "down", "up-down", "random", "played", "walk"][safe: Int(d[9])] ?? "?")
 }
 
 func showSequence() {
@@ -1633,25 +1638,38 @@ func patches() {
 
 let sourceNames = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
                    "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre",
-                   "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2"]
+                   "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2", "arp-note"]
 let destNames = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
                  "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
                  "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
                  "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
                  "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-                 "glide", "detune", "volume", "macro1", "macro2"]
+                 "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"]
 
-// pro800 route <layer 1|2> <source> <dest> <depth -99..99>  (5 s at 0 removes it)
+// A depth in tenths, -990..990, or nil if it's out of range or finer than that
+func tenthsFromText(_ text: String) -> Int? {
+    guard let x = Double(text).map({ $0 * 10 }), abs(x - x.rounded()) < 1e-6, abs(x.rounded()) <= 990 else { return nil }
+    return Int(x.rounded())
+}
+
+// pro800 route <layer 1|2> <source> <dest> <depth -99..99, in steps of 0.1>  (5 s at 0 removes it)
 func route() {
     guard args.count == 4, let layer = Int(args[0]), layer == 1 || layer == 2,
           let src = sourceNames.firstIndex(of: args[1]), src > 0, let dest = destNames.firstIndex(of: args[2]),
-          let depth = Int(args[3]), (-99...99).contains(depth) else {
-        fail("usage: pro800 route <layer 1|2> <source> <destination> <depth -99..99>\nsources: " +
+          let tenths = tenthsFromText(args[3]) else {
+        fail("usage: pro800 route <layer 1|2> <source> <destination> <depth -99..99, in steps of 0.1>\nsources: " +
              sourceNames.dropFirst().joined(separator: " ") + "\ndestinations: " + destNames.joined(separator: " "))
     }
-    let d = depth + 99
-    probeAck(Midi(port: portName), [0x56, UInt8(layer - 1), UInt8(src), UInt8(dest), UInt8(d >> 7), UInt8(d & 0x7F)])
-    print("layer \(layer): \(args[1]) → \(args[2]) = \(depth)")
+    if tenths % 10 != 0 {
+        let t = tenths + 990
+        guard acked(Midi(port: portName), [0x66, UInt8(layer - 1), UInt8(src), UInt8(dest), UInt8(t >> 7), UInt8(t & 0x7F)]) else {
+            fail("not set: the routes are full, or firmware before 0.9.5 (a whole number needs neither)")
+        }
+    } else {
+        let d = tenths / 10 + 99
+        probeAck(Midi(port: portName), [0x56, UInt8(layer - 1), UInt8(src), UInt8(dest), UInt8(d >> 7), UInt8(d & 0x7F)])
+    }
+    print("layer \(layer): \(args[1]) → \(args[2]) = \(String(format: "%g", Double(tenths) / 10))")
 }
 
 // pro800 route-move <layer 1|2> <source> <dest> <new source> <new dest> <depth>: at once, in its slot with its Both mark
@@ -1726,7 +1744,7 @@ func routeBothMasks(_ midi: Midi) -> [Int]? {
 func routes() {
     let midi = Midi(port: portName)
     let both = routeBothMasks(midi) ?? [0, 0]
-    var noVia = false
+    var noVia = false, noFine = false
     for layer in 0..<2 {
         guard let reply = midi.request([0x57, UInt8(layer)], expect: [0x57, UInt8(layer)], timeout: 2) else {
             fail("no reply (firmware 0.5.0 or later?)")
@@ -1736,9 +1754,13 @@ func routes() {
         let viaReply = noVia ? nil : midi.request([0x63, UInt8(layer)], expect: [0x63, UInt8(layer)], timeout: 0.5)
         noVia = viaReply == nil // firmware before 0.9.5: once is enough
         let vias = viaReply.map { replyData($0, 2) } ?? []
+        let fineReply = noFine || noVia ? nil : midi.request([0x67, UInt8(layer)], expect: [0x67, UInt8(layer)], timeout: 0.5)
+        noFine = fineReply == nil // firmware before it: once is enough
+        let fines = fineReply.map { replyData($0, 2) } ?? []
         for i in stride(from: 0, to: b.count - 3, by: 4) where b[i] != 0 && Int(b[i]) < sourceNames.count && Int(b[i + 1]) < destNames.count {
             let depth = (Int(b[i + 2]) << 7 | Int(b[i + 3])) - 99
-            lines.append("  \(sourceNames[Int(b[i])]) → \(destNames[Int(b[i + 1])]): \(depth)"
+            let exact = Double(depth) + (fines.count > i / 4 ? Double(Int(fines[i / 4]) - 9) / 10 : 0)
+            lines.append("  \(sourceNames[Int(b[i])]) → \(destNames[Int(b[i + 1])]): \(String(format: "%g", exact))"
                          + (vias.count > i / 2 + 1 && (Int(vias[i / 2]) << 7 | Int(vias[i / 2 + 1])) != 0 ? " via \(viaText(Int(vias[i / 2]) << 7 | Int(vias[i / 2 + 1])))" : "")
                          + (both[layer] >> (i / 4) & 1 != 0 ? " (both layers)" : "")
                          + (depth != 0 ? "" : " (plays nothing; 5 s at 0 removes it)"))

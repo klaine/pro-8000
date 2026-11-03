@@ -55,7 +55,7 @@ Probe (our firmware 0.0.9+):
                                         free|first|every|voice|one-shot|one-shot-voice, lfo-cycles / lfo2-cycles <1-99>
                                         (how many cycles a one shot runs), lfo-restart steps|keys (what restarts the LFOs with a sequence on), layers off|split|stack|channel|8ch|mpe, split <note>,
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
-                                        bend <1-12> (semitones), detune <0-100> (unison, cents), unison-voices <2-8>, drift <0-99>,
+                                        bend <1-12> (semitones), detune <0-100> (unison, cents), unison-voices <2-8>, arp-range <1-3> (octaves), arp-extend none|octave|fifth|seventh|ninth, arp-chaos <0-99>, drift <0-99>,
                                         scale off|major|minor|dorian|…|chromatic, root C..B,
                                         voice <layer> poly|mono|legato last|low|high,
                                         shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
@@ -70,7 +70,7 @@ Probe (our firmware 0.0.9+):
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
   pro800 layer 1|2                      choose the layer the per-layer knobs edit
-  pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99; 5 s at 0 removes it); pro800 routes lists them
+  pro800 route <layer> <src> <dest> <depth>  set a mod route (-99..99, in steps of 0.1 from 0.9.5; 5 s at 0 removes it); pro800 routes lists them
   pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
   pro800 route-move <layer> <src> <dest> <new src> <new dest> <depth>  a route becomes another at once, in its slot (0.9.5)
   pro800 route-via <layer> <src> <dest> <number 0.01-8|source>  what the route is multiplied by (0.9.5; 1 is plain)
@@ -1203,9 +1203,10 @@ SETTING_NAMES = (["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo
                  + ["env-tempo 1", "env-tempo 2", "midi-channel",
                     "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles",
                     "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)", "route-both 2 (0-7)", "route-both 2 (8-15)",
-                    "unison-voices",
+                    "unison-voices", "arp-range", "arp-extend", "arp-chaos",
                     "env-select", "preset-mode", "patch", "morph"])
 LINK_NAMES = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
+ARP_EXTEND_NAMES = ["none", "octave", "fifth", "seventh", "ninth"]
 CURVE_NAMES = ["analog", "linear", "swell"]
 SCALE_NAMES = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                "pentatonic-minor", "blues", "whole-tone", "chromatic"]
@@ -1238,7 +1239,8 @@ def names_to_bits(names, text, usage):
 def set_setting():
     table = {"lfo-sync": (0, ["free", "clock"]), "lfo-trigger": (1, TRIGGER_MODES), "layers": (2, LAYER_MODES),
              "keytrack": (4, ["off", "half", "full"]), "lfo2-sync": (5, ["free", "clock"]), "lfo2-trigger": (6, TRIGGER_MODES),
-             "lfo": (8, ["1", "2"]), "lfo-restart": (86, ["steps", "keys"])}
+             "lfo": (8, ["1", "2"]), "lfo-restart": (86, ["steps", "keys"]), "arp-range": (92, ["1", "2", "3"]),
+             "arp-extend": (93, ARP_EXTEND_NAMES)}
     usage = (f"usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger {'|'.join(TRIGGER_MODES)} | lfo-cycles|lfo2-cycles <1-99> | lfo-restart steps|keys | "
              "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | "
              "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | "
@@ -1275,6 +1277,8 @@ def set_setting():
         setting = (26, v)
     elif n == 2 and name == "unison-voices" and (v := int_in(args[1], 2, 8)) is not None:
         setting = (91, v)
+    elif n == 2 and name == "arp-chaos" and (v := int_in(args[1], 0, 99)) is not None:
+        setting = (94, v)
     elif n == 2 and name == "drift" and (v := int_in(args[1], 0, 99)) is not None:
         setting = (29, v)
     elif n == 2 and name == "scale" and args[1] in SCALE_NAMES:
@@ -1430,10 +1434,14 @@ def setting_text(i, v):
     if i == 86:
         return "steps (a sequence's notes restart the LFOs)" if v == 0 else "keys (the keys restart them, not a sequence's steps)"
     if i == 92:
-        return at(["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"], v)
-    if i == 94:
-        return slot_name(v)
+        return "1 octave" if v == 0 else f"{v + 1} octaves"
+    if i == 93:
+        return at(ARP_EXTEND_NAMES, v)
     if i == 95:
+        return at(["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"], v)
+    if i == 97:
+        return slot_name(v)
+    if i == 98:
         return "none" if v == 0 else slot_name(v - 1)
     return None
 
@@ -1532,7 +1540,7 @@ def param():
     show(f"layer {layer} {args[1]} = {args[2]}")
 
 
-ARP_MODE_NAMES = ["off", "up", "down", "updown", "random", "played"]
+ARP_MODE_NAMES = ["off", "up", "down", "updown", "random", "played", "walk"]
 
 
 # pro800 seq set key=value…: the sequence's header, read first, the given keys changed (SysEx 47)
@@ -1671,7 +1679,7 @@ def show_sequence():
     length, flags = d[0], d[5]
     chord = flags >> 5 & 3
     lanes = d[1] - chord
-    arp = "" if len(d) <= 9 or d[9] == 0 else ", arp " + at(["off", "up", "down", "up-down", "random", "played"], d[9], "?")
+    arp = "" if len(d) <= 9 or d[9] == 0 else ", arp " + at(["off", "up", "down", "up-down", "random", "played", "walk"], d[9], "?")
     show(f"{'on' if flags & 1 else 'off'}, {length} steps of {at(DIVISION_NAMES, d[2], '?')}, "
          + ("MIDI clock" if flags & 2 else f"{d[3] << 7 | d[4]} BPM") + f", swing {d[6]} %, "
          + ("once per key" if flags & 4 else "loops") + ", keys of " + ["both layers", "layer 1", "layer 2", "?"][flags >> 3 & 3]
@@ -1943,13 +1951,13 @@ def patches():
 
 SOURCE_NAMES = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
                 "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre",
-                "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2"]
+                "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2", "arp-note"]
 DEST_NAMES = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
               "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
               "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
               "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
               "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-              "glide", "detune", "volume", "macro1", "macro2"]
+              "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"]
 
 
 def source_and_dest():  # None unless args[1] and args[2] name a source and a destination
@@ -1958,17 +1966,31 @@ def source_and_dest():  # None unless args[1] and args[2] name a source and a de
     return SOURCE_NAMES.index(args[1]), DEST_NAMES.index(args[2])
 
 
-# pro800 route <layer 1|2> <source> <dest> <depth -99..99>  (5 s at 0 removes it)
+# A depth in tenths, -990..990, or None if it's out of range or finer than that
+def tenths_from_text(text):
+    try:
+        x = float(text) * 10
+    except ValueError:
+        return None
+    return round(x) if abs(x - round(x)) < 1e-6 and -990 <= round(x) <= 990 else None
+
+
+# pro800 route <layer 1|2> <source> <dest> <depth -99..99, in steps of 0.1>  (5 s at 0 removes it)
 def route():
     names = source_and_dest()
     layer = int_in(args[0], 1, 2) if len(args) == 4 else None
-    depth = int_in(args[3], -99, 99) if len(args) == 4 else None
-    if names is None or layer is None or depth is None:
-        fail("usage: pro800 route <layer 1|2> <source> <destination> <depth -99..99>\nsources: "
+    tenths = tenths_from_text(args[3]) if len(args) == 4 else None
+    if names is None or layer is None or tenths is None:
+        fail("usage: pro800 route <layer 1|2> <source> <destination> <depth -99..99, in steps of 0.1>\nsources: "
              + " ".join(SOURCE_NAMES[1:]) + "\ndestinations: " + " ".join(DEST_NAMES))
-    d = depth + 99
-    probe_ack([0x56, layer - 1, names[0], names[1], d >> 7, d & 0x7F])
-    show(f"layer {layer}: {args[1]} → {args[2]} = {depth}")
+    if tenths % 10:
+        t = tenths + 990
+        if not acked([0x66, layer - 1, names[0], names[1], t >> 7, t & 0x7F]):
+            fail("not set: the routes are full, or firmware before 0.9.5 (a whole number needs neither)")
+    else:
+        d = tenths // 10 + 99
+        probe_ack([0x56, layer - 1, names[0], names[1], d >> 7, d & 0x7F])
+    show(f"layer {layer}: {args[1]} → {args[2]} = {tenths / 10:g}")
 
 
 # pro800 route-move <layer 1|2> <source> <dest> <new source> <new dest> <depth>: at once, in its slot with its Both mark
@@ -2050,7 +2072,7 @@ def route_both_masks():
 # pro800 routes: both layers' mod routes
 def routes():
     both = route_both_masks() or [0, 0]
-    no_via = False
+    no_via = no_fine = False
     for layer in range(2):
         reply = midi().request([0x57, layer], expect=[0x57, layer], timeout=2)
         if reply is None:
@@ -2060,10 +2082,14 @@ def routes():
         via = None if no_via else midi().request([0x63, layer], expect=[0x63, layer], timeout=0.5)
         no_via = via is None  # firmware before 0.9.5: once is enough
         vias = reply_data(via, 2) if via is not None else b""
+        fine = None if no_fine or no_via else midi().request([0x67, layer], expect=[0x67, layer], timeout=0.5)
+        no_fine = fine is None  # firmware before it: once is enough
+        fines = reply_data(fine, 2) if fine is not None else b""
         for i in range(0, len(b) - 3, 4):
             if b[i] != 0 and b[i] < len(SOURCE_NAMES) and b[i + 1] < len(DEST_NAMES):
                 depth = (b[i + 2] << 7 | b[i + 3]) - 99
-                lines.append(f"  {SOURCE_NAMES[b[i]]} → {DEST_NAMES[b[i + 1]]}: {depth}"
+                exact = depth + (fines[i // 4] - 9) / 10 if len(fines) > i // 4 else depth
+                lines.append(f"  {SOURCE_NAMES[b[i]]} → {DEST_NAMES[b[i + 1]]}: {exact:g}"
                              + (f" via {via_text(vias[i // 2] << 7 | vias[i // 2 + 1])}" if len(vias) > i // 2 + 1 and (vias[i // 2] << 7 | vias[i // 2 + 1]) else "")
                              + (" (both layers)" if both[layer] >> (i // 4) & 1 else "")
                              + ("" if depth else " (plays nothing; 5 s at 0 removes it)"))

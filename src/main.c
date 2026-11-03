@@ -93,6 +93,10 @@
 //   62 <layer> <source> <dest> <v1> <v0>  set that route's Via, v1 << 7 | v0 (mod.h: 1-800 a number in hundredths, 1000 +
 //                          a source; 0.9.5); acknowledged, or nothing if it can't be
 //   63 <layer>             the layer's Vias; replies 63 <layer> then per route slot <v1> <v0> (0.9.5)
+//   66 <layer> <source> <dest> <t1> <t0>  set a route's depth in tenths, (t1 << 7 | t0) - 990 (0.9.5); acknowledged. 56 and 57 go on
+//                          giving the nearest whole number
+//   67 <layer>             the tenths on the layer's route depths; replies 67 <layer> then per route slot <fine + 9> (0.9.5):
+//                          the depth is 57's + fine / 10
 //   58                     timing; replies 58 <engine, refresh, pass, longest pass, panel poll, display, passes/s, ticks: µs,
 //                          passes in the last second: 3 × 7 bits each>
 //   57 <layer>             the layer's routes; replies 57 <layer> then per route <source> <dest> <d1> <d0>
@@ -123,7 +127,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 203 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 209 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -693,7 +697,7 @@ static uint32_t last_pot_at;     // and when: only a knob touched in the 5 s bef
 static const char source_names[SRC_COUNT][5] = {
     "", "LFO1", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE", "LFO2",
     "SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb",
-    "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2",
+    "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP",
 };
 static const char dest_names[DEST_COUNT][6] = {
     "P.A", "P.b", "PIt", "CUt", "F.EA", "P.EA", "L.An", "L.Fr", "L.FL", "VCA",
@@ -701,12 +705,26 @@ static const char dest_names[DEST_COUNT][6] = {
     "L.rt", "L2.An", "L2.rt", "L2.Fr", "L2.FL", "L2.PU", "norP",
     "EA-A", "EA-d", "EA-S", "EA-r", "EF-A", "EF-d", "EF-S", "EF-r",
     "E3-A", "E3-d", "E3-S", "E3-r", "E4-A", "E4-d", "E4-S", "E4-r",
-    "GLId", "dEtU", "VOL", "nAC1", "nAC2",
+    "GLId", "dEtU", "VOL", "nAC1", "nAC2", "CHAo",
 };
+
+// A depth in tenths: a whole number as ever, the rest with its point, on the display's last digits: 53.5, -53.5, -5.5
+static void show_depth(int tenths)
+{
+    if (!(tenths % 10)) {
+        display_number(tenths / 10);
+        return;
+    }
+    int v = tenths < 0 ? -tenths : tenths;
+    char text[6] = {' ', v >= 100 ? (char)('0' + v / 100) : ' ', (char)('0' + v / 10 % 10), '.', (char)('0' + v % 10), 0};
+    if (tenths < 0)
+        text[v >= 100 ? 0 : 1] = '-';
+    display_text(text);
+}
 
 static void show_route(void)
 {
-    display_number(synth_route(synth_edit_layer(), (mod_source_t)assign_source, (mod_dest_t)assign_dest));
+    show_depth(synth_route_tenths(synth_edit_layer(), (mod_source_t)assign_source, (mod_dest_t)assign_dest));
 }
 
 // The edit layer's routes in use: their slots, in order. Returns how many.
@@ -748,7 +766,7 @@ static void browse_show(void)
     else if (frame == 2)
         display_text(dest_names[r->dest]);
     else
-        display_number(r->depth);
+        show_depth(r->depth * 10 + synth_route_fine(synth_edit_layer(), slots[browse_index]));
 }
 
 static void assign_end(void)
@@ -946,7 +964,9 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
             show_value_at = 0;
         } else { // the depth: a step per half cycle, -99..99 takes a few turns
             int layer = synth_edit_layer();
-            int depth = synth_route(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest) + step;
+            int tenths = synth_route_tenths(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest);
+            // between two whole numbers, the next one that way: 53.5 goes to 54 or to 53
+            int depth = tenths % 10 ? tenths / 10 + (step * tenths > 0 ? step : 0) : tenths / 10 + step;
             if (!synth_set_route(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest, depth))
                 display_text("FULL");
             else
@@ -1006,6 +1026,11 @@ static void set_pickup(int on)
     store_set_pickup(on);
 }
 
+// Under Shift, M VOL and FIL ENV AMT edit the edit layer's Velocity routes: the same ordinary routes as MOD ASSIGN and the
+// web page's Velocity knobs. A route is the layer's own, so a link between the layers doesn't come into it.
+static int velocity_route_pot(int pot) { return pot == POT_MASTER_VOL || pot == POT_FIL_ENV_AMT; }
+static mod_dest_t velocity_route_dest(int pot) { return pot == POT_MASTER_VOL ? DEST_VCA : DEST_CUTOFF; }
+
 // An LFO's delay and fade read as note values while that LFO is synced. The sync is looked at here, when it's shown: one
 // changed from the host with a value on the display leaves it there for its second and a half, and the next turn reads anew.
 static void show_shift_value(void)
@@ -1017,14 +1042,11 @@ static void show_shift_value(void)
         display_text("ALL");
     else if (pot == POT_PMOD_FIL_ENV)
         display_text(shift_value ? "on" : "OFF");
+    else if (velocity_route_pot(pot))
+        show_depth(synth_route_tenths(synth_edit_layer(), SRC_VELOCITY, velocity_route_dest(pot)));
     else
         display_number(shift_value);
 }
-
-// Under Shift, M VOL and FIL ENV AMT edit the edit layer's Velocity routes: the same ordinary routes as MOD ASSIGN and the
-// web page's Velocity knobs. A route is the layer's own, so a link between the layers doesn't come into it.
-static int velocity_route_pot(int pot) { return pot == POT_MASTER_VOL || pot == POT_FIL_ENV_AMT; }
-static mod_dest_t velocity_route_dest(int pot) { return pot == POT_MASTER_VOL ? DEST_VCA : DEST_CUTOFF; }
 
 // No route to adjust and no slot for one: as synth_set_route(), a route waiting at 0 gives up its slot
 static int velocity_route_full(int layer, mod_dest_t dest)
@@ -1943,6 +1965,7 @@ typedef enum {
     SET_ROUTE_BOTH, // 4 of them: layer 1's routes 0-7 and 8-15, then layer 2's: a bit per slot, plays on both layers
     SET_ROUTE_BOTH_END = SET_ROUTE_BOTH + 3,
     SET_UNISON_VOICES,                                   // the voices a note takes in unison, 2-8
+    SET_ARP_RANGE, SET_ARP_EXTEND, SET_ARP_CHAOS,        // a sequence's arp: octaves above the first, ARP_EXTEND_*, 0-99
     SET_WRITABLE,                                       // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -1974,6 +1997,9 @@ static int host_setting_get(int id)
     case SET_LFO1_CYCLES: case SET_LFO2_CYCLES: return lfo_cycles[id == SET_LFO2_CYCLES];
     case SET_LFO_RESTART: return synth_lfo_restart_keys();
     case SET_UNISON_VOICES: return synth_unison_voices();
+    case SET_ARP_RANGE: return synth_arp_range();
+    case SET_ARP_EXTEND: return synth_arp_extend();
+    case SET_ARP_CHAOS: return synth_arp_chaos_setting();
     case SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END:
         return synth_route_both((id - SET_ROUTE_BOTH) / 2) >> 8 * ((id - SET_ROUTE_BOTH) % 2) & 0xFF;
     case SET_LFO1_DELAY: case SET_LFO2_DELAY: return lfo_delay[id == SET_LFO2_DELAY];
@@ -2020,6 +2046,7 @@ static int host_setting_set(int id, int value)
         [SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B] = OSC_TUNE_MODE_COUNT, [SET_PICKUP] = 2, [SET_LAYER_LINK] = LINK_ALL + 1,
         [SET_LFO1_CYCLES] = 100, [SET_LFO2_CYCLES] = 100, [SET_LFO_RESTART] = 2,
         [SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END] = 256, [SET_UNISON_VOICES] = VOICE_COUNT + 1,
+        [SET_ARP_RANGE] = ARP_RANGE_MAX + 1, [SET_ARP_EXTEND] = ARP_EXTEND_COUNT, [SET_ARP_CHAOS] = ARP_CHAOS_MAX + 1,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id] || (id == SET_UNISON_VOICES && value < 2))
         return 0;
@@ -2045,6 +2072,9 @@ static int host_setting_set(int id, int value)
     case SET_ROOT: synth_set_scale((synth_scale() & 15) | value << 4); break;
     case SET_LFO_RESTART: synth_set_lfo_restart_keys(value); break;
     case SET_UNISON_VOICES: synth_set_unison_voices(value); break;
+    case SET_ARP_RANGE: synth_set_arp_range(value); break;
+    case SET_ARP_EXTEND: synth_set_arp_extend(value); break;
+    case SET_ARP_CHAOS: synth_set_arp_chaos(value); break;
     case SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END: {
         int layer = (id - SET_ROUTE_BOTH) / 2, shift = 8 * ((id - SET_ROUTE_BOTH) % 2);
         synth_set_route_both(layer, (synth_route_both(layer) & ~(0xFF << shift)) | value << shift);
@@ -2494,6 +2524,18 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = (uint8_t)(via >> 7);
             reply[n++] = (uint8_t)(via & 0x7F);
         }
+    }
+    if (data_length == 6 && data[0] == 0x66 && data[1] < 2) {
+        if (synth_set_route_tenths(data[1], (mod_source_t)data[2], (mod_dest_t)data[3], (data[4] << 7 | data[5]) - 990)) {
+            reply[n++] = 0x7F;
+            reply[n++] = 0x66;
+        }
+    }
+    if (data_length == 2 && data[0] == 0x67 && data[1] < 2) {
+        reply[n++] = 0x67;
+        reply[n++] = data[1];
+        for (int r = 0; r < ROUTES; r++)
+            reply[n++] = (uint8_t)(synth_route_fine(data[1], r) + ROUTE_FINE_MAX);
     }
     if (data_length == 2 && data[0] == 0x57 && data[1] < 2) {
         const route_t *r = synth_routes(data[1]);

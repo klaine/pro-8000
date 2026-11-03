@@ -19,6 +19,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "lfoRestart", // a sequence's LFO restarts: 0 from its steps, 1 from the keys
   "routeBoth1Lo", "routeBoth1Hi", "routeBoth2Lo", "routeBoth2Hi", // per layer, a bit per route slot: plays on both layers
   "unisonVoices", // the voices a note takes in unison, 2-8
+  "arpRange", "arpExtend", "arpChaos", // a sequence's arp: octaves above the first, the notes it adds, 0-99
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -74,17 +75,17 @@ const JN = {
     8: "pmod-freq-a", 10: "lfo-filter", 11: "pmod-filter", 12: "unison", 15: "sync" },
   sources: ["lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
     "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre", "bend", "pedal", "cc-a", "cc-b",
-    "voice", "fixed", "macro1", "macro2"], // source 1 on
+    "voice", "fixed", "macro1", "macro2", "arp-note"], // source 1 on
   dests: ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
     "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
     "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph", "amp-att",
     "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel", "env3-att", "env3-dec", "env3-sus",
-    "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel", "glide", "detune", "volume", "macro1", "macro2"],
+    "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel", "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"],
   shapes: ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"],
   divisions: ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
     "1/16T", "1/32"],
   envs: ["amp", "filter", "env3", "env4"],
-  arps: ["off", "up", "down", "up-down", "random", "played"],
+  arps: ["off", "up", "down", "up-down", "random", "played", "walk"],
 };
 class JsonProblem extends Error {}
 const bad = text => { throw new JsonProblem(text); };
@@ -103,6 +104,7 @@ const JSON_SETTINGS = [
   ["lfo2-sync", "lfo2Sync", jOne(["free", "clock"])], ["lfo2-trigger", "lfo2Trigger", jOne(JN.triggers)],
   ["lfo-cycles", "lfoCycles1", jInt(1, 99)], ["lfo2-cycles", "lfoCycles2", jInt(1, 99)],
   ["lfo-restart", "lfoRestart", jOne(["steps", "keys"])],
+  ["arp-range", "arpRange", jOne(["1", "2", "3"])], ["arp-extend", "arpExtend", jOne(["none", "octave", "fifth", "seventh", "ninth"])], ["arp-chaos", "arpChaos", jInt(0, 99)],
   ...[1, 2].flatMap(l => [1, 2].map(n => [`shape ${l} ${n}`, `shape${l}${n}`, jOne(JN.shapes)])),
   ...[1, 2].flatMap(l => [
     [`lfo2-dests ${l}`, `lfo2Dests${l}`, jBits(["pitch", "filter", "pw"])],
@@ -190,8 +192,13 @@ function planSound(j, has) {
       const s = JN.sources.indexOf(r[0]) + 1, d = JN.dests.indexOf(r[1]);
       if (!s) bad(`route source: ${JSON.stringify(r[0])}`);
       if (d < 0) bad(`route destination: ${JSON.stringify(r[1])}`);
-      const depth = jInt(-99, 99).enc(r[2], `depth of ${r[0]} → ${r[1]}`) + 99;
+      // in steps of 0.1: first the nearest whole number, which older firmware stays at (never 0, which is no route)
+      const tenths = typeof r[2] === "number" ? Math.round(r[2] * 10) : NaN;
+      if (!(Math.abs(r[2] * 10 - tenths) < 1e-6 && Math.abs(tenths) <= 990)) bad(`depth of ${r[0]} → ${r[1]}: -99 to 99 in steps of 0.1, not ${JSON.stringify(r[2])}`);
+      const depth = Math.sign(tenths) * Math.max(1, Math.round(Math.abs(tenths) / 10)) + 99;
       messages.push([0x56, layer - 1, s, d, depth >> 7, depth & 0x7F]);
+      if (tenths % 10 && has("unisonVoices")) messages.push([0x66, layer - 1, s, d, tenths + 990 >> 7, tenths + 990 & 0x7F]);
+      else if (tenths % 10) warnings.push(`routes ${layer}: a depth of ${r[2]}: this firmware takes whole numbers`);
       const via = marks.find(m => m !== "both");
       if (via && r[2]) { // a listed depth 0 lands nowhere
         const v = viaFromText(via.slice(4));

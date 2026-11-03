@@ -1919,11 +1919,11 @@ class ModAssign(PanelTest):
     def test_value_scrolls_sources_and_assign_takes_one(self):
         self.begin()
         names = []
-        for _ in range(27):
+        for _ in range(28):
             self.s.turn(1)
             names.append(self.s.shows())
         self.assertEqual(len(set(names)), len(names), f"every source reads differently: {names}")
-        for wanted in ("SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb", "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2"):
+        for wanted in ("SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb", "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP"):
             self.assertIn(readable(segments_of(wanted)), names)
         self.s.press("ASSIGN")
 
@@ -2107,6 +2107,17 @@ class Browse(PanelTest):
         self.s.history()
         self.s.ms(800 + 600 * 4)
         self.assertSaw(["VEL", "rES", "  20"])
+
+    def test_at_rest_a_depth_in_tenths_shows_its_point(self):
+        t = 535 + 990
+        self.s.request(0x66, 0, 4, 13, t >> 7, t & 0x7F)
+        self.s.hold("ASSIGN")
+        self.s.ms(650)
+        self.s.let_go("ASSIGN")
+        self.s.turn(1)
+        self.s.history()
+        self.s.ms(800 + 600 * 4)
+        self.assertSaw(["VEL", "rES", " 53.5"])
 
     def test_hold_again_leaves(self):
         self.s.hold("ASSIGN")
@@ -2801,6 +2812,33 @@ class ModAssignMore(PanelTest):
         self.assertShows("  20")
         self.s.press("ASSIGN")
 
+    def open_depth(self, tenths):
+        """MOD ASSIGN on source 4 -> resonance, with the route at this depth in tenths."""
+        t = tenths + 990
+        self.s.request(0x66, 0, 4, 13, t >> 7, t & 0x7F)
+        self.begin()
+        self.s.press("4")
+        self.s.pot("RESONANCE", 0.3)
+        self.s.pot("RESONANCE", 0.4)
+        self.s.ms(800)
+
+    def test_a_depth_in_tenths_shows_its_point(self):
+        for tenths, text in ((535, " 53.5"), (-535, "-53.5"), (55, "  5.5"), (-55, " -5.5"), (1, "  0.1"), (-1, " -0.1"), (985, " 98.5"), (530, "  53")):
+            with self.subTest(tenths):
+                self.open_depth(tenths)
+                self.assertShows(text)
+                self.s.press("ASSIGN")
+
+    def test_value_goes_from_tenths_to_the_next_whole_number_that_way(self):
+        for tenths, step, text, depth in ((535, 1, "  54", 54), (535, -1, "  53", 53), (-535, 1, " -53", -53), (-535, -1, " -54", -54)):
+            with self.subTest((tenths, step)):
+                self.open_depth(tenths)
+                self.s.cmd(f"enc {2 * step} 40") # half a cycle, one step of a depth
+                self.s.ms(100)
+                self.assertShows(text)
+                self.s.press("ASSIGN")
+                self.assertIn(depth, [r[2] for r in self.s.routes()])
+
     def test_the_edit_layer_gets_the_route(self):
         self.s.no_routes()
         self.s.press("SEQ2")
@@ -3308,6 +3346,84 @@ class Via(PanelTest):
         self.route("fixed", "pitch-a", 0)
         self.s.rest()
         return moved
+
+    def tenths(self, source, dest, tenths, layer=0):
+        t = tenths + 990
+        return bytes([0x7F, 0x66]) in self.s.request(0x66, layer, pro800.SOURCE_NAMES.index(source), pro800.DEST_NAMES.index(dest), t >> 7, t & 0x7F)
+
+    def fines(self, layer=0):
+        reply = self.s.request(0x67, layer)
+        start = reply.index(pro800.SYSEX_HEADER + bytes([0x67, layer])) + pro800.HEADER_SIZE + 2
+        return [reply[start + r] - 9 for r in range(16)]
+
+    def fixed_pitch_at(self, tenths):
+        """How many semitones Fixed -> Pitch A adds to a held note at a depth in tenths."""
+        self.s.note(40)
+        self.s.ms(20)
+        base = self.pitch()
+        self.assertTrue(self.tenths("fixed", "pitch-a", tenths))
+        self.s.ms(20)
+        moved = self.pitch() - base
+        self.s.note_off(40)
+        self.route("fixed", "pitch-a", 0)
+        self.s.rest()
+        return moved
+
+    def test_a_depth_in_tenths_lands_between_the_whole_numbers(self):
+        # 24 x (d / 99)^2: a fifth is about 53.5, where 53 and 54 are 6.88 and 7.14
+        self.assertAlmostEqual(self.fixed_pitch_at(535), 24 * (53.5 / 99) ** 2, delta=0.01)
+        self.assertAlmostEqual(self.fixed_pitch_at(530), 24 * (53 / 99) ** 2, delta=0.01)
+        self.assertAlmostEqual(self.fixed_pitch_at(-535), -24 * (53.5 / 99) ** 2, delta=0.01)
+
+    def test_tenths_keep_the_nearest_whole_number_for_older_firmware(self):
+        for tenths, whole, fine in ((535, 54, -5), (534, 53, 4), (-535, -54, 5), (1, 1, -9), (-1, -1, 9), (985, 99, -5)):
+            self.assertTrue(self.tenths("lfo", "cutoff", tenths))
+            self.assertEqual(self.depth_and_fine(), (whole, fine), tenths)
+
+    def depth_and_fine(self):
+        reply = self.s.request(0x57, 0)
+        start = reply.index(pro800.SYSEX_HEADER + bytes([0x57, 0])) + pro800.HEADER_SIZE + 2
+        for r in range(16):
+            if reply[start + 4 * r] == pro800.SOURCE_NAMES.index("lfo") and reply[start + 4 * r + 1] == pro800.DEST_NAMES.index("cutoff"):
+                return (reply[start + 4 * r + 2] << 7 | reply[start + 4 * r + 3]) - 99, self.fines()[r]
+        return None
+
+    def test_a_whole_depth_replaces_the_tenths(self):
+        self.assertTrue(self.tenths("lfo", "cutoff", 535))
+        self.assertTrue(self.route("lfo", "cutoff", 54))
+        self.assertEqual(self.depth_and_fine(), (54, 0))
+
+    def test_tenths_survive_a_save_and_a_load(self):
+        self.assertTrue(self.tenths("lfo", "cutoff", 535))
+        self.s.request(0x5D, 0, 127)
+        self.s.request(0x5F)
+        self.s.ms(20)
+        self.assertNotIn(-5, self.fines(), "the init sound has none")
+        self.s.request(0x5C, 0, 127)
+        self.s.ms(20)
+        self.assertEqual(self.depth_and_fine(), (54, -5))
+
+    def test_a_move_keeps_the_tenths_at_the_same_whole_number(self):
+        self.assertTrue(self.tenths("lfo", "cutoff", 535))
+        lfo, cutoff, res = pro800.SOURCE_NAMES.index("lfo"), pro800.DEST_NAMES.index("cutoff"), pro800.DEST_NAMES.index("resonance")
+        d = 54 + 99
+        self.assertIn(bytes([0x7F, 0x61]), self.s.request(0x61, 0, lfo, cutoff, lfo, res, d >> 7, d & 0x7F))
+        self.assertIn(-5, self.fines())
+        d = 60 + 99
+        self.assertIn(bytes([0x7F, 0x61]), self.s.request(0x61, 0, lfo, res, lfo, cutoff, d >> 7, d & 0x7F))
+        self.assertEqual(self.depth_and_fine(), (60, 0))
+
+    def test_at_zero_it_loses_its_tenths(self):
+        self.assertTrue(self.tenths("lfo", "cutoff", 535))
+        self.assertTrue(self.tenths("lfo", "cutoff", 0))
+        self.assertEqual(self.depth_and_fine(), (0, 0))
+
+    def test_the_ends_hold(self):
+        self.assertTrue(self.tenths("lfo", "cutoff", 990))
+        self.assertEqual(self.depth_and_fine(), (99, 0))
+        t = 1980 + 40  # past the end, as a request can say
+        self.s.request(0x66, 0, pro800.SOURCE_NAMES.index("lfo"), pro800.DEST_NAMES.index("cutoff"), t >> 7, t & 0x7F)
+        self.assertEqual(self.depth_and_fine(), (99, 0))
 
     def test_a_number_multiplies_the_pitch_range(self):
         self.assertAlmostEqual(self.fixed_pitch_swing(None), 24, delta=0.1)
@@ -3844,6 +3960,240 @@ class EnvelopeBehaviour(PanelTest):
         self.assertEqual(self.s.amp(), 0, "one cycle, then rest")
 
 
+class ArpGenerative(PanelTest):
+    """A mono layer's held list is the note playing, so these read the notes an arp plays. Steps of a 16th at 120 BPM, gate 50 %."""
+    WALK, UP, DOWN, RANDOM = 6, 1, 2, 4
+
+    def setUp(self):
+        super().setUp()
+        self.s.no_routes()
+        self.s.setting("voice 1", 1)
+
+    def arp(self, kind, steps=8, chaos=0, extend=0, octaves=1, gate=50):
+        self.s.seq_set(length=steps, arp=kind)
+        self.s.seq_steps(0, [(0, 0, gate)] * steps)
+        self.s.setting("arp-range", octaves - 1)
+        self.s.setting("arp-extend", extend)
+        self.s.setting("arp-chaos", chaos)
+
+    def notes(self, count):
+        """The next notes started, as they start"""
+        seen, last = [], None
+        for _ in range(count * 60):
+            self.s.ms(5)
+            held = self.s.probe()["held"][0]
+            now = held[-1] if held else None
+            if now is not None and now != last:
+                seen.append(now)
+                if len(seen) == count:
+                    break
+            last = now
+        return seen
+
+    def chord(self, *notes):
+        for n in notes:
+            self.s.note(n)
+
+    def test_a_walk_goes_two_on_and_one_back_and_turns_at_the_ends(self):
+        self.arp(self.WALK)
+        self.chord(48, 51, 55, 58)
+        self.assertEqual(self.notes(14), [48, 51, 55, 51, 55, 58, 55, 58, 55, 58, 55, 51, 55, 51])
+
+    def test_a_walk_over_two_octaves_goes_on_up(self):
+        self.arp(self.WALK, octaves=2)
+        self.chord(48, 52, 55)
+        self.assertEqual(self.notes(12), [48, 52, 55, 52, 55, 60, 55, 60, 64, 60, 64, 67])
+
+    def test_a_walk_follows_on_from_the_nearest_note_of_a_new_chord(self):
+        self.arp(self.WALK)
+        self.chord(60, 64, 67)
+        self.notes(3)
+        for n in (60, 64, 67):
+            self.s.note_off(n)
+            self.s.note(n + 5)  # a note stays held throughout
+        got = self.notes(5)[1:]  # the first may be the old chord's, caught as the keys change
+        self.assertTrue(set(got) <= {65, 69, 72}, got)
+
+    def test_a_ratchet_repeats_a_walks_note(self):
+        self.arp(self.WALK, steps=1)
+        self.s.seq_steps(0, [(0, 0, 50, 1, 3 << 3)])  # 4 ratchets
+        self.chord(48, 52, 55)
+        seen = []
+        for _ in range(12):
+            self.s.ms(5)
+            held = self.s.probe()["held"][0]
+            if held:
+                seen.append(held[-1])
+        self.assertEqual(len(set(seen)), 1, seen)
+
+    def test_up_is_as_it_was_with_none_of_it_set(self):
+        self.arp(self.UP)
+        self.chord(60, 64, 67)
+        self.assertEqual(self.notes(5), [60, 64, 67, 60, 64])
+
+    def test_range_spreads_the_notes_over_octaves(self):
+        self.arp(self.UP, octaves=3)
+        self.chord(60, 64)
+        self.assertEqual(self.notes(7), [60, 64, 72, 76, 84, 88, 60])
+
+    def test_a_chord_wider_than_an_octave_stays_in_order(self):
+        self.arp(self.UP, octaves=2)
+        self.chord(60, 76)
+        self.assertEqual(self.notes(5), [60, 72, 76, 88, 60])
+
+    def test_the_extension_adds_notes_above_the_chord(self):
+        for level, added in ((1, [72]), (2, [72, 79]), (3, [71, 72, 79]), (4, [71, 72, 74, 79])):
+            with self.subTest(level):
+                self.arp(self.UP, extend=level)
+                self.chord(60, 64, 67)
+                want = [60, 64, 67] + added
+                self.assertEqual(self.notes(len(want)), want)
+                for n in (60, 64, 67):
+                    self.s.note_off(n)
+
+    def test_a_minor_chord_takes_a_minor_seventh(self):
+        self.arp(self.UP, extend=3)
+        self.chord(60, 63, 67)
+        self.assertEqual(self.notes(6), [60, 63, 67, 70, 72, 79])
+
+    def test_an_inversion_finds_its_root(self):
+        self.arp(self.UP, extend=4)
+        self.chord(64, 67, 72)  # C major, E lowest: the ninth is a D, not an F sharp
+        self.assertEqual(self.notes(7), [64, 67, 72, 74, 79, 83, 84])
+
+    def test_with_no_third_it_stops_at_the_fifth(self):
+        self.arp(self.UP, extend=4)
+        self.chord(60, 67)
+        self.assertEqual(self.notes(4), [60, 67, 72, 79])
+
+    def test_with_a_scale_the_added_notes_are_in_it(self):
+        self.s.setting("scale", pro800.SCALE_NAMES.index("minor"))
+        self.arp(self.UP, extend=4)
+        self.chord(60, 67)  # no third, but the scale knows: B flat and D
+        self.assertEqual(self.notes(6), [60, 67, 70, 72, 74, 79])
+
+    def test_chaos_makes_a_walk_jump_within_its_notes(self):
+        self.arp(self.WALK, chaos=99, octaves=2)
+        self.chord(48, 52, 55)
+        got = self.notes(40)
+        self.assertTrue(set(got) <= {48, 52, 55, 60, 64, 67}, got)
+        ladder = [48, 52, 55, 60, 64, 67]
+        self.assertTrue(any(abs(ladder.index(a) - ladder.index(b)) > 1 for a, b in zip(got, got[1:])), got)
+
+    def test_chaos_in_up_plays_other_notes_of_the_chord(self):
+        self.arp(self.UP, chaos=99)
+        self.chord(60, 64, 67, 70)
+        got = self.notes(24)
+        self.assertTrue(set(got) <= {60, 64, 67, 70}, got)
+        self.assertNotEqual(got[:8], [60, 64, 67, 70, 60, 64, 67, 70])
+
+    def test_chaos_makes_added_notes_come_and_go(self):
+        self.arp(self.UP, chaos=50, extend=2)
+        self.chord(60, 64, 67)
+        got = self.notes(120)
+        self.assertTrue(set(got) <= {60, 64, 67, 72, 79}, got)
+        counts = {n: got.count(n) for n in (60, 72, 79)}
+        self.assertGreater(counts[60], counts[72], got)
+
+    def test_a_route_into_chaos_adds_to_it(self):
+        self.arp(self.WALK, octaves=2)
+        names, dests = pro800.SOURCE_NAMES, pro800.DEST_NAMES
+        self.s.request(0x56, 0, names.index("fixed"), dests.index("arp-chaos"), (99 + 99) >> 7, (99 + 99) & 0x7F)
+        self.chord(48, 52, 55)
+        got = self.notes(40)
+        ladder = [48, 52, 55, 60, 64, 67]
+        self.assertTrue(any(abs(ladder.index(a) - ladder.index(b)) > 1 for a, b in zip(got, got[1:])), got)
+
+    def test_a_route_can_take_chaos_away(self):
+        self.arp(self.WALK, chaos=99)
+        names, dests = pro800.SOURCE_NAMES, pro800.DEST_NAMES
+        self.s.request(0x56, 0, names.index("fixed"), dests.index("arp-chaos"), 0, 0)  # -99
+        self.s.note(1)  # a first note, so the layer's routes have a voice to read
+        self.s.ms(20)
+        self.s.note_off(1)
+        self.s.ms(20)
+        self.chord(48, 51, 55, 58)
+        self.assertEqual(self.notes(14), [48, 51, 55, 51, 55, 58, 55, 58, 55, 58, 55, 51, 55, 51])
+
+    def cutoff_for(self, wanted, count=24):
+        """The cutoff CV while this note plays"""
+        for _ in range(count * 30):
+            self.s.ms(5)
+            held = self.s.probe()["held"][0]
+            if held and held[-1] == wanted:
+                self.s.ms(3)
+                return self.s.cvs()[CV_FIL1]
+        self.fail(f"note {wanted} never came")
+
+    def test_note_position_as_a_source_runs_low_to_high(self):
+        self.s.setting("keytrack", 0)
+        self.arp(self.UP)
+        names, dests = pro800.SOURCE_NAMES, pro800.DEST_NAMES
+        depth = 40 + 99
+        self.s.request(0x56, 0, names.index("arp-note"), dests.index("cutoff"), depth >> 7, depth & 0x7F)
+        self.s.param(0, "cutoff", 4000)
+        self.chord(60, 64, 67)
+        low, mid, high = self.cutoff_for(60), self.cutoff_for(64), self.cutoff_for(67)
+        self.assertLess(low, mid)
+        self.assertLess(mid, high)
+        semitones = (high - low) / CV_PER_SEMITONE
+        self.assertAlmostEqual(semitones, 96 * 40 / 99, delta=1.5)
+
+    def test_note_position_is_nothing_for_a_played_note(self):
+        self.s.setting("keytrack", 0)
+        names, dests = pro800.SOURCE_NAMES, pro800.DEST_NAMES
+        self.s.param(0, "cutoff", 4000)
+        self.s.note(60)
+        self.s.ms(5)
+        without = self.s.cvs()[CV_FIL1]
+        depth = 40 + 99
+        self.s.request(0x56, 0, names.index("arp-note"), dests.index("cutoff"), depth >> 7, depth & 0x7F)
+        self.s.ms(5)
+        self.assertEqual(self.s.cvs()[CV_FIL1], without)
+
+    def test_in_a_stack_the_pad_holds_the_chord_while_the_arp_plays(self):
+        self.s.setting("layers", pro800.LAYER_MODES.index("stack"))
+        self.s.setting("voice 1", 0)
+        self.s.setting("voice 2", 1)
+        self.s.seq_set(length=8, arp=self.WALK, flags=1 | 2 << 3)
+        self.s.seq_steps(0, [(0, 0, 50)] * 8)
+        self.chord(60, 64, 67)
+        seen = []
+        for _ in range(100):
+            self.s.ms(5)
+            self.assertGreaterEqual(len(self.s.gated()), 3, "the chord stays on layer 1")
+            held = self.s.probe()["held"][1]
+            if held and (not seen or seen[-1] != held[-1]):
+                seen.append(held[-1])
+        self.assertEqual(seen[:4], [60, 64, 67, 64], "and layer 2 walks it")
+
+    def test_the_settings_stay_in_the_patch(self):
+        self.arp(self.WALK, chaos=40, extend=4, octaves=3)
+        self.store_patch(5)
+        for name in ("arp-range", "arp-extend", "arp-chaos"):
+            self.s.setting(name, 0)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.assertEqual([self.setting_value(n) for n in ("arp-range", "arp-extend", "arp-chaos")], [0, 0, 0], "an empty slot")
+        self.s.press("5")
+        self.s.ms(3100)
+        self.assertEqual([self.setting_value(n) for n in ("arp-range", "arp-extend", "arp-chaos")], [2, 4, 40])
+
+    def test_values_past_the_ends_are_refused(self):
+        self.arp(self.WALK, chaos=40, extend=4, octaves=3)
+        self.s.setting("arp-range", 3)
+        self.s.setting("arp-extend", 5)
+        self.s.setting("arp-chaos", 100)
+        self.assertEqual([self.setting_value(n) for n in ("arp-range", "arp-extend", "arp-chaos")], [2, 4, 40])
+
+    def test_an_arp_kind_past_the_last_is_off(self):
+        self.s.seq_set(length=4, arp=7)
+        self.assertEqual(self.s.seq_header()["arp"], 0)
+
+    def setting_value(self, name):
+        return self.s.settings()[name]
+
+
 class SequencerPlays(PanelTest):
     def setUp(self):
         super().setUp()
@@ -4354,7 +4704,7 @@ class WebRanges(PanelTest):
         self.assertEqual(unit["41"], c["TIME_OCTAVES"])
         self.assertAlmostEqual(scale["41"], c["TIME_OCTAVES"] / c["GLIDE_OCTAVES"], 6)
         self.assertEqual(unit["42"], c["DETUNE_CENTS"])
-        self.assertEqual(self.page["dests"], 46)
+        self.assertEqual(self.page["dests"], 47)
 
     def test_pitch_a_is_squared(self):
         v = self.voice()
@@ -7090,6 +7440,45 @@ class WebSmallThings(unittest.TestCase):
             self.assertIsNotNone(why)
         self.assertEqual(out["text"], ["0.25", "1", "mod-wheel", 1005])
 
+    def test_the_arp_in_the_preset_format(self):
+        out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
+        const plan = planSound({ settings: { "arp-range": 3, "arp-extend": "ninth", "arp-chaos": 40 },
+          routes: { 1: [["arp-note", "arp-chaos", 20]] }, sequence: { arp: "walk", steps: [{}] } }, () => true);
+        const old = planSound({ settings: { "arp-chaos": 40 } }, name => name !== "arpChaos");
+        const refused = j => { try { planSound(j, () => true); return null; } catch (e) { return e.message; } };
+        report({ sets: plan.messages.filter(m => m[0] === 0x7D && m[1] >= 92 && m[1] <= 94), header: plan.messages.find(m => m[0] === 0x47),
+          route: plan.messages.find(m => m[0] === 0x56 && m[3] === 46), oldWarned: old.warnings.length,
+          bad: [{ settings: { "arp-range": 4 } }, { settings: { "arp-extend": "eleventh" } }, { settings: { "arp-chaos": 100 } }, { sequence: { arp: "stroll", steps: [{}] } }].map(refused) })
+        """)
+        self.assertEqual(out["sets"], [[0x7D, 92, 0, 2], [0x7D, 93, 0, 4], [0x7D, 94, 0, 40]])
+        self.assertEqual(out["header"][9], 6)
+        self.assertEqual(out["route"][2], 28)
+        for why in out["bad"]:
+            self.assertIsNotNone(why)
+
+    def test_tenths_in_the_preset_format(self):
+        out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
+        const has = () => true, plan = j => planSound(j, has), route = m => m[0] === 0x56 && m[1] === 0 && m[2] === 1 || m[0] === 0x66;
+        const sent = depth => plan({ routes: { 1: [["lfo", "cutoff", depth]] } }).messages.filter(route);
+        const refused = d => { try { plan({ routes: { 1: [["lfo", "cutoff", d]] } }); return null; } catch (e) { return e.message; } };
+        const old = planSound({ routes: { 1: [["lfo", "cutoff", 53.5]] } }, () => false);
+        report({ whole: sent(53), half: sent(53.5), small: sent(0.1), negative: sent(-53.5), oldSent: old.messages.filter(route), oldWarned: old.warnings.length,
+          bad: [99.1, -99.1, 53.55, "53", null].map(refused) });
+        """)
+        self.assertEqual(out["whole"], [[0x56, 0, 1, 3, 1, 152 & 0x7F]])
+        self.assertEqual(out["half"], [[0x56, 0, 1, 3, 1, 153 & 0x7F], [0x66, 0, 1, 3, 1525 >> 7, 1525 & 0x7F]], "the nearest whole number first")
+        self.assertEqual(out["small"], [[0x56, 0, 1, 3, 0, 100], [0x66, 0, 1, 3, 991 >> 7, 991 & 0x7F]], "never 0, which is no route")
+        self.assertEqual(out["negative"], [[0x56, 0, 1, 3, 0, 45], [0x66, 0, 1, 3, 455 >> 7, 455 & 0x7F]])
+        self.assertEqual(out["oldSent"], [[0x56, 0, 1, 3, 1, 153 & 0x7F]], "older firmware: the whole number")
+        self.assertEqual(out["oldWarned"], 1)
+        for why in out["bad"]:
+            self.assertIsNotNone(why)
+
+    def test_tenths_in_plan_py(self):
+        src = source("presets", "lib", "plan.py")
+        self.assertIn('"route %s %s %s %s"', src)
+        self.assertIn("in steps of 0.1", src)
+
     def test_via_in_plan_py(self):
         plan = load_plan_py()
         src = source("presets", "lib", "plan.py")
@@ -7428,7 +7817,7 @@ class PresetRoutes(PanelTest):
         Nothing here treats a depth 0 as absent: unsaved, the caller lets them go first (rest()); from a saved slot there are none."""
         for layer in (0, 1):
             listed = (preset.get("routes") or {}).get(str(layer + 1), [])
-            wanted = [(pro800.SOURCE_NAMES.index(r[0]), pro800.DEST_NAMES.index(r[1]), r[2], len(r) == 4) for r in listed]
+            wanted = [(pro800.SOURCE_NAMES.index(r[0]), pro800.DEST_NAMES.index(r[1]), r[2], "both" in r[3:]) for r in listed]
             st = self.s.settings()
             both = st[f"route-both {layer + 1} (0-7)"] | st[f"route-both {layer + 1} (8-15)"] << 8
             table = self.s.route_table(layer)
@@ -7502,7 +7891,7 @@ class PresetRoutes(PanelTest):
 
     def test_the_whole_bank_saved_and_loaded(self):
         bank = self.shipped()
-        self.assertEqual(len(bank), 66)
+        self.assertEqual(len(bank), 70)
         out = self.plan_on_the_firmware(bank, save=True)
         self.assertEqual(out["failed"], [])
         for preset in bank:  # no rest: what was saved holds no route at 0
@@ -7682,7 +8071,7 @@ def velocity_page():
     page = source("tools", "web", "index.html")
     blocks = RANGE_BLOCKS + ["const ROUTES", "const routesFull", "const routesTaken", "const ROUTE_HOLD_TEXT", "const routeBothMask", "const LINK_FILTER", "const twoLayers", "const linkOn", "const routesBothShown",
                              "const FEATURES", "const feature", "const missingFeatures", "function linkedView(", "function linkedWrites(", "const paramLink",
-                             "async function setRoute(", "async function setRouteVia(", "async function setRouteBoth(", "let viaAnswers", "async function readVias(", "async function refreshLayerRoutes(", "async function setSetting(",
+                             "const wholeDepth", "async function setRoute(", "async function setRouteVia(", "async function setRouteBoth(", "let viaAnswers", "async function readVias(", "let fineAnswers", "async function readFines(", "const exactDepth", "async function refreshLayerRoutes(", "async function setSetting(",
                              "async function refreshSettings(", "async function refreshParams(", "const WIRE", "const options", "const viaOptions", "const viaOf", "function showVia(", "let routeRowHeld", "const ROUTE_ROW_HOLD",
                              'for (const type of ["pointerup"', "const routeRowInUse", "const ROW_CONTROLS", "function renderRoutes(", "async function loadRoutes(",
                              "function adjustable(", "const RING_R", "function dial(", "const SRC_VELOCITY", "let velocitySaid", "const velocityStatus", "function velocityUnsay(", "function velocityKnob(",
@@ -8029,6 +8418,26 @@ class WebVelocityKnobs(PanelTest):
         self.assertEqual(sorted(out["created"]), sorted([[VELOCITY, VCA, 11], [VELOCITY, CUTOFF, -99]]))
         self.assertAlmostEqual(out["ring"][0], 96 / 120, delta=0.001, msg="a negative route's ring goes down")
         self.assertEqual(out["ring"][1], 0)
+
+    def test_the_depth_box_takes_tenths(self):
+        out = self.run_page("""
+        const tr = byId.routes.kids[0], box = tr.q[".dn"], range = tr.q[".dp"];
+        const was = box.value;
+        box.value = "53.5"; box.oninput();
+        const slider = range.value;
+        await box.onchange();
+        await settle();
+        const row = byId.routes.kids[0];
+        const after = [row.q[".dn"].value, layerRoutes[0].depth];
+        // the slider puts it back on a whole number, on the synth too
+        row.q[".dp"].value = "60"; row.q[".dp"].oninput();
+        await settle();
+        await loadRoutes();
+        report({ was, slider, after, whole: [byId.routes.kids[0].q[".dn"].value, layerRoutes[0].depth] });
+        """)
+        self.assertEqual(out["slider"], "53.5", "the slider follows, and the browser puts it on a step")
+        self.assertEqual(out["after"], [53.5, 53.5])
+        self.assertEqual(out["whole"], [60, 60])
 
     def test_a_matrix_edit_repaints_the_knob(self):
         out = self.run_page("""
@@ -8931,6 +9340,20 @@ class RouteHold(PanelTest):
         self.assertTrue(self.route(9, 2, 3))
         self.assertEqual(self.s.route_table()[:3], [(VELOCITY, VCA, 0), INIT_ROUTES[1], (2, 3, 9)])
 
+    def test_the_panels_velocity_knob_shows_tenths_until_it_moves_the_depth(self):
+        self.s.no_routes()
+        t = 535 + 990
+        self.s.request(0x66, 0, VELOCITY, VCA, t >> 7, t & 0x7F)
+        self.s.hold("SHIFT")
+        self.s.pot("MASTER_VOL", 0.3)
+        self.s.pot("MASTER_VOL", 0.3 + 30 / 4095)
+        self.assertShows("VE.A")
+        self.s.ms(600)
+        self.assertShows(" 53.5", "too small a move for a step")
+        self.s.pot("MASTER_VOL", 0.6)
+        self.assertRegex(self.s.shows(), r"^ +\d+$", "a step: a whole number")
+        self.s.let_go("SHIFT")
+
     def test_the_panels_velocity_knob_and_mod_assign_agree(self):
         self.s.no_routes()
         for dest in range(16, 32):
@@ -9690,7 +10113,7 @@ class PresetBundle(unittest.TestCase):
         run, out = self.bundle(folder=os.path.join(ROOT, "presets"))
         self.assertEqual(run.returncode, 0, run.stderr)
         with open(out, encoding="utf-8") as f:
-            self.assertEqual(len(json.load(f)["presets"]), 66)
+            self.assertEqual(len(json.load(f)["presets"]), 70)
 
     def test_edges_pass(self):
         run, _ = self.bundle({"slot": 1, "name": "A"}, {"slot": 128, "name": "1234567890123456"}, {"slot": 2, "name": "a b~"})

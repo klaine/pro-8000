@@ -164,6 +164,7 @@ typedef struct {
     float bend;                    // per-voice pitch bend, -1..1 (the per-channel layer modes)
     float timbre;                  // CC 74, 0..1 (a mod source)
     float macro[2];                // the macros' values for this voice, -1..1 (routes into DEST_MACRO1 / 2)
+    float arp_position;            // SRC_ARP_NOTE, as the note began
     // Envelope stage routes, from the last pass: rate multipliers (attack, decay, release) and a sustain offset per
     // envelope, and whether any is in use; the glide coefficient with its route
     float env_rate_mul[4][3], env_sus_add[4];
@@ -249,6 +250,7 @@ static int keytrack_setting = 2;
 static route_t routes[LAYERS][ROUTES];
 static uint16_t route_both[LAYERS]; // bit r: routes[layer][r] plays on the other layer's voices too
 static uint16_t route_via[LAYERS][ROUTES]; // each route's Via (mod.h)
+static int8_t route_fine[LAYERS][ROUTES];  // each route's tenths on its depth (mod.h)
 // A route turned to 0 stays in its slot, playing nothing, until it has rested there for ROUTE_HOLD_MS (synth_route_poll()):
 // bit r says it's on its way out, and route_zero_at when it reached 0 (0: the poll hasn't timed it yet).
 static uint16_t route_waiting[LAYERS];
@@ -263,6 +265,8 @@ static uint8_t held[LAYERS][HELD_MAX];
 static int held_count[LAYERS];
 static int unison;
 static int unison_voices = VOICE_COUNT; // the voices a note takes in unison, 2-8
+static uint8_t arp_range, arp_extend, arp_chaos; // a sequence's arp (seq.h)
+static float arp_position;                       // what the next notes on take as SRC_ARP_NOTE
 
 void synth_init(void)
 {
@@ -642,10 +646,12 @@ int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth)
         if (x->source == source && x->dest == dest) {
             if (depth) { // the first of a hand-made record's copies; back from 0 it keeps its slot and its Both mark
                 x->depth = (int8_t)depth;
+                route_fine[layer][r] = 0;
                 route_waiting[layer] &= (uint16_t)~bit;
                 return 1;
             }
             x->depth = 0; // and on through the copies: 0 takes them all
+            route_fine[layer][r] = 0;
             if (!(route_waiting[layer] & bit)) { // already on its way, it keeps its time
                 route_waiting[layer] |= bit;
                 route_zero_at[layer][r] = 0;
@@ -664,9 +670,43 @@ int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth)
         return 0;
     routes[layer][slot] = (route_t){(uint8_t)source, (uint8_t)dest, (int8_t)depth};
     route_via[layer][slot] = 0;
+    route_fine[layer][slot] = 0;
     route_both[layer] &= (uint16_t)~(1u << slot);
     route_waiting[layer] &= (uint16_t)~(1u << slot);
     return 1;
+}
+
+int synth_set_route_tenths(int layer, mod_source_t source, mod_dest_t dest, int tenths)
+{
+    tenths = tenths < -990 ? -990 : tenths > 990 ? 990 : tenths;
+    int whole = (tenths + (tenths < 0 ? -5 : 5)) / 10;
+    if (!whole && tenths) // 0 would be a route on its way out
+        whole = tenths < 0 ? -1 : 1;
+    if (!synth_set_route(layer, source, dest, whole))
+        return 0;
+    for (int r = 0; r < ROUTES; r++)
+        if (routes[layer][r].source == source && routes[layer][r].dest == dest) { // the first, as synth_set_route()
+            route_fine[layer][r] = (int8_t)(tenths - whole * 10);
+            break;
+        }
+    return 1;
+}
+
+int synth_route_fine(int layer, int slot) { return route_fine[layer][slot]; }
+
+int synth_route_tenths(int layer, mod_source_t source, mod_dest_t dest)
+{
+    for (int r = 0; r < ROUTES; r++)
+        if (routes[layer][r].source == source && routes[layer][r].dest == dest)
+            return routes[layer][r].depth * 10 + route_fine[layer][r];
+    return 0;
+}
+
+// What a record says, if it can be: nothing on a route at 0 or past the ends
+static int8_t fine_allowed(int depth, int fine)
+{
+    int tenths = depth * 10 + fine;
+    return (int8_t)(!depth || fine < -ROUTE_FINE_MAX || fine > ROUTE_FINE_MAX || tenths < -990 || tenths > 990 ? 0 : fine);
 }
 
 static int via_allowed(unsigned via, unsigned dest)
@@ -698,11 +738,14 @@ int synth_move_route(int layer, mod_source_t source, mod_dest_t dest, mod_source
         if (from >= 0 && to != from) {
             routes[layer][from] = (route_t){0};
             route_via[layer][from] = 0;
+            route_fine[layer][from] = 0;
             route_both[layer] &= (uint16_t)~(1u << from);
             route_waiting[layer] &= (uint16_t)~(1u << from);
         }
         return 1;
     }
+    if (routes[layer][from].depth != depth) // the same whole depth is the same route moved: its tenths stay
+        route_fine[layer][from] = 0;
     routes[layer][from] = (route_t){(uint8_t)to_source, (uint8_t)to_dest, (int8_t)depth};
     route_waiting[layer] &= (uint16_t)~(1u << from);
     if (!via_allowed(route_via[layer][from], to_dest))
@@ -736,6 +779,7 @@ void synth_route_poll(uint32_t now)
             else if ((int32_t)(now - route_zero_at[l][r]) >= ROUTE_HOLD_MS) {
                 routes[l][r] = (route_t){0};
                 route_via[l][r] = 0;
+                route_fine[l][r] = 0;
                 route_both[l] &= (uint16_t)~bit;
                 route_waiting[l] &= (uint16_t)~bit;
             }
@@ -879,6 +923,7 @@ void synth_apply_patch(const patch_t *patch)
             x.depth = x.depth < -99 ? -99 : x.depth > 99 ? 99 : x.depth;
             routes[l][r] = x.source < SRC_COUNT && x.dest < DEST_COUNT ? x : (route_t){0};
             route_via[l][r] = via_allowed(patch->route_via[l][r], routes[l][r].dest) ? patch->route_via[l][r] : 0;
+            route_fine[l][r] = fine_allowed(routes[l][r].depth, patch->route_fine[l][r]);
         }
         route_waiting[l] = 0; // a depth 0 in a record (only a hand-made one has any) stays, playing nothing, until it's edited or saved away
         for (int w = 0; w < 2; w++)
@@ -942,6 +987,9 @@ void synth_apply_patch(const patch_t *patch)
     }
     unison = sw(SWITCH_UNISON);
     unison_voices = patch->unison_voices >= 2 && patch->unison_voices <= VOICE_COUNT ? patch->unison_voices : VOICE_COUNT;
+    synth_set_arp_range(patch->arp_range);
+    synth_set_arp_extend(patch->arp_extend);
+    synth_set_arp_chaos(patch->arp_chaos);
     for (int l = 0; l < LAYERS; l++) {
         voice_mode[l] = patch->voice_mode >> (4 * l) & 3;
         priority[l] = patch->voice_mode >> (4 * l + 2) & 3;
@@ -972,6 +1020,7 @@ void synth_capture_patch(patch_t *patch)
         for (int r = 0; r < ROUTES; r++) { // a route at 0 isn't part of the sound; each stays in its slot, so the Both bits hold
             patch->routes[l][r] = routes[l][r].depth ? routes[l][r] : (route_t){0};
             patch->route_via[l][r] = routes[l][r].depth ? route_via[l][r] : 0;
+            patch->route_fine[l][r] = routes[l][r].depth ? route_fine[l][r] : 0;
             if (!routes[l][r].depth)
                 patch->route_both[l] &= (uint16_t)~(1u << r);
         }
@@ -1014,6 +1063,9 @@ void synth_capture_patch(patch_t *patch)
     patch->bend_range = (uint8_t)bend_range;
     patch->detune = (uint8_t)(detune + 1); // 0 means "not stored"
     patch->unison_voices = (uint8_t)unison_voices;
+    patch->arp_range = arp_range;
+    patch->arp_extend = arp_extend;
+    patch->arp_chaos = arp_chaos;
     for (int w = 0; w < 2; w++) {
         patch->lfo_sync[w] = (uint8_t)lfo_sync[w];
         patch->lfo_trigger[w] = (uint8_t)lfo_trigger[w];
@@ -1080,6 +1132,7 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
     x->started = ++allocations;
     x->random = random_signed();
     x->pressure = 0;
+    x->arp_position = arp_position;
     if (was_silent)
         x->pitch = note; // glide only from a sounding note
     if (retrigger || was_silent) {
@@ -1352,6 +1405,7 @@ void synth_copy_layer(int from, int to)
         int copied = !(route_both[from] >> r & 1) && routes[from][r].depth;
         routes[to][r] = copied ? routes[from][r] : (route_t){0};
         route_via[to][r] = copied ? route_via[from][r] : 0;
+        route_fine[to][r] = copied ? route_fine[from][r] : 0;
     }
     route_both[to] = 0;
     route_waiting[to] = 0;
@@ -1479,6 +1533,15 @@ int synth_bend_range(void) { return bend_range; }
 void synth_set_bend_range(int semitones) { bend_range = semitones < 1 ? 1 : semitones > 12 ? 12 : semitones; }
 int synth_detune(void) { return detune; }
 void synth_set_detune(int cents) { detune = cents < 0 ? 0 : cents > 100 ? 100 : cents; }
+int synth_arp_range(void) { return arp_range; }
+void synth_set_arp_range(int octaves) { arp_range = (uint8_t)(octaves < 0 || octaves > ARP_RANGE_MAX ? 0 : octaves); }
+int synth_arp_extend(void) { return arp_extend; }
+void synth_set_arp_extend(int level) { arp_extend = (uint8_t)(level < 0 || level >= ARP_EXTEND_COUNT ? ARP_EXTEND_NONE : level); }
+int synth_arp_chaos_setting(void) { return arp_chaos; }
+void synth_set_arp_chaos(int chaos) { arp_chaos = (uint8_t)(chaos < 0 || chaos > ARP_CHAOS_MAX ? 0 : chaos); }
+void synth_set_arp_position(float position) { arp_position = position; }
+int synth_in_scale(int note) { return scale && in_scale(note); }
+
 int synth_unison_voices(void) { return unison_voices; }
 
 void synth_set_unison_voices(int n)
@@ -1938,6 +2001,7 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
     case SRC_FIXED: return 1.0f;
     case SRC_MACRO1: return x->macro[0];
     case SRC_MACRO2: return x->macro[1];
+    case SRC_ARP_NOTE: return x->arp_position;
     case SRC_FILTER_ENV: return x->filter.level;
     case SRC_AMP_ENV: return x->amp.level;
     case SRC_VELOCITY: return (float)x->velocity / 127.0f;
@@ -2025,7 +2089,7 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
                 || (both && !one_layer() && summed_wire(x->dest) && layer != newest_layer()))
                 continue;
             float value = source_value(&voices[voice], voice, layer, x->source);
-            float depth = (float)x->depth / 99.0f;
+            float depth = (float)(x->depth * 10 + route_fine[owner][r]) / 990.0f;
             if ((x->dest == DEST_VCA || x->dest == DEST_VOLUME) && !bipolar(x->source)) {
                 value -= 1.0f;
                 if (x->source == SRC_FIXED) { // down by the depth
@@ -2049,6 +2113,13 @@ typedef struct {
 } layer_params_t;
 static layer_params_t lp[LAYERS]; // from the last synth_update()
 static float last_mod[LAYERS][DEST_COUNT]; // the layer-level routes (from its most recent voice), per pass
+
+float synth_arp_chaos(int layers)
+{
+    float chaos = (float)arp_chaos / (float)ARP_CHAOS_MAX + last_mod[layers & 1 ? 0 : 1][DEST_ARP_CHAOS];
+    return chaos < 0 ? 0 : chaos > 1 ? 1 : chaos;
+}
+
 static void voice_slow(int v, float dt);
 
 // What multiplies by 2^(4 x mod), rates and times: routes and Vias add up, and past 2^8 either way it's no use to anyone

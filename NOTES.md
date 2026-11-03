@@ -2389,6 +2389,31 @@ Born of LFO 1's rate switching between 1/4 and 1/8: an exact octave is depth 24.
 - **Not on the panel.** A route edited there keeps its Via, unseen: a route that's stronger or weaker than its depth says.
 - **Not tried on the synth yet**, including whether the extra read and multiply shows in `timing`.
 
+## Route depths in tenths (0.9.5, 2026-11-02)
+
+Why not 0-127 or 0-255: the knobs already store 16 bits and go over SysEx at 14, so 0-99 is only how they read. The coarse values are the ones really stored in a byte, and of those a route's depth is the one that's heard: depth 53 into pitch is 6.88 semitones and 54 is 7.14, so a fifth wasn't there, and near 99 a step is 48 cents. A wider range in the same byte means 99 stops being full scale, so every record, preset and tool has to convert, and at +-127 it's only 28 % finer.
+
+- **Stored** as an int8 per route (`route_fine`, record bytes 420-451, from the reserved ones): `depth x 10 + fine` tenths. `depth` stays the nearest whole number and is never 0 on a route that plays, as 0 means on its way out everywhere: 0.1 is depth 1, fine -9. A fine part of 0 is every older record, and the same value as before to the bit: (d x 10) / 990 and d / 99 are one rational number, rounded once. Older firmware plays the nearest whole number and drops the rest at a save.
+- **A whole depth clears it** (56, the panel, the Shift velocity knobs): a whole number is what was asked for. A move in place keeps it if the whole number is unchanged (61 can't say tenths, and doesn't need to). It goes with the slot through a copy of a layer and undo, and is checked at load (`fine_allowed()`).
+- **Host:** 66 sets a depth in tenths, 67 reads a layer's fine parts, 56 and 57 are as they were. Not 64 and 65: the panel's event stream sends those (63 is shared with it already, and asks by prefix). The page asks once per connection, as for Via (`fineAnswers`), and then keeps to whole numbers.
+- **On the page** the slider stays in whole steps at 2 px each, for dragging, and the number beside it takes tenths, typed or by arrow keys. Typing goes out 300 ms after it pauses, so a 0 on the way to 0.5 doesn't start the hold at 0.
+- **Presets** take a decimal in the depth's place: first the whole number (56), then the exact one (66) if there is one, so an older firmware gets a warning and the nearest whole number.
+- **The panel** shows them, in MOD ASSIGN, browsing and on the Shift velocity knobs (`show_depth()`; the point takes no digit of its own, so -53.5 fits), and sets whole numbers: VALUE takes 53.5 to 54 or to 53, the next one that way.
+- **Not tried on the synth yet.**
+
+## A generative arp (0.9.5, 2026-11-02)
+
+The sequencer's arp already follows a chord (stack, the sequence on layer 2's keys). What Quark's arp (james-fish/schwung-quark) has beyond that is mostly tables of rhythms and orders that our per-step rests, probability and ratchets cover, so these go another way: a line rather than an order, and a control for how far it strays.
+
+- **`arp_pool()`** builds the notes each time, from the held notes, the added ones and the octaves, so a change of chord is there at the next step and nothing is kept to go stale. Up to 39 notes on the stack, in a step's work: nothing has been timed on the synth.
+- **Walk** keeps its last note, not an index: it looks up the nearest in whatever the pool is now, which is what makes a new chord follow on. A ratchet repeats its note and doesn't move on.
+- **The root** is by intervals: the first held note with a third and a fifth above it, else with a third, else the lowest. So C-E-G's inversions are C, and A-C-E-G reads as A minor where it could be C6. No third and no scale stops at the fifth: a seventh or ninth there would be a guess.
+- **Chaos** is read at each step, so `last_mod[]` once a pass is plenty. It's from the most recent voice on the first of the sequence's layers, so velocity is the last note's, which may be a step's own velocity; and the first note of all has no voice yet to read, so it runs on the patch's value.
+- **Position** is set around the sequence's own `synth_note_on_layers()` calls and read in `gate_on()`. A legato layer's note goes through `gate_on()` too, so it moves mid-note there. A chord step's notes all take the step's position.
+- **Stored** in the patch half, bytes 452-454, as the sequence half has no room left (its 240 data bytes reach the checksum). So a sequence written alone with 47 leaves them; `arp` 6 is off on older firmware (`seq_fix()`), where the steps transpose from the key instead, and range, adds, Chaos and both new route ends are dropped at load.
+- **Not done:** the arp doesn't follow keys of another layer, so a split can't do this yet; only a stack. No Latch. Starts from the key, not on the clock's grid.
+- **The presets P75-P78** were written from the firmware's curves and checked to load and play on the simulator. **Nobody has heard them, or any of this on the synth.** Their slots are P75 up because P67-P72 and P74 hold the author's own patches.
+
 ## Sections that fold (0.9.5, 2026-11-02)
 
 Voice, Mod matrix and Sequencer: `collapsible()` makes the title a button and folds with a class, leaving the section's own children and layout alone (Voice's grid has `display: contents` rows). Open by default; what's folded is kept per browser in `pro800-folded`, as it's one person's view of the page and no part of the sound. What's folded goes on being painted and polled like the rest; canvases have no size then and skip themselves, and unfolding repaints.

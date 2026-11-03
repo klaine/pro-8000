@@ -213,6 +213,10 @@ int synth_route(int layer, mod_source_t source, mod_dest_t dest);
 int synth_set_route(int layer, mod_source_t source, mod_dest_t dest, int depth);
 // A route's Via (mod.h). Setting it returns 0 if there's no such route, it's no Via, or it's a macro on a route into a macro,
 // which would depend on its own result. A new route starts at a number of 1.
+// The same in tenths, -990..990 (0.9.5). A whole depth, from here or synth_set_route(), clears what was on it.
+int synth_set_route_tenths(int layer, mod_source_t source, mod_dest_t dest, int tenths);
+int synth_route_fine(int layer, int slot); // the tenths on that slot's depth (mod.h)
+int synth_route_tenths(int layer, mod_source_t source, mod_dest_t dest); // the exact depth, as synth_route()
 int synth_route_via(int layer, int slot);
 int synth_set_route_via(int layer, mod_source_t source, mod_dest_t dest, int via);
 // A route becomes another at once, in its slot with its Both mark, with no hold at 0. Onto a route that's there, that one
@@ -263,6 +267,18 @@ int synth_bend_range(void);
 void synth_set_bend_range(int semitones);
 int synth_detune(void);
 void synth_set_detune(int cents);
+// A sequence's arp (seq.h), per patch: the octaves above the first, the notes it adds, its Chaos. synth_arp_chaos() is the
+// patch's plus the routes into it on the first of these layers, 0..1. The position is what the next notes on take as
+// SRC_ARP_NOTE; the sequence sets it around its own notes.
+int synth_arp_range(void);
+void synth_set_arp_range(int octaves);
+int synth_arp_extend(void);
+void synth_set_arp_extend(int level);
+int synth_arp_chaos_setting(void);
+void synth_set_arp_chaos(int chaos);
+float synth_arp_chaos(int layers);
+void synth_set_arp_position(float position);
+int synth_in_scale(int note); // 0 with the scale off
 int synth_unison_voices(void);
 void synth_set_unison_voices(int n);
 int synth_pot_pending(int pot);

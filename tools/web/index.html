@@ -419,7 +419,7 @@
   .stat span { color: var(--dim); font-size: 12px; }
   /* The columns are set, so what the Range cells say can't move a slider under the mouse. The Depth column gets the rest:
      at least 2 px a step, so one step can be picked without zooming. */
-  table.routes-table { table-layout: fixed; min-width: 1330px; }
+  table.routes-table { table-layout: fixed; min-width: 1362px; }
   .routes-table col:nth-child(1) { width: 150px; }
   .routes-table col:nth-child(2) { width: 175px; }
   .routes-table col:nth-child(3) { width: 195px; }
@@ -435,7 +435,7 @@
   .via-cell input[type=number] { width: 62px; flex: none; }
   .depth-cell { display: flex; gap: 6px; align-items: center; }
   .depth-cell input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
-  .depth-cell output { font: 12px var(--mono); width: 30px; text-align: right; }
+  .depth-cell input[type=number] { font: 12px var(--mono); width: 62px; flex: none; text-align: right; }
   td.range { font-size: 12px; white-space: nowrap; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; }
   td.range small { display: block; min-height: 1.25em; color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
   tr.new-head td { border-top: 2px dashed var(--edge); color: var(--dim); font-size: 12px; padding-top: 10px; border-bottom: 0; }
@@ -666,7 +666,7 @@
         <tr class="new-route"><td><select id="new-source"></select></td>
         <td><div class="via-cell"><select id="new-via"></select><input id="new-via-number" type="number" min="0.01" max="8" step="0.01" value="1" aria-label="Via number"></div></td>
         <td><select id="new-dest"></select></td>
-        <td><div class="depth-cell"><input class="dp" type="range" id="new-depth" min="-99" max="99" value="50" title="with the slider clicked, the arrow keys move it one step"><output id="new-depth-out">50</output></div></td>
+        <td><div class="depth-cell"><input class="dp" type="range" id="new-depth" min="-99" max="99" value="50" title="with the slider clicked, the arrow keys move it one step"><input id="new-depth-number" type="number" min="-99" max="99" step="0.1" value="50" aria-label="Depth" title="type a depth, or use the arrow keys for steps of 0.1"></div></td>
         <td class="range" id="new-range"></td>
         <td class="both-cell"></td>
         <td class="actions"><button class="primary" id="add-route">Add route</button></td></tr></tfoot>
@@ -1336,6 +1336,7 @@ const FEATURES = {
   lfoRestart: ["lfoRestart", "LFO restarts from a sequence's keys"],
   routeBoth: ["routeBoth1Lo", "mod routes on both layers"],
   unisonVoices: ["unisonVoices", "unison voices, and unison detune to 100 cents"],
+  arpChaos: ["arpChaos", "the arp's walk, range, added notes and Chaos"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1559,7 +1560,7 @@ function swingUnit(dest) {
   if (dest === 8 || dest === 22) return [48, st];                   // LFO → filter
   if (dest === 14 || dest === 15) return [50, pct];                 // pulse width
   if (dest === 42) return [50, x => Math.round(x) + " ct"];         // unison detune
-  if ([6, 9, 17, 19, 23, 24, 43].includes(dest)) return [100, pct]; // LFO amounts and → PW, VCA, volume, morph
+  if ([6, 9, 17, 19, 23, 24, 43, 46].includes(dest)) return [100, pct]; // LFO amounts and → PW, VCA, volume, morph, arp Chaos
   if (rateDest(dest)) return [4, x => +x.toFixed(1) + " oct"];
   if (timeDest(dest)) return [4, x => x < 0 ? "÷" + factor(-x) : "×" + factor(x)];
   return [99, x => String(Math.round(x))];                          // levels, noise, resonance, poly-mod B, sustain, macros: 0-99
@@ -2393,7 +2394,7 @@ function layoutLanes(mods, chord) {
 const newStep = () => ({ note: 64, vel: 0, gate: 50, on: 1, hold: 0, extra: 0, lane: [64, 64, 64, 64] });
 // extra: bits 0-2 probability (0 = always, n = 8 - n in 8), bits 3-4 ratchets - 1
 const probOf = s => 8 - (s.extra & 7), ratchetsOf = s => (s.extra >> 3 & 3) + 1;
-const ARPS = ["Off: the key transposes", "Up", "Down", "Up-down", "Random", "As played"];
+const ARPS = ["Off: the key transposes", "Up", "Down", "Up-down", "Random", "As played", "Walk"];
 
 async function refreshSequence() {
   const d = await ask([0x48], [0x48], 1000);
@@ -2939,9 +2940,22 @@ function seqSection() {
   const lfoRestartField = field("LFOs restart from", settingSelect("", ["Steps", "Keys"], () => settings && settings.lfoRestart,
     v => setSetting(SET_ID.lfoRestart, v), "what restarts the LFOs (their retrigger modes, delay and fade) while the sequence is on: every step's " +
     "note, or only the keys you press, so one LFO or one shot can run across the whole phrase. Stored with the patch"));
+  const arpPick = pick(ARPS, () => seq.arp, v => { seq.arp = v; }, "walk the held notes instead of transposing; each step's note offset transposes the arp note. " +
+    "Walk: a line up and down them, two notes on and one back, that follows on from where it is when the chord changes");
+  const arpRangeField = field("Arp range", settingSelect("", ["1 octave", "2 octaves", "3 octaves"], () => settings && settings.arpRange,
+    v => setSetting(SET_ID.arpRange, v), "the octaves an arpeggio spreads the chord's notes over. Stored with the patch"));
+  const arpExtendField = field("Arp adds", settingSelect("", ["No notes", "Octave", "+ fifth", "+ seventh", "+ ninth"], () => settings && settings.arpExtend,
+    v => setSetting(SET_ID.arpExtend, v), "notes an arpeggio adds above the chord you play; the chord itself is unchanged. With a scale on they're taken from it; " +
+    "with none, and no third to tell the chord by, it stops at the fifth. Stored with the patch"));
+  const arpChaos = settingKnob("arpChaos", "Chaos", "how far an arpeggio strays, read at each step: a walk jumps instead of stepping, the others play a random note " +
+    "instead of the next, and added notes come and go. Also a mod destination (Arp Chaos). Stored with the patch");
+  arpChaos.classList.add("seq-chaos");
   paints.push(() => {
     chordField.hidden = !feature("layerLink"); // came with 0.9.3
     lfoRestartField.hidden = !feature("lfoRestart");
+    const newArp = feature("arpChaos");
+    arpRangeField.hidden = arpExtendField.hidden = arpChaos.hidden = !newArp;
+    arpPick.options[6].disabled = !newArp;
     if (!seq) return;
     [...lanesPick.options].forEach((o, k) => {
       o.textContent = `${k || "None"} (${seqMax(k + seqChord(seq))} steps)`;
@@ -2983,7 +2997,7 @@ function seqSection() {
       field("Step", pick(DIVISIONS, () => seq.division, v => { seq.division = v; }, "the length of a step")),
       flag(SEQ_CLOCK, "MIDI clock", "tempo from MIDI clock (120 BPM until one arrives); off: the BPM here"),
       field("BPM", bpm), field("Swing", swing), field("Length", lengthSel),
-      field("Arpeggio", pick(ARPS, () => seq.arp, v => { seq.arp = v; }, "walk the held notes instead of transposing; each step's note offset transposes the arp note")),
+      field("Arpeggio", arpPick), arpRangeField, arpExtendField, arpChaos,
       field("Lanes", lanesPick),
       chordField,
       lfoRestartField,
@@ -3361,21 +3375,30 @@ async function readVias(layer) {
   if (!d) { viaAnswers = false; return null; }
   return Array.from({ length: ROUTES }, (_, r) => d[2 + 2 * r] << 7 | d[3 + 2 * r]);
 }
+// The tenths on a layer's route depths, a value per slot, or null from firmware before them: asked once, as with readVias()
+let fineAnswers = true;
+async function readFines(layer) {
+  if (!fineAnswers || !viaAnswers) return null;
+  const d = await ask([0x67, layer], [0x67, layer], 1000);
+  if (!d) { fineAnswers = false; return null; }
+  return Array.from({ length: ROUTES }, (_, r) => d[2 + r] - 9);
+}
+const exactDepth = (whole, fines, slot) => (whole * 10 + (fines ? fines[slot] : 0)) / 10;
 async function refreshLayerRoutes() {
   const layer = paramsLayer, d = await ask([0x57, layer], [0x57, layer], 1000);
   if (!d) return;
-  const parse = (d, layer, vias) => {
+  const parse = (d, layer, vias, fines) => {
     const list = [], mask = routeBothMask(layer);
     for (let r = 0; r < ROUTES; r++)
-      if (d[2 + 4 * r]) list.push({ layer, slot: r, source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, both: !!(mask >> r & 1), via: vias ? vias[r] : 0 });
+      if (d[2 + 4 * r]) list.push({ layer, slot: r, source: d[2 + 4 * r], dest: d[3 + 4 * r], depth: exactDepth((d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, fines, r), both: !!(mask >> r & 1), via: vias ? vias[r] : 0 });
     return list;
   };
-  const vias = await readVias(layer);
+  const vias = await readVias(layer), fines = await readFines(layer);
   const other = routesBothShown() && routeBothMask(1 - layer) ? await ask([0x57, 1 - layer], [0x57, 1 - layer], 1000) : null;
-  const otherVias = other && await readVias(1 - layer);
-  layerRoutes = parse(d, layer, vias);
+  const otherVias = other && await readVias(1 - layer), otherFines = other && await readFines(1 - layer);
+  layerRoutes = parse(d, layer, vias, fines);
   routesLayer = layer;
-  otherRoutes = other ? parse(other, 1 - layer, otherVias).filter(r => r.both) : [];
+  otherRoutes = other ? parse(other, 1 - layer, otherVias, otherFines).filter(r => r.both) : [];
   paintAll();
   renderRoutes();
 }
@@ -3471,9 +3494,9 @@ async function copyLfo(which) {
     const marks = routeBothMask(to), kept = marks & ~mine.reduce((bits, r) => bits | 1 << r.slot, 0);
     if (kept !== marks) ok = await set7D(`routeBoth${to + 1}Lo`, kept & 255) && await set7D(`routeBoth${to + 1}Hi`, kept >> 8);
     for (const r of mine) await setRoute(to, src, r.dest, 0);
-    const vias = await readVias(from);
+    const vias = await readVias(from), fines = await readFines(from);
     for (const r of theirs) {
-      if (!await setRoute(to, src, r.dest, r.depth)) full++;
+      if (!await setRoute(to, src, r.dest, exactDepth(r.depth, fines, r.slot))) full++;
       else if (vias) await setRouteVia(to, src, r.dest, vias[r.slot] || 100);
     }
   } else ok = false;
@@ -3548,7 +3571,7 @@ setInterval(async () => {
 const SOURCES = ["", "LFO 1", "Filter envelope", "Amp envelope", "Velocity", "Mod wheel", "Aftertouch", "Env 3", "Env 4",
   "Random (per note)", "Note number", "LFO 2", "Seq A", "Seq B", "Seq C", "Seq D", "LFO 1 (0 to 1)", "LFO 2 (0 to 1)",
   "Gate (key down)", "Timbre (CC 74)", "Pitch bend", "Pedal (CC 64)", "CC A", "CC B", "Voice number", "Fixed (always 1)",
-  "Macro 1", "Macro 2"];
+  "Macro 1", "Macro 2", "Arp note position"];
 const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount", "Poly-mod env amount", "LFO 1 amount",
   "LFO 1 → pitch", "LFO 1 → filter", "VCA", "Osc A level", "Osc B level", "Noise", "Resonance", "A pulse width",
   "B pulse width", "Poly-mod osc B", "LFO 1 → PW", "LFO 1 rate", "LFO 2 amount", "LFO 2 rate", "LFO 2 → pitch",
@@ -3556,7 +3579,7 @@ const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount
   "Amp env attack", "Amp env decay", "Amp env sustain", "Amp env release",
   "Filter env attack", "Filter env decay", "Filter env sustain", "Filter env release",
   "Env 3 attack", "Env 3 decay", "Env 3 sustain", "Env 3 release", "Env 4 attack", "Env 4 decay", "Env 4 sustain", "Env 4 release",
-  "Glide time", "Unison detune", "Master volume", "Macro 1", "Macro 2"];
+  "Glide time", "Unison detune", "Master volume", "Macro 1", "Macro 2", "Arp Chaos"];
 const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 42, 43]);
 const options = (list, skip) => list.map((t, i) => i === skip ? "" :
   `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");
@@ -3576,7 +3599,8 @@ document.getElementById("new-dest").innerHTML = options(DESTS, -1);
 document.getElementById("new-via").innerHTML = viaOptions(0);
 document.getElementById("new-via").onchange = () => { document.getElementById("new-via-number").hidden = !!+document.getElementById("new-via").value; paintNewRange(); };
 document.getElementById("new-via-number").oninput = () => paintNewRange();
-document.getElementById("new-depth").oninput = e => { document.getElementById("new-depth-out").textContent = e.target.value; paintNewRange(); };
+document.getElementById("new-depth").oninput = e => { document.getElementById("new-depth-number").value = e.target.value; paintNewRange(); };
+document.getElementById("new-depth-number").oninput = e => { document.getElementById("new-depth").value = e.target.value; paintNewRange(); };
 document.getElementById("new-source").onchange = paintNewRange;
 document.getElementById("new-dest").onchange = () => { // into a macro, a macro is no Via
   const menu = document.getElementById("new-via"), dest = +document.getElementById("new-dest").value, was = menu.value;
@@ -3587,8 +3611,12 @@ document.getElementById("new-dest").onchange = () => { // into a macro, a macro 
 };
 paintNewRange();
 
+// The whole number the firmware keeps for a depth in tenths (synth_set_route_tenths()): the nearest, and never 0 for one that isn't
+const wholeDepth = depth => Math.sign(depth) * Math.max(1, Math.round(Math.abs(depth)));
 async function setRoute(layer, src, dest, depth) {
-  const d = depth + 99;
+  const tenths = Math.round(Math.min(99, Math.max(-99, depth)) * 10);
+  if (tenths % 10 && fineAnswers) return ack([0x66, layer, src, dest, tenths + 990 >> 7, tenths + 990 & 0x7F]);
+  const d = wholeDepth(tenths / 10) + 99;
   return ack([0x56, layer, src, dest, d >> 7, d & 0x7F]);
 }
 async function setRouteVia(layer, src, dest, via) {
@@ -3608,7 +3636,7 @@ let routeRowHeld = false, routeRowBusyUntil = 0;
 const ROUTE_ROW_HOLD = 1500, ROUTE_MENU_HOLD = 10000;
 for (const type of ["pointerup", "pointercancel", "blur"]) window.addEventListener(type, () => { routeRowHeld = false; });
 const routeRowInUse = () => routeRowHeld || Date.now() < routeRowBusyUntil;
-const ROW_CONTROLS = [".dp", ".s", ".v", ".vn", ".d", ".both", ".del"];
+const ROW_CONTROLS = [".dp", ".dn", ".s", ".v", ".vn", ".d", ".both", ".del"];
 function renderRoutes(force) {
   const body = document.getElementById("routes");
   if (!layerRoutes) return;
@@ -3629,16 +3657,17 @@ function renderRoutes(force) {
     tr.innerHTML = `<td><select class="s">${options(SOURCES, 0)}</select></td>
       <td><div class="via-cell"><select class="v">${viaOptions(dest)}</select><input class="vn" type="number" min="0.01" max="8" step="0.01" value="1" aria-label="Via number"></div></td>
       <td><div class="dest-cell"><select class="d">${options(DESTS, -1)}</select>${WIRE.has(dest) ? '<span class="tag" title="a single wire for all voices: it follows the most recently played note">wire</span>' : ""}${own ? "" : `<span class="tag">layer ${layer + 1}'s</span>`}</div></td>
-      <td><div class="depth-cell"><input class="dp" type="range" min="-99" max="99" value="${depth}" title="with the slider clicked, the arrow keys move it one step"><output>${depth}</output></div></td>
+      <td><div class="depth-cell"><input class="dp" type="range" min="-99" max="99" value="${Math.round(depth)}" title="with the slider clicked, the arrow keys move it one step"><input class="dn" type="number" min="-99" max="99" step="${fineAnswers ? 0.1 : 1}" aria-label="Depth" title="type a depth, or use the arrow keys for steps of 0.1"></div></td>
       <td class="range"></td>
       <td class="both-cell"><button type="button" class="chip both" aria-pressed="${both}" title="this route plays on both layers' voices, each reading its own velocity, envelopes and LFOs. It takes one slot, on the layer it was made on. A wire destination counts once, from the newest note">Both</button></td>
       <td class="actions"><button class="del">Remove</button></td>`;
     tr.querySelector(".s").value = src; tr.querySelector(".d").value = dest;
-    const range = tr.querySelector(".dp"), out = tr.querySelector("output"), viaMenu = tr.querySelector(".v"), viaBox = tr.querySelector(".vn");
+    const range = tr.querySelector(".dp"), box = tr.querySelector(".dn"), viaMenu = tr.querySelector(".v"), viaBox = tr.querySelector(".vn");
+    box.value = depth;
     showVia(viaMenu, viaBox, via);
     tr._paintRange = () => {
-      paintRange(tr.querySelector(".range"), src, dest, +range.value || 0, viaOf(viaMenu, viaBox));
-      if (!+range.value) tr.querySelector(".range").replaceChildren("–", h("small", {}, `plays nothing; ${ROUTE_HOLD_TEXT} at 0 takes it off`));
+      paintRange(tr.querySelector(".range"), src, dest, +box.value || 0, viaOf(viaMenu, viaBox));
+      if (!+box.value) tr.querySelector(".range").replaceChildren("–", h("small", {}, `plays nothing; ${ROUTE_HOLD_TEXT} at 0 takes it off`));
     };
     tr._paintRange();
     let timer = 0;
@@ -3646,11 +3675,16 @@ function renderRoutes(force) {
     if (focused && focused.row === tr._route) refocus = tr.querySelector(focused.control);
     range.addEventListener("pointerdown", () => { routeRowHeld = true; });
     tr.querySelector(".s").onpointerdown = tr.querySelector(".d").onpointerdown = () => { routeRowBusyUntil = Date.now() + ROUTE_MENU_HOLD; };
-    range.oninput = () => { routesShown = null; routeRowBusyUntil = Date.now() + ROUTE_ROW_HOLD; out.textContent = range.value; tr._paintRange(); clearTimeout(timer);
+    range.oninput = () => { routesShown = null; routeRowBusyUntil = Date.now() + ROUTE_ROW_HOLD; box.value = range.value; tr._paintRange(); clearTimeout(timer);
       timer = setTimeout(async () => { await setRoute(layer, src, dest, +range.value || 0); refreshLayerRoutes(); }, 40); }; // the knobs and rings follow
     range.onchange = () => { routeRowHeld = false; if (+range.value === 0) loadRoutes(); };
+    // Typing goes out once it pauses (a 0 on the way to 0.5 mustn't take the route off), and leaving the box tidies what it says
+    box.onfocus = () => { routeRowBusyUntil = Date.now() + ROUTE_MENU_HOLD; };
+    box.oninput = () => { routesShown = null; routeRowBusyUntil = Date.now() + ROUTE_MENU_HOLD; range.value = box.value; tr._paintRange(); clearTimeout(timer);
+      if (box.value !== "") timer = setTimeout(async () => { await setRoute(layer, src, dest, +box.value); refreshLayerRoutes(); }, 300); };
+    box.onchange = async () => { clearTimeout(timer); await setRoute(layer, src, dest, +box.value || 0); routeRowBusyUntil = 0; loadRoutes(); };
     const move = async () => {
-      const s2 = +tr.querySelector(".s").value, d2 = +tr.querySelector(".d").value, to = depth || 50, d = to + 99;
+      const s2 = +tr.querySelector(".s").value, d2 = +tr.querySelector(".d").value, to = depth || 50, d = wholeDepth(to) + 99; // the same whole number keeps its tenths
       if (await ack([0x61, layer, src, dest, s2, d2, d >> 7, d & 0x7F])) { loadRoutes(); return; } // at once, in its slot, Both and all
       // a firmware from before 61: the old one waits out its hold at 0 beside the new one
       await setRoute(layer, src, dest, 0);
@@ -3691,7 +3725,7 @@ function paintRange(cell, src, dest, depth, via = 0) {
 }
 function paintNewRange() { // hoisted: the new-route row's handlers above call it
   paintRange(document.getElementById("new-range"), +document.getElementById("new-source").value,
-    +document.getElementById("new-dest").value, +document.getElementById("new-depth").value,
+    +document.getElementById("new-dest").value, +document.getElementById("new-depth-number").value,
     viaOf(document.getElementById("new-via"), document.getElementById("new-via-number")));
 }
 paints.push(() => {
@@ -3713,7 +3747,7 @@ async function loadRoutes() {
 document.getElementById("matrix-refresh").onclick = loadRoutes;
 document.getElementById("add-route").onclick = async () => {
   const src = +document.getElementById("new-source").value, dest = +document.getElementById("new-dest").value;
-  const depth = +document.getElementById("new-depth").value;
+  const depth = +document.getElementById("new-depth-number").value;
   if (!depth) { msg("matrix-msg", "A depth of 0 is no route", "bad"); return; }
   if (!await setRoute(paramsLayer, src, dest, depth)) msg("matrix-msg", routesFull(), "bad");
   else {
@@ -3962,10 +3996,10 @@ async function readSound() {
   }
   out.routes = {};
   for (const layer of [0, 1]) {
-    const d = await ask([0x57, layer], [0x57, layer], 1000), list = [], vias = await readVias(layer);
+    const d = await ask([0x57, layer], [0x57, layer], 1000), list = [], vias = await readVias(layer), fines = await readFines(layer);
     if (!d) bad("the synth didn't send its routes");
     for (let r = 0; r < ROUTES; r++)
-      if (d[2 + 4 * r] && (d[4 + 4 * r] << 7 | d[5 + 4 * r]) !== 99) list.push([JN.sources[d[2 + 4 * r] - 1], JN.dests[d[3 + 4 * r]], (d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, // one at 0 isn't saved either
+      if (d[2 + 4 * r] && (d[4 + 4 * r] << 7 | d[5 + 4 * r]) !== 99) list.push([JN.sources[d[2 + 4 * r] - 1], JN.dests[d[3 + 4 * r]], exactDepth((d[4 + 4 * r] << 7 | d[5 + 4 * r]) - 99, fines, r), // one at 0 isn't saved either
         ...(routeBothMask(layer) >> r & 1 ? ["both"] : []), ...(vias && vias[r] ? [`via:${viaToText(vias[r])}`] : [])]);
     if (list.length) out.routes[layer + 1] = list;
   }
@@ -4333,7 +4367,7 @@ document.getElementById("tables").onclick = async () => {
 };
 
 async function afterConnect() {
-  viaAnswers = true;
+  viaAnswers = fineAnswers = true;
   await refreshSettings();
   await refreshParams();
   showTab(tab);

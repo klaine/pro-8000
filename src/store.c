@@ -24,7 +24,7 @@
 //   345 stage times in note values[2] (a bit per envelope; 0.9.1)
 //   347 layer links (LINK_* bits: what layer 2 takes from layer 1; 0.9.3), 348 one shot cycles[2] (per LFO, 0 = 1; 0.9.3),
 //   350 1 if a sequence's keys restart the LFOs, 0 its steps (0.9.3), 351 both-layers routes[2] (u16, bit r: route r plays
-//       on the other layer too; 0.9.3), 355 unison voices (2-8, 0 = 8; 0.9.5), 356 route Vias[2][16] (u16, mod.h; 0.9.5), 420 reserved to 508
+//       on the other layer too; 0.9.3), 355 unison voices (2-8, 0 = 8; 0.9.5), 356 route Vias[2][16] (u16, mod.h; 0.9.5), 420 route depths' tenths[2][16] (int8, mod.h; 0.9.5), 452 arp range, 453 arp extension, 454 arp chaos (seq.h; 0.9.5), 455 reserved to 508
 //   508 checksum (u32) over 0-507
 //   512 "P8S2", 516 length, lanes, division, bpm, flags (bits 5-6: chord lanes, 0.9.3), swing, smooth, arp, then from 524 each step's note,
 //       velocity, gate, extra (length × 4 bytes) and each lane's values (length bytes each); 764 checksum over
@@ -89,7 +89,11 @@
 #define OFF_LFO_RESTART 350
 #define OFF_ROUTE_BOTH 351 // 351-354
 #define OFF_UNISON_VOICES 355
+#define OFF_ARP_RANGE 452
+#define OFF_ARP_EXTEND 453
+#define OFF_ARP_CHAOS 454
 #define OFF_ROUTE_VIA 356 // 356-419
+#define OFF_ROUTE_FINE 420 // 420-451
 #define OFF_CHECKSUM 508
 #define SEQ_OFF 512
 #define SEQ_HEADER 4
@@ -319,9 +323,15 @@ int store_load_patch(int n, patch_t *patch)
     patch->route_both[0] = get16(b + OFF_ROUTE_BOTH);
     patch->route_both[1] = get16(b + OFF_ROUTE_BOTH + 2);
     patch->unison_voices = b[OFF_UNISON_VOICES];
+    patch->arp_range = b[OFF_ARP_RANGE];
+    patch->arp_extend = b[OFF_ARP_EXTEND];
+    patch->arp_chaos = b[OFF_ARP_CHAOS];
     for (int l = 0; l < 2; l++)
         for (int r = 0; r < ROUTES; r++)
             patch->route_via[l][r] = get16(b + OFF_ROUTE_VIA + 2 * (l * ROUTES + r));
+    for (int l = 0; l < 2; l++)
+        for (int r = 0; r < ROUTES; r++)
+            patch->route_fine[l][r] = (int8_t)b[OFF_ROUTE_FINE + l * ROUTES + r];
     for (int l = 0; l < 2; l++)
         patch->osc_tune[l] = b[OFF_OSC_TUNE + l] & 0x0F;
     patch->switches = get16(b + OFF_SWITCHES);
@@ -390,9 +400,15 @@ int store_save_patch(int n, const patch_t *patch)
     put16(b + OFF_ROUTE_BOTH, patch->route_both[0]);
     put16(b + OFF_ROUTE_BOTH + 2, patch->route_both[1]);
     b[OFF_UNISON_VOICES] = patch->unison_voices;
+    b[OFF_ARP_RANGE] = patch->arp_range;
+    b[OFF_ARP_EXTEND] = patch->arp_extend;
+    b[OFF_ARP_CHAOS] = patch->arp_chaos;
     for (int l = 0; l < 2; l++)
         for (int r = 0; r < ROUTES; r++)
             put16(b + OFF_ROUTE_VIA + 2 * (l * ROUTES + r), patch->route_via[l][r]);
+    for (int l = 0; l < 2; l++)
+        for (int r = 0; r < ROUTES; r++)
+            b[OFF_ROUTE_FINE + l * ROUTES + r] = (uint8_t)patch->route_fine[l][r];
     b[OFF_UP_CYCLES] = 1;
     for (int l = 0; l < 2; l++)
         b[OFF_OSC_TUNE + l] = patch->osc_tune[l] & 0x0F;

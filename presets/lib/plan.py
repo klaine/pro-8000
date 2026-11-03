@@ -25,20 +25,20 @@ BUTTONS = ["a-saw", "a-tri", "a-square", "b-saw", "b-tri", "b-square", "lfo-pw",
            "pmod-freq-a", "pmod-filter", "unison", "sync"]
 SOURCES = ["lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
            "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre",
-           "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2"]
+           "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2", "arp-note"]
 DESTS = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
          "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
          "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
          "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
          "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-         "glide", "detune", "volume", "macro1", "macro2"]
+         "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"]
 SHAPES = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]
 DIVISIONS = ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
              "1/16T", "1/32"]
 SCALES = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
           "pentatonic-minor", "blues", "whole-tone", "chromatic"]
 ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-ARPS = ["off", "up", "down", "up-down", "random", "played"]
+ARPS = ["off", "up", "down", "up-down", "random", "played", "walk"]
 MAX_STEPS = {0: 60, 1: 48, 2: 40, 3: 34, 4: 30}
 LAYERS = ("1", "2")
 LFOS = ("1", "2")
@@ -84,6 +84,12 @@ def setting_line(key, value):
         check(v in ["free", "first", "every", "voice", "one-shot", "one-shot-voice"], name + ": " + v)
     elif name == "lfo-restart":  # 0.9.3: with a sequence on, its steps or the keys restart the LFOs
         check(len(w) == 1 and v in ["steps", "keys"], "lfo-restart: " + v)
+    elif name == "arp-range":  # 0.9.5: a sequence's arp, its octaves
+        check(len(w) == 1 and v in ["1", "2", "3"], "arp-range: 1-3, not " + v)
+    elif name == "arp-extend":  # 0.9.5: the notes it adds to the chord
+        check(len(w) == 1 and v in ["none", "octave", "fifth", "seventh", "ninth"], "arp-extend: " + v)
+    elif name == "arp-chaos":  # 0.9.5
+        in_range(value, 0, 99, "arp-chaos")
     elif name in ("lfo-cycles", "lfo2-cycles"):  # 0.9.3: how many cycles a one shot runs
         check(len(w) == 1 and isinstance(value, int) and 1 <= value <= 99, "%s: 1-99, not %r" % (name, value))
     elif name == "shape":
@@ -234,11 +240,13 @@ def plan(patch):
             src, dest, depth = r[:3]
             check(src in SOURCES, "source: %s" % src)
             check(dest in DESTS, "destination: %s" % dest)
-            in_range(depth, -99, 99, "depth of %s -> %s" % (src, dest))
+            # in steps of 0.1 (0.9.5); the tool takes it as it's written
+            check(isinstance(depth, (int, float)) and not isinstance(depth, bool) and -99 <= depth <= 99 and abs(depth * 10 - round(depth * 10)) < 1e-6,
+                  "depth of %s -> %s must be -99..99 in steps of 0.1, not %r" % (src, dest, depth))
             check(depth != 0, "route %s -> %s has depth 0 (a save leaves it out)" % (src, dest))
             check((src, dest) not in seen, "route %s -> %s twice on layer %s" % (src, dest, layer))
             seen.add((src, dest))
-            out.append("route %s %s %s %d" % (layer, src, dest, depth))
+            out.append("route %s %s %s %s" % (layer, src, dest, depth))
             if "both" in marks:  # 0.9.3: it plays on the other layer's voices too
                 out.append("route-both %s %s %s on" % (layer, src, dest))
             for m in marks:  # 0.9.5: a number 0.01-8, or a source but fixed

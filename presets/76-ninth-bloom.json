@@ -1,0 +1,170 @@
+{
+ "slot": 76,
+ "name": "Ninth Bloom",
+ "group": "arp",
+ "notes": {
+  "sound": "Play a plain triad: the pad holds it, and the arp above reaches for the seventh and ninth you didn't play. It's orderly for four bars, then Chaos opens up for four: leaps, and added notes that come and go. Low notes ring on, high ones are short.",
+  "shows": "Chord extension up to the ninth; a clock-synced square LFO 2 into Arp Chaos; arp note position into the decays."
+ },
+ "buttons": [
+  "a-saw",
+  "b-saw"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 72,
+   "b-level": 66,
+   "resonance": 18
+  },
+  "1": {
+   "fine": 54,
+   "cutoff": 42,
+   "fil-env-amt": 64,
+   "fil-att": 72,
+   "fil-dec": 76,
+   "fil-sus": 58,
+   "fil-rel": 76,
+   "amp-att": 72,
+   "amp-dec": 76,
+   "amp-sus": 84,
+   "amp-rel": 78,
+   "lfo2-rate": 13
+  },
+  "2": {
+   "freq-a": 66,
+   "freq-b": 66,
+   "fine": 53,
+   "cutoff": 30,
+   "fil-env-amt": 74,
+   "fil-att": 0,
+   "fil-dec": 56,
+   "fil-sus": 0,
+   "fil-rel": 54,
+   "amp-att": 0,
+   "amp-dec": 66,
+   "amp-sus": 0,
+   "amp-rel": 60,
+   "lfo2-rate": 99
+  }
+ },
+ "settings": {
+  "layers": "stack",
+  "voice 1": "poly last",
+  "voice 2": "mono last",
+  "keytrack": "full",
+  "arp-range": 2,
+  "arp-extend": "ninth",
+  "arp-chaos": 30,
+  "lfo2-sync": "clock",
+  "shape 1 2": "sine",
+  "shape 2 2": "square"
+ },
+ "routes": {
+  "1": [
+   [
+    "voice",
+    "pitch-b",
+    5
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    5
+   ],
+   [
+    "velocity",
+    "vca",
+    30
+   ],
+   [
+    "velocity",
+    "amp-att",
+    -20
+   ]
+  ],
+  "2": [
+   [
+    "lfo2",
+    "arp-chaos",
+    30
+   ],
+   [
+    "arp-note",
+    "fil-dec",
+    -35
+   ],
+   [
+    "arp-note",
+    "amp-dec",
+    -30
+   ],
+   [
+    "arp-note",
+    "cutoff",
+    18
+   ],
+   [
+    "velocity",
+    "vca",
+    35
+   ]
+  ]
+ },
+ "sequence": {
+  "on": true,
+  "step": "1/8",
+  "clock": true,
+  "keys": "2",
+  "arp": "walk",
+  "steps": [
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   },
+   {
+    "gate": 70
+   }
+  ]
+ }
+}

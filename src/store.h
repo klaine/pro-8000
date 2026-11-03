@@ -52,7 +52,9 @@ typedef struct {
     uint8_t lfo_restart_keys;                // a sequence's keys restart the LFOs, 0 its steps (0.9.3)
     uint16_t route_both[2];                  // per layer, bit r: route r plays on the other layer too (0.9.3)
     uint8_t unison_voices;                   // the voices a note takes in unison, 2-8; 0 (older patches) = 8 (0.9.5)
+    uint8_t arp_range, arp_extend, arp_chaos; // a sequence's arp (seq.h): octaves above the first, ARP_EXTEND_*, 0-99; 0 in older patches (0.9.5)
     uint16_t route_via[2][ROUTES];           // each route's Via (mod.h); 0 (older patches) = a number of 1 (0.9.5)
+    int8_t route_fine[2][ROUTES];            // each route's tenths on its depth (mod.h); 0 (older patches) = none (0.9.5)
 } patch_t;
 
 typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t; // (SLOT_STOCK: no longer in slots)

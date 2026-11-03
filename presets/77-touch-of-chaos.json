@@ -1,0 +1,165 @@
+{
+ "slot": 77,
+ "name": "Touch Of Chaos",
+ "group": "arp",
+ "notes": {
+  "sound": "Your touch decides: soft chords give a neat line, hard ones make it leap about. The harder you play, the more the top of the line also opens up. A short rest here and there lets it breathe.",
+  "shows": "Velocity into Arp Chaos with a Fixed route holding the soft end at nothing; arp note position via velocity into cutoff; the seventh added."
+ },
+ "buttons": [
+  "a-saw",
+  "b-square"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 64,
+   "b-level": 58,
+   "resonance": 24,
+   "b-pw": 38
+  },
+  "1": {
+   "freq-b": 33,
+   "fine": 52,
+   "cutoff": 40,
+   "fil-env-amt": 66,
+   "fil-att": 58,
+   "fil-dec": 70,
+   "fil-sus": 52,
+   "fil-rel": 70,
+   "amp-att": 56,
+   "amp-dec": 72,
+   "amp-sus": 76,
+   "amp-rel": 72,
+   "lfo2-rate": 18
+  },
+  "2": {
+   "freq-a": 66,
+   "freq-b": 66,
+   "cutoff": 36,
+   "fil-env-amt": 78,
+   "fil-att": 0,
+   "fil-dec": 44,
+   "fil-sus": 0,
+   "fil-rel": 42,
+   "amp-att": 0,
+   "amp-dec": 54,
+   "amp-sus": 0,
+   "amp-rel": 48
+  }
+ },
+ "settings": {
+  "layers": "stack",
+  "voice 1": "poly last",
+  "voice 2": "mono last",
+  "keytrack": "full",
+  "arp-range": 2,
+  "arp-extend": "seventh",
+  "shape 1 2": "sine"
+ },
+ "routes": {
+  "1": [
+   [
+    "voice",
+    "pitch-b",
+    5
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    5
+   ],
+   [
+    "velocity",
+    "cutoff",
+    20
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ]
+  ],
+  "2": [
+   [
+    "velocity",
+    "arp-chaos",
+    99
+   ],
+   [
+    "fixed",
+    "arp-chaos",
+    -25
+   ],
+   [
+    "arp-note",
+    "cutoff",
+    45,
+    "via:velocity"
+   ],
+   [
+    "velocity",
+    "vca",
+    45
+   ]
+  ]
+ },
+ "sequence": {
+  "on": true,
+  "step": "1/16",
+  "clock": true,
+  "keys": "2",
+  "arp": "walk",
+  "steps": [
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55
+   },
+   {
+    "rest": true
+   },
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55
+   },
+   {
+    "rest": true
+   },
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55
+   },
+   {
+    "gate": 55,
+    "prob": 4
+   },
+   {
+    "gate": 55,
+    "prob": 4
+   }
+  ]
+ }
+}

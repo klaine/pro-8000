@@ -1,7 +1,9 @@
 // The patch's step sequence, played from a key: pressing a key starts it at step 1, transposed so an offset of 0 is
 // that key; it loops (or plays once) while keys are held, a new key transposes it from the next step, and letting
 // go of every key stops it. In arpeggio mode the steps walk the held notes instead (up, down, up-down, random, as
-// played), each step's offset transposing the note it plays. Steps can play with a probability and as 2-4 ratchets.
+// played, or a walk: a line up and down them, 0.9.5), each step's offset transposing the note it plays. Steps can play
+// with a probability and as 2-4 ratchets. An arp's notes can spread over octaves and take notes added to the chord, and
+// its Chaos, with routes on top (DEST_ARP_CHAOS), makes it less regular; it says where each note sits (SRC_ARP_NOTE).
 // Up to four automation lanes run with it as mod sources (SRC_SEQ_A..D). The last one or two can instead be chord notes
 // (0.9.3): each step then plays up to three notes, sharing its gate, velocity, probability and ratchets. Edited from
 // the host only; stored with the patch (store.c).
@@ -31,7 +33,11 @@
 #define SEQ_RATCHETS(x)    (((x) >> 3 & 3) + 1)
 #define SEQ_HOLDS(x)       ((x) >> 5 & 7)
 
-enum { ARP_OFF, ARP_UP, ARP_DOWN, ARP_UP_DOWN, ARP_RANDOM, ARP_PLAYED, ARP_COUNT };
+enum { ARP_OFF, ARP_UP, ARP_DOWN, ARP_UP_DOWN, ARP_RANDOM, ARP_PLAYED, ARP_WALK, ARP_COUNT };
+// Notes an arp adds to the chord, each level with those before it. Stored with the patch, as the range and Chaos.
+enum { ARP_EXTEND_NONE, ARP_EXTEND_OCTAVE, ARP_EXTEND_FIFTH, ARP_EXTEND_SEVENTH, ARP_EXTEND_NINTH, ARP_EXTEND_COUNT };
+#define ARP_RANGE_MAX 2 // octaves above the first
+#define ARP_CHAOS_MAX 99
 
 typedef struct {
     uint8_t length;   // 1..SEQ_MAX_STEPS

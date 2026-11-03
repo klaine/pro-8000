@@ -55,10 +55,11 @@ class FakeSynth:
         self.firmware = firmware
         self.sent = []
         self.receive = None
-        self.settings = [0] * 96
+        self.settings = [0] * 99
         self.undo = [1, *b"Pad"]
         self.has_via = True
         self.vias = [[0] * 16, [0] * 16]
+        self.fines = [[0] * 16, [0] * 16]
         self.buttons = [0] * 16
         self.steps = {}
         self.params = [[0] * 36, [0] * 36]
@@ -199,6 +200,12 @@ class FakeSynth:
                 self.reply(0x63, d[1], *[b for v in self.vias[d[1]] for b in (v >> 7, v & 0x7F)])
         elif c == 0x62:
             self.ack(0x62)
+        elif c == 0x67:
+            if self.has_via:
+                self.reply(0x67, d[1], *[f + 9 for f in self.fines[d[1]]])
+        elif c == 0x66:
+            if self.has_via:
+                self.ack(0x66)
         elif c == 0x60:
             self.reply(0x60, *self.undo)
         elif c == 0x4A:
@@ -306,11 +313,11 @@ class SwiftParity(unittest.TestCase):
         self.assertEqual(names, pro800.SETTING_NAMES)
 
     def test_setting_names(self):
-        self.assertEqual(len(pro800.SETTING_NAMES), 96)
+        self.assertEqual(len(pro800.SETTING_NAMES), 99)
         self.assertEqual(pro800.SETTING_NAMES.index("midi-channel"), 77)
         self.assertEqual(pro800.SETTING_NAMES.index("env-count 2 env4"), 74)
         self.assertEqual(pro800.SETTING_NAMES.index("lfo-restart"), 86)
-        self.assertEqual(pro800.SETTING_NAMES[91:], ["unison-voices", "env-select", "preset-mode", "patch", "morph"])
+        self.assertEqual(pro800.SETTING_NAMES[91:], ["unison-voices", "arp-range", "arp-extend", "arp-chaos", "env-select", "preset-mode", "patch", "morph"])
 
     def test_lfo_note_times_read_the_same(self):
         """Swift can't run here: the same formula, version and condition as pro800.py's, read off the source."""
@@ -421,7 +428,7 @@ class ReadOnly(unittest.TestCase):
         s = self.synth.settings
         s[0], s[2], s[4], s[13], s[25], s[26] = 1, 2, 2, 5, 12, 25
         s[38], s[43], s[48], s[50], s[66], s[67] = 104, 120, 1 | 2 << 2, 99, 3, 7
-        s[77], s[83], s[86], s[94], s[95] = 5, 65, 1, 127, 1
+        s[77], s[83], s[86], s[97], s[98] = 5, 65, 1, 127, 1
         self.synth.buttons[0], self.synth.buttons[15] = 1, 1
         self.synth.steps[(1, 1)] = (4, 0b0101)
         out, code = run(self.synth, "settings")
@@ -1005,6 +1012,9 @@ class Writes(unittest.TestCase):
             (("set", "bend", "12"), [0x7D, 25, 0, 12]),
             (("set", "detune", "100"), [0x7D, 26, 0, 100]),
             (("set", "unison-voices", "3"), [0x7D, 91, 0, 3]),
+            (("set", "arp-range", "3"), [0x7D, 92, 0, 2]),
+            (("set", "arp-extend", "ninth"), [0x7D, 93, 0, 4]),
+            (("set", "arp-chaos", "40"), [0x7D, 94, 0, 40]),
             (("set", "voice", "2", "legato", "high"), [0x7D, 28, 0, 10]),
             (("set", "drift", "99"), [0x7D, 29, 0, 99]),
             (("set", "scale", "chromatic"), [0x7D, 30, 0, 12]),
@@ -1042,6 +1052,9 @@ class Writes(unittest.TestCase):
             (("route-via", "2", "lfo", "cutoff", "8"), [0x62, 1, 1, 3, 800 >> 7, 800 & 0x7F]),
             (("route-via", "1", "lfo", "cutoff", "mod-wheel"), [0x62, 0, 1, 3, 1005 >> 7, 1005 & 0x7F]),
             (("route", "2", "macro2", "macro2", "99"), [0x56, 1, 27, 45, 1, 70]),
+            (("route", "1", "lfo", "cutoff", "53.5"), [0x66, 0, 1, 3, 1525 >> 7, 1525 & 0x7F]),
+            (("route", "1", "lfo", "cutoff", "-0.1"), [0x66, 0, 1, 3, 989 >> 7, 989 & 0x7F]),
+            (("route", "1", "lfo", "cutoff", "53.0"), [0x56, 0, 1, 3, 1, 152 & 0x7F]),
             (("route", "2", "velocity", "cutoff", "0"), [0x56, 1, 4, 3, 0, 99]),  # plan.py's lines: takes the init sound's route off
             (("patch", "load", "P7"), [0x5C, 0, 6]),
             (("patch", "save", "P128"), [0x5D, 0, 127]),

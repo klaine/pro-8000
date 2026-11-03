@@ -8,6 +8,7 @@
 
 #define HELD_MAX 8
 #define CHORD_WINDOW_S 0.03f
+#define EXTEND_ROLL_STEPS 8 // how often Chaos decides again which added notes play
 
 sequence_t sequence;
 
@@ -22,6 +23,9 @@ static int sounding_count;
 static float in_step; // seconds into the current step
 static uint8_t base_note, base_velocity;
 static uint32_t random_state = 0x6C078965u;
+static int walk_note = -1, walk_dir = 1, walk_turn; // the walk: its last note, which way, where in two on and one back
+static uint8_t extend_kept = 0xFF;                  // a bit per added note: it plays for now
+static float arp_position;                          // where the arp's note sits among its notes, 0..1
 
 static uint32_t random32(void) // xorshift32
 {
@@ -93,13 +97,64 @@ static float step_seconds(int n)
     return n % 2 ? length * (1.0f - swing) : length * (1.0f + swing);
 }
 
-// Arpeggio: the next held note in the arp's order
-static uint8_t arp_note(void)
+// The root of what's held, by its intervals, so an inversion finds it, and its third (3 or 4 semitones, 0: none): the
+// first note with a third and a fifth above it, else with a third, else the lowest
+static int chord_root(const uint8_t *sorted, int n, int *third)
 {
-    uint8_t sorted[HELD_MAX];
+    unsigned pcs = 0;
+    for (int i = 0; i < n; i++)
+        pcs |= 1u << sorted[i] % 12;
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < n; i++) {
+            int r = sorted[i] % 12, t = pcs >> (r + 3) % 12 & 1 ? 3 : pcs >> (r + 4) % 12 & 1 ? 4 : 0;
+            if (t && (pass || pcs >> (r + 7) % 12 & 1)) {
+                *third = t;
+                return r;
+            }
+        }
+    *third = 0;
+    return sorted[0] % 12;
+}
+
+// The pitch class wanted or, as it's not in the patch's scale, the nearest that is, upward first
+static int in_key(int pc)
+{
+    for (int d = 0; d < 3; d++) {
+        if (synth_in_scale(pc + d))
+            return (pc + d) % 12;
+        if (synth_in_scale(pc + 12 - d))
+            return (pc + 12 - d) % 12;
+    }
+    return pc % 12;
+}
+
+// The notes the extension adds, low to high, each the first of its name above the chord. With no third to go by and no
+// scale, a seventh or a ninth would be a guess: an octave and a fifth only.
+static int extension_notes(const uint8_t *sorted, int n, uint8_t *out)
+{
+    int third, root = chord_root(sorted, n, &third), level = synth_arp_extend(), count = 0;
+    int keyed = synth_scale() & 15;
+    if (!third && !keyed && level > ARP_EXTEND_FIFTH)
+        level = ARP_EXTEND_FIFTH;
+    for (int k = 0; k < level; k++) {
+        int interval = k == 0 ? 0 : k == 1 ? 7 : k == 2 ? (third == 3 || keyed ? 10 : 11) : 14;
+        int pc = keyed && k ? in_key(root + interval) : (root + interval) % 12;
+        int note = sorted[n - 1] + 1 + ((pc - sorted[n - 1] - 1) % 12 + 12) % 12;
+        if (note <= 127 && extend_kept >> k & 1) {
+            int at = count++;
+            for (; at > 0 && out[at - 1] > note; at--)
+                out[at] = out[at - 1];
+            out[at] = (uint8_t)note;
+        }
+    }
+    return count;
+}
+
+// What the arp goes through, low to high (as played: in that order, then the added notes), over its octaves
+static int arp_pool(uint8_t *pool)
+{
+    uint8_t sorted[HELD_MAX], added[ARP_EXTEND_COUNT];
     int n = held_count;
-    if (!n)
-        return base_note;
     for (int i = 0; i < n; i++) { // insertion sort, low to high
         uint8_t v = held[i].note;
         int j = i;
@@ -107,7 +162,101 @@ static uint8_t arp_note(void)
             sorted[j] = sorted[j - 1];
         sorted[j] = v;
     }
-    int i;
+    int extras = synth_arp_extend() ? extension_notes(sorted, n, added) : 0, count = 0, octaves = 1 + synth_arp_range();
+    for (int o = 0; o < octaves; o++) {
+        if (sequence.arp == ARP_PLAYED) {
+            for (int i = 0; i < n + extras; i++) {
+                int note = (i < n ? held[i].note : added[i - n]) + 12 * o;
+                if (note <= 127)
+                    pool[count++] = (uint8_t)note;
+            }
+            continue;
+        }
+        for (int i = 0, e = 0; i < n || e < extras; ) { // both are in order
+            int from_held = e == extras || (i < n && sorted[i] <= added[e]);
+            int note = (from_held ? sorted[i++] : added[e++]) + 12 * o;
+            if (note <= 127 && (o || !count || note > pool[count - 1]))
+                pool[count++] = (uint8_t)note;
+        }
+    }
+    if (octaves > 1 && sequence.arp != ARP_PLAYED) { // a chord wider than an octave lands among its own copies: in order, once each
+        int kept = 0;
+        for (int i = 0; i < count; i++) {
+            uint8_t v = pool[i];
+            int j = kept;
+            for (; j > 0 && pool[j - 1] > v; j--)
+                ;
+            if (j > 0 && pool[j - 1] == v)
+                continue;
+            for (int m = kept; m > j; m--)
+                pool[m] = pool[m - 1];
+            pool[j] = v;
+            kept++;
+        }
+        count = kept;
+    }
+    return count;
+}
+
+static float chance(void) { return (float)(random32() >> 16) / 65536.0f; }
+
+// A line: two notes on and one back, turning at the ends. Chaos turns steps into jumps, drawn towards the middle. It goes
+// from wherever it is, so a new chord follows on from its nearest note.
+static int walk_index(const uint8_t *pool, int n, float chaos)
+{
+    if (walk_note < 0 || n < 2)
+        return 0;
+    int pos = 0, best = 256;
+    for (int i = 0; i < n; i++) {
+        int d = pool[i] - walk_note;
+        d = d < 0 ? -d : d;
+        if (d < best) {
+            best = d;
+            pos = i;
+        }
+    }
+    if (chaos > 0 && chance() < chaos) {
+        walk_turn = 0;
+        int leap = 2 + (int)(chance() * (1.0f + chaos * 2.0f));
+        float up = 0.5f + ((float)(n - 1) / 2.0f - (float)pos) / (float)n; // nearer the bottom, more likely up
+        walk_dir = chance() < up ? 1 : -1;
+        pos += walk_dir * leap;
+    } else {
+        pos += walk_turn == 2 ? -walk_dir : walk_dir;
+        walk_turn = (walk_turn + 1) % 3;
+    }
+    if (pos >= n) {
+        pos = 2 * (n - 1) - pos;
+        walk_dir = -1;
+    } else if (pos < 0) {
+        pos = -pos;
+        walk_dir = 1;
+    }
+    return pos < 0 ? 0 : pos >= n ? n - 1 : pos;
+}
+
+// Arpeggio: the next note in the arp's order, and where it sits among them. A ratchet repeats a walk's note.
+static uint8_t arp_note(int repeat)
+{
+    uint8_t pool[(HELD_MAX + ARP_EXTEND_COUNT) * (ARP_RANGE_MAX + 1)];
+    if (!held_count) {
+        arp_position = 0;
+        return base_note;
+    }
+    if (repeat && sequence.arp == ARP_WALK && walk_note >= 0)
+        return (uint8_t)walk_note;
+    float chaos = synth_arp_chaos(layers);
+    if (!repeat && arp_index % EXTEND_ROLL_STEPS == 0) { // Chaos decides afresh which added notes play
+        extend_kept = 0;
+        for (int k = 0; k < ARP_EXTEND_COUNT; k++)
+            if (chaos <= 0 || chance() >= chaos)
+                extend_kept |= (uint8_t)(1u << k);
+    }
+    int n = arp_pool(pool), i;
+    if (!n) { // every held note past 127, an octave up
+        arp_position = 0;
+        return base_note;
+    }
     switch (sequence.arp) {
     case ARP_DOWN: i = n - 1 - arp_index % n; break;
     case ARP_UP_DOWN: { // up, then down without repeating the ends
@@ -116,10 +265,17 @@ static uint8_t arp_note(void)
         break;
     }
     case ARP_RANDOM: i = (int)(random32() % (uint32_t)n); break;
-    case ARP_PLAYED: return held[arp_index % n].note;
+    case ARP_WALK: i = walk_index(pool, n, chaos); break;
     default: i = arp_index % n; break;
     }
-    return sorted[i];
+    if (sequence.arp != ARP_WALK && chaos > 0 && chance() < chaos)
+        i = (int)(random32() % (uint32_t)n);
+    int below = 0;
+    for (int k = 0; k < n; k++)
+        below += pool[k] < pool[i];
+    arp_position = n > 1 ? (float)below / (float)(n - 1) : 0;
+    walk_note = pool[i];
+    return pool[i];
 }
 
 static int has_note(const uint8_t *notes, int count, int note)
@@ -160,7 +316,7 @@ static void play_note(int retrigger)
     uint8_t notes[1 + SEQ_CHORD_MAX], held[1 + SEQ_CHORD_MAX];
     int extra = sequence.extra[step], tie = (sequence.gate[step] & 0x7F) >= SEQ_GATE_TIE, single = SEQ_RATCHETS(extra) == 1;
     int count = 0, chord = SEQ_CHORD(sequence.flags);
-    int note = (int)(sequence.arp ? arp_note() : base_note) + (int)sequence.note[step] - 64;
+    int note = (int)(sequence.arp ? arp_note(retrigger) : base_note) + (int)sequence.note[step] - 64;
     held[count] = single && (tie || SEQ_HOLDS(extra) & 1);
     notes[count++] = clamp_note(note);
     for (int c = 0; c < chord; c++) {
@@ -172,9 +328,11 @@ static void play_note(int retrigger)
         }
     }
     uint8_t velocity = sequence.velocity[step] ? sequence.velocity[step] : base_velocity;
+    synth_set_arp_position(sequence.arp ? arp_position : 0);
     for (int i = 0; i < count; i++) // a held note into the same note just carries on
         if (retrigger || !was_held(notes[i]))
             synth_note_on_layers(notes[i], velocity, layers);
+    synth_set_arp_position(0);
     for (int i = 0; i < sounding_count; i++)
         if (!has_note(notes, count, sounding[i]))
             synth_note_off_layers(sounding[i], layers); // after the new notes: legato when held
@@ -231,6 +389,9 @@ int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
         step = 0;
         in_step = 0;
         arp_index = 0;
+        walk_note = -1;
+        walk_dir = 1;
+        walk_turn = 0;
         play_step();
     }
     return taken;

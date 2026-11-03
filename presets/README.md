@@ -1,4 +1,4 @@
-# Preset bank: 66 sounds for the custom firmware
+# Preset bank: 70 sounds for the custom firmware
 
 Sixty-four patches for firmware 0.8.1 and later, in slots P1-P64 (program change 0-63): 8 basses, 8 leads, 8 polys,
 8 pads, 8 plucks, 8 arps and sequences, 8 effects and 8 curiosities that show the engine off. They're built for the
@@ -9,6 +9,9 @@ the 15 clock divisions), so `fil-env-amt 78` is +24 semitones and `cutoff 39` is
 P65 and P66 (group `user`) are two more, made on the synth. The files hold the sounds as they are on the author's
 synth (read back with the web page's "Show the current sound"), so some differ a little from what their notes
 describe.
+
+P75-P78 (group `arp`, firmware 0.9.5) show off the generative arp: a pad on layer 1 and an arp on layer 2, in a stack. They
+skip P67-P74 so as not to land on the author's own patches. On older firmware the steps transpose from the key instead.
 
 Nothing here touches the master volume. The mod wheel adds LFO 1 depth on every patch, so any patch with the
 LFO → Freq button on (most leads) has wheel vibrato on top of what the notes say. Clock-synced patches run at 120 BPM
@@ -48,14 +51,14 @@ One JSON file per patch, `<slot>-<name>.json`:
 
 | Key | Contents |
 |---|---|
-| `slot`, `name`, `group` | Slot 1-128 (the bank uses 1-66), a name of up to 16 characters, one of bass / lead / poly / pad / pluck / arp / fx / other / user |
+| `slot`, `name`, `group` | Slot 1-128 (the bank uses 1-66 and 75-78), a name of up to 16 characters, one of bass / lead / poly / pad / pluck / arp / fx / other / user |
 | `notes.sound`, `notes.shows` | What it sounds like, and which engine features it demonstrates |
 | `buttons` | The latching buttons that are on (`a-saw` … `sync`, the tool's `set button` names); every other one is off |
 | `params.shared` | The pots the layers share (mixer levels, noise, resonance, PW A / B, poly-mod osc B), 0-99 |
 | `params.1`, `params.2` | Each layer's knobs, Env 3 / 4 and LFO 2, 0-99, by the tool's `param` names; layer 2 only when the patch uses it |
-| `settings` | `set` commands as `"<setting> [args]": value`, e.g. `"shape 1 2": "sh"`, `"cycle-sync 1 env3": "1/4"`, `"voice 1": "legato last"`; every setting is listed, defaults included. From 0.9.0 also `"env-up 1"`, `"dahdsr 1"`, `"env-tempo 1"` (a list of envelopes, as `cycle`), `"env-curve 1 amp"` (`analog` / `linear` / `swell`), `"env-delay 1 amp"`, `"env-hold 1 amp"` (0-99), `"env-count 1 amp"` (`loop` or 1-99), `"layer-voices"` (`auto` or 1-7), and the `noise` shape; from 0.9.2 `"osc-tune 1 a"` (FREQ A / B per layer: `semitones`, `octave`, `free` or `fixed`); from 0.9.3 `"link"` (what layer 2 takes from layer 1: `none`, or a list of `amp-env`, `filter-env`, `env3`, `env4`, `lfo1`, `lfo2`, `filter`; layer 2's own values are still listed), `"lfo-trigger"` / `"lfo2-trigger"` also `one-shot` and `one-shot-voice`, and `"lfo-cycles"` / `"lfo2-cycles"` (1-99, how many cycles a one shot runs; left out, 1), and `"lfo-restart"` (`steps` or `keys`, what restarts the LFOs with a sequence on; left out, `steps`) |
-| `routes.1`, `routes.2` | Mod routes as `[source, destination, depth]`, the tool's `route` names, up to 16 per layer. From 0.9.3 a further element `"both"` plays the route on the other layer's voices too, and from 0.9.5 `"via:0.25"` or `"via:mod-wheel"` multiplies it by a number (0.01-8) or a source (any but `fixed`; no macro on a route into a macro) |
-| `sequence` | The step sequence (arp group and P48): `on`, `step` (a clock division), `clock`, `bpm`, `swing`, `once`, `keys` (both / 1 / 2), `arp`, `lanes`, `chord` (0-2 extra notes per step, 0.9.3; `lanes` + `chord` at most 4), `smooth` (lanes that glide, e.g. `"A"`) and `steps`, each `{note, gate, vel, prob, ratchets, a-d, n2, n3}` (`n2`, `n3`: chord notes, ±36 semitones from the step's note; `hold`: the notes that hold past the gate, 1 own + 2 `n2` + 4 `n3`) with defaults left out (`note` 0, `gate` 50, the key's velocity, always, one hit); `{"rest": true}` is a rest, `gate` 100 a tie |
+| `settings` | `set` commands as `"<setting> [args]": value`, e.g. `"shape 1 2": "sh"`, `"cycle-sync 1 env3": "1/4"`, `"voice 1": "legato last"`; every setting is listed, defaults included. From 0.9.0 also `"env-up 1"`, `"dahdsr 1"`, `"env-tempo 1"` (a list of envelopes, as `cycle`), `"env-curve 1 amp"` (`analog` / `linear` / `swell`), `"env-delay 1 amp"`, `"env-hold 1 amp"` (0-99), `"env-count 1 amp"` (`loop` or 1-99), `"layer-voices"` (`auto` or 1-7), and the `noise` shape; from 0.9.2 `"osc-tune 1 a"` (FREQ A / B per layer: `semitones`, `octave`, `free` or `fixed`); from 0.9.3 `"link"` (what layer 2 takes from layer 1: `none`, or a list of `amp-env`, `filter-env`, `env3`, `env4`, `lfo1`, `lfo2`, `filter`; layer 2's own values are still listed), `"lfo-trigger"` / `"lfo2-trigger"` also `one-shot` and `one-shot-voice`, and `"lfo-cycles"` / `"lfo2-cycles"` (1-99, how many cycles a one shot runs; left out, 1), and `"lfo-restart"` (`steps` or `keys`, what restarts the LFOs with a sequence on; left out, `steps`); from 0.9.5 `"arp-range"` (1-3 octaves), `"arp-extend"` (`none`, `octave`, `fifth`, `seventh`, `ninth`) and `"arp-chaos"` (0-99) |
+| `routes.1`, `routes.2` | Mod routes as `[source, destination, depth]`, the tool's `route` names, up to 16 per layer. The depth is -99 to 99, in steps of 0.1 from 0.9.5 (older firmware gets the nearest whole number). From 0.9.3 a further element `"both"` plays the route on the other layer's voices too, and from 0.9.5 `"via:0.25"` or `"via:mod-wheel"` multiplies it by a number (0.01-8) or a source (any but `fixed`; no macro on a route into a macro) |
+| `sequence` | The step sequence (arp group and P48): `on`, `step` (a clock division), `clock`, `bpm`, `swing`, `once`, `keys` (both / 1 / 2), `arp` (`off`, `up`, `down`, `up-down`, `random`, `played`, from 0.9.5 `walk`), `lanes`, `chord` (0-2 extra notes per step, 0.9.3; `lanes` + `chord` at most 4), `smooth` (lanes that glide, e.g. `"A"`) and `steps`, each `{note, gate, vel, prob, ratchets, a-d, n2, n3}` (`n2`, `n3`: chord notes, ±36 semitones from the step's note; `hold`: the notes that hold past the gate, 1 own + 2 `n2` + 4 `n3`) with defaults left out (`note` 0, `gate` 50, the key's velocity, always, one hit); `{"rest": true}` is a rest, `gate` 100 a tie |
 | `morph` | The morph target's slot (P59 only) |
 
 `lib/bundle.py` fails the build on a preset that breaks its rules: the slot 1-128 and unique, the name plain ASCII, at most 16
@@ -209,3 +212,12 @@ lines should contain those words.
 
 Optional, for speed: a `pro800 batch` (or `-`) mode that reads commands from stdin over one MIDI connection would
 turn the bank's 5,600 process launches into one; `install.sh` would then pipe the plan instead of looping.
+
+**The generative arp (P75-P78)**
+
+| Slot | Name | Sound and what it shows |
+|---|---|---|
+| P75 | Walk On Glass | A warm pad under a glassy pluck that walks through the chord, brightening as it climbs. The Walk arp over two octaves, a touch of Chaos, arp note position into cutoff. |
+| P76 | Ninth Bloom | A plain triad on the pad; the arp reaches for the seventh and ninth, orderly for four bars and wild for four. Adds up to the ninth, a synced square LFO 2 into Arp Chaos, position into the decays. |
+| P77 | Touch Of Chaos | Soft chords give a neat line, hard ones leap. Velocity into Arp Chaos, a Fixed route holding the soft end at nothing, position via velocity into cutoff. |
+| P78 | Wheel Of Stars | A dark pad and tiny bright notes over three octaves; the higher it climbs the less stable it gets, and the mod wheel scatters it. Position and the wheel into Arp Chaos, ratchets and probability. |

@@ -1,0 +1,171 @@
+{
+ "slot": 78,
+ "name": "Wheel Of Stars",
+ "group": "arp",
+ "notes": {
+  "sound": "A dark drone-like pad and tiny bright notes over three octaves. The higher the line climbs the less stable it gets, then it settles back down. Push the mod wheel to let it scatter across the whole range.",
+  "shows": "Arp note position into Arp Chaos, so the line feeds itself; the mod wheel into Arp Chaos; three octaves; ratchets and probability on the steps."
+ },
+ "buttons": [
+  "a-tri",
+  "b-saw"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 78,
+   "b-level": 44,
+   "resonance": 30
+  },
+  "1": {
+   "freq-b": 33,
+   "fine": 54,
+   "cutoff": 38,
+   "fil-env-amt": 60,
+   "fil-att": 76,
+   "fil-dec": 80,
+   "fil-sus": 50,
+   "fil-rel": 78,
+   "amp-att": 76,
+   "amp-dec": 80,
+   "amp-sus": 86,
+   "amp-rel": 82,
+   "lfo2-rate": 10
+  },
+  "2": {
+   "freq-a": 66,
+   "freq-b": 75,
+   "cutoff": 42,
+   "fil-env-amt": 72,
+   "fil-att": 0,
+   "fil-dec": 40,
+   "fil-sus": 0,
+   "fil-rel": 44,
+   "amp-att": 0,
+   "amp-dec": 52,
+   "amp-sus": 0,
+   "amp-rel": 58
+  }
+ },
+ "settings": {
+  "layers": "stack",
+  "voice 1": "poly last",
+  "voice 2": "mono last",
+  "keytrack": "full",
+  "arp-range": 3,
+  "arp-extend": "fifth",
+  "shape 1 2": "sine"
+ },
+ "routes": {
+  "1": [
+   [
+    "voice",
+    "pitch-b",
+    6
+   ],
+   [
+    "lfo2",
+    "cutoff",
+    7
+   ],
+   [
+    "velocity",
+    "vca",
+    25
+   ]
+  ],
+  "2": [
+   [
+    "arp-note",
+    "arp-chaos",
+    45
+   ],
+   [
+    "mod-wheel",
+    "arp-chaos",
+    99
+   ],
+   [
+    "arp-note",
+    "amp-dec",
+    -25
+   ],
+   [
+    "arp-note",
+    "cutoff",
+    25
+   ],
+   [
+    "velocity",
+    "vca",
+    35
+   ]
+  ]
+ },
+ "sequence": {
+  "on": true,
+  "step": "1/16",
+  "clock": true,
+  "swing": 8,
+  "keys": "2",
+  "arp": "walk",
+  "steps": [
+   {
+    "gate": 45
+   },
+   {
+    "gate": 45,
+    "prob": 6
+   },
+   {
+    "gate": 45
+   },
+   {
+    "gate": 45,
+    "prob": 5
+   },
+   {
+    "gate": 45
+   },
+   {
+    "gate": 45,
+    "ratchets": 2
+   },
+   {
+    "gate": 45,
+    "prob": 6
+   },
+   {
+    "gate": 45
+   },
+   {
+    "gate": 45
+   },
+   {
+    "gate": 45,
+    "prob": 5
+   },
+   {
+    "gate": 45
+   },
+   {
+    "gate": 45,
+    "prob": 6
+   },
+   {
+    "gate": 45
+   },
+   {
+    "gate": 45,
+    "prob": 4
+   },
+   {
+    "gate": 45,
+    "ratchets": 3,
+    "prob": 5
+   },
+   {
+    "gate": 45
+   }
+  ]
+ }
+}
