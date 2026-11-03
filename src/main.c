@@ -1353,6 +1353,26 @@ static void format_signed(float v, char *text)
         text[--k] = ' ';
 }
 
+// 4 digits with a point, tenths across the whole range ("  0.0", " -1.2", "-12.3", " 36.0"): free tuning, whose
+// knob moves by hundredths of a semitone (format_signed shows tenths only below 10, and a whole number plain)
+static void format_tenths(float v, char *text)
+{
+    float a = v < 0 ? -v : v;
+    int d = (int)(a * 10.0f + 0.5f);
+    int n = 0;
+    if (d >= 100) {
+        text[n++] = v < 0 ? '-' : ' ';
+        text[n++] = (char)('0' + d / 100);
+    } else {
+        text[n++] = ' ';
+        text[n++] = v < 0 && d ? '-' : ' ';
+    }
+    text[n++] = (char)('0' + d / 10 % 10);
+    text[n++] = '.';
+    text[n++] = (char)('0' + d % 10);
+    text[n] = 0;
+}
+
 // 4 digits: milliseconds as a whole number ("  15", " 150"), seconds with a point (" 1.25", " 12.5")
 static void format_time(float s, char *text)
 {
@@ -1465,6 +1485,13 @@ static void turned_load(void)
     }
 }
 
+// A FREQ knob in free mode on the display: controls.c reports a knob once it has moved POT_HYSTERESIS (24 of 4095,
+// 0.42 semitones of the 72), while the pitch follows every step. The main loop reads the knob meanwhile and redraws
+// the tenths from half a tenth of travel (FREE_FOLLOW_STEPS), for as long as that reading is what's on the display.
+#define FREE_FOLLOW_STEPS 3
+static int free_shown_pot = -1, free_shown_raw;
+static uint32_t free_shown_until; // the display_until it set: another display since means another value shows
+
 // A knob's value as the display shows it. Above POT_COUNT (a controller's LFO 2 or Env 3 / 4 parameter): 0-99.
 static void pot_value_text(int index, int layer, float knob, char *text)
 {
@@ -1509,6 +1536,8 @@ static void pot_value_text(int index, int layer, float knob, char *text)
             format_quantity(440.0f * fast_exp2((pitch - 69.0f) / 12.0f), text);
         else if (mode == OSC_TUNE_OCTAVE)
             format_signed(pitch / 12.0f, text); // octaves
+        else if (mode == OSC_TUNE_FREE)
+            format_tenths(pitch, text);
         else
             format_signed(pitch, text);
     } else if (index == POT_FINE) {
@@ -1818,6 +1847,13 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         }
         display_text(text);
         display_until = ms_ticks + 1500;
+        free_shown_pot = -1;
+        if (!pending && (index == POT_FREQ_A || index == POT_FREQ_B)
+            && synth_osc_tune_mode(synth_edit_layer(), index == POT_FREQ_B) == OSC_TUNE_FREE) {
+            free_shown_pot = index;
+            free_shown_raw = (int)value;
+            free_shown_until = display_until;
+        }
     }
     if (kind == CONTROL_BUTTON && (index == BUTTON_SEQ1 || index == BUTTON_SEQ2) && value) {
         synth_set_edit_layer(index == BUTTON_SEQ2);
@@ -1908,7 +1944,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         encoder_patch_steps += (int)value;
         if (encoder_patch_steps >= 4 || encoder_patch_steps <= -4) {
             uint32_t gap = ms_ticks - encoder_patch_at;
-            int step = gap < 30 ? 8 : gap < 60 ? 4 : gap < 120 ? 2 : 1;
+            int step = shift_active() ? 10 : gap < 30 ? 8 : gap < 60 ? 4 : gap < 120 ? 2 : 1; // Shift: tens, round the ends
             int from = turned_patch >= 0 ? turned_patch : current_patch;
             int n = (from + (encoder_patch_steps > 0 ? step : PATCH_COUNT - step)) % PATCH_COUNT;
             encoder_patch_at = ms_ticks;
@@ -3075,6 +3111,17 @@ int main(void)
         }
         if (turned_patch >= 0 && (int32_t)(now - encoder_patch_at) >= TURNED_REST_MS)
             turned_load();
+        if (free_shown_pot >= 0 && display_until == free_shown_until && (int32_t)(now - display_until) < 0) {
+            int raw = controls_pot(free_shown_pot), moved = raw - free_shown_raw;
+            if (moved >= FREE_FOLLOW_STEPS || moved <= -FREE_FOLLOW_STEPS) {
+                char text[8];
+                free_shown_raw = raw;
+                pot_value_text(free_shown_pot, synth_edit_layer(), synth_knob_snap(free_shown_pot, (float)raw / 4095.0f), text);
+                display_text(text);
+                display_until = free_shown_until = now + 1500;
+            }
+        } else
+            free_shown_pot = -1;
         store_poll(now);
         synth_route_poll(now);
         cc_show(now);

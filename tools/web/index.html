@@ -517,7 +517,7 @@
     <section class="cs">
       <h3>Patches</h3>
       <ul>
-        <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a 3 s pause ends it), or <kbd>VALUE</kbd> steps through them, further the faster it turns, and loads when it rests (<code class="lcd">P  7</code>, <code class="lcd">P128</code>). An empty slot loads the init sound.</li>
+        <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a 3 s pause ends it), or <kbd>VALUE</kbd> steps through them, further the faster it turns (<kbd>Shift</kbd> + <kbd>VALUE</kbd>: ten at a time, round the ends), and loads when it rests (<code class="lcd">P  7</code>, <code class="lcd">P128</code>). An empty slot loads the init sound.</li>
         <li><b>Save:</b> <kbd>Rec</kbd>, two digits or <kbd>VALUE</kbd>, <kbd>Rec</kbd>. <kbd>Preset</kbd> cancels.</li>
         <li><b>Init:</b> <kbd>Perf</kbd>, then <kbd>Rec</kbd> to keep it anywhere.</li>
         <li>A patch keeps both layers, settings, routes, LFO shapes and step patterns, and its sequence. M VOL isn't stored.</li>
@@ -3322,11 +3322,11 @@ function buildPanel() {
       oscTuneRow(settingSelect("Oscillator A tuning", ["Semitones", "Octave", "Free", "Fixed"],
           () => settings && settings[`oscTune${paramsLayer + 1}A`],
           v => setSetting(SET_ID[`oscTune${paramsLayer + 1}A`], v),
-          "FREQ A scale: semitone steps, octave steps, continuous ±36 semitones, or fixed C1-C8 pitch"),
+          "FREQ A scale: semitone steps, octave steps, continuous ±36 semitones (the panel shows tenths), or fixed C1-C8 pitch"),
         settingSelect("Oscillator B tuning", ["Semitones", "Octave", "Free", "Fixed"],
           () => settings && settings[`oscTune${paramsLayer + 1}B`],
           v => setSetting(SET_ID[`oscTune${paramsLayer + 1}B`], v),
-          "FREQ B scale: semitone steps, octave steps, continuous ±36 semitones, or fixed C1-C8 pitch")),
+          "FREQ B scale: semitone steps, octave steps, continuous ±36 semitones (the panel shows tenths), or fixed C1-C8 pitch")),
       settingSelect("Split at", Array.from({ length: 128 }, (_, n) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`),
         () => settings && settings.split, v => setSetting(SET_ID.split, v)),
       settingSelect("Filter keytracking", ["Off", "Half", "Full"], () => settings && settings.keytrack, v => setSetting(SET_ID.keytrack, v),

@@ -54,7 +54,7 @@ The display shows a knob's value while you turn it, in real units where it has o
 
 | Knob | Shows | Range and curve |
 |---|---|---|
-| FREQ A / B | depends on tuning mode | semitones: ±36 in steps; octave: ±3 octaves; free: continuous ±36 semitones; fixed: C1-C8 |
+| FREQ A / B | depends on tuning mode | semitones: ±36 in steps; octave: ±3 octaves; free: continuous ±36 semitones, shown in tenths; fixed: C1-C8 |
 | FINE | cents | ±100 |
 | M TUNE | Macro 1, signed (`-45`, `  12`) | −99..99, 0 in the middle |
 | CUTOFF | Hz; with a point from 1 kHz on, kHz (` 737`, ` 1.24`, ` 16.7`) | 16 Hz-16.7 kHz, exponential |
@@ -67,7 +67,8 @@ The display shows a knob's value while you turn it, in real units where it has o
 | everything else | 0-99 | |
 
 Each layer stores a separate mode for FREQ A and FREQ B. The modes are **Semitones** (the original ±36-semitone
-range in one-semitone steps), **Octave** (−3 to +3 octaves in octave steps), **Free** (continuous ±36 semitones),
+range in one-semitone steps), **Octave** (−3 to +3 octaves in octave steps), **Free** (continuous ±36 semitones; the
+display shows tenths, ` 12.3`, and follows the knob while it shows),
 and **Fixed** (continuous C1-C8, independent of played notes). Fixed mode still responds to pitch bend and pitch
 modulation. Its display shows the equivalent frequency in Hz or kHz. Mode changes are saved with the patch.
 
@@ -160,7 +161,7 @@ keep them).
 - **Load:** in preset mode (Preset LED on), type the number: a third digit, or a pause of 3 seconds, or a number
   that no further digit could keep within 1-128 ends it (`7` then `2` loads P72 at once; `1`, `2` waits for a third
   digit). Or turn VALUE to step through them: the faster it turns, the further it goes (up to 8 slots a step), and the
-  patch loads when the turn rests. An empty slot loads the init sound (the display keeps the slot number), ready to
+  patch loads when the turn rests; with Shift held it goes ten at a time, round the ends (P125 + 10 is P7). An empty slot loads the init sound (the display keeps the slot number), ready to
   build and save there with Rec, Rec (Shift + Perf brings back the sound before). Boot loads the last patch, whichever
   mode you left it in (P1 on a freshly formatted memory).
 - **Edit:** a loaded patch's knobs are in pickup (with pickup off: until you move them) and its buttons keep their

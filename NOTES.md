@@ -2424,3 +2424,20 @@ Voice, Mod matrix and Sequencer: `collapsible()` makes the title a button and fo
 
 Reported with it, in the editor: a synced envelope's knob that seems locked. Its knobs are weights, so the only one above 0 is 100 % wherever it stands, and one at its top can't take more from a neighbour. The page's knobs now set the share (`setCycleShare()`): the dial reads the share, the others make room in proportion, and the weights go out scaled so the largest is at the top. No change in the firmware or a record, and a move of the share leaves the other stages' proportions as they were, including through 100 % and back within a session (`cycleMix`). With nothing to go back to, the rest takes the time. The panel is still weights, as a physical knob can't move the others'. On the panel pickup also holds a knob until it comes within 1.5 % of its stored value, near the end of the pot's travel for a value of 99; that wasn't what was reported, so it's as it was, and a real pot that falls short of its end hasn't been measured.
 
+
+## Three small ones from the issues (0.9.5, 2026-11-03)
+
+- **Issue 21, Shift + VALUE steps ten patches.** The reporter still wanted it beside the acceleration, and wrap at the
+  ends. In the encoder's patch block `shift_active()` makes the step 10, whatever the gap between turns, and the
+  modulo it already had goes round: P125 + 10 is P7, P1 − 10 is P119. Latched Shift counts.
+- **Issue 20, free tuning in tenths.** The reporter agreed to tenths of a semitone across the whole range instead of
+  Hz. `format_signed` shows a tenth only below 10 and a whole number plain, so `format_tenths` is free mode's own:
+  `  0.0`, ` -1.2`, `-12.3`, ` 36.0`, four digits and the point. The other half was the threshold: `controls.c`
+  reports a knob once it has moved `POT_HYSTERESIS`, 24 of 4095, which on the 72-semitone knob is 0.42, so the
+  display sat still while the pitch moved. While a free-mode FREQ reading is what's on the display (its
+  `display_until` is the one it set) the main loop reads the knob and redraws from `FREE_FOLLOW_STEPS` (3, half a
+  tenth) of travel, extending the 1.5 s. A knob in pickup shows the stored value with its dot and doesn't follow,
+  since the knob isn't the value yet. `test_the_display_follows_a_free_knob_below_the_report_threshold` and the two
+  beside it in `Layers`. Not tried on the real pots: whether the half-tenth threshold flickers on a boundary, which
+  would mean raising it.
+- **Issue 16, the installer on the home page.** A second launch strip under the editor's, `docs/index.html`.

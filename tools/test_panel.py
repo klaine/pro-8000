@@ -763,6 +763,20 @@ class ValueThroughThePatches(PanelTest):
         self.s.ms(100)
         self.assertNotEqual(self.s.settings()["patch"], before)
 
+    def test_shift_and_value_step_ten_slots_and_go_round_the_ends(self):
+        self.s.hold("SHIFT")
+        self.s.turn(1)
+        self.assertShows("P 11")
+        self.s.turn(1, every=5)
+        self.assertShows("P 21", "tens, however fast it turns")
+        self.s.turn(-3)
+        self.assertShows("P119", "P1 - 10 goes round to P119")
+        self.s.turn(1)
+        self.assertShows("P  1")
+        self.s.let_go("SHIFT")
+        self.s.ms(100)
+        self.assertEqual(self.s.settings()["patch"], 0)
+
     def test_value_loads_after_it_rests_80_ms(self):
         self.s.cmd("enc 4 15")
         self.s.ms(61)
@@ -1835,6 +1849,61 @@ class Layers(PanelTest):
         self.s.pot("FREQ_B", 0.0)
         self.s.pot("FREQ_B", 1.0)
         self.assertShows("   3")
+
+
+    def free_mode(self, pot):
+        self.manual()
+        self.s.hold("SEQ1")
+        self.s.pot(pot, 0.2)
+        self.s.pot(pot, 0.72)
+        self.assertShows("FrEE")
+        self.s.let_go("SEQ1")
+        self.s.ms(1100)
+        self.s.pot(pot, 0.0)  # through the value it held while frozen: out of pickup
+        self.s.pot(pot, 1.0)
+
+    def test_free_mode_shows_tenths_across_the_range(self):
+        self.free_mode("FREQ_A")
+        for fraction, text in ((0.5, "  0.0"), (0.5 + 12.3 / 72, " 12.3"), (0.5 - 12.3 / 72, "-12.3"), (1.0, " 36.0"),
+                               (0.5 - 1.2 / 72, " -1.2"), (0.0, "-36.0")):
+            self.s.pot("FREQ_A", fraction)
+            self.assertShows(text)
+
+    def test_the_display_follows_a_free_knob_below_the_report_threshold(self):
+        self.free_mode("FREQ_B")
+        self.s.pot("FREQ_B", 0.5 + 12.3 / 72)
+        self.assertShows(" 12.3")
+        raw = round((0.5 + 12.3 / 72) * 4095)
+        self.s.cmd(f"pot {POT['FREQ_B']} {raw + 8}")  # 0.14 semitones: under the 24 steps a report takes
+        self.s.ms(40)
+        self.assertShows(" 12.4", "the display reads the knob meanwhile")
+        self.s.cmd(f"pot {POT['FREQ_B']} {raw + 9}")
+        self.s.ms(40)
+        self.assertShows(" 12.4", "a step of one doesn't redraw")
+        self.s.ms(1600)
+        self.assertShows("PAnL", "and the value times out as any knob's")
+        self.s.cmd(f"pot {POT['FREQ_B']} {raw + 16}")
+        self.s.ms(40)
+        self.assertShows("PAnL", "once it's gone, only a report brings it back")
+
+    def test_a_free_knob_in_pickup_shows_the_stored_value_and_doesnt_follow(self):
+        self.free_mode("FREQ_A")
+        self.s.pot("FREQ_A", 0.5 + 12.3 / 72)
+        self.s.ms(1100)
+        self.s.press("REC", "9", "REC")
+        self.s.ms(1100)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.pot("FREQ_A", 0.3)  # while on the empty P1
+        self.s.press("9")
+        self.s.ms(3100)
+        self.assertShows("P  9")
+        self.s.pot("FREQ_A", 0.31)
+        self.assertShows(" 12.3.", "the stored value, with the pickup dot")
+        raw = round(0.31 * 4095)
+        self.s.cmd(f"pot {POT['FREQ_A']} {raw + 8}")
+        self.s.ms(40)
+        self.assertShows(" 12.3.", "the knob isn't the value yet")
 
 
 class ModAssign(PanelTest):

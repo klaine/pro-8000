@@ -275,7 +275,7 @@ select { font: inherit; font-size: 14px; color: var(--ink); background: var(--su
 footer.site { border-top: 1px solid var(--line); padding: 28px 24px 48px; text-align: center; font-size: 14px; color: var(--ink-2); }
 footer.site a { margin: 0 6px; }
 
-/* home: the editor strip under the two guides */
+/* home: the editor and installer strips under the two guides */
 .launch {
   display: flex; align-items: center; gap: 12px 24px; flex-wrap: wrap; margin: 18px 0 0; padding: 18px 22px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 16px; color: var(--ink); text-decoration: none;
