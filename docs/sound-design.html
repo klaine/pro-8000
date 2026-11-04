@@ -95,7 +95,7 @@
   <h2>The big shift: from fixed wiring to a patch bay</h2>
   <div class="prose">
     <p class="lead-in">On the stock PRO-800, modulation travels along paths printed on the panel: the LFO goes to pitch, pulse width or filter; poly-mod sends oscillator B and the filter envelope to oscillator A or the filter. Those are wonderful paths, and they're all still here. But they're fixed.</p>
-    <p>This firmware adds a <strong>mod matrix</strong>: any of 27 sources can be routed, with its own depth, to any of 46 destinations, 16 routes per layer, and two <strong>macros</strong> gather several sources into one hand. And because the voltages for pitch, filter and volume are worked out separately for each voice, most routes act <em>per note</em>: each note gets its own velocity, its own envelopes, its own random value, its own pressure, even its own LFO.</p>
+    <p>This firmware adds a <strong>mod matrix</strong>: any of 28 sources can be routed, with its own depth, to any of 47 destinations, 16 routes per layer; a route can be multiplied by a number or by another source (<strong>Via</strong>), and two <strong>macros</strong> gather several sources into one hand. And because the voltages for pitch, filter and volume are worked out separately for each voice, most routes act <em>per note</em>: each note gets its own velocity, its own envelopes, its own random value, its own pressure, even its own LFO.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:660px">
@@ -280,7 +280,7 @@
     <p>Each layer has 16 routes. Each route is a source, a destination and a depth from −99 to +99. You build them from the panel with <strong>MOD ASSIGN</strong>:</p>
     <ol class="steps">
       <li><b>Press <kbd>Arp Assign</kbd>.</b> Its LED blinks and the display shows <span class="led">SrC</span>. The knobs stay in pickup while you assign, so touching one won't change the sound.</li>
-      <li><b>Pick the source.</b> A number key (1 LFO, again for the other LFO; 2 filter env; 3 amp env; 4 velocity; 5 mod wheel; 6 aftertouch; 7 Env 3; 8 Env 4; 9 random; 0 note), or touch a knob that stands for one (an LFO knob, an ADSR knob), or turn VALUE to scroll through all 27 and press <kbd>Arp Assign</kbd> to take the one shown.</li>
+      <li><b>Pick the source.</b> A number key (1 LFO, again for the other LFO; 2 filter env; 3 amp env; 4 velocity; 5 mod wheel; 6 aftertouch; 7 Env 3; 8 Env 4; 9 random; 0 note), or touch a knob that stands for one (an LFO knob, an ADSR knob), or turn VALUE to scroll through all 28 and press <kbd>Arp Assign</kbd> to take the one shown.</li>
       <li><b>Pick the destination.</b> Turn its knob a little, or press its LFO routing button. AMP SUS means the VCA, the other ADSR knobs mean that envelope's stage; VALUE scrolls through the rest, and <kbd>Arp Assign</kbd> takes the one shown. A knob you touched in the 5 seconds before pressing Arp Assign is the destination already, so you go straight to the depth.</li>
       <li><b>Turn VALUE for the depth</b>, then press <kbd>Arp Assign</kbd> to finish. At depth 0 the route plays nothing and keeps its slot, so you can sweep through it; 5 s there removes it. Hold Arp Assign for half a second to browse the layer's routes: VALUE steps through them by number (<span class="led">nod1</span>, <span class="led">nod2</span> …) and, when it rests, the route shown cycles through its number, source, destination and depth.</li>
     </ol>
@@ -306,6 +306,7 @@
   <h2>Modulating the modulation</h2>
   <div class="prose">
     <p>Some destinations aren't sounds at all: they're the other modulators. LFO rates and amounts, the LFO routing depths, the filter and poly-mod envelope amounts, every envelope stage and the glide time can all be routed to. That's where sounds start to feel alive, because the movement itself changes over time or from note to note.</p>
+    <p>The other way to modulate a route is from inside it. <strong>Via</strong> (0.9.5, in the editor's mod matrix) multiplies a route: <em>source × via × depth</em>, where the via is a number from 0.01 to 8, or any source but Fixed. As a number it gives exact amounts: depth 99 via 0.25 into an LFO rate is one octave to the step, where depth 25 on its own lands a hair past it; for the same reason a depth takes tenths in the editor's number box, so 53.5 into pitch is a fifth. As a source it decides how much of the route arrives: the mod wheel as the Via of LFO → cutoff brings the wobble in as you push the wheel, and velocity as the Via of Env 3 → pitch keeps the scoop for the hard notes. A via that swings both ways, an LFO say, turns the route around on its way down. The matrix's Range column says what the route reaches; the panel keeps a route's Via but can't show it.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:560px">
@@ -371,7 +372,7 @@
     <figcaption><b>Figure 11.</b> Eight voices in unison over six seconds. Left: drift off, only the fixed unison spread. Right: drift at 60. The voices beat against each other in ways that keep changing, like an old poly that's never quite settled.</figcaption>
   </figure>
   <div class="prose">
-    <p>Related controls: <strong>unison detune</strong> (<kbd>Settings</kbd> → <kbd>8</kbd>, or Shift + M TUNE) sets how far apart the outermost voices of a unison note are, 0–100 cents; Shift + GLIDE nudges the drift. An LFO on <span class="led">drFt</span> or <span class="led">nOIS</span> with <span class="led">PoLY</span> retrigger, routed to pitch at a small amount, gives a faster, more obvious per-voice wander than the Drift setting. Voice modes per layer (poly, mono, legato, with last, low or high note priority) shape how lines connect.</p>
+    <p>Related controls: <strong>unison detune</strong> (<kbd>Settings</kbd> → <kbd>8</kbd>, or Shift + M TUNE) sets how far apart the outermost voices of a unison note are, 0–100 cents, and <strong>Unison voices</strong> (the editor's Voice section, 0.9.5) how many a note stacks, 2–8: at 2, four-note chords in unison; at 3 or 4, two notes; from 5, one line. Shift + GLIDE nudges the drift. An LFO on <span class="led">drFt</span> or <span class="led">nOIS</span> with <span class="led">PoLY</span> retrigger, routed to pitch at a small amount, gives a faster, more obvious per-voice wander than the Drift setting. Voice modes per layer (poly, mono, legato, with last, low or high note priority) shape how lines connect.</p>
   </div>
 </section>
 
@@ -448,7 +449,7 @@
   <span class="sec-num">13</span>
   <h2>Recipes</h2>
   <div class="prose">
-    <p>Ready-made sounds cover all of this: the bank in <code>presets/</code> (installed from the editor's Patches tab with "Install the preset bank", or with <code>presets/install.sh</code>) fills P1–P64 with eight each of basses, leads, polys, pads, plucks, sequences, effects and curiosities, and P65–P66 with two more, and its <code>DESIGN.md</code> explains the techniques. The recipes below are the same ideas by hand. Start from <kbd>Perf</kbd> (a plain sawtooth, filter open, with velocity already on the VCA at 70 and the cutoff at 20: a recipe's depth replaces those, and 5 s at depth 0 removes them) unless it says otherwise. Display codes are what you'll see on the synth.</p>
+    <p>Ready-made sounds cover all of this: the bank in <code>presets/</code> (installed from the editor's Patches tab with "Install the preset bank", or with <code>presets/install.sh</code>) fills P1–P64 with eight each of basses, leads, polys, pads, plucks, sequences, effects and curiosities, P65–P66 with two more and P75–P78 with four for the walking arp, and its <code>DESIGN.md</code> explains the techniques. The recipes below are the same ideas by hand. Start from <kbd>Perf</kbd> (a plain sawtooth, filter open, with velocity already on the VCA at 70 and the cutoff at 20: a recipe's depth replaces those, and 5 s at depth 0 removes them) unless it says otherwise. Display codes are what you'll see on the synth.</p>
   </div>
   <div class="cards">
     <div class="card"><span class="tag">Pad · per-voice LFO</span><h4>Shimmering ensemble pad</h4>
@@ -530,6 +531,16 @@
       <li>Play the steps in order; <kbd>Seq 2</kbd> for a rest.</li>
       <li>Press <kbd>Rec</kbd> (<span class="led">donE</span>). Hold any key: the riff plays from it.</li></ol>
       <p>Then <kbd>Rec</kbd>, slot, <kbd>Rec</kbd> saves it with the patch.</p></div>
+    <div class="card"><span class="tag">Editor · walking arp</span><h4>A line that climbs and brightens</h4>
+      <ol><li>Layers <span class="led">StAC</span>; on layer 2, voice mode <span class="led">nono</span>, a plucky sound (short decay, low sustain).</li>
+      <li>In the editor's Sequencer section, layer 2: Arp <b>Walk</b>, Range 2, Adds <b>ninth</b>, Chaos 15.</li>
+      <li>Mod matrix, layer 2: Arp note position → cutoff 35; Mod wheel → Arp Chaos 60.</li></ol>
+      <p>Hold a chord: layer 1 pads it while layer 2 walks it, two up and one back, brighter near the top. Push the wheel and the walk starts to jump. P75–P78 are variations on this.</p></div>
+    <div class="card"><span class="tag">Editor · Via</span><h4>Wobble on the wheel, exactly</h4>
+      <ol><li>LFO 1 triangle, synced at <span class="led">1-8</span>, AMOUNT at 0.</li>
+      <li>Mod matrix: LFO 1 → cutoff, depth 40, Via <b>Mod wheel</b>.</li>
+      <li>A second route: LFO 2 (slow) → LFO 1 rate, depth 99, Via 0.25.</li></ol>
+      <p>The wheel decides how much of the wobble arrives, and LFO 2 sweeps LFO 1's rate exactly one octave each way, 1/4 to 1/16 and back. Depth 25 on its own would overshoot by a hundredth.</p></div>
   </div>
 </section>
 
