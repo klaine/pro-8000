@@ -1409,11 +1409,24 @@ static void format_time(float s, char *text)
 // turned, shown by name and then as a time. The engine keeps those knobs frozen meanwhile (the main loop).
 #define ENV_EXTRA_POTS (1u << POT_AMP_ATT | 1u << POT_AMP_DEC | 1u << POT_FIL_ATT | 1u << POT_FIL_DEC)
 static uint32_t extra_frozen;
-// Hold Seq 1 or Seq 2 and turn FREQ A / B: that oscillator's tuning mode on the edit layer (a quarter turn a step),
-// the knob frozen meanwhile. The names as the display can show them (no M or X): semitones, octave, free, fixed.
+// Hold Seq 1 or Seq 2 and turn FREQ A / B: that oscillator's tuning mode on the edit layer, by the knob's quarter
+// (bottom to top: semitones, octave, free, fixed), the knob frozen meanwhile. The names as the display can show them
+// (no M or X).
 static uint32_t tune_mode_frozen;
-static int tune_mode_pot = -1, tune_mode_raw, tune_mode_accum;
+static int tune_mode_pot = -1;
 static const char tune_mode_names[OSC_TUNE_MODE_COUNT][5] = {"SEnI", "OCt", "FrEE", "FIHd"};
+_Static_assert(OSC_TUNE_MODE_COUNT == 4, "a mode per quarter of the knob");
+
+// The mode at a knob position (0-4095): its quarter, but the current mode until the knob is TUNE_MODE_EDGE counts
+// past its quarter's ends, so a knob resting on a boundary doesn't flicker between two
+#define TUNE_MODE_EDGE 48
+static int tune_mode_at(int raw, int current)
+{
+    if (raw >= current * 1024 - TUNE_MODE_EDGE && raw < (current + 1) * 1024 + TUNE_MODE_EDGE)
+        return current;
+    int quarter = raw >> 10;
+    return quarter < 0 ? 0 : quarter > 3 ? 3 : quarter;
+}
 static int extra_last[POT_COUNT], extra_pot = -1;
 static float extra_acc;
 static uint32_t extra_value_at; // when to show the value (after its name)
@@ -1593,6 +1606,50 @@ static void cc_show(uint32_t now)
     cc_shown_at = now;
 }
 
+// A latching button's new state on the display for a second: an oscillator's waves as a set, in fixed places (A.St_
+// is saw and tri on, square off; A.oFF all three off), the others as two letters and on / oF. It's what sounds: a
+// loaded patch's value until its button is toggled (synth_switch()). Each wave and sync is one gate for both layers,
+// so no layer is named. Nothing over a menu, a save, MOD ASSIGN or a number being typed, except for LFO 2's routing
+// (`always`): the buttons show LFO 1's, so the display is the only sign of it, and it has always shown. Unison isn't
+// here yet: chord memory will name it (the 0.10.0 plan, step 7).
+static void show_switch(int index, int on, int always)
+{
+    static const struct { uint8_t index; char name[3]; } names[] = {
+        {SWITCH_SYNC, "SY"}, {SWITCH_PMOD_FREQ_A, "PA"}, {SWITCH_PMOD_FILTER, "PF"},
+        {SWITCH_LFO_FREQ, "Fr"}, {SWITCH_LFO_FILTER, "FL"}, {SWITCH_LFO_PW, "PU"},
+    };
+    if (!always && (menu_open || saving || recording || assigning || browsing || comparing || typed_digits))
+        return;
+    char text[6] = {0};
+    if (index <= SWITCH_B_SQUARE) {
+        int first = index >= SWITCH_B_SAW ? SWITCH_B_SAW : SWITCH_A_SAW, any = 0;
+        text[0] = first == SWITCH_B_SAW ? 'b' : 'A';
+        text[1] = '.';
+        for (int w = 0; w < 3; w++) {
+            int wave = synth_switch(first + w);
+            text[2 + w] = wave ? "StQ"[w] : '_'; // Q is a small q
+            any |= wave;
+        }
+        if (!any) {
+            text[2] = 'o';
+            text[3] = text[4] = 'F';
+        }
+    } else {
+        unsigned n = 0;
+        while (n < sizeof names / sizeof names[0] && names[n].index != index)
+            n++;
+        if (n == sizeof names / sizeof names[0])
+            return;
+        text[0] = names[n].name[0];
+        text[1] = names[n].name[1];
+        text[2] = '.';
+        text[3] = 'o';
+        text[4] = on ? 'n' : 'F';
+    }
+    display_text(text);
+    display_until = ms_ticks + 1000;
+}
+
 static void control_event(control_kind_t kind, int index, int32_t value)
 {
     static const led_t button_led[BUTTON_COUNT] = {
@@ -1616,7 +1673,6 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         && !controls_button(BUTTON_SEQ1) && !controls_button(BUTTON_SEQ2) && tune_mode_frozen) {
         tune_mode_frozen = 0;
         tune_mode_pot = -1;
-        tune_mode_accum = 0;
         synth_freeze_pots(extra_frozen);
     }
     if (kind == CONTROL_POT && (index == POT_FREQ_A || index == POT_FREQ_B) && !menu_open && !saving && !recording
@@ -1624,32 +1680,16 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         && (controls_button(BUTTON_SEQ1) || controls_button(BUTTON_SEQ2))) {
         int osc = index == POT_FREQ_A ? 0 : 1;
         int layer = synth_edit_layer();
-        if (tune_mode_pot != index) {
+        if (tune_mode_pot != index) { // the first move: from now on the knob picks the mode, not the pitch
             tune_mode_pot = index;
-            tune_mode_raw = (int)value;
-            tune_mode_accum = 0;
             tune_mode_frozen |= 1u << index;
             synth_freeze_pots(extra_frozen | tune_mode_frozen);
-            display_text(tune_mode_names[synth_osc_tune_mode(layer, osc)]);
-            display_until = ms_ticks + 1000;
-            return;
         }
-        tune_mode_accum += (int)value - tune_mode_raw;
-        tune_mode_raw = (int)value;
-        int mode = (int)synth_osc_tune_mode(layer, osc);
-        while (tune_mode_accum >= 1024) {
-            mode = (mode + 1) % OSC_TUNE_MODE_COUNT;
-            tune_mode_accum -= 1024;
-        }
-        while (tune_mode_accum <= -1024) {
-            mode = (mode + OSC_TUNE_MODE_COUNT - 1) % OSC_TUNE_MODE_COUNT;
-            tune_mode_accum += 1024;
-        }
-        if (mode != (int)synth_osc_tune_mode(layer, osc)) {
+        int mode = tune_mode_at((int)value, (int)synth_osc_tune_mode(layer, osc));
+        if (mode != (int)synth_osc_tune_mode(layer, osc))
             synth_set_osc_tune_mode(layer, osc, mode);
-            display_text(tune_mode_names[mode]);
-            display_until = ms_ticks + 1000;
-        }
+        display_text(tune_mode_names[mode]); // shown while the knob moves, from the first move
+        display_until = ms_ticks + 1000;
         return;
     }
     if (kind == CONTROL_BUTTON && index == BUTTON_ARP_ASSIGN && !menu_open && !saving) {
@@ -1813,19 +1853,11 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             show_value_at = ms_ticks + 700; // then the page's value for this LFO
         }
     }
-    if (kind == CONTROL_SWITCH && synth_lfo_select()
-        && (index == SWITCH_LFO_FREQ || index == SWITCH_LFO_FILTER || index == SWITCH_LFO_PW)) {
-        char text[] = "Fr.on";
-        if (index == SWITCH_LFO_FILTER)
-            text[1] = 'L';
-        if (index == SWITCH_LFO_PW) {
-            text[0] = 'P';
-            text[1] = 'U';
-        }
-        if (!synth_lfo2_toggle(index))
-            text[4] = 'F'; // "oF"
-        display_text(text);
-        display_until = ms_ticks + 1000;
+    if (kind == CONTROL_SWITCH && (index <= SWITCH_B_SQUARE || index == SWITCH_SYNC || index == SWITCH_PMOD_FREQ_A
+                                   || index == SWITCH_PMOD_FILTER || index == SWITCH_LFO_FREQ
+                                   || index == SWITCH_LFO_FILTER || index == SWITCH_LFO_PW)) {
+        int lfo2 = synth_lfo_select() && (index == SWITCH_LFO_FREQ || index == SWITCH_LFO_FILTER || index == SWITCH_LFO_PW);
+        show_switch(index, lfo2 ? synth_lfo2_toggle(index) : synth_switch(index), lfo2); // LFO 2's routing toggles here
     }
     if (kind == CONTROL_SWITCH && (index == SWITCH_KEYTRACK_HALF || index == SWITCH_KEYTRACK_FULL)) {
         static const char names[3][5] = {"OFF", "HALF", "FULL"};

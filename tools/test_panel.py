@@ -1806,6 +1806,83 @@ class KeyboardTracking(PanelTest):
         self.assertShows("P  1")
 
 
+class SwitchNames(PanelTest):
+    """A latching button shows what it now does for a second (#34): an oscillator's waves as a set in fixed places, the
+    others as two letters and on / oF. The init sound on P1 has osc A's saw on; the buttons are all up (off)."""
+
+    def test_a_wave_shows_its_oscillators_set_as_it_sounds(self):
+        self.s.switch("A_TRI")
+        self.assertShows("A.St_", "the saw is the patch's, its button still up")
+        self.s.switch("A_TRI")
+        self.assertShows("A.S__")
+        self.s.switch("A_SAW")
+        self.assertShows("A.S__", "the button now agrees with the patch")
+        self.s.switch("A_SAW")
+        self.assertShows("A.oFF")
+        self.s.switch("B_SQUARE")
+        self.assertShows("b.__Q")
+        self.s.switch("B_TRI")
+        self.assertShows("b._tQ")
+        self.s.ms(1100)
+        self.assertShows("P  1")
+
+    def test_the_other_buttons_say_on_or_off(self):
+        for button, name in (("SYNC", "SY"), ("PMOD_FREQ_A", "PA"), ("PMOD_FILTER", "PF"), ("LFO_FREQ", "Fr"),
+                             ("LFO_FILTER", "FL"), ("LFO_PW", "PU")):
+            self.s.switch(button)
+            self.assertShows(f"{name}.on", button)
+            self.s.switch(button)
+            self.assertShows(f"{name}.oF", button)
+        self.s.ms(1100)
+        self.assertShows("P  1")
+
+    def test_nothing_over_mod_assign_or_a_save(self):
+        self.s.press("ASSIGN")
+        self.assertShows("SrC")
+        self.s.switch("A_TRI")
+        self.assertShows("SrC", "MOD ASSIGN keeps the display")
+        self.s.press("ASSIGN")
+        self.s.ms(1100)
+        self.s.press("REC", "1", "2")
+        shown = self.s.shows()
+        self.s.switch("B_SAW")
+        self.s.switch("SYNC")
+        self.assertEqual(self.s.shows(), shown, "the slot being typed stays")
+
+    def test_lfo_2s_routing_shows_over_a_menu_as_it_always_did(self):
+        """The buttons show LFO 1's routing, so for LFO 2 the display is the only sign; a wave keeps the menu's text."""
+        self.s.press("ARP_UP")
+        self.s.ms(1100)
+        self.s.press("SETTINGS")
+        menu = self.s.shows()
+        self.s.switch("LFO_FREQ")
+        self.assertShows("Fr.on")
+        self.s.ms(1100)
+        self.assertEqual(self.s.shows(), menu)
+        self.s.switch("A_TRI")
+        self.assertEqual(self.s.shows(), menu, "a wave says nothing over the menu")
+
+    def test_after_an_lfo_2_toggle_lfo_1s_first_press_only_brings_the_button_back(self):
+        """As MANUAL.md says: LFO 2's press moves the latch but LFO 1 keeps its routing (held); with LFO 1 selected the
+        next press puts the button back in step and changes nothing, the one after switches LFO 1."""
+        self.s.press("ARP_UP")
+        self.s.ms(1100)
+        self.s.switch("LFO_FREQ")
+        self.assertShows("Fr.on", "LFO 2 → pitch")
+        self.s.press("ARP_UP")
+        self.s.ms(1100)
+        self.s.switch("LFO_FREQ")
+        self.assertShows("Fr.oF", "LFO 1 → pitch still off")
+        self.s.switch("LFO_FREQ")
+        self.assertShows("Fr.on", "now LFO 1")
+        self.assertEqual(self.s.settings()["lfo2-dests 1"], 1, "LFO 2 kept its pitch route")
+
+    def test_the_hosts_switches_say_nothing(self):
+        self.s.request(0x4B, SWITCH["SYNC"], 1)
+        self.s.ms(100)
+        self.assertShows("P  1")
+
+
 class Layers(PanelTest):
     def test_seq_buttons_choose_the_edit_layer(self):
         self.s.press("SEQ2")
@@ -1838,6 +1915,45 @@ class Layers(PanelTest):
         self.assertEqual(self.s.settings()["osc-tune 1 a"], 3)
         self.s.ms(1100)
         self.assertShows("P  1")
+
+    def test_the_knobs_quarter_picks_the_tuning_mode(self):
+        """#34: where the knob is, not how far it moved: SEnI, OCt, FrEE, FIHd from the bottom quarter up."""
+        self.s.hold("SEQ1")
+        self.s.pot("FREQ_A", 0.6)
+        self.assertShows("FrEE", "from the first move")
+        self.s.pot("FREQ_A", 0.9)
+        self.assertShows("FIHd")
+        self.s.pot("FREQ_A", 0.1)
+        self.assertShows("SEnI")
+        self.s.pot("FREQ_A", 0.3)
+        self.assertShows("OCt")
+        self.s.let_go("SEQ1")
+        self.assertEqual(self.s.settings()["osc-tune 1 a"], 1)
+
+    def test_a_knob_on_a_quarters_edge_doesnt_flicker(self):
+        self.s.hold("SEQ1")
+        self.s.pot("FREQ_A", 0.6)
+        self.assertShows("FrEE")
+        self.s.pot("FREQ_A", 2007 / 4095)  # 41 counts below FrEE's quarter: still FrEE
+        self.assertShows("FrEE")
+        self.s.pot("FREQ_A", 1966 / 4095)  # 82 below
+        self.assertShows("OCt")
+        self.s.pot("FREQ_A", 2088 / 4095)  # 40 into FrEE's quarter: still OCt
+        self.assertShows("OCt")
+        self.s.pot("FREQ_A", 2170 / 4095)
+        self.assertShows("FrEE")
+        self.s.let_go("SEQ1")
+        self.assertEqual(self.s.settings()["osc-tune 1 a"], 2)
+
+    def test_layer_2s_osc_b(self):
+        self.s.press("SEQ2")
+        self.s.ms(1100)
+        self.s.hold("SEQ2")
+        self.s.pot("FREQ_B", 0.95)
+        self.assertShows("FIHd")
+        self.s.let_go("SEQ2")
+        settings = self.s.settings()
+        self.assertEqual((settings["osc-tune 2 b"], settings["osc-tune 1 b"], settings["osc-tune 2 a"]), (3, 0, 0))
 
     def test_octave_mode_shows_octaves(self):
         self.manual()
@@ -2954,13 +3070,22 @@ class ModAssignMore(PanelTest):
 
 
 class ButtonsOnTheFace(PanelTest):
-    def test_unison_and_the_waveforms_keep_the_display(self):
-        for name in ("A_SAW", "A_TRI", "A_SQUARE", "B_SAW", "B_TRI", "B_SQUARE", "UNISON", "SYNC", "PMOD_FREQ_A", "PMOD_FILTER"):
+    def test_the_waveforms_sync_and_pmod_name_themselves_for_a_second(self):
+        """Since 0.10.0 (#34) they say what now sounds (SwitchNames has the texts); before, they kept the display."""
+        for name in ("A_SAW", "A_TRI", "A_SQUARE", "B_SAW", "B_TRI", "B_SQUARE", "SYNC", "PMOD_FREQ_A", "PMOD_FILTER"):
             with self.subTest(button=name):
                 self.s.history()
                 self.s.switch(name)
-                self.assertEqual([t for _, t in self.s.history()], [], "these only change the sound")
+                self.assertEqual(len(self.s.history()), 1, "one text")
+                self.s.ms(1100)
                 self.assertShows("P  1")
+
+    def test_unison_keeps_the_display(self):
+        """Until chord memory names it (the 0.10.0 plan, step 7)."""
+        self.s.history()
+        self.s.switch("UNISON")
+        self.assertEqual([t for _, t in self.s.history()], [])
+        self.assertShows("P  1")
 
     def test_a_button_takes_over_from_a_loaded_patch(self):
         self.s.switch("A_SAW")
@@ -2975,10 +3100,11 @@ class ButtonsOnTheFace(PanelTest):
         self.s.pot("MASTER_VOL", 0.25)
         self.assertShows("  25", "no dot: M VOL is always where its knob is")
 
-    def test_lfo_routing_on_lfo_1_keeps_the_display(self):
+    def test_lfo_routing_on_lfo_1_says_on_or_off_as_lfo_2s_does(self):
         self.s.history()
         self.s.switch("LFO_FREQ")
-        self.assertEqual([t for _, t in self.s.history()], [])
+        self.assertEqual([t for _, t in self.s.history()], [readable(segments_of("Fr.on"))])
+        self.assertFalse(self.s.led("ARP_UP"), "still LFO 1")
 
 
 class MoreNames(PanelTest):

@@ -2611,6 +2611,16 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
    first event). Switch names: an oscillator's whole set (`A.St_`, `b._tq`, `A.oFF`), and `SY` / `Un` / `PA` / `PF` /
    `Fr` / `FL` / `PU` with `.on` / `.oF`; not in MOD ASSIGN or browse (guard needed: `assign_event` returns 0 for
    these), while saving or typing, or for host 4B; Unison waits for step 7.
+   **Done 2026-11-04 (simulator only).** `tune_mode_at()`: the quarter with 48 counts of hysteresis, from the first move,
+   the mode shown while the knob moves. `show_switch()`: the texts above for a second, the effective state
+   (`synth_switch()`); over a menu, a save, recording, MOD ASSIGN, browse, compare or a typed number only LFO 2's
+   routing shows, as it always has (the buttons show LFO 1, so the display is its only sign; the review caught the
+   first version hiding it over a menu). ButtonsOnTheFace's old "the waves keep the display" became "they name
+   themselves"; Unison still keeps it. The review also found the manual's "the buttons keep showing LFO 1's routing"
+   wrong since 0.6.0: an LFO 2 press moves the latch while LFO 1 is held, and LFO 1's next press only brings the
+   button back in step; MANUAL, the known limitation and the cheat sheet say so now, and a test walks it. 84,756 B
+   (+232); `test_panel.py` 747 pass. Not tried on the synth: legibility of `S` / `t` / `q` / `_`, and a FREQ knob
+   resting on a quarter's edge with the real ADC.
 3. **#39.** 39a: a pending knob takes over only after it's turned 24 LSB (POT_HYSTERESIS), for every pending knob. Then
    39b: VALUE nudges the shown knob on a tenth grid, 4 transitions a tenth, snapping to the grid first; the last thing
    on the display owns VALUE (a knob ends the LFO shape window); Shift + VALUE keeps its job; whole numbers outside the

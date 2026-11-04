@@ -34,7 +34,8 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Control | What it does now |
 |---|---|
 | Knobs | As printed, with a few changes. LFO FREQ / LFO AMOUNT edit LFO 1 or LFO 2. With Shift (Sync Source) held, the filter ADSR knobs edit Env 3, the amp ADSR knobs Env 4, and the other knobs secondary values (see Shift). |
-| FREQ A / FREQ B | Their tuning mode is per oscillator and layer; hold Seq 1 or Seq 2 while turning a FREQ knob to cycle its mode (`SEnI` semitones, `OCt` octave, `FrEE` free, `FIHd` fixed; a quarter turn a step). |
+| FREQ A / FREQ B | Their tuning mode is per oscillator and layer; hold Seq 1 or Seq 2 while turning a FREQ knob, and the knob's quarter picks its mode, bottom to top: `SEnI` semitones, `OCt` octave, `FrEE` free, `FIHd` fixed. |
+| Waveform, Sync, PMOD and LFO routing buttons | As printed. Each press shows what the button now does for a second: an oscillator's three waves in fixed places, saw, tri, square (`A.St_` is A's saw and tri, `b.__q` B's square alone, `A.oFF` none); the others `SY` sync, `PA` / `PF` poly-mod to Freq A / Filter, `Fr` / `FL` / `PU` LFO routing, with `.on` or `.oF`. It shows what sounds: a loaded patch's setting until that button is pressed. Not over a menu, a save or MOD ASSIGN. |
 | FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
 | Keyboard-tracking switch | Keyboard tracking, as printed: off, half, full. A loaded patch's setting holds until you move the switch. |
 | Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |
@@ -319,9 +320,11 @@ the filter, or to pitch for octave jumps (LFO → Freq at full depth is ±12 sem
 adds to LFO 1's depth.
 
 **Routing:** for LFO 1, the LFO → Freq / Filter / PW buttons work as printed. For LFO 2, select it and press the
-same buttons. The display shows the result, e.g. `Fr.on` or `FL.oF`. LFO 1's routing stays as it was, and the
-buttons' positions keep showing LFO 1's routing. LFO → PW is one wire, so it takes layer 1's LFOs. Pitch ±12
-semitones and filter ±48 at full depth.
+same buttons. Either way the display shows the result, e.g. `Fr.on` or `FL.oF`. With LFO 2 selected, LFO 1's
+routing stays as it was, but the button moves, so it no longer shows LFO 1's routing: with LFO 1 selected again, the
+next press of it brings it back in step and changes nothing (the display says what LFO 1 does), and the press after
+that switches LFO 1. LFO → PW is one wire, so it takes layer 1's LFOs. Pitch ±12 semitones and filter ±48 at full
+depth.
 
 **Sync** (Settings → key 1, `SYnC`, or `SYn2` for LFO 2): `FrEE` or `CLoC`. With the clock, LFO FREQ chooses a
 division (shown while turning): `8bAr`, `4bAr`, `2bAr`, `1bAr`, `1-2`, `1-4d`, `1-4`, `1-4t`, `1-8d`, `1-8`,
@@ -1003,6 +1006,7 @@ flash a PRO-8000 `.syx` from the [releases](https://github.com/klaine/pro-8000/r
 - MIDI OUT / THRU isn't implemented, and SysEx works over USB only. The sequencer, scale, morph and note priority
   are set on the web page only.
 - 128 patches, each with its sequence; the 0.7.x patches are not carried over (the EEPROM backups keep them).
-- The LFO routing buttons always show LFO 1's routing. LFO 2's shows on the display when toggled, and on the web
-  page.
+- The LFO routing buttons are latches with no LEDs: LFO 2's routing shows only on the display when toggled, and on
+  the web page, and after an LFO 2 toggle a button no longer shows LFO 1's routing until it's pressed once with LFO 1
+  selected (that press changes nothing).
 - Going to manual mode (Preset) makes every button live, so LFO 1's routing jumps to what the buttons show.
