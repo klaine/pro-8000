@@ -77,8 +77,13 @@ static void place(int position, uint8_t segments)
                         | (segments & SEG_D ? 0x20 : 0) | (segments & SEG_C ? 0x40 : 0) | (segments & SEG_DP ? 0x80 : 0));
 }
 
+static uint32_t serial; // bumped by every text drawn, so a caller can tell whether its text is still the one shown
+
+uint32_t display_serial(void) { return serial; }
+
 static void set_digits(const uint8_t segments[4])
 {
+    serial++;
     for (int i = 0; i < 4; i++)
         if (segments[i] != digits[i]) {
             digits[i] = segments[i];

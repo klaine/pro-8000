@@ -282,6 +282,16 @@ int synth_in_scale(int note); // 0 with the scale off
 int synth_unison_voices(void);
 void synth_set_unison_voices(int n);
 int synth_pot_pending(int pot);
+// VALUE's fine adjustment of a knob's value (on the edit layer, as the knob edits it): `steps` of the knob's grid, a
+// tenth of the 0-99 the display shows (990), a tenth of a semitone in free tuning (720), or a stepped knob's steps,
+// starting from the nearest point of it. The knob then waits until it's turned. The new value, or -1 (M VOL).
+float synth_nudge_pot(int pot, int steps);
+// The parameter a knob edits now (Env 3 / 4 under Shift or the keytrack switch's page, LFO 2 while it's selected)
+int synth_pot_param(int pot);
+// The panel reported the knob at `reading` (0-4095): if that's 24 counts from where it began waiting, it's been turned,
+// for pickup (a waiting knob takes over only once it has been), and one that rested on its value takes it over now.
+// Call it before asking synth_pot_pending() for the display, so the first value shown is already the knob's.
+void synth_pot_touched(int pot, int reading);
 // Pickup (on, the default): a knob in pickup takes over once it reaches or sweeps past the stored value. Off (jump):
 // it takes over as soon as it moves from where it was when it started waiting, jumping the value to its position.
 // Either way a knob only starts waiting once it's free: one frozen by a gesture (Shift, MOD ASSIGN, the envelope

@@ -493,7 +493,8 @@
         <tr><td>Hold <kbd>Rec</kbd> + <kbd>Seq 1</kbd></td><td>Record steps from MIDI <code class="lcd">rSEq</code> (REC blinks fast): each note is the next step <code class="lcd">St 3</code>, <kbd>Seq 2</kbd> a rest, <kbd>Rec</kbd> or <kbd>Seq 1</kbd> ends <code class="lcd">donE</code>. The first note is offset 0. <kbd>Rec</kbd> then saves it with the patch.</td></tr>
         <tr><td><kbd>Arp Up-Dn</kbd></td><td>LFO knobs, Shape button and LFO routing edit LFO 1 or LFO 2 (LED lit = LFO 2) <code class="lcd">LFO1</code> <code class="lcd">LFO2</code></td></tr>
         <tr><td><kbd>Arp Assign</kbd></td><td>Mod assign: the mod matrix (LED blinks) <code class="lcd">SrC</code></td></tr>
-        <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways</td></tr>
+        <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways (until a knob is touched)</td></tr>
+        <tr><td><kbd>VALUE</kbd> after a knob</td><td>While a knob's value shows (1.5 s), a click cycle moves it a tenth <code class="lcd">53.4</code> (Free tuning a tenth of a semitone, a stepped knob a step); the knob then waits until turned, and a save keeps it. Not in a menu, a save or MOD ASSIGN; Shift + <kbd>VALUE</kbd> still steps ten patches</td></tr>
         <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
         <tr><td>Waveform, Sync, PMOD, LFO routing buttons</td><td>As printed; each press shows what now sounds: an oscillator's waves in fixed places, saw, tri, square <code class="lcd">A.St_</code> <code class="lcd">b.oFF</code>, the others <code class="lcd">SY.on</code> <code class="lcd">PA.oF</code> <code class="lcd">PF.on</code> <code class="lcd">Fr.on</code></td></tr>
         <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
@@ -511,7 +512,7 @@
       <ul>
         <li>A knob shows its value while turned, in real units: FREQ A/B follow their mode (semitones, octaves or Hz for Fixed), cents (FINE), −99..99 (M TUNE, Macro 1), Hz with a point from 1 kHz (CUTOFF), ms / s (envelopes, GLIDE), divisions when synced (LFO FREQ). PW A / B: 5-95 % of the cycle, 50 a square.</li>
         <li>No plus sign: positive values have none.</li>
-        <li><b>A dot after the value</b> = the knob hasn't picked up yet. Turn it past (or onto) the stored value and it takes over. Happens after loading a patch, switching layer / LFO / envelope, or editing from the web page.<span data-needs="pickup"> With pickup off (Shift + PMOD FIL ENV <code class="lcd">P.UP</code> <code class="lcd">OFF</code>) the knob takes over as soon as you move it: the value jumps to it.</span></li>
+        <li><b>A dot after the value</b> = the knob hasn't picked up yet. Turn it past (or onto) the stored value and it takes over; untouched it never does, however close it rests. Happens after loading a patch, switching layer / LFO / envelope, or editing from the web page.<span data-needs="pickup"> With pickup off (Shift + PMOD FIL ENV <code class="lcd">P.UP</code> <code class="lcd">OFF</code>) the knob takes over as soon as you move it: the value jumps to it.</span></li>
       </ul>
     </section>
 

@@ -227,12 +227,16 @@ class Synth:
         self.assert_names = count == len(names)
         return {names[r]: b[1 + 2 * r] << 7 | b[2 + 2 * r] for r in range(count)}
 
-    def params(self, layer=0):
+    def params_raw(self, layer=0):
+        """Every parameter as the host reads it, 0-16383 (a tenth of 0-99 is about 16.5)."""
         self.ms(300)  # the knobs glide to a new reading
         reply = self.request(0x53, layer)
         start = reply.index(pro800.SYSEX_HEADER + bytes([0x53, layer]))
         b = reply[start + pro800.HEADER_SIZE + 2:]
-        return {pro800.PARAM_NAMES[i]: ((b[1 + 2 * i] << 7 | b[2 + 2 * i]) * 99 + 8191) // 16383 for i in range(b[0])}
+        return {pro800.PARAM_NAMES[i]: b[1 + 2 * i] << 7 | b[2 + 2 * i] for i in range(b[0])}
+
+    def params(self, layer=0):
+        return {name: (v * 99 + 8191) // 16383 for name, v in self.params_raw(layer).items()}
 
     def route_table(self, layer=0):
         """All 16 slots, as 57 sends them: source 0 is an empty one."""
@@ -1411,6 +1415,258 @@ class Pickup(PanelTest):
         self.s.ms(5)
         self.s.pot("RESONANCE", 0.3)
         self.assertShows("  50.")
+
+
+class PickupNeedsATurn(PanelTest):
+    """0.10.0 (#39's first part): a waiting knob takes over only once it's been turned, however close it rests. On
+    0.9.5 one within 1.5 % of its value took over on the next pass, untouched."""
+
+    def test_a_value_from_the_host_next_to_a_resting_knob_stays(self):
+        self.manual()
+        self.s.pot("RESONANCE", 0.5)
+        self.s.ms(1100)
+        self.s.param(0, "resonance", 8355)  # 0.51: inside the window of the knob at 0.5
+        self.s.ms(2000)
+        self.assertEqual(self.s.params_raw()["resonance"], 8355, "not taken back by the knob")
+        self.s.pot("RESONANCE", 0.6)
+        self.assertShows("  59", "rested on it: the first turn takes it, with no dot")
+        self.assertEqual(self.s.params()["resonance"], 59)
+
+    def test_a_semitone_patch_loaded_one_step_off_keeps_its_tuning(self):
+        seven = round(43 / 72 * 16383)  # FREQ A at +7 semitones
+        self.s.param(0, "freq-a", seven)
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.pot("FREQ_A", 42 / 72)  # +6 on the empty P1
+        self.s.press("3")
+        self.s.ms(3100)
+        self.assertShows("P  3")
+        self.s.ms(2000)
+        self.assertEqual(self.s.params_raw()["freq-a"], seven, "a step is less than 1.5 %: 0.9.5 took the knob's +6")
+        self.s.pot("FREQ_A", 41 / 72)  # turned a step away, to +5: a step's window (half a step) doesn't take it
+        self.assertEqual(self.s.params_raw()["freq-a"], seven, "it waits until the knob reaches +7")
+        self.s.pot("FREQ_A", 43 / 72)
+        self.assertEqual(self.s.params_raw()["freq-a"], seven, "onto it: the knob has it, at +7")
+        self.s.pot("FREQ_A", 44 / 72)
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 72 / 16383), 44)
+
+    def test_a_semitone_knob_short_of_its_end_takes_a_value_stored_at_the_end(self):
+        """A pot that stops at 4070 can't reach +36's step, so it can't sweep past: turned to its end, it takes over."""
+        self.manual()
+        self.s.param(0, "freq-a", 16383)  # +36
+        self.s.pot("FREQ_A", 0.8)
+        self.s.pot("FREQ_A", 71 / 72)
+        self.s.pot("FREQ_A", 4070 / 4095)  # as far as it goes: still step 71 (the step's hysteresis)
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 72 / 16383), 71, "the knob has it")
+
+    def test_a_knob_whose_steps_change_while_it_waits_hasnt_been_turned(self):
+        self.manual()
+        self.s.pot("LFO_FREQ", 0.3)
+        self.s.ms(100)
+        near = round(0.305 * 16383)  # within the window of the knob
+        self.s.param(0, "lfo-freq", near)
+        self.s.ms(100)
+        self.s.setting("lfo-sync", 1)  # now 14 divisions: the knob reads as a step, which isn't a move
+        self.s.ms(500)
+        self.assertEqual(self.s.params_raw()["lfo-freq"], near)
+
+    def test_a_knob_resting_by_its_value_after_a_load_waits_to_be_turned(self):
+        self.manual()
+        self.s.pot("RESONANCE", 0.5)
+        self.s.ms(1100)
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        stored = self.s.params_raw()["resonance"]
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.pot("RESONANCE", 0.51)  # on P1, a hair from P3's value
+        self.s.press("3")
+        self.s.ms(3100)
+        self.s.ms(2000)
+        self.assertEqual(self.s.params_raw()["resonance"], stored, "untouched: the stored value")
+        self.s.pot("RESONANCE", 0.53)
+        self.assertShows("  52", "turned: it's the knob's at once, no dot")
+        self.assertEqual(self.s.params()["resonance"], 52)
+
+
+class ValueNudge(PanelTest):
+    """#39: while a knob's value is on the display, VALUE moves it a tenth a cycle (a stepped knob a step) and the knob
+    waits to be turned. 0-99 values show their tenth; the value is the patch's, so a save keeps it."""
+
+    def touch(self, pot, fraction):
+        """The knob turned to `fraction` (the simulator starts every pot at 2048, so from 0.5 it's moved there first)."""
+        if abs(fraction - 0.5) < 0.05:
+            self.s.pot(pot, 0.3)
+        self.s.pot(pot, fraction)
+        self.s.ms(100)  # the glide to the reading
+
+    def tenths(self, name, layer=0):
+        return round(self.s.params_raw(layer)[name] * 990 / 16383)
+
+    def test_two_cycles_two_tenths_and_it_stays(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)  # 29.7
+        self.s.turn(2)
+        self.assertShows(" 29.9", "from the nearest tenth, 29.7, two up")
+        self.assertEqual(self.tenths("resonance"), 299)
+        self.s.ms(2000)
+        self.assertEqual(self.tenths("resonance"), 299, "the knob, untouched, doesn't take it back")
+        self.assertShows("PAnL")
+        self.s.turn(1)
+        self.assertEqual(self.tenths("resonance"), 299, "the value's gone from the display: VALUE does nothing")
+        self.s.turn(-1)
+        self.assertShows("PAnL")
+
+    def test_a_save_keeps_the_tenth_through_a_load_and_a_power_cycle(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        self.s.turn(-3)
+        self.assertShows(" 29.4")
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.press("3")
+        self.s.ms(3100)
+        self.assertEqual(self.tenths("resonance"), 294)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.assertEqual(self.tenths("resonance"), 294)
+
+    def test_a_report_on_noise_doesnt_take_the_value_back(self):
+        """The panel reports a knob 24 counts from its last report, not from where it began waiting: a knob that crept
+        20 counts unreported, then 4 of noise after the nudge, sends a report, and that isn't a turn."""
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        x = round(0.3 * 4095)
+        self.s.cmd(f"pot {POT['RESONANCE']} {x + 20}")  # under the report threshold
+        self.s.ms(100)
+        self.s.turn(1)
+        nudged = self.s.params_raw()["resonance"]
+        self.s.cmd(f"pot {POT['RESONANCE']} {x + 24}")  # a report: 24 from the last one, 4 from where it rests
+        self.s.ms(500)
+        self.assertEqual(self.s.params_raw()["resonance"], nudged)
+
+    def test_turning_the_knob_afterwards_takes_over(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        self.s.turn(1)
+        self.touch("RESONANCE", 0.35)
+        self.assertShows("  35", "it rested on the value: the first turn takes it, no dot")
+        self.assertEqual(self.s.params()["resonance"], 35)
+
+    def test_in_preset_mode_the_window_takes_value_from_the_patches(self):
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        self.touch("RESONANCE", 0.3)  # P3 has the init sound's 0; the knob waits for it
+        self.assertShows("   0.")
+        self.s.turn(1)
+        self.assertShows("  0.1", "the value on the display: the stored one")
+        self.assertEqual(self.s.settings()["patch"], 2, "still P3")
+        self.s.ms(1600)
+        self.s.turn(1)
+        self.assertShows("P  4", "the window over: VALUE steps the patches again")
+
+    def test_shift_value_keeps_stepping_ten_patches(self):
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        self.touch("RESONANCE", 0.3)
+        before = self.s.params_raw()["resonance"]
+        self.s.hold("SHIFT")
+        self.s.turn(1)
+        self.assertShows("P 13")
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.params_raw()["resonance"], before)
+
+    def test_free_tuning_by_tenths_of_a_semitone(self):
+        self.manual()
+        self.s.setting("osc-tune 1 a", 2)
+        self.touch("FREQ_A", 0.5 + 12.3 / 72)
+        self.assertShows(" 12.3")
+        self.s.turn(3)
+        self.assertShows(" 12.6", "a tenth of a semitone a cycle (the 0-99 grid would make it 12.5)")
+        self.s.cmd(f"pot {POT['FREQ_A']} {round((0.5 + 12.3 / 72) * 4095) + 3}")  # the knob drifts a little
+        self.s.ms(40)
+        self.assertShows(" 12.6", "the follow doesn't redraw the knob over the value")
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 720 / 16383), 486)
+
+    def test_stepped_knobs_step(self):
+        self.manual()
+        self.touch("FREQ_A", 43 / 72)  # +7 semitones
+        self.s.turn(1)
+        self.s.ms(2000)
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 72 / 16383), 44, "+8, and it stays")
+        self.s.setting("osc-tune 1 a", 1)  # octaves
+        self.touch("FREQ_A", 0.5)
+        self.s.turn(-1)
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 6 / 16383), 2)
+        self.s.setting("lfo-sync", 1)
+        self.touch("LFO_FREQ", 0.5)
+        self.s.turn(1)
+        self.assertEqual(round(self.s.params_raw()["lfo-freq"] * 14 / 16383), 8, "one division")
+
+    def test_a_unit_knob_moves_a_tenth_of_a_0_99_unit(self):
+        self.manual()
+        self.touch("CUTOFF", 0.5)
+        self.s.turn(1)
+        self.assertEqual(self.tenths("cutoff"), 496)
+
+    def test_m_vol_isnt_adjusted(self):
+        self.manual()
+        self.touch("MASTER_VOL", 0.5)
+        shown = self.s.shows()
+        self.s.turn(2)
+        self.assertEqual(self.s.shows(), shown)
+        self.assertEqual(self.s.params()["master-vol"], 50)
+
+    def test_layer_2s_value_on_layer_2(self):
+        self.manual()
+        self.s.setting("layers", 2)
+        self.s.press("SEQ2")
+        self.s.ms(1100)
+        self.touch("CUTOFF", 0.3)  # per layer (resonance is one wire for both); layer 2's filter is the init sound's, open
+        self.s.turn(-1)
+        self.assertEqual(self.tenths("cutoff", 1), 989, "layer 2's stored value, a tenth down")
+        self.assertEqual(self.tenths("cutoff", 0), 495, "layer 1's stays")
+
+    def test_a_controller_takes_the_display_and_value(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        self.s.midi(0xB0, 71, 100)  # CC 71 is resonance
+        self.s.ms(100)
+        self.s.turn(1)
+        self.assertShows("  78", "the controller's value, and VALUE no longer adjusts it")
+        self.assertEqual(self.s.params()["resonance"], 78)
+
+    def test_a_knob_ends_the_lfo_shapes_window(self):
+        self.manual()
+        shape = self.s.settings()["shape 1 1"]
+        self.s.switch("LFO_SHAPE")
+        self.touch("RESONANCE", 0.3)
+        self.s.turn(1)
+        self.assertEqual(self.s.settings()["shape 1 1"], (shape + 1) % 9, "only the press stepped it")
+        self.assertEqual(self.tenths("resonance"), 298)
+
+    def test_after_shift_value_leaves_env_3_and_the_filter_envelope_alone(self):
+        """Under Shift FIL ATT is Env 3's attack; let go, it's the filter's again: VALUE mustn't adjust either."""
+        self.manual()
+        before = self.s.params_raw()
+        self.s.hold("SHIFT")
+        self.touch("FIL_ATT", 0.3)
+        self.s.let_go("SHIFT")
+        touched = self.s.params_raw()["env3-att"]
+        self.s.turn(2)
+        after = self.s.params_raw()
+        self.assertEqual((after["env3-att"], after["fil-att"]), (touched, before["fil-att"]))
+
+    def test_value_keeps_its_jobs_in_a_menu(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        self.s.press("SETTINGS")
+        self.s.turn(1)
+        self.assertEqual(self.tenths("resonance"), round(round(0.3 * 4095) / 4095 * 990))
 
 
 class Shift(PanelTest):
@@ -5078,7 +5334,9 @@ class WebRanges(PanelTest):
     def test_amp_attack_and_decay_times_multiply(self):
         self.s.param(0, "amp-att", 0x2000)
         base = self.attack_ms(self.gain)
-        self.assertAlmostEqual(base, 154, delta=4)
+        # knob_time(0x2000 / 16383) is 153.9 ms; counting the passes until the attack stops rising reads 149-150 (0.9.5's
+        # build and this one alike), at the edge of the old ±4
+        self.assertAlmostEqual(base, 154, delta=5)
         self.route(25, 25)
         with_route = self.attack_ms(self.gain)
         self.route(25, 0)

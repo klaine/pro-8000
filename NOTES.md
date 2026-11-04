@@ -2625,6 +2625,21 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
    39b: VALUE nudges the shown knob on a tenth grid, 4 transitions a tenth, snapping to the grid first; the last thing
    on the display owns VALUE (a knob ends the LFO shape window); Shift + VALUE keeps its job; whole numbers outside the
    window. Then 39c: stepped knobs one step (envelope times in note values too).
+   **Done 2026-11-04 (simulator only).** Pickup (`read_panel()`): a waiting knob records where it is and whether it
+   rests on its value (`PICKUP_ON_IT`: within the window); it takes over only once turned, 24 counts from there (a
+   stepped knob: a step), then if it rested on the value, is turned onto it, sweeps past it, or (a stepped knob) is
+   turned to its end a step short of a value stored at the end. A stepped knob's window is half a step (a semitone,
+   1/72, is under 1.5 %: that retuned a semitone patch loaded one step off). `synth_pot_touched()` lets the panel's
+   report count as the turn before the display asks, so the first value shown is the knob's; it measures from where
+   the knob began waiting, as the panel reports from its last report and noise could otherwise latch a nudged
+   value. A change of the knob's steps restarts the wait. VALUE: `synth_nudge_pot()` on the grid (990, 720 for free
+   FREQ, a stepped knob's steps), `display_serial()` for "is it still on the display", and the parameter and layer it
+   showed (Shift let go, an LFO or layer switch end it). The review found four of those (Shift's Env 3 and the filter
+   envelope, report noise, a value stored at a stepped knob's end, a grid change counting as a turn) and doc wording;
+   each has a test that fails without its fix. WebRanges' attack reads 149-150 ms on 0.9.5's build and this one
+   against the curve's 153.9 (the pass count), so its anchor stays 154 at ±5. 86,104 B. Not tried on the synth: the
+   24-count turn and real pot noise, VALUE's feel at 4 transitions a tenth, a tenth audible on RESONANCE, nudged
+   values holding 60 s hands off, the pots' ends against a semitone FREQ stored at ±36.
 4. **Perf, init, menu.** Perf on a hold (a short press shows `HoLd`); then `perf_init()`: the init slot's sound, routes
    and sequence without its slot number, `InIt.` (the built-in shows `InIt`), the built-in sound if the slot is empty;
    `5F 01`; setting 95; format resets it. Then the system menu. Then Rec, slot, Perf (saves there and makes it the init)

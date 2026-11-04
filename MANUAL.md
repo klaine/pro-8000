@@ -41,7 +41,7 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |
 | Sync Clock | The clock: tap the tempo (its LED blinks on the beat of whichever clock is in use), hold it to restart the bar, Shift + press to cycle the clock source. |
 | LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`, `nOIS`. |
-| VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. |
+| VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, the shape just after pressing LFO Shape, or a knob's value while it shows (a tenth at a time, see Fine adjustment). |
 | Seq 1 / Seq 2 | Choose the layer the knobs edit (LED); hold one while turning FREQ A or B to change that oscillator's tuning mode. |
 | Arp Up-Dn | Choose LFO 1 or LFO 2 for the LFO knobs, the shape button and the LFO routing buttons (LED lit = LFO 2). |
 | Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning). |
@@ -74,7 +74,9 @@ and **Fixed** (continuous C1-C8, independent of played notes). Fixed mode still 
 modulation. Its display shows the equivalent frequency in Hz or kHz. Mode changes are saved with the patch.
 
 A digit display can't show a plus sign, so positive values have none. A dot after the value means the knob hasn't
-**picked up** the stored value yet. Turn it past the stored value (or onto it) and it takes over. This happens:
+**picked up** the stored value yet. Turn it past the stored value (or onto it) and it takes over. A knob that isn't
+turned never takes over, however close it rests, so a value set finer than the knob (with VALUE, from the web page or a
+controller) stays until you touch it; one resting on its value takes over at the first turn. This happens:
 
 - after loading a patch;
 - after switching layer, LFO or envelope;
@@ -86,6 +88,15 @@ firmware. The dot still shows until you move it. It's a system setting that surv
 is the default.
 Either way, a knob that was busy with something else (under Shift, in MOD ASSIGN, on the envelope page, during Seq +
 FREQ) waits from where it is when that ends, so letting go moves nothing; move it after and it takes over.
+
+**Fine adjustment:** while a knob's value is on the display (1.5 s after the last touch), turn VALUE: each click
+cycle moves that value a tenth (` 53.4`), and the value stays on the display while you turn. A knob in Free tuning
+moves a tenth of a semitone; a stepped one (FREQ in Semitones or Octave, a synced LFO FREQ, an envelope time in note
+values) a step; a value in other units (Hz, times, semitones) the same tenth of a 0-99 unit (1/990 of the knob's
+travel), so its text may not change at every click. It works on the value the display shows, the stored one if the knob is waiting with a dot, and on the
+edit layer. The knob then waits until you turn it. A save keeps the tenth. In preset mode this takes VALUE from the
+patches while the value shows; Shift + VALUE still steps ten patches. Not in a menu, a save or MOD ASSIGN, and not
+for M VOL (it isn't stored). The display goes back to whole numbers when you next touch the knob.
 
 ## Playing
 
@@ -270,7 +281,7 @@ LFO 2). The selection applies to:
 - the Sync and Retrigger settings pages.
 
 **Shapes:** press LFO Shape to step to the next one. For 2 seconds afterwards, VALUE steps through them both
-ways. The button's up/down position no longer means anything.
+ways, unless you touch a knob meanwhile (VALUE then fine-adjusts that knob). The button's up/down position no longer means anything.
 
 **Delay and fade-in** (web page, LFO sections, or `pro800 set lfo-delay|lfo-fade 1|2 <0-99>`): each LFO can wait
 after a note starts and then fade in, per voice, from 20 ms to about 5 s (0 = off). It applies to the LFO's

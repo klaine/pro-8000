@@ -1509,17 +1509,35 @@ static void turned_load(void)
 static int free_shown_pot = -1, free_shown_raw;
 static uint32_t free_shown_until; // the display_until it set: another display since means another value shows
 
+// VALUE fine-adjusts the knob whose value is on the display (#39): while that value is what shows (nothing drawn since,
+// display_until not past), a quadrature cycle of VALUE moves it a step of synth_nudge_pot()'s grid, shown with its
+// tenth, and the knob waits to be turned. Not in a menu, a save, compare or step recording; Shift + VALUE keeps its job.
+static int nudge_pot = -1, nudge_steps;
+static int nudge_param, nudge_layer; // what that value was: Shift let go, another LFO or layer since ends it too
+static uint32_t nudge_serial; // display_serial() after the knob's value was drawn
+
+// A plain 0-99 value: a whole number ("  53"), or with its tenth (" 53.4") as VALUE adjusts it
+static void format_0_99(float knob, char *text, int tenths)
+{
+    if (tenths) {
+        format_tenths(knob * 99.0f, text);
+        return;
+    }
+    int v = (int)(knob * 99.0f + 0.5f);
+    text[0] = ' ';
+    text[1] = ' ';
+    text[2] = v >= 10 ? (char)('0' + v / 10) : ' ';
+    text[3] = (char)('0' + v % 10);
+    text[4] = 0;
+}
+
 // A knob's value as the display shows it. Above POT_COUNT (a controller's LFO 2 or Env 3 / 4 parameter): 0-99.
-static void pot_value_text(int index, int layer, float knob, char *text)
+// `tenths`: a 0-99 value with its tenth, as VALUE adjusts it; a value in units (Hz, times, semitones) shows as ever.
+static void pot_value_text(int index, int layer, float knob, char *text, int tenths)
 {
     int env, stage;
     if (index >= POT_COUNT) {
-        int v = (int)(knob * 99.0f + 0.5f);
-        text[0] = ' ';
-        text[1] = ' ';
-        text[2] = v >= 10 ? (char)('0' + v / 10) : ' ';
-        text[3] = (char)('0' + v % 10);
-        text[4] = 0;
+        format_0_99(knob, text, tenths);
     } else if (index == POT_LFO_FREQ && lfo_sync[synth_lfo_select()] == LFO_SYNC_CLOCK) {
         const char *name = lfo_division_name(lfo_division(knob));
         int n = 0;
@@ -1576,12 +1594,7 @@ static void pot_value_text(int index, int layer, float knob, char *text)
         else
             text[0] = 'O', text[1] = 'F', text[2] = 'F', text[3] = 0;
     } else {
-        int v = (int)(knob * 99.0f + 0.5f);
-        text[0] = ' ';
-        text[1] = ' ';
-        text[2] = v >= 10 ? (char)('0' + v / 10) : ' ';
-        text[3] = (char)('0' + v % 10);
-        text[4] = 0;
+        format_0_99(knob, text, tenths);
     }
 }
 
@@ -1600,7 +1613,7 @@ static void cc_show(uint32_t now)
     if (report_mode || menu_open || saving || recording || assigning || browsing || comparing || typed_digits)
         return;
     char text[8];
-    pot_value_text(param, cc_shown_layer, cc_shown_value, text);
+    pot_value_text(param, cc_shown_layer, cc_shown_value, text, 0);
     display_text(text);
     display_until = now + 1500; // as a knob's
     cc_shown_at = now;
@@ -1834,6 +1847,24 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             step_lfo_shape(shape_steps > 0 ? 1 : -1);
         return;
     }
+    if (kind == CONTROL_ENCODER && nudge_pot >= 0 && display_serial() == nudge_serial && display_until
+        && (int32_t)(ms_ticks - display_until) < 0 && synth_pot_param(nudge_pot) == nudge_param
+        && synth_edit_layer() == nudge_layer && !menu_open && !saving && !recording && !comparing && !shift_active()) {
+        nudge_steps += (int)value;
+        int steps = nudge_steps / 4; // a quadrature cycle a step
+        nudge_steps -= steps * 4;
+        float v = steps ? synth_nudge_pot(nudge_pot, steps) : -1;
+        if (v >= 0) {
+            char text[8];
+            pot_value_text(nudge_pot, synth_edit_layer(), v, text, 1);
+            display_text(text);
+            display_until = ms_ticks + 1500;
+            nudge_serial = display_serial();
+            free_shown_pot = -1; // the value shows now, not the knob
+        }
+        encoder_patch_steps = 0; // in preset mode too: the knob's value is on the display, not a patch
+        return;
+    }
     if (kind == CONTROL_BUTTON && index == BUTTON_ARP_UP && value && menu_open
         && (menu_page == PAGE_CYCLE || menu_page == PAGE_LAYERS)) {
         // the envelope page: its mode, trigger, timing, curve, count; the layer page: the mode or the voice share
@@ -1870,10 +1901,11 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             display_led(LED_SEQ1, 1);
             link_led_until = ms_ticks + 1000;
         }
+        synth_pot_touched(index, (int)value); // turned: one resting on its value takes it now, so no stale dot
         int pending = synth_pot_pending(index);
         float knob = pending ? synth_pot_value(index) : synth_knob_snap(index, (float)value / 4095.0f);
         char text[8];
-        pot_value_text(index, synth_edit_layer(), knob, text);
+        pot_value_text(index, synth_edit_layer(), knob, text, 0);
         if (pending) {
             int n = 0;
             while (text[n])
@@ -1883,6 +1915,12 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         }
         display_text(text);
         display_until = ms_ticks + 1500;
+        nudge_pot = index == POT_MASTER_VOL ? -1 : index; // VALUE adjusts it while it shows (M VOL isn't stored)
+        nudge_param = synth_pot_param(index);
+        nudge_layer = synth_edit_layer();
+        nudge_serial = display_serial();
+        nudge_steps = 0;
+        shape_until = 0; // the last thing on the display owns VALUE
         free_shown_pot = -1;
         if (!pending && (index == POT_FREQ_A || index == POT_FREQ_B)
             && synth_osc_tune_mode(synth_edit_layer(), index == POT_FREQ_B) == OSC_TUNE_FREE) {
@@ -3152,9 +3190,11 @@ int main(void)
             if (moved >= FREE_FOLLOW_STEPS || moved <= -FREE_FOLLOW_STEPS) {
                 char text[8];
                 free_shown_raw = raw;
-                pot_value_text(free_shown_pot, synth_edit_layer(), synth_knob_snap(free_shown_pot, (float)raw / 4095.0f), text);
+                pot_value_text(free_shown_pot, synth_edit_layer(), synth_knob_snap(free_shown_pot, (float)raw / 4095.0f), text, 0);
                 display_text(text);
                 display_until = free_shown_until = now + 1500;
+                if (nudge_pot == free_shown_pot)
+                    nudge_serial = display_serial(); // still that knob's value: VALUE still adjusts it
             }
         } else
             free_shown_pot = -1;

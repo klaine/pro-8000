@@ -81,7 +81,8 @@
 #define MPE_BEND_SEMITONES    48.0f // an MPE member channel's bend range (the MPE default; RPNs aren't parsed)
 #define POT_SMOOTHING_S       0.01f  // CUTOFF and NOISE, read every pass
 #define MUX_SCAN_S            0.032f // the other pots, read every 32 ms (controls.c): each reading is glided to
-#define PICKUP_WINDOW         0.015f // a knob this close to the stored value picks it up
+#define PICKUP_WINDOW         0.015f // a knob this close to the stored value picks it up, once it's been turned:
+#define PICKUP_TOUCH          (24.0f / 4095.0f) // this far (controls.c's move that shows a value; a stepped knob a step)
 #define JUMP_MOVE             0.02f  // pickup off: a knob moved this far from where it started takes over
 // what a route of depth 99 does at full source (pitch on a squared curve: depth 10 is 0.24 semitones, 50 is 6.1)
 #define MOD_PITCH_SEMITONES   24.0f
@@ -196,6 +197,11 @@ static int edit_layer;
 static uint8_t latched[PARAM_COUNT]; // its knob controls the value (per-layer parameters: the edit layer's)
 static int8_t pickup_side[PARAM_COUNT]; // which side of the stored value the knob started on: -1, +1 (0 = unknown)
 static float pickup_from[PARAM_COUNT];  // and where it was then (pickup off: moving away from there takes over)
+// whether it's been turned since it began waiting: a knob that hasn't never takes over, however close it rests, so a
+// value set finer than the knob (VALUE, the editor, a CC, a semitone a knob's noise can't hold) stays until it's touched
+static uint8_t pickup_turned[PARAM_COUNT];
+#define PICKUP_ON_IT 2 // pickup_side: the knob rested on the value (within the window) as it began waiting
+static uint8_t pickup_grid[PARAM_COUNT]; // the knob's steps (0: continuous) as it began waiting
 static int pickup = 1; // 0: a knob that moves jumps the value to where it is, as on the stock synth
 static int frozen; // MOD ASSIGN: no knob picks up, however close it is to its value
 static uint32_t frozen_pots; // these knobs don't either (synth_freeze_pots())
@@ -355,6 +361,7 @@ static void unlatch(int param)
 {
     latched[param] = 0;
     pickup_side[param] = 0;
+    pickup_turned[param] = 0;
 }
 
 oscillator_tune_mode_t synth_osc_tune_mode(int layer, int osc)
@@ -528,6 +535,26 @@ void synth_set_param(int layer, int param, float value)
 
 float synth_pot_value(int pot) { int p = param_of_pot(pot); return layer_param[param_layer(edit_layer, p)][p]; }
 
+static int knob_steps(int pot);
+
+int synth_pot_param(int pot) { return pot >= 0 && pot < POT_COUNT ? param_of_pot(pot) : -1; }
+
+float synth_nudge_pot(int pot, int steps)
+{
+    if (pot < 0 || pot >= POT_COUNT || pot == POT_MASTER_VOL || !steps)
+        return -1;
+    int p = param_of_pot(pot), layer = per_layer[p] ? param_layer(edit_layer, p) : 0;
+    int grid = knob_steps(pot); // a stepped knob: its steps
+    if (!grid) // a tenth of a semitone in free tuning (72 semitones), else a tenth of the 0-99 the display shows
+        grid = (pot == POT_FREQ_A || pot == POT_FREQ_B) && osc_tune_modes[edit_layer][pot == POT_FREQ_B] == OSC_TUNE_FREE
+             ? 720 : 990;
+    int at = (int)(layer_param[layer][p] * (float)grid + 0.5f) + steps; // from the nearest point of the grid
+    at = at < 0 ? 0 : at > grid ? grid : at;
+    float v = (float)at / (float)grid;
+    synth_set_param(layer, p, v); // and its knob waits until it's turned (pickup)
+    return v;
+}
+
 int synth_pot_pending(int pot) { return !latched[param_of_pot(pot)]; }
 
 int synth_pickup(void) { return pickup; }
@@ -537,8 +564,10 @@ void synth_set_pickup(int on)
         return;
     pickup = on != 0;
     for (int i = 0; i < PARAM_COUNT; i++)
-        if (!latched[i])
-            pickup_side[i] = 0; // a knob already waiting starts from where it is now, so the change moves nothing
+        if (!latched[i]) { // a knob already waiting starts from where it is now, so the change moves nothing
+            pickup_side[i] = 0;
+            pickup_turned[i] = 0;
+        }
 }
 
 int synth_keytrack(void) { return keytrack_setting; }
@@ -949,6 +978,7 @@ void synth_apply_patch(const patch_t *patch)
     for (int i = 0; i < PARAM_COUNT; i++) {
         latched[i] = i == POT_MASTER_VOL && (latched[i] || !pots_primed); // M VOL: where its knob is, unless Shift took it
         pickup_side[i] = 0;
+        pickup_turned[i] = 0;
     }
     // The load at start-up comes before the engine's first pass, which would copy the panel over this patch: both
     // layers start from the panel only while nothing is loaded yet
@@ -1376,7 +1406,8 @@ void synth_set_shift(int on)
     shift = on;
     env_select = on ? 3 : 0;
     // The ADSR knobs change meaning, the rest will pick up after. M VOL with them: it's Velocity -> VCA under Shift, so the
-    // level stays where it is meanwhile. A knob left where it was is back at once, as it's still within the pickup window.
+    // level stays where it is meanwhile. A knob left where it was rests on its value, so it takes over at its first turn
+    // and nothing moves before that.
     for (int i = 0; i < POT_COUNT; i++) {
         unlatch(param_of_pot(i));
         if (adsr_pot(i))
@@ -1913,6 +1944,27 @@ int synth_knob_cents(float knob)
     return (int)(cents < 0 ? cents - 0.5f : cents + 0.5f);
 }
 
+// Whether a knob may take over its value now: not frozen (MOD ASSIGN, a held gesture), not on one of Shift's jobs
+static int pickup_open(int pot)
+{
+    return (!frozen || pot == POT_MASTER_VOL) && !(frozen_pots >> pot & 1) && !(shift && !adsr_pot(pot));
+}
+
+void synth_pot_touched(int pot, int reading)
+{
+    if (pot < 0 || pot >= POT_COUNT || !pots_primed || !pickup_open(pot) || knob_steps(pot))
+        return; // a stepped knob is turned when its step changes: read_panel()
+    int p = param_of_pot(pot);
+    float moved = (float)reading / 4095.0f - pickup_from[p];
+    // Measured from where it began waiting, as read_panel() does: the panel reports a move from the last report, so
+    // a knob left a few counts off its report could send one more on noise alone, and that's not a turn
+    if (latched[p] || !pickup_side[p] || (moved < PICKUP_TOUCH && moved > -PICKUP_TOUCH))
+        return;
+    pickup_turned[p] = 1;
+    if (pickup_side[p] == PICKUP_ON_IT)
+        latched[p] = 1; // it rested on its value: the knob has it from this move, before its value is shown
+}
+
 static void read_panel(float dt)
 {
     int track = controls_keytrack(); // keyboard tracking: a loaded patch's value holds until the switch moves
@@ -1943,20 +1995,37 @@ static void read_panel(float dt)
             continue;
         }
         int layer = per_layer[p] ? param_layer(edit_layer, p) : 0; // shared knobs keep one value, in both layers
-        if (!latched[p] && (!frozen || i == POT_MASTER_VOL) && !(frozen_pots >> i & 1) && !(shift && !adsr_pot(i))) {
+        if (!latched[p] && pickup_open(i)) {
+            int steps = knob_steps(i);
             float diff = panel[i] - layer_param[layer][p];
-            int8_t side = diff < 0 ? -1 : 1;
-            if (diff < PICKUP_WINDOW && diff > -PICKUP_WINDOW)
-                latched[p] = 1;
-            else if (pickup_side[p] == 0) {
+            float window = steps ? 0.5f / (float)steps : PICKUP_WINDOW; // a stepped knob: on the same step
+            int8_t side = diff < window && diff > -window ? PICKUP_ON_IT : diff < 0 ? -1 : 1;
+            float at = steps ? panel[i] : raw; // the reading, not the glide: the glide's rest isn't a move
+            if (pickup_side[p] && pickup_grid[p] != steps) { // its steps changed (a sync, a mode): not a move,
+                pickup_side[p] = 0;                            // so it starts waiting again from where it is
+                pickup_turned[p] = 0;
+            }
+            if (pickup_side[p] == 0) { // where the knob is as it begins waiting; nothing is taken over yet
                 pickup_side[p] = side;
-                pickup_from[p] = knob_steps(i) ? panel[i] : raw; // the reading, not the glide: the glide's rest isn't a move
-            } else if (side != pickup_side[p])
-                latched[p] = 1; // swept past it
-            else if (!pickup) { // jump: moved since it started waiting (a stepped knob by a step)
-                float moved = (knob_steps(i) ? panel[i] : raw) - pickup_from[p];
-                if (knob_steps(i) ? moved != 0 : moved > JUMP_MOVE || moved < -JUMP_MOVE)
-                    latched[p] = 1;
+                pickup_from[p] = at;
+                pickup_grid[p] = (uint8_t)steps;
+            } else {
+                float moved = at - pickup_from[p];
+                if (!pickup_turned[p] && (steps ? moved != 0 : moved >= PICKUP_TOUCH || moved <= -PICKUP_TOUCH))
+                    pickup_turned[p] = 1;
+                if (!pickup_turned[p])
+                    ; // untouched: the value stays, however close the knob rests
+                else if (pickup_side[p] == PICKUP_ON_IT || side == PICKUP_ON_IT)
+                    latched[p] = 1; // it rested on the value when it was taken, or it's been turned onto it
+                else if (side != pickup_side[p])
+                    latched[p] = 1; // swept past it
+                else if (steps && ((raw >= 1.0f - PICKUP_WINDOW && diff < 0) || (raw <= PICKUP_WINDOW && diff > 0)))
+                    latched[p] = 1; // a stepped knob turned to its end, a step short of a value stored at the end (a
+                                    // continuous one's window covers that, and its glide could still be behind)
+                else if (!pickup) { // jump: moved since it started waiting (a stepped knob by a step)
+                    if (steps ? moved != 0 : moved > JUMP_MOVE || moved < -JUMP_MOVE)
+                        latched[p] = 1;
+                }
             }
         }
         if (latched[p]) {

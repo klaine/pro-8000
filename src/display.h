@@ -1,6 +1,7 @@
 // The 4-digit 7-segment display and the button LEDs, all on the HT16K33 (mapped with tools/web, 2026-10-27).
 #ifndef DISPLAY_H
 #define DISPLAY_H
+#include <stdint.h>
 
 typedef enum {
     LED_PRESET, LED_PERF, LED_SETTINGS, LED_TUNE, LED_SYNC_SOURCE, LED_SYNC_CLOCK, LED_REC,
@@ -11,6 +12,8 @@ void display_clear(void);
 // Up to 4 characters; a '.' lights the dot after the character before it. Unknown characters show blank.
 void display_text(const char *text);
 void display_number(int value); // right-aligned, -999..9999
+// Counts the texts drawn (each display_text / display_number / display_clear): unchanged means the last one still shows.
+uint32_t display_serial(void);
 void display_led(led_t led, int on);
 // Writes the display RAM bytes that changed (an I2C transfer of about 0.2 ms a byte, 3.5 ms for all 16).
 void display_update(void);
