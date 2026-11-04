@@ -63,7 +63,7 @@
   <h1>New territory for sound design</h1>
   <p class="lede">Same sixteen analog oscillators, same filters, same warm voice board. What changes is how much they can <em>move</em>, and how independently each note can live. This page walks through what the custom firmware adds, with things to try and recipes to start from.</p>
   <p class="note-sm risk"><b>Wildly experimental:</b> use it at your own risk, with no liability if it harms your hardware. <a href="index.html#experimental">The disclaimer</a></p>
-  <div class="meta"><span class="chip">2 layers</span><span class="chip">4 LFOs, per-voice capable</span><span class="chip">4 envelopes per voice</span><span class="chip">16 mod routes per layer, 2 macros</span><span class="chip">A sequence in every patch</span><span class="chip">66 presets to start from</span></div>
+  <div class="meta"><span class="chip">2 layers</span><span class="chip">4 LFOs, per-voice capable</span><span class="chip">4 envelopes per voice</span><span class="chip">16 mod routes per layer, 2 macros</span><span class="chip">A sequence in every patch</span><span class="chip">70 presets to start from</span></div>
 </div>
 
 <div class="layout">
@@ -117,13 +117,13 @@
       <tr><td><b>Sounds at once</b></td><td>One</td><td>Two layers: split, stacked, or by MIDI channel</td></tr>
       <tr><td><b>LFOs</b></td><td>One</td><td>Two per layer, nine shapes, a delay and fade-in per note, locked to the clock in 15 divisions, optionally one per voice</td></tr>
       <tr><td><b>Envelopes per voice</b></td><td>Two (filter, amp)</td><td>Four: ADSR or DAHDSR, from key down or key up, in seconds or note values, three curves, and any of them can loop, freely or in time, endlessly or a count of cycles</td></tr>
-      <tr><td><b>Modulation</b></td><td>The panel's fixed paths</td><td>The same paths, plus 16 routes per layer from 27 sources to 46 destinations, and two macros</td></tr>
+      <tr><td><b>Modulation</b></td><td>The panel's fixed paths</td><td>The same paths, plus 16 routes per layer from 28 sources to 47 destinations, each with a multiplier (Via), and two macros</td></tr>
       <tr><td><b>Per-note expression</b></td><td>Velocity, aftertouch</td><td>Poly aftertouch per voice; MPE with per-note bend, pressure and slide; eight mono channels, each with its own bend and pressure</td></tr>
-      <tr><td><b>Sequencing</b></td><td>An arpeggiator and two sequences</td><td>A sequence inside every patch, played and transposed from the keys, with probability, ratchets, an arpeggiator and 4 automation lanes; steps can be recorded from the panel</td></tr>
+      <tr><td><b>Sequencing</b></td><td>An arpeggiator and two sequences</td><td>A sequence inside every patch, played and transposed from the keys, with probability, ratchets, chords, an arpeggiator that can walk, add chord tones and misbehave on purpose, and 4 automation lanes; steps can be recorded from the panel</td></tr>
       <tr><td><b>Clock</b></td><td>Internal, MIDI or the SYNC IN jack, for the arpeggiator and sequencer</td><td>MIDI clock (USB or 5-pin), an internal clock with tap tempo, or the SYNC IN jack, driving the LFOs, looping envelopes and the sequence alike</td></tr>
       <tr><td><b>Tuning</b> (measured on one synth)</td><td>2–8 cents off</td><td>within 0.7 cents, C1 to C8</td></tr>
-      <tr><td><b>Patches</b></td><td>400</td><td>128, each with its own sequence, and a 66-sound bank to start from</td></tr>
-      <tr><td><b>Trade-offs</b></td><td></td><td>No MIDI OUT or THRU yet, and SysEx (the editor, updates) over USB only; the sequencer, scales and morph are edited on the web page</td></tr>
+      <tr><td><b>Patches</b></td><td>400</td><td>128, each with its own sequence, and a 70-sound bank to start from</td></tr>
+      <tr><td><b>Trade-offs</b></td><td></td><td>No MIDI OUT or THRU yet, and SysEx (the editor, updates) over USB only; the sequencer, scales, morph, unison voices and a route's Via are edited on the web page</td></tr>
     </tbody>
   </table></div>
   <p class="note-sm">The stock column lists what's on the stock panel (firmware 1.4.6); its settings menu holds further options not compared here.</p>
@@ -277,7 +277,7 @@
   <span class="sec-num">06</span>
   <h2>The patch bay: the mod matrix</h2>
   <div class="prose">
-    <p>Each layer has 16 routes. Each route is a source, a destination and a depth from −99 to +99. You build them from the panel with <strong>MOD ASSIGN</strong>:</p>
+    <p>Each layer has 16 routes. Each route is a source, a destination and a depth from −99 to +99 (in tenths on the web page, where a Via can multiply it too, see the next section). You build them from the panel with <strong>MOD ASSIGN</strong>:</p>
     <ol class="steps">
       <li><b>Press <kbd>Arp Assign</kbd>.</b> Its LED blinks and the display shows <span class="led">SrC</span>. The knobs stay in pickup while you assign, so touching one won't change the sound.</li>
       <li><b>Pick the source.</b> A number key (1 LFO, again for the other LFO; 2 filter env; 3 amp env; 4 velocity; 5 mod wheel; 6 aftertouch; 7 Env 3; 8 Env 4; 9 random; 0 note), or touch a knob that stands for one (an LFO knob, an ADSR knob), or turn VALUE to scroll through all 28 and press <kbd>Arp Assign</kbd> to take the one shown.</li>
@@ -293,7 +293,7 @@
       <p class="desc" id="pb-desc"></p>
       <div class="legend"><span><i class="k-mod"></i>per voice: every note its own amount</span><span><i class="k-sh"></i>single wire: follows the newest note</span></div>
     </div>
-    <figcaption><b>Figure 7.</b> All 27 sources and 46 destinations. On the panel, VALUE scrolls to the ones without a key or a knob of their own; Morph is set on the web page.</figcaption>
+    <figcaption><b>Figure 7.</b> All 28 sources and 47 destinations. On the panel, VALUE scrolls to the ones without a key or a knob of their own; Morph is set on the web page.</figcaption>
   </figure>
   <div class="prose">
     <p>Depths are tuned so the whole range is useful. Pitch routes follow a squared curve: depth 5 is 6 cents, 10 is a quarter of a semitone, 20 a semitone, 50 six semitones, 99 two octaves. Cutoff at 99 is eight octaves. An envelope stage or the glide time scales by up to 16× either way. The VCA destination is a gain on the amp envelope, so it can never open a voice that isn't playing: velocity → VCA at 99 is plain velocity sensitivity, and aftertouch → VCA at 99 keeps a note silent until you press. The init sound starts with velocity → VCA at 70 and velocity → cutoff at 20, and in the editor those two routes have a Velocity knob each, in the faceplate's amp and filter sections.</p>
@@ -413,7 +413,7 @@
     <ul>
       <li><strong>Probability</strong> from 100 % down to 12.5 %: some steps sometimes don't play, so a loop never quite repeats.</li>
       <li><strong>Ratchets</strong>: a step plays as 2, 3 or 4 quick notes.</li>
-      <li><strong>Arpeggio mode</strong>: instead of transposing, the steps walk the held notes (up, down, up-down, random or as played), and each step's offset shifts the note it plays (+12 for an octave jump).</li>
+      <li><strong>Arpeggio mode</strong>: instead of transposing, the steps walk the held notes (up, down, up-down, random, as played, or the walk below), and each step's offset shifts the note it plays (+12 for an octave jump).</li>
       <li><strong>Automation lanes</strong>: up to four rows of values, optionally gliding between steps, routed like any mod source. Lane → cutoff gives a different brightness per step; lane → Morph gives a different <em>sound</em> per step.</li>
       <li><strong>Recording on the panel</strong>: hold <kbd>Rec</kbd> and press <kbd>Seq 1</kbd> (<span class="led">rSEq</span>), then play the steps one by one, <kbd>Seq 2</kbd> for a rest, and <kbd>Rec</kbd> to finish. The sequence is on, and Rec saves it with the patch.</li>
       <li><strong>A walking arp (0.9.5)</strong>: the Walk mode plays a line through the chord, two notes on and one back, and follows on from its nearest note when the chord changes. Range spreads it over octaves, Adds gives it notes you didn't play (up to the ninth), and Chaos, also a mod destination, turns steps into jumps. Arp note position is a mod source: into cutoff, the line brightens as it climbs. P75-P78 are built on these.</li>
@@ -966,7 +966,7 @@ function envLevel(t, o) {
   var svg = document.getElementById("pb-svg"), desc = document.getElementById("pb-desc"), seg = document.getElementById("pb-recipes");
   var SRC = ["LFO 1", "LFO 2", "LFO 1 as 0–1", "LFO 2 as 0–1", "Filter env", "Amp env", "Env 3", "Env 4", "Velocity", "Mod wheel", "Aftertouch",
              "Pitch bend", "CC 74 (timbre)", "CC A", "CC B", "Sustain pedal", "Gate", "Random", "Note", "Voice number", "Fixed (1)",
-             "Seq lane A", "Seq lane B", "Seq lane C", "Seq lane D", "Macro 1", "Macro 2"];
+             "Seq lane A", "Seq lane B", "Seq lane C", "Seq lane D", "Macro 1", "Macro 2", "Arp note position"];
   var ROWS = [
     ["Pitch", [["pa", "A"], ["pb", "B"], ["pab", "A + B"]]],
     ["Filter", [["cut", "Cutoff"], ["fea", "Env amount"]]],
@@ -981,7 +981,7 @@ function envLevel(t, o) {
     ["Voice", [["glide", "Glide"], ["det", "Detune", 1]]],
     ["Mixer", [["al", "A level", 1], ["bl", "B level", 1], ["noise", "Noise", 1]]],
     ["Shape", [["res", "Resonance", 1], ["pwa", "PW A", 1], ["pwb", "PW B", 1]]],
-    ["Patch", [["morph", "Morph"], ["m1", "Macro 1"], ["m2", "Macro 2"]]]
+    ["Patch", [["morph", "Morph"], ["m1", "Macro 1"], ["m2", "Macro 2"], ["chaos", "Arp Chaos"]]]
   ];
   var IDEAS = [
     ["Delayed vibrato", [[6, "l1a", 8]], "<b>Env 3 → LFO 1 amount.</b> With LFO 1 → Freq on and its AMOUNT at zero, Env 3's slow attack fades the vibrato in. Each note has its own Env 3, so only long notes get it. (The LFO's own delay and fade do the same without a route.)"],
