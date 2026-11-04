@@ -6,6 +6,8 @@ panel edits, internal sequencer dropped) and a **tempo-syncable, retriggerable L
 `reference/` holds third-party material and is not ours to commit:
 - `reference/PRO800-Firmware-Packer/`: Music Tribe's packer (`PRO800_update_gen`) and the main-board schematic.
 - `reference/p600fw/`: GliGli's Prophet-600 firmware (GPL v3), which the PRO-800 is a descendant of.
+- `reference/behringer-pro800-docs/`: Behringer's PRO-800 Quick Start Guide (stock menus, chord mode, the MIDI CC
+  chart) with text extracts and a `README.txt` saying where it came from (2026-11-04).
 
 **Licence:** if we copy or port p600fw code, our firmware is GPL v3 too, and we must publish its source.
 
@@ -2458,3 +2460,230 @@ is about the same (854 / 1030 / 2133 → 660 / 878 / 2212), and the pass went 10
 The engine's growth is everything since 0.7.9 (four envelopes with their modes, the second LFO's features, the arp,
 Via and the tenths); no single part was measured on its own. The VCAs are written every 0.68 ms with eight voices, the
 cutoffs every 1.4, pitch and the shared CVs every 2.7. The guides carry these numbers (figure 5 is drawn to them).
+
+## The 0.10.0 plan (2026-11-04; branch `0.10.0`, local, nothing pushed)
+
+From the issues open on 2026-11-04 (#1, #2, #8, #12, #13, #28, #34-#39) and PR #26. Nine readers each mapped one
+cluster to the code (main at 2538aa8) and a tenth cross-checked them for conflicts and wrong claims. Their full sketches,
+with designs, file:line touchpoints, tests, risks and every decision with a recommendation, are in
+`build/plan-0.10.0/` (git-ignored: `sketches.md`, `crosscheck.md`, `issues/`). This section is what came out of them.
+
+### Scope
+
+**In 0.10.0** (estimated flash; 0.9.5's set came out about 40 % above its estimates):
+
+| Item | Issues | Flash |
+|---|---|---|
+| Housekeeping: drop dead flash, version plumbing, guards | | −4.8 kB |
+| VALUE fine-adjusts the shown knob (39a pickup takes over only after a turn, 39b the nudge, 39c stepped knobs) | #39 | 0.6 kB |
+| Switch names on the display, tuning mode by the knob's quarter, editor edits on the display | #34 | 0.5 kB |
+| Perf on a hold, the user's own init patch, a system menu on Settings | #34, #35, #2 | 1.5 kB |
+| Release velocity as source 29 | #8, PR #26 | 0.4 kB |
+| Chord memory on Unison, the sequencer and arp playing it, a Chord voicing destination | #36 | 2.9 kB |
+| One parameter list with NRPN ids, NRPN receive (coarse/fine), the 128-slot CC map with a stock preset, its editor and JSON, every editor edit on the display | #37, #12, #1, #34 | 5.0 kB |
+| The 5-pin socket as THRU / OUT / MERGE, a non-blocking out queue (USB and DIN) with notes as played (arp, sequence, chords), program changes, clock out, knob moves as CCs, CC A / B out destinations | #38, #2 | 4.0 kB |
+
+The owner put MIDI (#37, #38) in 0.10.0 on 2026-11-04. About +14.6 kB estimated, realistically 18-22 kB, so about
+99-105 kB after the reclaim (89,356 B now, 131,072 the limit, `build.sh` warning at 110 kB). Nine settings (95-103),
+16 record bytes, one source, three destinations, the global page's bytes 19-31 and the CC map. No FORMAT change. NRPN
+numbers are permanent once released: ask planist79 for his stock template on #37 before they're frozen (the stock
+numbers aren't published, see below). #38 needs its own hardware campaign: MIDI_SEL polarity, a second synth on DIN,
+a DAW.
+
+**Later:** per-knob grains for unit knobs and tenths in the editor/JSON (#39), routes over NRPN (#37), unison stacks
+per chord note (#36), polychaining (#34), easing rVEL in after key-up (#8). Local off (#2, stock has it on CC 122 in
+p600fw) is small once knob echo exists: the owner's call.
+
+**Replies only:** #13 and #28 (answered; close), #1 (close after decision 3), #2 (what's covered), #12 (open until
+#37), #34's questions.
+
+### What the readers found that the issues or our notes had wrong
+
+- **The CV refresh doesn't run from an interrupt.** `refresh_cvs()` is called from the main loop (main.c:3141-3145);
+  the only ISRs are SysTick, EXTI9_5, UART4 and OTG_FS. CLAUDE.md's realtime rule is about a future interrupt refresh.
+- **Version digits.** The single-digit rule is the packer's argument format, not a proven bootloader limit: the packer
+  stores each character minus '0', so the argument `0:0` gives header bytes 42-44 = 00 0A 00 (packed and read back
+  2026-11-04). The SysEx reply sends raw bytes, the tools compare tuples or bytes, the installer reads numbers. What's
+  unknown is only whether the bootloader takes a minor byte of 10 (step 1). 1.0.0 isn't free either: the installer
+  treats a major other than 0 as stock (install.html:614, 884, 897, 921).
+- **Pickup latches without a touch** (#39). A pending knob within PICKUP_WINDOW 0.015 of its value latches on the next
+  pass and the knob's reading replaces the value (synth.c:84, 1946-1967). So a VALUE nudge under 1.5 units would be
+  undone at once, a saved fine value is replaced on reload, an editor or CC value near a latched knob reverts, and a
+  FREQ patch in semitones loaded one step off the knob takes the knob's semitone (a step is 1/72 < 0.015). 39a fixes
+  all four. VALUE has no detents either: 4 transitions a cycle (controls.c:8), and a tenth of 0-99 is 1/990, not 0.001.
+- **No Settings key is free** (#35): 10 pages on keys 1-9 and 0. An empty-slot load sets the slot number; Perf keeps
+  the previous one, so Rec after Perf proposes that slot.
+- **#36's table and text disagree.** The down side of the table lowers the second-highest note every time; the text's
+  mirrored rule gives −1 G3 C4 E4, −2 C3 G3 E4, −3 E2 C3 G3. The table implies N steps a side, not 2N (with 2N, depth 25
+  already opens a triad). `last_mod` is the previous note's at note-on, so velocity → voicing needs the routes evaluated
+  for the starting note. The expansion has to live in `layer_note_on` with voices keyed to their root, and the arp only
+  walks a chord if its notes join `held[]`.
+- **The global page is small** (#37): the 20-byte block at 0x1F400, tuning at 0x1F500, so 236 bytes; a 2-byte × 128
+  map doesn't fit, a packed one (200 B) does. 0x18000-0x18FFF is unused by us but is stock's D84-D99. The settings
+  reply fills SYSEX_MAX 209 exactly, so every new setting adds 2. A CC or SysEx 52 on a linked layer 2 writes a value
+  nobody hears. Editor edits (52, 7D, 4B) don't show on the display.
+- **The 5-pin socket** (#38). PB4 (MIDI_SEL) is never driven, so it sits at reset as NJTRST with its pull-up (high), and
+  PA0 floats: THRU on 0.7.6-0.9.5 most likely passes nothing. U4A ANDs PA0 with the input, so a hardware merge corrupts
+  overlapping bytes; MERGE has to be in software. The arp is in seq.c (there's no arp.c).
+- **PR #26** (#8): source 28 is Arp note now, so rVEL is 29. Its per-layer pedal release calls `seq_key_off` twice, and
+  the second call sends a stray note-off on layer 2. The web Via filter (index.html:3588) hides sources 26+ for dests
+  44+, wider than the firmware's rule (only a macro into a macro, synth.c:712-720).
+- **#34:** the tuning mode is Seq 1/2 held + FREQ, not Shift + FREQ. Waves and sync are shared gates, so a switch's
+  text can't name a layer. **#2:** the MIDI channel is Shift + NOISE; Shift + M TUNE is unison detune.
+- README.md still says 27 sources and 46 destinations (28 and 47 since 0.9.5); main.c's protocol comment stops at
+  setting 81. 4,836 B of flash are dead: the `voices[]` initializer (2,400; `synth_init` overwrites it before use) and
+  the unwind tables (2,436). `backup/2026-10-27/eeprom-stock.bin`, CLAUDE.md's way back to stock, isn't on this PC.
+
+### The stock manual (`reference/behringer-pro800-docs/`, git-ignored)
+
+Behringer's multilingual PRO-800 Quick Start Guide, from a Gear4music mirror (Music Tribe's CDN link gave HTTP 500 on
+2026-11-04); `README.txt` there says where each part is. What it changes for 0.10.0:
+
+- **Our CC table doesn't follow stock.** #37 says the default "follows the stock PRO-800 where it has one"; it
+  doesn't. Stock is p600fw's scheme moved down: coarse CC = 8 + the continuous parameter's index (OSC A Freq 8, Vol 9,
+  PW 10, B Freq 11, Vol 12, PW 13, B Fine 14, VCF Freq 15, Reso 16, Env amount 17, VCF R/S/D/A 18-21, VCA R/S/D/A
+  22-25, PMOD 26-27, LFO Freq/Amount 28-29, Glide 30, VCA/VCF Vel 31-32, Mod delay 33, Vib Freq/Amt 34-35, Unison
+  detune 36, Noise 37, VCA/VCF aftertouch 39-40); fine CC = 80 + index, skipping 96-99 (VCA Dec 100, ... LFO
+  aftertouch 116); stepped CC = 48 + index (waves 48-53, sync 54, PMOD switches 55-56, LFO shape/speed/targets 57-59,
+  VCF keyboard 60, envelope shapes 61-63 and 72, unison 65, bender target 66, mod wheel amount/target 67 and 70,
+  chromatic pitch A/B 68-69, vibrato target 71, arp mode 73, LFO dests 74-76). Ours (main.c:2695-2703) has FREQ A on
+  14, cutoff on 74, resonance on 71. A controller template made for stock, like planist79's, doesn't work today.
+  So 37c ships a **stock map** beside ours (JSON, one click in the editor, `pro800 cc-map import`), and a map slot gets
+  a **fine** flag so stock's coarse/fine pairs (8 + i with 80 + i) make one 14-bit value; that takes the useful part
+  of 37e. Which map is the default is decision 7.
+- **No NRPN numbers are published.** The chart lists only the data-entry CCs (6, 38, 96-99). midi.guide has the CCs
+  alone; GitHub p600fw has no NRPN at all; samstaton/pro800 documents SysEx only. planist79's stock template is the
+  one source left.
+- **Stock MIDI settings** (Settings, two per key): Rx channel (Off / 1-16 / All / Dipswitch), Tx channel (**Thru** /
+  1-16 / All / Dipswitch: THRU is a Tx-channel value), MIDI CC and MIDI PC (Off / Tx / Rx / TxRx each), Sync In
+  forward, polarity, start/stop, PPQN, transpose, preset dump. So #38 adds **program change out** on a patch load and
+  CC / PC send-receive filters; the socket setting can read like stock's Tx channel.
+- **Stock chord mode** is #36's design (hold a chord, Unison on, stored in the preset), plus a second gesture: the
+  sustain pedal pressed while holding a chord in Unison mode captures it. Worth adding to 36a.
+- **Stock menus not covered** (#2): voice select / kill, retune element, autotune precision, external filter mod,
+  voice spread, glide mode (time / speed), screen brightness, randomise preset, bank copy / paste. Replies only.
+
+### Allocation (frozen before coding; the MIDI entries reserved for their place in the order)
+
+| What | 0.10.0, steps 0-7 | 0.10.0, MIDI steps 8-12 |
+|---|---|---|
+| Patch record | 455-470 chord: per layer 7 intervals (0 ends) and a flags byte. 471-507 stay free (37 B) | none |
+| Global page 0x1F400 | 19 init slot + 1 (0 none); 28-31 a checksum over 16-27 (bad = defaults: 0.9.5 blocks, downgrades, leftovers); `write_global` writes 32 bytes | 20 socket, 21 notes out, 22 out channel, 23 flags (clock out, knob CC, local off, chain), 24-25 CC out numbers, 26-27 spare; the CC map at 0x1F420-0x1F4E7 with its own magic and checksum |
+| Host settings | 95 init-patch; the read-only four follow; SYSEX_MAX 211 | 96 midi-socket, 97 notes-out, 98 out-channel, 99 clock-out, 100 knob-cc, 101 cc-out-a, 102 cc-out-b, 103 pc-out (stock's MIDI PC Tx); SYSEX_MAX 227 |
+| CC map slot | | a parameter id byte and a nibble: layer rule (2 bits: edit layer, both, 1, 2) and a fine bit (the slot is the low 7 bits of a coarse/fine pair, for stock's 80 + i) |
+| SysEx requests | 68 chord read, 69 chord set, 6A capture, 6B show a parameter, 5F 01 load the user's init | 65 map read (in parts), 43 set a slot, 42 reset. 64 is never a request: it's the button report (60 + kind) |
+| Mod ids | source 29 rVEL; dest 47 Chord voicing | dests 48 CC A out, 49 CC B out (defaults CC 12 and 13: 74 and 1 would loop back through a DAW) |
+| `voice_t` | `key` in the padding after `velocity`; `slot` and `release_velocity` in the padding after `fresh` (no RAM growth) | |
+| Probe 55 | one appended block of key, note and release velocity per voice (24 B, reply 117 B) | |
+| Panel | Perf on a 600 ms hold (`HOLD_MS`, shared with Arp Assign, Sync Clock, Settings); system menu on a Settings hold or Shift + Settings, LED blinking: 1 CHnL, 2 P.UP, 3 CC.A, 4 CC.b, 5 CLoC, 6 tEnP, 7 InIt (the Shift shortcuts stay as aliases); Unison in MOD ASSIGN picks Chord voicing | system key 8 with Arp Up-Dn pages (socket, notes, out channel, clock out, knob CC); 9 and 0 free. The five free Shift knobs (FREQ A, FREQ B, A PW, B PW, PMOD OSC B) stay free |
+
+### Order
+
+Every step is one or more commits with its tests: `test_panel.py` for anything on the panel or display, `test_pro800.py`
+for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet in the same commit.
+
+0. **Housekeeping.** (a) Drop the `voices[]` initializer and build with `-fno-unwind-tables
+   -fno-asynchronous-unwind-tables`: −4.8 kB, no behaviour change, the suite passes unchanged; `build.sh` warns above
+   110 kB. (b) Version: `build.sh` accepts x.1y.z, builds the packer argument per component (chr(48 + n)) and reads
+   header bytes 42-44 back, failing on a mismatch; `show_version` draws `0. 1 0. 0`; index.html:3180 computes the
+   version as a number; VERSION 0.10.0. (c) Guards: `_Static_assert`s for record fields 336-470 against OFF_CHECKSUM; a
+   test that checks mod.h's sources and destinations against main.c, pro800.py, sound-plan.js and presets/lib/plan.py
+   (main.c's `dest_names` zero-fills a missing entry silently); the web Via filter brought to the firmware's rule.
+1. **The gate, on the synth (owner's go-ahead).** Install step 0's build. Pass: `03 31`, `01 00 00`, it boots and
+   autotunes, the display shows 0.10.0, install's version check, `timing`, `fault`. Fail: reflash v0.9.5's `.syx`, note
+   the bootloader's reply here, and choose 1.0.0 (with the installer fixed) or stay on 0.9.x.
+2. **Small panel items.** Tuning mode by the FREQ knob's quarter (SEnI, OCt, FrEE, FIHd, bottom to top, mapped from the
+   first event). Switch names: an oscillator's whole set (`A.St_`, `b._tq`, `A.oFF`), and `SY` / `Un` / `PA` / `PF` /
+   `Fr` / `FL` / `PU` with `.on` / `.oF`; not in MOD ASSIGN or browse (guard needed: `assign_event` returns 0 for
+   these), while saving or typing, or for host 4B; Unison waits for step 7.
+3. **#39.** 39a: a pending knob takes over only after it's turned 24 LSB (POT_HYSTERESIS), for every pending knob. Then
+   39b: VALUE nudges the shown knob on a tenth grid, 4 transitions a tenth, snapping to the grid first; the last thing
+   on the display owns VALUE (a knob ends the LFO shape window); Shift + VALUE keeps its job; whole numbers outside the
+   window. Then 39c: stepped knobs one step (envelope times in note values too).
+4. **Perf, init, menu.** Perf on a hold (a short press shows `HoLd`); then `perf_init()`: the init slot's sound, routes
+   and sequence without its slot number, `InIt.` (the built-in shows `InIt`), the built-in sound if the slot is empty;
+   `5F 01`; setting 95; format resets it. Then the system menu. Then Rec, slot, Perf (saves there and makes it the init)
+   and system page 7; the web page's System tab, both Init buttons loading what Perf loads.
+5. **Editor edits on the display**: `6B`, sent by the editor only for its own interactive edits (knobs, settings,
+   buttons); plans, preset installs, copies and undo stay silent.
+6. **#8 release velocity**, re-implemented on main with credit to planist79 (Co-Authored-By with their real noreply
+   address). A route from rVEL adds nothing while the voice's gate is on and rv × depth after it; as a Via it is ×1
+   while gated. Releases no key made (sequence and arp steps, note-on at velocity 0, all notes off) give 64; a note-off
+   with velocity 0 is a literal 0; under the pedal the key's lift is kept (one byte per note) and acts at pedal-up. Key
+   4 again toggles VEL / rVEL, and a second press of 1 or 4 shows the source's name. The sequence's final release takes
+   the last key's. `engine` shows it; `play --release V`.
+7. **#36 chord memory.** 36a: a key/slot refactor commit first (no behaviour change), then capture on a physical Unison
+   press with 2+ notes held (or 6A; stock's second gesture, the pedal pressed while holding a chord in Unison, too),
+   play, store, `CHrd`; chord mode replaces unison; note-off by key; stealing per voice. Design the note-out hook at
+   voice level here (gate on / off, legato retarget, re-voice; deduplicated per out channel and note), so step 10's
+   'played' notes include every chord note and send a unison stack once. 36b: a step without Note 2/3 plays the chord,
+   and the arp walks it. 36c: destination 47, the mirrored ladder with N steps a side, evaluated for the starting note,
+   with hysteresis. 36d: held chords re-voice, following GLIDE (droppable). 36e: `pro800 chord`, the web page, preset
+   JSON `chord 1/2` and presets/README.md.
+8. **#37 parameters and NRPN.** 37a: `tools/params.json` with every parameter and its id (NRPN MSB = layer rule, LSB =
+   id; 0-35 the SysEx 52 knob indices, then buttons, then the rest), `gen_params.py` writing a C table and a JS list
+   (outputs committed, a freshness test), the tools and pages reading it. The numbers stay open until planist79 has
+   answered on #37. 37b: NRPN receive (99 / 98, 6 / 38, 96 / 97; continuous ids coarse MSB + fine LSB, discrete ids raw
+   in CC 6; RPNs only deselect), the value on the display; a CC or NRPN on a linked layer 2 edits layer 1 as the knob
+   does. Then 6B for every id (step 5 did the knobs).
+9. **#37 the CC map.** 37c: 128 slots at 0x1F420 (id byte plus the rule-and-fine nibble, own magic and checksum,
+   written after the 1 s rest), today's table as the default, CC 0 1 6 32 38 64 96-101 120-127 reserved, CC A / B keep
+   precedence, enums and buttons scaled (index = v × N / 128, a button on at 64); SysEx 65 / 43 / 42; `pro800 cc-map
+   show|set|reset|export|import`. 37d: the editor's System tab, JSON export and import (replace, not merge), a CSV and
+   JSON parameter list for controller templates, the **stock map** as a file to import (built from the chart above).
+10. **#38 socket and out core.** First on the synth: what 0.9.5's THRU passes, and MIDI_SEL's polarity (a keyboard on IN,
+    a receiver on THRU, PB4 driven both ways from a probe build). Then 38-socket-mode: PA0 as UART4 TX with a TX ring and
+    a realtime slot, PB4 driven, THRU (default, stock) / OUT / MERGE (in software: forwarded in the RX ISR, merged at
+    message boundaries; the AND gate can't merge), quiet at boot. Then 38-out-core-notes: `midiout.c` (a note FIFO,
+    coalesced controller slots, owed Note Offs per port, USB written only when the endpoint is free, a 100 ms stall
+    rule), notes off / keys / played through step 7's hook, a Tx channel (follow, or 1-16), panics on load, Seq off,
+    tune and update mode; program change out on a patch load (setting 103).
+11. **#38 clock and echo.** Clock out (F8 from the internal or SYNC IN generator, and the MIDI clock the synth follows
+    forwarded; FA / FC on restart and leaving; input clock dropped in MERGE while sending our own). Knob moves as CCs
+    through step 9's map (the first slot holding the parameter), only from the panel and only after pickup; with 39a in,
+    an incoming CC equal to the last value echoed doesn't unlatch the knob.
+12. **#38 CC out destinations.** Dests 48 / 49, the route sum as clamp(sum) × 127 summed over both layers, at most one
+    message per CC every 5 ms, defaults CC 12 / 13, streaming from power-up; the editor warns when a CC-out number is in
+    the map or is CC A / B.
+13. **Release.** Docs: MANUAL (and its known limitations: MIDI OUT / THRU leaves the list), the cheat sheet, docs/
+    kickers, footers, the record figure (53 → 37 reserved bytes) and the 5-pin figure, README counts (29 sources, 50
+    destinations), CLAUDE.md (version rule, commands, `reference/behringer-pro800-docs/`), main.c's protocol comment,
+    NOTES. Presets that show chords, rVEL and voicing; the stock CC map file. Full `test_panel.py`, `test_pro800.py`,
+    node runs; the hardware pass; build and pack in this worktree. Pushing, the site, the GitHub release and the issue
+    replies wait for the owner.
+
+### Decisions for the owner
+
+1. ~~MIDI (#37, #38) in 0.10.0 or 0.11.0?~~ Decided 2026-11-04: in 0.10.0, checked against the stock manual.
+2. The name: 0.10.0 if the gate passes (recommended), else 1.0.0 with the installer fixed.
+3. #1's vibrato: square the mod wheel's added LFO 1 depth (amount² + wheel²)? It changes every preset's wheel depth, so
+   only after auditioning the bank; otherwise close #1 with the Via recipe.
+4. #36's ladder: the text's mirrored rule with N steps a side (recommended), or the table as printed (drop-2 voicings)?
+5. #8's held note: nothing until key-up and 64 for keyless releases (recommended, matches the reporter's answer), or PR
+   #26's 0?
+6. The socket's default: THRU as stock (recommended; #38's output features are all off by default anyway), after
+   checking on the synth what 0.9.5's undriven socket does.
+7. The default CC map: ours as now, with the stock map one import away (recommended: CC setups made since 0.9.4 keep
+   working, and cutoff stays on the standard CC 74), or stock's (Behringer templates work out of the box)?
+8. Local off (#2): add it to step 11 (small once echo exists), or later?
+9. NRPN numbers: wait for planist79's stock template (recommended: ask on #37 now; freeze before the release), or
+   freeze ours at step 8?
+10. The smaller ones are in `sketches.md` as `decisions`, each with a recommendation; the plan above takes those.
+
+### Hardware pass (P128 and CLAUDE.md's rules; warn about unsaved edits, record and compare)
+
+- The gate (step 1).
+- 39a: hands off for 60 s after a load and after a host value 0.4 above the knob; a knob at its value answers as soon
+  as it's turned; a semitone FREQ patch loaded one step off keeps its tuning. 39b: resonance at the edge of oscillation
+  in tenths.
+- #8: a keyboard with release velocity and one without; rVEL → VCA 99 doesn't silence a held note.
+- #36: capture, two chords at once, mono, the sequencer, a slow LFO into voicing without chatter, re-voicing with glide.
+- #37: a controller with the stock map imported (planist79's template if he shares it), NRPN coarse / fine from a
+  controller that sends it, the map surviving a power cycle and a format.
+- #38 (needs a second synth or interface on DIN, and a DAW): MIDI_SEL's polarity; THRU, OUT and MERGE (a keyboard on IN
+  plus the arp at 1/32: no stuck notes, no broken SysEx); the arp, a sequence with chord lanes and chord memory played
+  on the other synth; a DAW recording the arp in time with clock out; knob echo with the DAW's thru on (no loop); CC A
+  out from an LFO driving another synth's filter; Windows with no app holding the USB port (nothing slows down,
+  `timing` probe 58).
+- `timing` at 0, 1 and 8 voices against the 2026-11-04 table; `fault` empty; `check`.
+- Back to stock with the new global-page bytes, which needs `eeprom-stock.bin` found first.
