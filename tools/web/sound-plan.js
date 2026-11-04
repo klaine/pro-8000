@@ -203,7 +203,7 @@ function planSound(j, has) {
       if (via && r[2]) { // a listed depth 0 lands nowhere
         const v = viaFromText(via.slice(4));
         if (v === null) bad(`route via: a number 0.01-8 or a source but fixed, not ${JSON.stringify(via)}`);
-        if (v >= 1000 && v - 1000 >= 26 && r[1].startsWith("macro")) bad(`route ${r[0]} → ${r[1]}: a macro can't be the Via of a route into a macro`);
+        if ((v === 1026 || v === 1027) && r[1].startsWith("macro")) bad(`route ${r[0]} → ${r[1]}: a macro can't be the Via of a route into a macro`);
         if (has("unisonVoices")) messages.push([0x62, layer - 1, s, d, v >> 7, v & 0x7F]);
         else warnings.push(`routes ${layer}: "via": this firmware hasn't got it`);
       }

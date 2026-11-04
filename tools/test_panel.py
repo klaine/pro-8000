@@ -31,7 +31,8 @@ VERSION = open(os.path.join(ROOT, "VERSION")).read().strip()
 def build():
     os.makedirs(BUILD, exist_ok=True)
     src = os.path.join(ROOT, "src")
-    inputs = [os.path.join(src, f) for f in os.listdir(src)] + [os.path.join(HERE, "sim", f) for f in os.listdir(os.path.join(HERE, "sim"))]
+    inputs = ([os.path.join(src, f) for f in os.listdir(src)] + [os.path.join(HERE, "sim", f) for f in os.listdir(os.path.join(HERE, "sim"))]
+              + [os.path.join(ROOT, "VERSION")])  # FW_VERSION_* come from it
     if os.path.exists(SIM) and os.path.getmtime(SIM) > max(os.path.getmtime(f) for f in inputs):
         return
     major, minor, patch = VERSION.split(".")
@@ -4600,7 +4601,7 @@ RANGE_BLOCKS = ["const P = {", "const ENVS = [", "const ENV_KNOB = {};", "for (c
                 "const envIndex", "function cycleSync(", "const envOf", "function cycleShares(", "function cycleShare(", "const knobTime",
                 "function envTime(", "const envFlag", "const QUARTERS", "const envTempo", "const noteStep", "const noteName", "const noteSeconds",
                 "const DIVISIONS", "function seconds(", "function lfoHz(", "function format(", "const DEST_KNOBS", "const DEST_SCALE",
-                "const BIPOLAR_SOURCES", "const FIXED_SOURCE", "const VIA_SOURCE", "const viaName", "const SQUARED_DESTS", "const timeDest", "const rateDest", "const factor",
+                "const BIPOLAR_SOURCES", "const FIXED_SOURCE", "const isMacroSource", "const VIA_SOURCE", "const viaName", "const SQUARED_DESTS", "const timeDest", "const rateDest", "const factor",
                 "function swingUnit(", "function routeSwing(", "function swingWhere(", "const SOURCES", "const DESTS", "function modRange(",
                 "function hertz(", "function noteValue(", "function paintRange("]
 
@@ -7509,6 +7510,27 @@ class WebSmallThings(unittest.TestCase):
             self.assertIsNotNone(why)
         self.assertEqual(out["text"], ["0.25", "1", "mod-wheel", 1005])
 
+    def test_only_a_macro_into_a_macro_is_refused_as_via(self):
+        """The firmware's rule (via_allowed() in synth.c): a macro can't be the Via of a route into a macro. Arp note
+        into a macro, and a macro into Arp Chaos, are fine; the page and the preset format used to refuse those too."""
+        page = source("tools", "web", "index.html")
+        menu = run_node("\n".join(js_block(page, b) for b in ("const SOURCES", "const FIXED_SOURCE", "const isMacroSource", "const VIA_SOURCE", "const viaOptions"))
+                        + NODE_DRIVER % """
+        const offered = d => [...viaOptions(d).matchAll(/value="(\\d+)"/g)].map(m => +m[1]);
+        report({ macro1: offered(44), macro2: offered(45), chaos: offered(46), cutoff: offered(3) });
+        """)
+        every = [0] + [1000 + s for s in range(1, 29) if s != 25]
+        self.assertEqual(menu["cutoff"], every)
+        self.assertEqual(menu["chaos"], every, "a macro may drive Arp Chaos's Via")
+        for dest in ("macro1", "macro2"):
+            self.assertEqual(menu[dest], [v for v in every if v not in (1026, 1027)], dest)
+        out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
+        const refused = r => { try { planSound({ routes: { 1: [r] } }, () => true); return null; } catch (e) { return e.message; } };
+        report([["lfo", "macro1", 5, "via:arp-note"], ["lfo", "arp-chaos", 5, "via:macro1"], ["lfo", "macro2", 5, "via:macro1"]].map(refused));
+        """)
+        self.assertEqual(out[:2], [None, None])
+        self.assertIn("a macro can't be the Via", out[2])
+
     def test_the_arp_in_the_preset_format(self):
         out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
         const plan = planSound({ settings: { "arp-range": 3, "arp-extend": "ninth", "arp-chaos": 40 },
@@ -7809,10 +7831,11 @@ class WebLfoTimes(unittest.TestCase):
         out = self.texts("""
         const out = {};
         settings = { lfo1Sync: 1 };
-        for (const v of ["0.9.4", "0.9.5", "1.0.0"]) { firmwareVersion = v; out[v] = fadeText(1)(60 / 99); }
+        for (const v of ["0.9.4", "0.9.5", "0.10.0", "0.19.9", "1.0.0"]) { firmwareVersion = v; out[v] = fadeText(1)(60 / 99); }
         report(out);
         """)
         self.assertEqual(set(out.values()), {"1/4"}, out)
+        self.assertEqual(len(out), 5, out)
 
     def test_free_and_not_connected_read_in_time(self):
         out = self.texts("""

@@ -172,7 +172,7 @@ typedef struct {
     float glide_k;
 } voice_t;
 
-static voice_t voices[VOICE_COUNT] = {[0 ... VOICE_COUNT - 1] = {.lfo_gain = {1.0f, 1.0f}, .glide_k = 1.0f}};
+static voice_t voices[VOICE_COUNT]; // in .bss: synth_init() sets every voice before the engine runs
 static uint32_t allocations, random_state = 0x2545F491u;
 static float bend[LAYERS], mod_wheel[LAYERS], aftertouch[LAYERS]; // per layer, for channel mode; bend -1..1
 static float pedal[LAYERS], cc_source[2][LAYERS];                 // the pedal (0 / 1) and CC A / B (0..1) per layer

@@ -1743,5 +1743,60 @@ class Helpers(unittest.TestCase):
         self.assertEqual([pro800.slot_number(t) for t in ("0", "127", "p1", "P128", "128", "P0", "x")], [0, 127, 0, 127, None, None, None])
 
 
+class ModIds(unittest.TestCase):
+    """The mod sources and destinations of src/mod.h against every hand-kept table of them. Ids are append-only and a
+    new one has to reach all of these at once; C fills a short initializer with zeros, so main.c wouldn't notice."""
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(HERE)
+
+        def read(*path):
+            with open(os.path.join(root, *path), encoding="utf-8") as f:
+                return f.read()
+
+        cls.mod_h, cls.main_c = read("src", "mod.h"), read("src", "main.c")
+        cls.plan_py, cls.sound_plan, cls.index = read("presets", "lib", "plan.py"), read("tools", "web", "sound-plan.js"), read("tools", "web", "index.html")
+
+    def enum(self, prefix):
+        body = re.search(r"typedef enum \{\s*(" + prefix + r"_\w+.*?)" + prefix + r"_COUNT\b", self.mod_h, re.S).group(1)
+        body = re.sub(r"//[^\n]*", "", body)
+        return re.findall(r"\b(" + prefix + r"_\w+)", body)
+
+    def strings(self, pattern, text):
+        found = re.search(pattern + r"\s*\[(.*?)\]", text, re.S)
+        self.assertIsNotNone(found, pattern)
+        return re.findall(r'"([^"]*)"', found.group(1))
+
+    def test_the_enums_end_where_the_ids_say(self):
+        sources, dests = self.enum("SRC"), self.enum("DEST")
+        self.assertEqual((sources[0], sources[-1], len(sources)), ("SRC_NONE", "SRC_ARP_NOTE", 29))
+        self.assertEqual((dests[0], dests[-1], len(dests)), ("DEST_PITCH_A", "DEST_ARP_CHAOS", 47))
+
+    def c_strings(self, name):
+        found = re.search(r"\b" + name + r"\[\w+\]\[\d+\] = \{(.*?)\};", self.main_c, re.S)
+        self.assertIsNotNone(found, name)
+        return re.findall(r'"([^"]*)"', found.group(1))
+
+    def test_the_firmwares_display_names(self):
+        self.assertEqual(len(self.c_strings("source_names")), len(self.enum("SRC")))
+        self.assertEqual(len(self.c_strings("dest_names")), len(self.enum("DEST")))
+
+    def test_the_tools_names(self):
+        self.assertEqual(len(pro800.SOURCE_NAMES), len(self.enum("SRC")))
+        self.assertEqual(pro800.SOURCE_NAMES[0], "")
+        self.assertEqual(len(pro800.DEST_NAMES), len(self.enum("DEST")))
+
+    def test_the_preset_plans_names(self):
+        self.assertEqual(self.strings(r"\nSOURCES =", self.plan_py), pro800.SOURCE_NAMES[1:])
+        self.assertEqual(self.strings(r"\nDESTS =", self.plan_py), pro800.DEST_NAMES)
+
+    def test_the_web_pages_names(self):
+        self.assertEqual(self.strings(r"\n  sources:", self.sound_plan), pro800.SOURCE_NAMES[1:])
+        self.assertEqual(self.strings(r"\n  dests:", self.sound_plan), pro800.DEST_NAMES)
+        self.assertEqual(len(self.strings(r"\nconst SOURCES =", self.index)), len(self.enum("SRC")))
+        self.assertEqual(len(self.strings(r"\nconst DESTS =", self.index)), len(self.enum("DEST")))
+
+
 if __name__ == "__main__":
     unittest.main()

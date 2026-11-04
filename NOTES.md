@@ -2589,6 +2589,11 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
    version as a number; VERSION 0.10.0. (c) Guards: `_Static_assert`s for record fields 336-470 against OFF_CHECKSUM; a
    test that checks mod.h's sources and destinations against main.c, pro800.py, sound-plan.js and presets/lib/plan.py
    (main.c's `dest_names` zero-fills a missing entry silently); the web Via filter brought to the firmware's rule.
+   **Done 2026-11-04:** 89,356 → 84,524 B (`.data` 2,988 → 588, unwind tables 2,436 → 16); `pro800-0.10.0.syx` packs
+   with header bytes 00 0A 00 and passes `flash --dry-run`; the boot shows `0. 1 0. 0` in the simulator; the
+   `ModIds` test fails on a dropped name (tried on main.c and plan.py); `test_panel.py` 737 and `test_pro800.py` 140
+   pass; a three-lens review confirmed nothing. Also: `build.sh` deletes a `.syx` whose header doesn't match, and
+   the simulator rebuilds when only VERSION changes. Not tried on the synth: that's step 1.
 1. **The gate, on the synth (owner's go-ahead).** Install step 0's build. Pass: `03 31`, `01 00 00`, it boots and
    autotunes, the display shows 0.10.0, install's version check, `timing`, `fault`. Fail: reflash v0.9.5's `.syx`, note
    the bootloader's reply here, and choose 1.0.0 (with the installer fixed) or stay on 0.9.x.

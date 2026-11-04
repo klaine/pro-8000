@@ -191,10 +191,14 @@ static void report_event(control_kind_t kind, int index, int32_t value)
     send_sysex(m, n);
 }
 
+// x.y.z, or x.yy.z from 0.10.0, which fills the four digits: 0. 1 0. 0
 static void show_version(void)
 {
-    char text[] = {(char)('0' + FW_VERSION_MAJOR), '.', (char)('0' + FW_VERSION_MINOR), '.',
-                   (char)('0' + FW_VERSION_PATCH), 0};
+    char text[] = {(char)('0' + FW_VERSION_MAJOR), '.',
+#if FW_VERSION_MINOR >= 10
+                   (char)('0' + FW_VERSION_MINOR / 10),
+#endif
+                   (char)('0' + FW_VERSION_MINOR % 10), '.', (char)('0' + FW_VERSION_PATCH), 0};
     display_text(text);
     display_update();
 }

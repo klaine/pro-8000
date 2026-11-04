@@ -1514,6 +1514,7 @@ const DEST_SCALE = { 0: 24 / 72, 1: 24 / 72, 2: 24 / 72, 3: 96 / 120, 4: 0.5, 5:
 const BIPOLAR_SOURCES = new Set([1, 11, 9, 10, 12, 13, 14, 15, 20, 26, 27]);
 const SQUARED_DESTS = new Set([0, 1, 2]);
 const FIXED_SOURCE = 25;
+const isMacroSource = s => s === 26 || s === 27, isMacroDest = d => d === 44 || d === 45; // SRC_ / DEST_MACRO1, 2
 // A route's Via (src/mod.h): 0 a number of 1, up to 800 a number in hundredths, VIA_SOURCE + a source
 const VIA_SOURCE = 1000;
 const viaName = via => via >= VIA_SOURCE ? SOURCES[via - VIA_SOURCE] : "×" + (via || 100) / 100;
@@ -3175,9 +3176,10 @@ function driftKnob() {
   return settingKnob("drift", "Drift", "each voice's pitch and cutoff wander slowly at random (up to 15 cents and a semitone)");
 }
 // LFO delay and fade, 0-99 → 0, 20 ms .. about 5 s (lfo_time() in the firmware). With the LFO synced, from 0.9.4, a note
-// value: no setting marks that firmware, and an older one still acts in seconds, so it's the version (x.y.z, single digits) that tells
+// value: no setting marks that firmware, and an older one still acts in seconds, so it's the version that tells (x.y.z
+// as a number, xxyyzz, so 0.10.0 comes after 0.9.4)
 const fadeSeconds = u => { const v = Math.round(u * 99); return v ? 0.02 * Math.pow(2, v * 8 / 99) : 0; };
-const lfoNoteTimes = n => !!settings && !!settings[`lfo${n}Sync`] && +firmwareVersion.split(".").join("") >= 94;
+const lfoNoteTimes = n => !!settings && !!settings[`lfo${n}Sync`] && firmwareVersion.split(".").reduce((a, x) => a * 100 + +x, 0) >= 904;
 const fadeText = n => u => {
   if (lfoNoteTimes(n)) { const s = noteStep(Math.round(u * 99) / 99); return s ? noteName(s) : "off"; }
   const s = fadeSeconds(u);
@@ -3584,8 +3586,8 @@ const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 42, 43]);
 const options = (list, skip) => list.map((t, i) => i === skip ? "" :
   `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");
 // The Via menu: Number, then every source but Fixed, which is the number 1, and no macro on a route into a macro (it would
-// depend on its own result)
-const viaOptions = dest => `<option value="0">Number</option>` + SOURCES.map((t, i) => !i || i === FIXED_SOURCE || (i >= 26 && dest >= 44) ? "" :
+// depend on its own result: via_allowed() in synth.c; Arp note and Arp Chaos are fine)
+const viaOptions = dest => `<option value="0">Number</option>` + SOURCES.map((t, i) => !i || i === FIXED_SOURCE || (isMacroSource(i) && isMacroDest(dest)) ? "" :
   `<option value="${VIA_SOURCE + i}">${t}</option>`).join("");
 // What a Via menu and its number box say, as 62 takes it
 const viaOf = (menu, box) => +menu.value || Math.max(1, Math.min(800, Math.round(+box.value * 100) || 100));

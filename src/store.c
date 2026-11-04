@@ -94,6 +94,7 @@
 #define OFF_ARP_CHAOS 454
 #define OFF_ROUTE_VIA 356 // 356-419
 #define OFF_ROUTE_FINE 420 // 420-451
+#define OFF_RESERVED 455   // 455-507: free (53 B), written 0; a new field takes its bytes from here (NOTES: 0.10.0 plan)
 #define OFF_CHECKSUM 508
 #define SEQ_OFF 512
 #define SEQ_HEADER 4
@@ -446,7 +447,20 @@ int store_save_patch(int n, const patch_t *patch)
     _Static_assert(OFF_ENV_HOLD + 2 * 4 <= OFF_POTS, "envelope settings overflow");
     _Static_assert(OFF_POTS + 2 * 2 * POT_COUNT <= OFF_EXTRA, "pots overflow");
     _Static_assert(OFF_EXTRA + 2 * 2 * EXTRA_PARAMS <= OFF_ROUTES, "extra params overflow");
-    _Static_assert(OFF_ROUTES + 3 * 2 * ROUTES <= OFF_CHECKSUM, "routes overflow");
+    _Static_assert(OFF_ROUTES + 3 * 2 * ROUTES <= OFF_ENV_COUNT, "routes overflow");
+    // the fields from 336 on, in offset order: each ends where the next begins, the last before the reserved bytes
+    _Static_assert(OFF_ENV_COUNT + 2 * 4 <= OFF_UP_CYCLES, "envelope counts overflow");
+    _Static_assert(OFF_UP_CYCLES + 1 <= OFF_ENV_TEMPO, "up-cycles flag overflow");
+    _Static_assert(OFF_ENV_TEMPO + 2 <= OFF_LINK, "envelope tempo overflow");
+    _Static_assert(OFF_LINK + 1 <= OFF_LFO_CYCLES, "link overflow");
+    _Static_assert(OFF_LFO_CYCLES + 2 <= OFF_LFO_RESTART, "LFO cycles overflow");
+    _Static_assert(OFF_LFO_RESTART + 1 <= OFF_ROUTE_BOTH, "LFO restart overflow");
+    _Static_assert(OFF_ROUTE_BOTH + 2 * 2 <= OFF_UNISON_VOICES, "route Both overflow");
+    _Static_assert(OFF_UNISON_VOICES + 1 <= OFF_ROUTE_VIA, "unison voices overflow");
+    _Static_assert(OFF_ROUTE_VIA + 2 * 2 * ROUTES <= OFF_ROUTE_FINE, "route Via overflow");
+    _Static_assert(OFF_ROUTE_FINE + 2 * ROUTES <= OFF_ARP_RANGE, "route tenths overflow");
+    _Static_assert(OFF_ARP_RANGE + 1 <= OFF_ARP_EXTEND && OFF_ARP_EXTEND + 1 <= OFF_ARP_CHAOS, "arp overflow");
+    _Static_assert(OFF_ARP_CHAOS + 1 <= OFF_RESERVED && OFF_RESERVED <= OFF_CHECKSUM, "reserved bytes overlap");
     _Static_assert(SEQ_OFF + SEQ_SIZE == RECORD_SIZE && SEQ_DATA + SEQ_BYTES <= SEQ_CHECKSUM, "record size");
     put32(b + OFF_CHECKSUM, checksum(b, OFF_CHECKSUM));
     if (!eeprom_write(record_address(n), b, sizeof b))
