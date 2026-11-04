@@ -86,7 +86,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 - `scripts/pages.sh` builds the GitHub Pages site (`docs/` → `build/pages/`, with the editor and installer from `tools/web/` as
   `editor/`) and writes the `pages` branch as one parentless commit; `--push` force-pushes it. The site is
   https://klaine.github.io/pro-8000/ (repository `klaine/pro-8000`).
-- `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, or x.1y.z: the display has four digits, and the packer takes three characters, each the number + '0' (0.10.0 packs as `0:0`, header bytes 00 0A 00; `build.sh` reads them back). Whether the bootloader takes a minor of 10 is the 0.10.0 plan's step 1 (NOTES).
+- `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, or x.1y.z: the display has four digits, and the packer takes three characters, each the number + '0' (0.10.0 packs as `0:0`, header bytes 00 0A 00; `build.sh` reads them back). The bootloader takes a minor of 10: 0.10.0 installed and answered on 2026-11-04 (NOTES, the 0.10.0 plan's step 1).
 - `MANUAL.md` is the user manual (panel operation, the web page, recovery); keep it in step with panel changes.
 
 ## Layout

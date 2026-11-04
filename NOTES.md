@@ -2597,6 +2597,16 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
 1. **The gate, on the synth (owner's go-ahead).** Install step 0's build. Pass: `03 31`, `01 00 00`, it boots and
    autotunes, the display shows 0.10.0, install's version check, `timing`, `fault`. Fail: reflash v0.9.5's `.syx`, note
    the bootloader's reply here, and choose 1.0.0 (with the installer fixed) or stay on 0.9.x.
+   **Passed 2026-11-04** (step 0's build, d29a465, from 0.9.5 on P80): Windows, MIDI Services, `listen` quiet for 8 s
+   first and no editor server running. `install`: `03 31` after the header, 404 messages, `01 00 00` after the last,
+   the restart and autotune, then `running firmware 0.10.0`. So the bootloader takes a minor byte of 10, and 0.10.0 is
+   the name. `fault`: no record. `timing` on P80, no notes: engine 383 µs, refresh 734, a pass 1141 (2997 longest in
+   2 s). `check`: oscillators within 3.8 cents from note 48 up, filters within 6.5; note 36 read an octave high on
+   A1, A5, A7 and B5 (the comparator's stray edge below about 70 Hz, see 2011 above), not a tuning error. Settings,
+   layer 2, routes and the sequence came back as they were; three unsaved knob moves on layer 1 (amp-rel 62,
+   fil-env-amt 76, cutoff 33; stored 54, 81, 43) were lost to the restart and put back with `param`, unsaved. Backups:
+   `backup/2026-11-04-before-0.10.0/` (the EEPROM image and the state) and `-after-0.10.0/`. The boot display wasn't
+   watched (nobody at the panel): its `0. 1 0. 0` is the simulator's.
 2. **Small panel items.** Tuning mode by the FREQ knob's quarter (SEnI, OCt, FrEE, FIHd, bottom to top, mapped from the
    first event). Switch names: an oscillator's whole set (`A.St_`, `b._tq`, `A.oFF`), and `SY` / `Un` / `PA` / `PF` /
    `Fr` / `FL` / `PU` with `.on` / `.oF`; not in MOD ASSIGN or browse (guard needed: `assign_event` returns 0 for
@@ -2660,7 +2670,7 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
 ### Decisions for the owner
 
 1. ~~MIDI (#37, #38) in 0.10.0 or 0.11.0?~~ Decided 2026-11-04: in 0.10.0, checked against the stock manual.
-2. The name: 0.10.0 if the gate passes (recommended), else 1.0.0 with the installer fixed.
+2. ~~The name~~: 0.10.0. The gate passed on 2026-11-04 (step 1).
 3. #1's vibrato: square the mod wheel's added LFO 1 depth (amount² + wheel²)? It changes every preset's wheel depth, so
    only after auditioning the bank; otherwise close #1 with the Via recipe.
 4. #36's ladder: the text's mirrored rule with N steps a side (recommended), or the table as printed (drop-2 voicings)?
