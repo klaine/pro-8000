@@ -2387,7 +2387,7 @@ Born of LFO 1's rate switching between 1/4 and 1/8: an exact octave is depth 24.
 - **Host:** 62 sets a route's Via, 63 reads a layer's, and 57 stays as it was. Nothing in the settings marks a build with them, so the page asks once per connection and stops if nothing answers (`viaAnswers`), and disables the Via controls.
 - **The page's Range** multiplies by a number, and with a source as Via says "up to" and its reach at full: what it reads when the source is at its top. The knobs' red arcs do the same.
 - **Not on the panel.** A route edited there keeps its Via, unseen: a route that's stronger or weaker than its depth says.
-- **Not tried on the synth yet**, including whether the extra read and multiply shows in `timing`.
+- **Tried on the synth 2026-11-04** (0.9.5, the table under "Timing on 0.9.5" below): the pass with eight voices is 2710 µs against 0.7.9's 2398, the engine 383 µs against 176. That's everything since 0.7.9, not Via alone; nothing in it was measured apart.
 
 ## Route depths in tenths (0.9.5, 2026-11-02)
 
@@ -2441,3 +2441,20 @@ Reported with it, in the editor: a synced envelope's knob that seems locked. Its
   beside it in `Layers`. Not tried on the real pots: whether the half-tenth threshold flickers on a boundary, which
   would mean raising it.
 - **Issue 16, the installer on the home page.** A second launch strip under the editor's, `docs/index.html`.
+
+## Timing on 0.9.5 (2026-11-04)
+
+`pro800 timing` on the synth, init sound, layers off, notes held from one process (`scratchpad/timing/measure.py`:
+eight separate `play` processes didn't hold a chord cleanly), five samples a second apart, the median:
+
+| Voices | Engine | Refresh | of which ticks | Pass average | Longest in 5 s |
+|---|---|---|---|---|---|
+| 0 | 323 µs | 660 µs | 78 µs | 1044 µs | 3395 µs |
+| 1 | 331 µs | 878 µs | 187 µs | 1254 µs | 3089 µs |
+| 8 | 383 µs | 2212 µs | 223 µs | 2710 µs | 4474 µs |
+
+Against 0.7.9 (the table of 2026-10-28): the engine has grown from 143 / 133 / 176 µs to 323 / 331 / 383, the refresh
+is about the same (854 / 1030 / 2133 → 660 / 878 / 2212), and the pass went 1019 / 1196 / 2398 → 1044 / 1254 / 2710.
+The engine's growth is everything since 0.7.9 (four envelopes with their modes, the second LFO's features, the arp,
+Via and the tenths); no single part was measured on its own. The VCAs are written every 0.68 ms with eight voices, the
+cutoffs every 1.4, pitch and the shared CVs every 2.7. The guides carry these numbers (figure 5 is drawn to them).

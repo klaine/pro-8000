@@ -121,7 +121,7 @@
 
   <div class="stats">
     <div class="stat"><b>41</b><span>control voltages kept fresh: 32 per voice, 9 shared</span></div>
-    <div class="stat"><b>≈ 0.6 ms</b><span>between updates of each voice's volume (VCA), with all eight sounding</span></div>
+    <div class="stat"><b>≈ 0.7 ms</b><span>between updates of each voice's volume (VCA), with all eight sounding</span></div>
     <div class="stat"><b>±0.7 ¢</b><span>tuning across C1–C8 after autotune</span></div>
     <div class="stat"><b>≈ 89 kB</b><span>the whole firmware, of the 128 kB the bootloader accepts</span></div>
   </div>
@@ -283,24 +283,24 @@
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
       <svg viewBox="0 0 880 236" role="img" aria-labelledby="f5t">
-        <title id="f5t">One pass of about 2.3 ms with eight voices sounding: a short engine part, then four ticks, each reading MIDI and stepping the envelopes and LFOs before writing two voices' pitches, the VCAs and every other tick the cutoffs, then the shared voltages.</title>
+        <title id="f5t">One pass of about 2.7 ms with eight voices sounding: a short engine part, then four ticks, each reading MIDI and stepping the envelopes and LFOs before writing two voices' pitches, the VCAs and every other tick the cutoffs, then the shared voltages.</title>
         <g id="f5"></g>
       </svg>
     </div>
     <div class="legend"><span><i class="k-dig"></i>engine and panel</span><span><i class="k-ana"></i>cutoffs</span><span><i class="k-acc"></i>VCAs</span><span><i class="k-mod"></i>pitches</span><span><i class="k-sh"></i>shared CVs</span></div>
     </div>
-    <figcaption><b>Figure 5.</b> One pass to scale with all eight voices sounding, from the timing measured on the synth. The slow engine takes about 0.18 ms; the rest is writing voltages. Each tick (▼) reads MIDI, steps every envelope and LFO, and writes what moved, so the fastest-moving voltages are written most often. Fewer voices sounding means a shorter pass.</figcaption>
+    <figcaption><b>Figure 5.</b> One pass to scale with all eight voices sounding, from the timing measured on the synth. The slow engine takes about 0.4 ms; the rest is writing voltages. Each tick (▼) reads MIDI, steps every envelope and LFO, and writes what moved, so the fastest-moving voltages are written most often. Fewer voices sounding means a shorter pass.</figcaption>
   </figure>
   <div class="prose">
-    <p>Why split the refresh like that? A pass takes about 2.4 ms with eight voices. If envelopes only moved once per pass, a snappy attack would be a staircase of 2.4 ms steps. So every envelope and LFO advances <strong>four times per pass</strong>, in the ticks, and the routes from them into pitch, cutoff and volume are applied there too:</p>
+    <p>Why split the refresh like that? A pass takes about 2.7 ms with eight voices (measured on 0.9.5). If envelopes only moved once per pass, a snappy attack would be a staircase of 2.7 ms steps. So every envelope and LFO advances <strong>four times per pass</strong>, in the ticks, and the routes from them into pitch, cutoff and volume are applied there too:</p>
   </div>
   <div class="tbl"><table>
     <thead><tr><th>Voltage</th><th>Written</th><th>Updates about every (8 voices)</th><th>(1 voice)</th></tr></thead>
     <tbody>
-      <tr><td>VCA (each voice's volume)</td><td>at every tick</td><td><strong>0.6 ms</strong></td><td>0.3 ms</td></tr>
-      <tr><td>Filter cutoff</td><td>every other tick</td><td><strong>1.2 ms</strong></td><td>0.6 ms</td></tr>
-      <tr><td>Pitch A and B</td><td>two voices per tick</td><td><strong>2.4 ms</strong></td><td>1.2 ms</td></tr>
-      <tr><td>Shared CVs (mixer, PW, resonance…)</td><td>once per pass</td><td><strong>2.4 ms</strong></td><td>1.2 ms</td></tr>
+      <tr><td>VCA (each voice's volume)</td><td>at every tick</td><td><strong>0.7 ms</strong></td><td>0.3 ms</td></tr>
+      <tr><td>Filter cutoff</td><td>every other tick</td><td><strong>1.4 ms</strong></td><td>0.6 ms</td></tr>
+      <tr><td>Pitch A and B</td><td>two voices per tick</td><td><strong>2.7 ms</strong></td><td>1.3 ms</td></tr>
+      <tr><td>Shared CVs (mixer, PW, resonance…)</td><td>once per pass</td><td><strong>2.7 ms</strong></td><td>1.3 ms</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
@@ -717,7 +717,7 @@
       <tr><td>Mix two waveforms of one oscillator at different levels</td><td>Waveform buttons are on/off lines</td><td>Put the second waveform on the other oscillator and use its level</td></tr>
       <tr><td>Host a USB keyboard plugged straight into the synth</td><td>The USB socket is a device port, and the chip runs its USB in device mode</td><td>The 5-pin MIDI IN socket, or a computer or USB MIDI host box in between</td></tr>
       <tr><td>Send the layers to separate outputs</td><td>The voice board sums all voices into one mono signal</td><td>Per-layer volume with the VCAs; a hardware mod would be needed for more</td></tr>
-      <tr><td>Digital FM or effects at audio rate</td><td>The firmware never sees the audio, and voltages update every 0.3–2.4 ms</td><td>The analog poly-mod path (osc B and the filter envelope to osc A and the filter) is audio rate</td></tr>
+      <tr><td>Digital FM or effects at audio rate</td><td>The firmware never sees the audio, and voltages update every 0.3–2.7 ms</td><td>The analog poly-mod path (osc B and the filter envelope to osc A and the filter) is audio rate</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
@@ -764,11 +764,11 @@
 (function () {
   var svg = document.getElementById("sh-svg");
   var groups = [
-    { name: "Pitch A", n: 8, cls: "mod", dac: "DAC80501", every: "every ≈ 2.4 ms" },
-    { name: "Pitch B", n: 8, cls: "mod", dac: "DAC80501", every: "every ≈ 2.4 ms" },
-    { name: "Cutoff", n: 8, cls: "ana", dac: "DAC80501", every: "every ≈ 1.2 ms" },
-    { name: "VCA", n: 8, cls: "acc", dac: "on-chip DAC 2", every: "every ≈ 0.6 ms" },
-    { name: "Shared", n: 9, cls: "sh", dac: "on-chip DAC 1", every: "every ≈ 2.4 ms" }
+    { name: "Pitch A", n: 8, cls: "mod", dac: "DAC80501", every: "every ≈ 2.7 ms" },
+    { name: "Pitch B", n: 8, cls: "mod", dac: "DAC80501", every: "every ≈ 2.7 ms" },
+    { name: "Cutoff", n: 8, cls: "ana", dac: "DAC80501", every: "every ≈ 1.4 ms" },
+    { name: "VCA", n: 8, cls: "acc", dac: "on-chip DAC 2", every: "every ≈ 0.7 ms" },
+    { name: "Shared", n: 9, cls: "sh", dac: "on-chip DAC 1", every: "every ≈ 2.7 ms" }
   ];
   var sharedNames = ["poly-mod B", "level A", "level B", "master vol", "noise", "ext filter", "PW A", "PW B", "resonance"];
   var bars = [], slot = 736 / 41, x = 20, top = 30, bottom = 222, h = bottom - top;
@@ -794,9 +794,9 @@
   // the firmware's order: the slow engine, then four ticks (MIDI, the sequencer, envelopes, LFOs and the fast routes),
   // each writing two voices' pitch, every other one all the cutoffs, and the VCAs: alongside a DAC80501 channel at
   // the same address for free, else on their own; most of the shared CVs sample alongside too
-  var seq = [{ ch: -1, cost: 180, label: "engine: knobs, glide, drift, macros and the slow routes" }];
+  var seq = [{ ch: -1, cost: 380, label: "engine: knobs, glide, drift, macros and the slow routes" }];
   for (var k = 0; k < 4; k++) {
-    seq.push({ ch: -1, cost: 60, label: "tick " + (k + 1) + ": MIDI, the sequencer, envelopes, LFOs, fast routes" });
+    seq.push({ ch: -1, cost: 56, label: "tick " + (k + 1) + ": MIDI, the sequencer, envelopes, LFOs, fast routes" });
     if (k % 2 === 0) for (var v = 0; v < 8; v++) { seq.push({ ch: 16 + v, cost: 50 }); seq.push({ ch: 24 + v, cost: 0, free: true }); }
     else for (v = 0; v < 8; v++) if (v >> 1 !== k) seq.push({ ch: 24 + v, cost: 18 });
     for (v = 2 * k; v < 2 * k + 2; v++) {
@@ -868,26 +868,26 @@
 
 // Figure 5: one pass to scale
 (function () {
-  var g = document.getElementById("f5"), x0 = 40, px = 800 / 2300, y = 74, hh = 44, x = x0;
-  S("text", { x: 40, y: 26, class: "t-b", text: "One pass ≈ 2.3 ms with eight voices sounding (≈ 1.2 ms with one, ≈ 0.95 ms with none)" }, g);
+  var g = document.getElementById("f5"), x0 = 40, px = 800 / 2700, y = 74, hh = 44, x = x0;
+  S("text", { x: 40, y: 26, class: "t-b", text: "One pass ≈ 2.7 ms with eight voices sounding (≈ 1.25 ms with one, ≈ 1.05 ms with none), measured on 0.9.5" }, g);
   function seg(us, cls, label) {
     var w = us * px;
     S("rect", { x: x, y: y, width: w - 1.5, height: hh, rx: 4, class: cls }, g);
     if (label) S("text", { x: x + w / 2, y: y + 27, class: "t-xs", "text-anchor": "middle", text: label }, g);
     x += w;
   }
-  seg(180, "box-dig", "engine");
+  seg(383, "box-dig", "engine");
   for (var k = 0; k < 4; k++) {
     var start = x;
     S("path", { d: "M" + (x - 5) + " " + (y - 14) + " h10 l-5 8 z", class: "f-acc" }, g);
-    seg(60, "box-dig", "");
-    if (k % 2 === 0) seg(400, "box-ana", "8 cutoffs + VCAs");
-    else seg(108, "box-acc", "VCAs");
-    seg(200, "box-mod", "2 pitches");
+    seg(56, "box-dig", "");
+    if (k % 2 === 0) seg(440, "box-ana", "8 cutoffs + VCAs");
+    else seg(120, "box-acc", "VCAs");
+    seg(225, "box-mod", "2 pitches");
     S("path", { d: "M" + start + " " + (y + hh + 10) + " v6 H" + (x - 2) + " v-6", class: "ln" }, g);
     S("text", { x: (start + x) / 2, y: y + hh + 32, class: "t-sm", "text-anchor": "middle", text: "tick " + (k + 1) }, g);
   }
-  seg(54, "box-sh", "");
+  seg(58, "box-sh", "");
   S("text", { x: 46, y: y - 22, class: "t-xs", text: "▼ MIDI read, the sequencer advanced, envelopes and LFOs step forward, the fast routes applied" }, g);
   S("line", { x1: x0, y1: 186, x2: 840, y2: 186, class: "axis" }, g);
   for (var ms = 0; ms <= 2; ms++) {
@@ -895,7 +895,7 @@
     S("line", { x1: tx, y1: 186, x2: tx, y2: 191, class: "axis" }, g);
     S("text", { x: tx, y: 206, class: "t-xs", "text-anchor": "middle", text: ms + " ms" }, g);
   }
-  S("text", { x: 840, y: 206, class: "t-xs", "text-anchor": "end", text: "2.3 ms" }, g);
+  S("text", { x: 840, y: 206, class: "t-xs", "text-anchor": "end", text: "2.7 ms" }, g);
 })();
 
 // Figure 6: from key to voltage
