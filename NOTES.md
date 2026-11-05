@@ -2034,8 +2034,7 @@ matters:
 
 - `pro800 batch` (commands from stdin on one MIDI connection) for the preset installer.
 - From the GitHub issues: a CC or NRPN for every parameter, with NRPN on the display (#12, #1; the reporter asks for
-  it once the firmware has settled), release velocity as a mod source (#8: `key_off()` drops it), the
-  Settings and Performance menus on a long press (#2, with Perf's init below), a one-press save (#1).
+  it once the firmware has settled): 0.10.0's steps 8 and 9.
 - Audition the preset bank on the synth and tune levels and cutoffs.
 - Compare stock and PRO-8000 tuning. Stock's Tune takes clearly longer than ours (about 25 s) and, by ear on 2026-10-30,
   goes voice by voice through notes in different octaves, then PW and filters. Ours measures each oscillator and filter
@@ -2669,6 +2668,20 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
    with velocity 0 is a literal 0; under the pedal the key's lift is kept (one byte per note) and acts at pedal-up. Key
    4 again toggles VEL / rVEL, and a second press of 1 or 4 shows the source's name. The sequence's final release takes
    the last key's. `engine` shows it; `play --release V`.
+   **Done 2026-11-05 (simulator only).** Source 29 `rVEL`; `voice_t.release_velocity`, set by `synth_voice_note_off()`
+   and `synth_note_off_layers()` (64 = `RELEASE_VELOCITY_NONE` from `synth_all_off()` and every sequence or arp step);
+   `sustained_release[128]` in main.c for the pedal; `seq_key_off()` passes the last key's lift to the notes still
+   sounding. Probe 55 appends key, note and release velocity per voice (117 B); `engine` prints them when they're
+   there. The editor sends 64 as its note-off velocity, adds the source, and to firmware before 0.10.0 says the source
+   needs 0.10.0 (it used to report a refused route as a full layer). The steps 5-6 review found: 6B formatted a
+   parameter by the panel's selection (Env 3 / 4 and LFO 2 came out 0-99; with Shift or LFO 2 selected an editor edit
+   of the amp or filter envelope or LFO 1 read in the other's units): `param_value_text()` now goes by the parameter,
+   and the envelope display helpers take the layer, so a CC's LFO 2 rate and Env 3 / 4 times show in their knobs'
+   units too, as MANUAL already said (a test had pinned 0-99); the editor's 25 ms send was a debounce (nothing went out during
+   a drag), now a throttle; the pedal test couldn't tell the lift from 64; `--release` missing from both helps; and a
+   sequence's last-key lift reaches only a step still sounding (documented). A key-up Env 3 / 4 via rVEL jumps to full
+   depth on a retrigger while it runs: documented, on the checklist. 88,224 B. Not tried on the synth: any keyboard's
+   real release velocities, over USB and DIN.
 7. **#36 chord memory.** 36a: a key/slot refactor commit first (no behaviour change), then capture on a physical Unison
    press with 2+ notes held (or 6A; stock's second gesture, the pedal pressed while holding a chord in Unison, too),
    play, store, `CHrd`; chord mode replaces unison; note-off by key; stealing per voice. Design the note-out hook at
@@ -2703,7 +2716,8 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
     message per CC every 5 ms, defaults CC 12 / 13, streaming from power-up; the editor warns when a CC-out number is in
     the map or is CC A / B.
 13. **Release.** Docs: MANUAL (and its known limitations: MIDI OUT / THRU leaves the list), the cheat sheet, docs/
-    kickers, footers, the record figure (53 → 37 reserved bytes) and the 5-pin figure, README counts (29 sources, 50
+    kickers, footers, the record figure (53 → 37 reserved bytes) and the 5-pin figure, the sources figure (7) and the
+    guides' source counts (28 → 29: sound-design.html and how-it-works.html), README counts (29 sources, 50
     destinations), CLAUDE.md (version rule, commands, `reference/behringer-pro800-docs/`), main.c's protocol comment,
     NOTES. Presets that show chords, rVEL and voicing; the stock CC map file. Full `test_panel.py`, `test_pro800.py`,
     node runs; the hardware pass; build and pack in this worktree. Pushing, the site, the GitHub release and the issue

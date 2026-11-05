@@ -30,6 +30,7 @@ Read-only:
   pro800 backup <dir> [first] [last]    dump system settings and patches as .syx (stock firmware only)
   pro800 play <note> [options]          play a note
       --channel N (1-16 or "all"; default the synth's MIDI channel, else 6)  --hold S (default 2)  --velocity V (default 100)
+      --release V (the key-up's velocity, default 64; 0.10.0)
 
 Probe (our firmware 0.0.9+):
   pro800 direct on|off                  stop/start the voice engine so CVs and gates stay as set
@@ -687,9 +688,11 @@ def play():
         fail("--hold can't be negative")
     velocity = int_in(option("--velocity"), 0, 127)
     velocity = 100 if velocity is None else velocity
+    release = int_in(option("--release"), 0, 127)  # the note-off's velocity (release velocity, 0.10.0); 64 as MIDI's default
+    release = 64 if release is None else release
     note = int_in(args[0], 0, 127) if args else None
     if note is None:
-        fail("usage: pro800 play <note 0-127> [--channel N|all] [--hold S] [--velocity V]")
+        fail("usage: pro800 play <note 0-127> [--channel N|all] [--hold S] [--velocity V] [--release V]")
     if channel_arg is None:
         channel_arg = str(synth_channel() or 6)
     if channel_arg == "all":
@@ -703,7 +706,7 @@ def play():
         m.send([0x90 | c, note, velocity])
     time.sleep(hold)
     for c in channels:
-        m.send([0x80 | c, note, 0])
+        m.send([0x80 | c, note, release])
 
 
 # MARK: - Probe (our firmware only)
@@ -1969,7 +1972,7 @@ def patches():
 
 SOURCE_NAMES = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
                 "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre",
-                "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2", "arp-note"]
+                "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2", "arp-note", "release-velocity"]
 DEST_NAMES = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
               "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
               "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
@@ -2163,6 +2166,11 @@ def engine():
         start = 53 + 10 * l
         show(f"LFO {l // 2 + 1} layer {l % 2 + 1}: shared {phase(b[start])}, cycles done {b[start + 1]}; voices "
              + " ".join(phase(p) for p in b[start + 2:start + 10]))
+    if len(b) < 117:  # per voice its key, note and last release velocity: 0.10.0
+        return
+    for v in range(8):
+        key, note, rv = b[93 + 3 * v:96 + 3 * v]
+        show(f"voice {v + 1}: key {key}, note {note}, release velocity {rv}")
 
 
 # The record src/fault.h keeps across a reset

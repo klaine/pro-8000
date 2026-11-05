@@ -151,6 +151,7 @@ typedef struct {
     float drift[2], drift_to[2], drift_timer; // pitch and cutoff wander, -1..1
     env_t amp, filter, env3, env4;
     uint8_t fresh;                // started since the main loop last asked: write its pitch before its VCA opens
+    uint8_t release_velocity;     // its key's release velocity (SRC_RELEASE_VELOCITY), set as the gate goes off
     // From the last synth_update(), for the ticks (voice_cvs()), which add the envelopes, the LFOs and the fast
     // routes; in semitones but vca_slow
     float pitch_base;              // the gliding note with bend, tune, unison spread and drift
@@ -483,6 +484,7 @@ void synth_set_layer_link(int bits)
 }
 
 int synth_env_edit_layer(int env) { return env_layer(edit_layer, env); }
+int synth_env_layer(int layer, int env) { return env_layer(layer & 1, env); }
 int synth_lfo_edit_layer(int which) { return lfo_layer(edit_layer, which); }
 int synth_pot_linked(int pot) { return linked(edit_layer, link_of_param[param_of_pot(pot)]); }
 
@@ -912,6 +914,11 @@ int synth_probe(uint8_t *out)
     for (int s = 0; s < 16; s++)
         out[n++] = (uint8_t)(switch_override[s] | switch_value[s] << 1 | controls_on((switch_t)s) << 2);
     n += lfo_probe(&out[n]);
+    for (int v = 0; v < VOICE_COUNT; v++) { // 0.10.0: per voice its key (the note until chord memory), note, release velocity
+        out[n++] = voices[v].note & 0x7F;
+        out[n++] = voices[v].note & 0x7F;
+        out[n++] = voices[v].release_velocity & 0x7F;
+    }
     return n;
 }
 
@@ -1484,10 +1491,12 @@ void synth_voice_note_on(int voice, uint8_t note, uint8_t velocity)
     last_voice[0] = voice;
 }
 
-void synth_voice_note_off(int voice, uint8_t note)
+void synth_voice_note_off(int voice, uint8_t note, uint8_t release_velocity)
 {
-    if (voice >= 0 && voice < VOICE_COUNT && voices[voice].gate && voices[voice].note == note)
+    if (voice >= 0 && voice < VOICE_COUNT && voices[voice].gate && voices[voice].note == note) {
+        voices[voice].release_velocity = release_velocity & 0x7F;
         gate_off(&voices[voice], 1);
+    }
 }
 
 void synth_voice_bend(int voice, int value)
@@ -1515,8 +1524,9 @@ void synth_timbre(uint8_t value, int layers)
             voices[v].timbre = (float)value / 127.0f;
 }
 
-void synth_note_off_layers(uint8_t note, int layers)
+void synth_note_off_layers(uint8_t note, uint8_t release_velocity, int layers)
 {
+    release_velocity &= 0x7F;
     for (int layer = 0; layer < LAYERS; layer++) {
         if (!(layers >> layer & 1) || (layer && one_layer()))
             continue; // (with layers off, layer 1 has every voice)
@@ -1529,9 +1539,10 @@ void synth_note_off_layers(uint8_t note, int layers)
                 continue;
             mono_voices(layer, &first, &end);
             for (int v = first; v < end; v++) {
-                if (!held_count[layer])
+                if (!held_count[layer]) {
+                    voices[v].release_velocity = release_velocity; // the last key up releases the line
                     gate_off(&voices[v], 1);
-                else if (voices[v].note != priority_note(layer)) { // back to a held note: legato, or mono retriggers
+                } else if (voices[v].note != priority_note(layer)) { // back to a held note: legato, or mono retriggers
                     if (voice_mode[layer] == VOICE_MONO)
                         gate_on(&voices[v], priority_note(layer), voices[v].velocity, 1);
                     else
@@ -1541,16 +1552,21 @@ void synth_note_off_layers(uint8_t note, int layers)
             continue;
         }
         for (int v = first; v < end; v++)
-            if (voices[v].gate && voices[v].note == note)
+            if (voices[v].gate && voices[v].note == note) {
+                voices[v].release_velocity = release_velocity;
                 gate_off(&voices[v], 1);
+            }
     }
 }
 
 void synth_all_off(void)
 {
     held_count[0] = held_count[1] = 0;
-    for (int v = 0; v < VOICE_COUNT; v++)
+    for (int v = 0; v < VOICE_COUNT; v++) {
+        if (voices[v].gate)
+            voices[v].release_velocity = RELEASE_VELOCITY_NONE;
         gate_off(&voices[v], 0);
+    }
 }
 
 void synth_pitch_bend(int value, int layers)
@@ -1636,9 +1652,21 @@ float synth_env_extra_time(int value) { return knob_time((float)value / 99.0f, 0
 // Stage times in note values: envelope e of `layer` takes them (not while it cycles synced: its shares rule)
 static int tempo_env(int layer, int e) { return env_tempo[layer] >> e & 1 && !(env_cycle[layer] >> e & 1 && env_sync[layer][e]); }
 
-int synth_env_tempo_step(int env, int stage, float knob)
+int synth_param_env(int param, int *env, int *stage)
 {
-    int layer = env_layer(edit_layer, env);
+    for (int e = 0; e < 4; e++)
+        for (int s = 0; s < 4; s++)
+            if (env_params[e][s] == param) {
+                *env = e;
+                *stage = s;
+                return 1;
+            }
+    return 0;
+}
+
+int synth_env_tempo_step(int layer, int env, int stage, float knob)
+{
+    layer = env_layer(layer & 1, env);
     if (!tempo_env(layer, env) || (stage == 2 && !(env_cycle[layer] >> env & 1)))
         return -1; // seconds, or the sustain level
     return lfo_note_step(knob);
@@ -1754,9 +1782,9 @@ void synth_set_env_sync(int layer, int env, int sync)
         env_sync[layer][env] = (uint8_t)sync;
 }
 
-float synth_env_share(int env, int stage, float knob)
+float synth_env_share(int layer, int env, int stage, float knob)
 {
-    int layer = env_layer(edit_layer, env);
+    layer = env_layer(layer & 1, env);
     if (!(env_cycle[layer] >> env & 1) || !env_sync[layer][env])
         return -1;
     float p[PARAM_COUNT];
@@ -1883,11 +1911,9 @@ static int knob_steps(int pot)
         return mode == OSC_TUNE_SEMITONES ? (int)(2 * OSC_RANGE_SEMITONES) : mode == OSC_TUNE_OCTAVE ? 6 : 0;
     }
     if (adsr_pot(pot)) {
-        int p = param_of_pot(pot);
-        for (int e = 0; e < 4; e++)
-            for (int stage = 0; stage < 4; stage++)
-                if (env_params[e][stage] == p)
-                    return synth_env_tempo_step(e, stage, 0) >= 0 ? LFO_DIVISIONS : 0; // 0 and the divisions
+        int e, stage;
+        if (synth_param_env(param_of_pot(pot), &e, &stage))
+            return synth_env_tempo_step(edit_layer, e, stage, 0) >= 0 ? LFO_DIVISIONS : 0; // 0 and the divisions
         return 0;
     }
     return pot == POT_LFO_FREQ && lfo_sync[lfo_select] == LFO_SYNC_CLOCK ? LFO_DIVISIONS - 1 : 0;
@@ -2054,6 +2080,7 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
     case SRC_LFO2_UNI:
         return 0.5f * (1.0f + lfo_read(layer, 1, voice) * x->lfo_gain[1]);
     case SRC_GATE: return x->gate ? 1.0f : 0;
+    case SRC_RELEASE_VELOCITY: return (float)x->release_velocity / 127.0f; // routes skip it while gated
     case SRC_TIMBRE: return x->timbre;
     case SRC_BEND: {
         float b = bend[layer] + (per_channel() ? x->bend : 0);
@@ -2155,7 +2182,8 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
             unsigned via = route_via[owner][r];
             if (x->source == SRC_NONE || x->dest >= DEST_COUNT || fast_route(x, via) != fast
                 || (!fast && (macro_source(x->source) || macro_source(via_source(via))) != phase)
-                || (both && !one_layer() && summed_wire(x->dest) && layer != newest_layer()))
+                || (both && !one_layer() && summed_wire(x->dest) && layer != newest_layer())
+                || (x->source == SRC_RELEASE_VELOCITY && voices[voice].gate)) // nothing until the key is up (#8)
                 continue;
             float value = source_value(&voices[voice], voice, layer, x->source);
             float depth = (float)(x->depth * 10 + route_fine[owner][r]) / 990.0f;
@@ -2168,7 +2196,8 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
             }
             if (x->dest <= DEST_PITCH) // pitch: a squared depth curve, fine near zero for vibrato
                 depth *= depth < 0 ? -depth : depth;
-            if (via) // after the depth's curve, so it scales the result in a straight line
+            if (via && !(via_source(via) == SRC_RELEASE_VELOCITY && voices[voice].gate)) // a held key's rVEL Via: x1
+                // after the depth's curve, so it scales the result in a straight line
                 depth *= via_source(via) ? source_value(&voices[voice], voice, layer, via_source(via)) : (float)via / 100.0f;
             mod[x->dest] += value * depth;
         }

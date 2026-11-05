@@ -64,5 +64,27 @@ they are, and put back any system setting you change (MIDI channel, clock, CC A 
 ## Step 5: the editor's knobs on the display
 
 - [ ] In Chrome / Edge, drag a knob on the Sound tab: the synth's display shows the value as the knob would, following
-      the drag without lag or audio stutter, and goes back to the slot 1.5 s later.
+      the drag without lag or audio stutter (it sends every 25 ms while you drag), and goes back to the slot 1.5 s later.
+- [ ] Env 3 / Env 4 knobs (the extras, or the faceplate on Env 3) show times on the synth, LFO 2's rate Hz or a
+      division, whatever the synth's panel has selected (Shift, Arp Up-Dn for LFO 2).
 - [ ] Loading a preset or the bank from the page doesn't flash values on the display.
+
+## Step 6: release velocity (#8)
+
+Needs a keyboard that sends release velocity (planist79's does), and one that doesn't if you have it. On P128's init
+sound: `pro800 route 1 release-velocity amp-rel -60` (put it back with `... amp-rel 0` afterwards).
+
+- [ ] `pro800 engine` while playing: each voice line shows the release velocity your keyboard sent, over USB (through
+      the computer) and on the 5-pin DIN. Varying values, or a fixed 64 / 0?
+- [ ] With rVEL → amp release -60: a quick lift gives a clearly shorter tail than a slow one.
+- [ ] `pro800 route 1 release-velocity vca 99`: held notes play at full level; a soft lift ends the tail at once.
+      Any click? Compare with `gate vca 99`.
+- [ ] `pro800 route 1 release-velocity cutoff 40`: is the jump at key-up acceptable to the ear?
+- [ ] Sustain pedal down, lift a key fast, pedal up: the tail follows that lift.
+- [ ] MOD ASSIGN: Arp Assign, 4, 4: the display reads `rVEL` (the `r` and `V` glyphs).
+- [ ] An arp or a sequence with rVEL → amp release and a long gate (a tie or 100 %): lifting the last key fast or slow
+      changes the final tail; the steps in between all release alike. With a short gate the step has usually released
+      already (at 64) when the key comes up, so the lift changes nothing there: as designed.
+- [ ] A key-up Env 3 → cutoff 50 via rVEL (Env 3 key-up in the editor's extras): lift a note softly, then play the same
+      note again while Env 3 still runs. The fading part jumps to the full depth at the new note (the Via is ×1 while
+      a key is down). Is that jump audible enough to want it smoothed?

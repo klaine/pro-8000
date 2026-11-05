@@ -585,7 +585,7 @@
           <tr><td><kbd>1</kbd></td><td>Selected LFO (1 again: the other) <code class="lcd">LFO1</code> <code class="lcd">LFO2</code></td></tr>
           <tr><td><kbd>2</kbd></td><td>Filter env <code class="lcd">FEnV</code></td></tr>
           <tr><td><kbd>3</kbd></td><td>Amp env <code class="lcd">AEnV</code></td></tr>
-          <tr><td><kbd>4</kbd></td><td>Velocity <code class="lcd">VEL</code></td></tr>
+          <tr><td><kbd>4</kbd></td><td>Velocity <code class="lcd">VEL</code><span data-needs="initPatch">; again: release velocity <code class="lcd">rVEL</code> (only after the key is up)</span></td></tr>
           <tr><td><kbd>5</kbd></td><td>Mod wheel <code class="lcd">nod</code></td></tr>
           <tr><td><kbd>6</kbd></td><td>Aftertouch, per voice with poly pressure <code class="lcd">PrES</code></td></tr>
           <tr><td><kbd>7</kbd> / <kbd>8</kbd></td><td>Env 3 / Env 4 <code class="lcd">EnV3</code> <code class="lcd">EnV4</code></td></tr>
@@ -1200,7 +1200,7 @@ const KEYS = "awsedftgyhujkolp;'";
 let octave = 4, velocity = 100, channel = 0;
 const down = new Map(); // source (key or "mouse") -> note
 function noteOn(n) { if (output) output.send([0x90 | channel, n, velocity]); paintKey(n, true); if (typeof recordNote === "function") recordNote(n, velocity); }
-function noteOff(n) { if (output) output.send([0x80 | channel, n, 0]); paintKey(n, false); }
+function noteOff(n) { if (output) output.send([0x80 | channel, n, 64]); paintKey(n, false); } // release velocity 64, as MIDI's default
 function allNotesOff() {
   if (!output) return;
   for (const n of down.values()) noteOff(n);
@@ -1349,6 +1349,7 @@ const FEATURES = {
   unisonVoices: ["unisonVoices", "unison voices, and unison detune to 100 cents"],
   arpChaos: ["arpChaos", "the arp's walk, range, added notes and Chaos"],
   initPatch: ["initPatch", "your own init patch"],
+  releaseVelocity: ["initPatch", "release velocity as a mod source"], // 0.10.0, as the init patch
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1773,8 +1774,9 @@ function setParam(i, v) {
   params[i] = v;
   editedAt[i] = Date.now();
   touch(NAMES[i] || label(i), format(i, v));
-  clearTimeout(sendTimers[i]);
+  if (sendTimers[i]) return; // one is on its way: it takes the latest, so a drag goes out every 25 ms and ends on its value
   sendTimers[i] = setTimeout(() => {
+    sendTimers[i] = 0;
     const q = Math.round(params[i] * 16383);
     send([0x52, paramLayer(i), i, q >> 7, q & 0x7F]);
     send([0x6B, paramLayer(i) + 1, i]); // and the synth's display shows it, as its knob would (0.10.0; older ones ignore it)
@@ -3597,7 +3599,7 @@ setInterval(async () => {
 const SOURCES = ["", "LFO 1", "Filter envelope", "Amp envelope", "Velocity", "Mod wheel", "Aftertouch", "Env 3", "Env 4",
   "Random (per note)", "Note number", "LFO 2", "Seq A", "Seq B", "Seq C", "Seq D", "LFO 1 (0 to 1)", "LFO 2 (0 to 1)",
   "Gate (key down)", "Timbre (CC 74)", "Pitch bend", "Pedal (CC 64)", "CC A", "CC B", "Voice number", "Fixed (always 1)",
-  "Macro 1", "Macro 2", "Arp note position"];
+  "Macro 1", "Macro 2", "Arp note position", "Release velocity (key up)"];
 const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount", "Poly-mod env amount", "LFO 1 amount",
   "LFO 1 → pitch", "LFO 1 → filter", "VCA", "Osc A level", "Osc B level", "Noise", "Resonance", "A pulse width",
   "B pulse width", "Poly-mod osc B", "LFO 1 → PW", "LFO 1 rate", "LFO 2 amount", "LFO 2 rate", "LFO 2 → pitch",
@@ -3771,15 +3773,23 @@ async function loadRoutes() {
   renderRoutes(true);
 }
 document.getElementById("matrix-refresh").onclick = loadRoutes;
+const RELEASE_VELOCITY_SOURCE = 29;
+// A source the connected firmware doesn't know yet (release velocity came with 0.10.0): it would refuse the route
+const sourceTooNew = s => s === RELEASE_VELOCITY_SOURCE && !feature("releaseVelocity");
+// A new route on the edited layer, and its Via unless that's 1: what went wrong, or "" once the synth took them
+async function addRoute(src, dest, depth, via) {
+  const newer = [src, via - VIA_SOURCE].find(sourceTooNew);
+  if (newer !== undefined) return `${SOURCES[newer]} needs firmware 0.10.0 or later`;
+  if (!await setRoute(paramsLayer, src, dest, depth)) return routesTaken() >= ROUTES ? routesFull() : "The synth didn't take that route";
+  if (via !== 100 && !await setRouteVia(paramsLayer, src, dest, via)) return "Added, but the synth didn't take that Via";
+  return "";
+}
 document.getElementById("add-route").onclick = async () => {
   const src = +document.getElementById("new-source").value, dest = +document.getElementById("new-dest").value;
   const depth = +document.getElementById("new-depth-number").value;
   if (!depth) { msg("matrix-msg", "A depth of 0 is no route", "bad"); return; }
-  if (!await setRoute(paramsLayer, src, dest, depth)) msg("matrix-msg", routesFull(), "bad");
-  else {
-    const via = viaOf(document.getElementById("new-via"), document.getElementById("new-via-number"));
-    if (via !== 100 && !await setRouteVia(paramsLayer, src, dest, via)) msg("matrix-msg", "Added, but the synth didn't take that Via", "bad");
-  }
+  const problem = await addRoute(src, dest, depth, viaOf(document.getElementById("new-via"), document.getElementById("new-via-number")));
+  if (problem) msg("matrix-msg", problem, "bad");
   loadRoutes();
 };
 

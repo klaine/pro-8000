@@ -630,7 +630,7 @@ so for a fast LFO straight into the cutoff route the LFO directly.
 | 1 | The selected LFO; press 1 again for the other one | `LFO1` / `LFO2` |
 | 2 | Filter envelope | `FEnV` |
 | 3 | Amp envelope | `AEnV` |
-| 4 | Velocity | `VEL` |
+| 4 | Velocity; press 4 again for release velocity, and again back | `VEL` / `rVEL` |
 | 5 | Mod wheel | `nod` |
 | 6 | Aftertouch | `PrES` |
 | 7 | Env 3 | `EnV3` |
@@ -648,6 +648,20 @@ so for a fast LFO straight into the cutoff route the LFO directly.
 | VALUE / web | Fixed, always 1: the route is a plain offset | `FIX` |
 | VALUE / web | Macro 1, Macro 2 | `nAC1` `nAC2` |
 | VALUE / web | Arp note position, 0 lowest to 1 highest of the arp's notes (see Sequencer) | `ArP` |
+| 4 again / VALUE / web | Release velocity, 0 to 1: how fast the key came up (0.10.0) | `rVEL` |
+
+**Release velocity** (`rVEL`) is how fast a key was let go, from keyboards that send it. A route from it does
+nothing while the key is down (so `rVEL` → VCA at 99 doesn't silence a held note; as a Via it's ×1 meanwhile) and
+acts from the moment the key comes up, as `rVEL` × the depth: into the amp or filter release (a quick lift, a
+shorter tail, with a negative depth), the cutoff or the VCA (a step at key-up, as Gate makes), or a key-up Env 3 /
+Env 4's depth via `rVEL` (play that note again while its key-up envelope still runs and the Via is ×1 again: the
+envelope's fading part jumps to its full depth). Under the sustain pedal the key's lift is kept and acts when the pedal lets go. A release
+no key made gives 64, the middle: a sequence's or the arp's step ending, all notes off, and a note-on at velocity 0
+(MIDI's note-off); when you let go of a sequence's or the arp's last key, a step still sounding then releases at
+that key's lift (one whose gate already ended has released at 64). A keyboard without
+release velocity sends one value every time (most send 64, some 0), so the route does the same each time.
+`pro800 play --release V` sends one; `pro800 engine` shows each voice's last. The single-wire destinations
+(levels, noise, resonance, detune, volume) follow the newest voice, usually still held, so a route there seldom acts.
 
 The Morph destination (web page only) fades toward the morph target patch (see Voice modes, drift, scale, morph).
 

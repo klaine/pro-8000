@@ -32,6 +32,8 @@ typedef enum {
     SRC_FIXED,                 // always 1: a route is a plain offset
     SRC_MACRO1, SRC_MACRO2,    // the macros: whatever is routed into DEST_MACRO1 / 2, -1..1 (once a pass)
     SRC_ARP_NOTE,              // where the note sits in the arp's notes, 0 lowest..1 highest, kept for the note; 0 for any other note
+    SRC_RELEASE_VELOCITY,      // the key's release velocity, 0..1 (#8, 0.10.0): a route from it does nothing while the voice's
+                               // gate is on (as a Via: x1), only after the key is up; 64 for a release no key made
     SRC_COUNT
 } mod_source_t;
 

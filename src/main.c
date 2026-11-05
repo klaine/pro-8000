@@ -12,7 +12,8 @@
 //                          t1 << 7 | t0 ms; replies 73 <ok> <periods, 2 × 7 bits> <cycles, 5 × 7 bits>
 //                          <system_hz / 1000, 3 × 7 bits>
 //   55                     the engine's state (synth_probe(): held keys, voice gates and envelope stages, keytrack,
-//                          switch overrides, LFO phases); replies 55 <bytes>; read-only
+//                          switch overrides, LFO phases, from 0.10.0 each voice's key, note and release velocity);
+//                          replies 55 <bytes>; read-only
 //   49                     the last crash (fault.h); replies 49 <1 if there is a record> <streak> <exception number>,
 //                          then pc, lr, EXC_RETURN, CFSR, HFSR, MMFAR, BFAR, 5 × 7 bits each, high first (all 0 without
 //                          a record); read-only
@@ -236,6 +237,7 @@ static int comparing, undo_valid;
 // while it was down: the layers each one's note-off releases
 static int sustain;
 static uint8_t sustained[128];
+static uint8_t sustained_release[128]; // a key lifted under the pedal: its release velocity, for when the pedal lets go
 static char loaded_name[PATCH_NAME + 1]; // travels with the sound when it's saved to an empty slot
 static uint32_t typed_at;
 #define TYPED_PAUSE_MS 3000
@@ -763,7 +765,7 @@ static uint32_t last_pot_at;     // and when: only a knob touched in the 5 s bef
 static const char source_names[SRC_COUNT][5] = {
     "", "LFO1", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE", "LFO2",
     "SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb",
-    "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP",
+    "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP", "rVEL",
 };
 static const char dest_names[DEST_COUNT][6] = {
     "P.A", "P.b", "PIt", "CUt", "F.EA", "P.EA", "L.An", "L.Fr", "L.FL", "VCA",
@@ -956,11 +958,18 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
         return kind == CONTROL_POT; // knobs are frozen; buttons work as usual
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value) {
-        int source = index == BUTTON_0 ? SRC_NOTE : index - BUTTON_0;
-        if (source == SRC_LFO) // key 1: the selected LFO; pressed again, the other one
+        int source = index == BUTTON_0 ? SRC_NOTE : index - BUTTON_0, toggled = 0;
+        if (source == SRC_LFO) { // key 1: the selected LFO; pressed again, the other one
+            toggled = assign_source == SRC_LFO || assign_source == SRC_LFO2;
             source = assign_source == SRC_LFO ? SRC_LFO2 : assign_source == SRC_LFO2 ? SRC_LFO
                    : synth_lfo_select() ? SRC_LFO2 : SRC_LFO;
+        } else if (source == SRC_VELOCITY && (assign_source == SRC_VELOCITY || assign_source == SRC_RELEASE_VELOCITY)) {
+            toggled = 1; // key 4 again: release velocity, and back (#8)
+            source = assign_source == SRC_VELOCITY ? SRC_RELEASE_VELOCITY : SRC_VELOCITY;
+        }
         assign_take_source(source);
+        if (toggled && show_value_at) // a toggle that went on to the depth: say which source it is first
+            display_text(source_names[source]);
         return 1;
     }
     if (kind == CONTROL_POT && index == assign_source_pot) {
@@ -1404,29 +1413,14 @@ static void idle_display(void)
         display_text("PAnL");
 }
 
-// Which envelope (0 amp, 1 filter, 2 Env 3, 3 Env 4: the ENV_CYCLE_* bit order) and stage (0 attack, 1 decay,
-// 2 sustain, 3 release) a knob edits; 0 if it isn't an envelope knob.
-static int env_knob(int pot, int *env, int *stage)
-{
-    static const int8_t stages[POT_COUNT] = {
-        [POT_AMP_ATT] = 1, [POT_AMP_DEC] = 2, [POT_AMP_SUS] = 3, [POT_AMP_REL] = 4,
-        [POT_FIL_ATT] = 1, [POT_FIL_DEC] = 2, [POT_FIL_SUS] = 3, [POT_FIL_REL] = 4,
-    };
-    if (!stages[pot])
-        return 0;
-    int select = synth_env_select(), amp = pot <= POT_AMP_ATT; // POT_AMP_REL..POT_AMP_ATT come first
-    *env = select == 3 ? (amp ? 3 : 2) : amp ? 0 : select + 1;  // Shift (3): the filter knobs edit Env 3, the amp knobs Env 4
-    *stage = stages[pot] - 1;
-    return 1;
-}
-
-// An envelope knob's time in seconds (attack, decay, release; hold and rest when cycling), or -1 for the others.
-static float env_knob_time(int pot, float knob)
+// An envelope parameter's time in seconds on `layer` (attack, decay, release; hold and rest when cycling), or -1
+// for the others.
+static float env_param_time(int param, int layer, float knob)
 {
     int env, stage;
-    if (!env_knob(pot, &env, &stage))
+    if (!synth_param_env(param, &env, &stage))
         return -1;
-    return synth_env_time(stage, knob, (synth_env_cycle(synth_env_edit_layer(env)) >> env) & 1);
+    return synth_env_time(stage, knob, (synth_env_cycle(synth_env_layer(layer, env)) >> env) & 1);
 }
 
 // 4 digits for a quantity: " 0.05", " 1.60", " 51.2", " 737"; from 1000 on in thousands with a point (" 1.24",
@@ -1660,14 +1654,13 @@ static void format_0_99(float knob, char *text, int tenths)
     text[4] = 0;
 }
 
-// A knob's value as the display shows it. Above POT_COUNT (a controller's LFO 2 or Env 3 / 4 parameter): 0-99.
+// A parameter's value on `layer` as the display shows it: by the parameter itself, not what the panel selects, so a
+// host's Env 3 attack is a time and LFO 2's rate Hz or a division (synth_pot_param() gives a knob's parameter).
 // `tenths`: a 0-99 value with its tenth, as VALUE adjusts it; a value in units (Hz, times, semitones) shows as ever.
-static void pot_value_text(int index, int layer, float knob, char *text, int tenths)
+static void param_value_text(int index, int layer, float knob, char *text, int tenths)
 {
-    int env, stage;
-    if (index >= POT_COUNT) {
-        format_0_99(knob, text, tenths);
-    } else if (index == POT_LFO_FREQ && lfo_sync[synth_lfo_select()] == LFO_SYNC_CLOCK) {
+    int env, stage, lfo = index == PARAM_LFO2_RATE ? 1 : index == POT_LFO_FREQ ? 0 : -1;
+    if (lfo >= 0 && lfo_sync[lfo] == LFO_SYNC_CLOCK) {
         const char *name = lfo_division_name(lfo_division(knob));
         int n = 0;
         while (name[n] && n < 4) {
@@ -1675,23 +1668,27 @@ static void pot_value_text(int index, int layer, float knob, char *text, int ten
             n++;
         }
         text[n] = 0;
-    } else if (env_knob(index, &env, &stage) && synth_env_share(env, stage, knob) >= 0) {
-        int share = (int)(synth_env_share(env, stage, knob) * 100.0f + 0.5f); // percent of the synced cycle
+    } else if (synth_param_env(index, &env, &stage) && synth_env_share(layer, env, stage, knob) >= 0) {
+        int share = (int)(synth_env_share(layer, env, stage, knob) * 100.0f + 0.5f); // percent of the synced cycle
         text[0] = ' ';
         text[1] = share >= 100 ? '1' : ' ';
         text[2] = share >= 10 ? (char)('0' + share / 10 % 10) : ' ';
         text[3] = (char)('0' + share % 10);
         text[4] = 0;
-    } else if (env_knob(index, &env, &stage) && synth_env_tempo_step(env, stage, knob) >= 0) {
-        const char *name = lfo_note_name(synth_env_tempo_step(env, stage, knob)); // a note value
+    } else if (synth_param_env(index, &env, &stage) && synth_env_tempo_step(layer, env, stage, knob) >= 0) {
+        const char *name = lfo_note_name(synth_env_tempo_step(layer, env, stage, knob)); // a note value
         int n = 0;
         while (name[n] && n < 4) {
             text[n] = name[n];
             n++;
         }
         text[n] = 0;
-    } else if (env_knob_time(index, knob) >= 0) {
-        format_time(env_knob_time(index, knob), text);
+    } else if (env_param_time(index, layer, knob) >= 0) {
+        format_time(env_param_time(index, layer, knob), text);
+    } else if (lfo >= 0) {
+        format_quantity(lfo_rate_hz(knob), text); // Hz
+    } else if (index >= POT_COUNT) {
+        format_0_99(knob, text, tenths); // LFO 2's amount, Env 3 / 4's sustain
     } else if (index == POT_FREQ_A || index == POT_FREQ_B) {
         int osc = index == POT_FREQ_A ? 0 : 1;
         float pitch = synth_knob_tune_value(layer, osc, knob);
@@ -1715,8 +1712,6 @@ static void pot_value_text(int index, int layer, float knob, char *text, int ten
         format_quantity(synth_knob_pmod(knob), text); // semitones
     } else if (index == POT_CUTOFF) {
         format_quantity(synth_knob_cutoff_hz(knob), text); // Hz; with a point from 1 kHz on: kHz
-    } else if (index == POT_LFO_FREQ) {
-        format_quantity(lfo_rate_hz(knob), text); // Hz
     } else if (index == POT_GLIDE) {
         if (synth_knob_glide_s(knob) > 0)
             format_time(synth_knob_glide_s(knob), text);
@@ -1742,7 +1737,7 @@ static void cc_show(uint32_t now)
     if (report_mode || menu_open || saving || recording || assigning || browsing || comparing || typed_digits)
         return;
     char text[8];
-    pot_value_text(param, cc_shown_layer, cc_shown_value, text, 0);
+    param_value_text(param, cc_shown_layer, cc_shown_value, text, 0);
     display_text(text);
     display_until = now + 1500; // as a knob's
     cc_shown_at = now;
@@ -1998,7 +1993,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         float v = steps ? synth_nudge_pot(nudge_pot, steps) : -1;
         if (v >= 0) {
             char text[8];
-            pot_value_text(nudge_pot, synth_edit_layer(), v, text, 1);
+            param_value_text(synth_pot_param(nudge_pot), synth_edit_layer(), v, text, 1);
             display_text(text);
             display_until = ms_ticks + 1500;
             nudge_serial = display_serial();
@@ -2047,7 +2042,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         int pending = synth_pot_pending(index);
         float knob = pending ? synth_pot_value(index) : synth_knob_snap(index, (float)value / 4095.0f);
         char text[8];
-        pot_value_text(index, synth_edit_layer(), knob, text, 0);
+        param_value_text(synth_pot_param(index), synth_edit_layer(), knob, text, 0);
         if (pending) {
             int n = 0;
             while (text[n])
@@ -2959,29 +2954,31 @@ static const struct { uint8_t cc, param; } cc_map[] = {
     {89, PARAM_ENV4_ATT}, {90, PARAM_ENV4_DEC}, {102, PARAM_ENV4_SUS}, {103, PARAM_ENV4_REL},
 };
 // A note let go on `layers` (the pedal's release): the sequence's key, else the engine's
-static void release_key(uint8_t note, int layers)
+static void release_key(uint8_t note, int layers, uint8_t release_velocity)
 {
     if (!layers)
         return;
-    int rest = layers & ~seq_key_off(note, layers);
+    int rest = layers & ~seq_key_off(note, layers, release_velocity);
     if (rest)
-        synth_note_off_layers(note, rest);
+        synth_note_off_layers(note, release_velocity, rest);
 }
 
-// A key let go on a MIDI channel: the pedal holds it on the layers the pedal is down for; in the per-channel modes
-// it releases only its channel's voice
-static void key_off(uint8_t note, int channel)
+// A key let go on a MIDI channel, at its release velocity: the pedal holds it on the layers the pedal is down for
+// (keeping the lift for when it lets go); in the per-channel modes it releases only its channel's voice
+static void key_off(uint8_t note, uint8_t release_velocity, int channel)
 {
     int layers = synth_channel_layers(channel), held = layers & sustain;
     sustained[note & 0x7F] |= (uint8_t)held;
+    if (held)
+        sustained_release[note & 0x7F] = release_velocity & 0x7F;
     layers &= ~held;
     int pv = synth_channel_voice(channel);
     if (!layers)
         return;
     if (pv >= 0)
-        synth_voice_note_off(pv, note);
+        synth_voice_note_off(pv, note, release_velocity);
     else
-        release_key(note, layers);
+        release_key(note, layers, release_velocity);
 }
 
 static void control_change(uint8_t cc, uint8_t value, int channel)
@@ -2998,7 +2995,7 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
             if (sustained[n] & layers) {
                 int off = sustained[n] & layers;
                 sustained[n] &= (uint8_t)~off;
-                release_key((uint8_t)n, off);
+                release_key((uint8_t)n, off, sustained_release[n]);
             }
         return;
     }
@@ -3170,11 +3167,11 @@ static void handle_midi(void)
                         synth_note_on_layers(p[2], p[3], rest);
                 }
             } else
-                key_off(p[2], channel);
+                key_off(p[2], RELEASE_VELOCITY_NONE, channel); // a note-on at velocity 0: MIDI's note-off at 64
             break;
         }
         case 0x8:
-            key_off(p[2], p[1] & 0x0F);
+            key_off(p[2], p[3], p[1] & 0x0F); // its release velocity, 0 included
             break;
         case 0xC: // program change 0-127: patch 1-128
             if (p[2] < PATCH_COUNT && !saving) // a save in progress keeps the sound it's about to store
@@ -3373,7 +3370,7 @@ int main(void)
             if (moved >= FREE_FOLLOW_STEPS || moved <= -FREE_FOLLOW_STEPS) {
                 char text[8];
                 free_shown_raw = raw;
-                pot_value_text(free_shown_pot, synth_edit_layer(), synth_knob_snap(free_shown_pot, (float)raw / 4095.0f), text, 0);
+                param_value_text(synth_pot_param(free_shown_pot), synth_edit_layer(), synth_knob_snap(free_shown_pot, (float)raw / 4095.0f), text, 0);
                 display_text(text);
                 display_until = free_shown_until = now + 1500;
                 if (nudge_pot == free_shown_pot)

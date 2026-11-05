@@ -1243,6 +1243,122 @@ class SystemMenu(PanelTest):
         self.assertEqual(lit, {True}, "steady: the sound menu")
 
 
+class ReleaseVelocity(PanelTest):
+    """#8: release velocity as source 29. A route from it does nothing while the voice's key is down, only after the key
+    is up, by its lift (rv x depth); 64 for releases no key made, and for a note-on at velocity 0."""
+
+    RVEL = None
+
+    def setUp(self):
+        super().setUp()
+        self.RVEL = pro800.SOURCE_NAMES.index("release-velocity")
+        self.s.no_routes()
+        self.s.setting("keytrack", 0)
+        self.s.param(0, "fil-env-amt", 8192)   # no envelope on the cutoff
+        self.s.param(0, "cutoff", 6000)
+        self.s.param(0, "amp-rel", 14000)      # a long tail to look at
+        self.s.param(0, "fil-rel", 14000)
+
+    def route(self, dest, depth, source=None):
+        d = depth + 99
+        self.s.request(0x56, 0, self.RVEL if source is None else source, dest, d >> 7, d & 0x7F)
+
+    def cutoff_after(self, release=None, note_on_zero=False):
+        """The cutoff CV of the voice a note took, while held and 20 ms after its release."""
+        self.s.note(60)
+        self.s.ms(20)
+        v = self.s.gated()[0]
+        held = self.s.cvs()[CV_FIL1 + v]
+        if note_on_zero:
+            self.s.midi(0x90, 60, 0)
+        else:
+            self.s.midi(0x80, 60, release)
+        self.s.ms(20)
+        after = self.s.cvs()[CV_FIL1 + v]
+        self.s.ms(3000)
+        return held, after
+
+    def test_nothing_while_held_the_lift_after(self):
+        plain_held, plain_after = self.cutoff_after(127)
+        self.route(CUTOFF, 40)
+        held, after = self.cutoff_after(127)
+        self.assertEqual(held, plain_held, "held: the route adds nothing")
+        self.assertGreater(after - plain_after, 3000, "after a lift at 127: up by 40 x 96/99 semitones' worth")
+        held0, after0 = self.cutoff_after(0)
+        self.assertLess(abs(after0 - plain_after), 200, "a lift at 0 adds nothing")
+        _, after64 = self.cutoff_after(64)
+        self.assertAlmostEqual(after64 - plain_after, (after - plain_after) * 64 / 127, delta=300)
+
+    def test_a_note_on_at_velocity_0_is_64(self):
+        self.route(CUTOFF, 40)
+        _, after64 = self.cutoff_after(64)
+        _, after_zero = self.cutoff_after(note_on_zero=True)
+        self.assertLess(abs(after_zero - after64), 100)
+
+    def test_a_route_into_the_vca_doesnt_silence_a_held_note(self):
+        self.s.note(60)
+        self.s.ms(50)
+        v = self.s.gated()[0]
+        plain = self.s.cvs()[CV_AMP1 + v]
+        self.route(VCA, 99)
+        self.s.ms(50)
+        self.assertEqual(self.s.cvs()[CV_AMP1 + v], plain, "held: full, as without the route")
+        self.s.midi(0x80, 60, 0)
+        self.s.ms(20)
+        self.assertLess(self.s.cvs()[CV_AMP1 + v], plain // 4, "a lift at 0: the tail's gone")
+
+    def pedal_lift(self, release):
+        """The cutoff's rise at pedal-up, after a key lifted at `release` while the pedal held it."""
+        self.s.midi(0xB0, 64, 127)
+        self.s.note(60)
+        self.s.ms(20)
+        v = self.s.gated()[0]
+        held = self.s.cvs()[CV_FIL1 + v]
+        self.s.midi(0x80, 60, release)
+        self.s.ms(20)
+        self.assertEqual(self.s.gated(), [v], "the pedal holds it")
+        self.assertEqual(self.s.cvs()[CV_FIL1 + v], held)
+        self.s.midi(0xB0, 64, 0)
+        self.s.ms(20)
+        rise = self.s.cvs()[CV_FIL1 + v] - held
+        self.s.ms(3000)
+        return rise
+
+    def test_the_pedal_keeps_the_lift_for_its_release(self):
+        self.route(CUTOFF, 40)
+        loud, soft = self.pedal_lift(127), self.pedal_lift(10)
+        self.assertGreater(loud, 8000, "pedal up: the key's lift at 127 (64 would give about 5000)")
+        self.assertLess(soft, 1500, "pedal up: the key's lift at 10")
+        self.assertAlmostEqual(soft, loud * 10 / 127, delta=300)
+
+    def test_as_a_via_it_is_x1_while_held(self):
+        fixed = pro800.SOURCE_NAMES.index("fixed")
+        plain_held, plain_after = self.cutoff_after(0)
+        self.route(CUTOFF, 40, source=fixed)
+        self.s.request(0x62, 0, fixed, CUTOFF, (1000 + self.RVEL) >> 7, (1000 + self.RVEL) & 0x7F)
+        held, after = self.cutoff_after(0)
+        self.assertGreater(held - plain_held, 3000, "held: fixed x 1")
+        self.assertLess(abs(after - plain_after), 200, "lifted at 0: fixed x 0")
+
+    def test_the_probe_shows_each_voices_release_velocity(self):
+        self.s.note(60)
+        self.s.ms(20)
+        v = self.s.gated()[0]
+        self.s.midi(0x80, 60, 90)
+        self.s.ms(20)
+        d = self.s.reply(0x55)
+        self.assertEqual(list(d[93 + 3 * v:96 + 3 * v]), [60, 60, 90], "key, note, release velocity")
+
+    def test_a_route_from_it_is_saved(self):
+        self.route(CUTOFF, 40)
+        self.store_patch(5)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.press("5")
+        self.s.ms(3100)
+        self.assertIn((self.RVEL, CUTOFF, 40), self.s.routes(0))
+
+
 class InitRoutes(PanelTest):
     """The init sound's two velocity routes, on both layers, wherever the init sound comes from (MANUAL, Init)."""
 
@@ -2448,6 +2564,49 @@ class HostShowsAParameter(PanelTest):
         self.show(1, "resonance")
         self.assertShows("SEt")
 
+    def knob_shows(self, pot, value):
+        """What the panel's own knob shows at `value` (0..1): the reference for a 6B of the parameter it edits."""
+        self.s.pot(pot, value)
+        self.s.pot(pot, value + 0.03)
+        self.s.pot(pot, value)
+        shown = self.s.shows().rstrip(".")
+        self.s.ms(1600)
+        return shown
+
+    def test_env_3_and_lfo_2_in_their_own_units(self):
+        self.s.param(0, "env3-att", 8192)
+        self.s.param(0, "lfo2-rate", 8192)
+        self.show(1, "env3-att")
+        env3 = self.s.shows()
+        self.assertNotEqual(env3, "  50", "a time, not 0-99")
+        self.show(1, "lfo2-rate")
+        lfo2 = self.s.shows()
+        self.assertNotEqual(lfo2, "  50", "Hz, not 0-99")
+        self.s.ms(1600)
+        self.s.hold("SHIFT")  # the filter knobs edit Env 3
+        self.assertEqual(self.knob_shows("FIL_ATT", 0.5), env3, "as the panel's knob on Env 3 shows it")
+        self.s.let_go("SHIFT")
+        self.s.setting("lfo", 1)  # the LFO knobs edit LFO 2
+        self.assertEqual(self.knob_shows("LFO_FREQ", 0.5), lfo2)
+
+    def test_by_the_parameter_not_the_panels_selection(self):
+        self.s.param(0, "fil-att", 8192)
+        self.s.param(0, "lfo-freq", 8192)
+        self.show(1, "fil-att")
+        filter_attack = self.s.shows()
+        self.show(1, "lfo-freq")
+        lfo1 = self.s.shows()
+        self.s.ms(1600)
+        self.s.setting("env-tempo 1", 4 | 8)  # Env 3 and 4's times in note values
+        self.s.hold("SHIFT")  # the panel's ADSR knobs on Env 3 and 4
+        self.s.setting("lfo", 1)
+        self.s.setting("lfo2-sync", 1)  # LFO 2 synced: divisions
+        self.show(1, "fil-att")
+        self.assertEqual(self.s.shows(), filter_attack, "the filter envelope's time, whatever the knob edits now")
+        self.show(1, "lfo-freq")
+        self.assertEqual(self.s.shows(), lfo1, "LFO 1's Hz, not LFO 2's division")
+        self.s.let_go("SHIFT")
+
     def test_out_of_range_does_nothing(self):
         self.s.request(0x6B, 3, 0)
         self.s.request(0x6B, 1, 99)
@@ -2617,6 +2776,33 @@ class ModAssign(PanelTest):
                 self.s.press("ASSIGN")
                 self.assertShows("P  1")
 
+    def test_key_4_again_is_release_velocity(self):
+        self.begin()
+        self.s.press("4")
+        self.assertShows("VEL")
+        self.s.press("4")
+        self.assertShows("rVEL")
+        self.s.press("4")
+        self.assertShows("VEL")
+        self.s.press("ASSIGN")
+
+    def test_key_4_again_on_a_route_says_rvel_then_the_depth(self):
+        self.s.no_routes()
+        self.begin()
+        self.s.press("4")
+        self.s.pot("CUTOFF", 0.3)
+        self.s.pot("CUTOFF", 0.35)
+        self.s.turn(10)
+        self.s.press("4")
+        self.assertShows("rVEL", "the toggled source first")
+        self.s.ms(800)
+        self.assertRegex(self.s.shows(), r"\d", "then the depth: rVEL → cutoff's own, a new route")
+        self.s.turn(5)
+        self.s.press("ASSIGN")
+        sources = [r[0] for r in self.s.routes(0)]
+        self.assertIn(pro800.SOURCE_NAMES.index("release-velocity"), sources)
+        self.assertIn(pro800.SOURCE_NAMES.index("velocity"), sources, "the velocity route stays as it was")
+
     def test_key_1_again_is_the_other_lfo(self):
         self.begin()
         self.s.press("1")
@@ -2677,11 +2863,11 @@ class ModAssign(PanelTest):
     def test_value_scrolls_sources_and_assign_takes_one(self):
         self.begin()
         names = []
-        for _ in range(28):
+        for _ in range(29):
             self.s.turn(1)
             names.append(self.s.shows())
         self.assertEqual(len(set(names)), len(names), f"every source reads differently: {names}")
-        for wanted in ("SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb", "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP"):
+        for wanted in ("SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb", "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP", "rVEL"):
             self.assertIn(readable(segments_of(wanted)), names)
         self.s.press("ASSIGN")
 
@@ -3191,12 +3377,20 @@ class MidiOnTheDisplay(PanelTest):
         self.s.ms(60)
         self.assertShows("  50")
 
-    def test_lfo_2_rate_shows_0_to_99(self):
-        self.s.cc(27, 127)
-        self.s.ms(60)
-        self.assertShows("  99")
+    def test_lfo_2_rate_and_env_3_times_show_their_knobs_units(self):
+        """As the knobs show them with LFO 2 or Env 3 selected: the units LFO 1's rate and the filter attack show."""
+        for theirs, ours in ((76, 27), (23, 85)):  # LFO 1 / 2 rate, filter / Env 3 attack
+            with self.subTest(cc=ours):
+                self.s.cc(theirs, 100)
+                self.s.ms(60)
+                shown = self.s.shows()
+                self.s.ms(1600)
+                self.s.cc(ours, 100)
+                self.s.ms(60)
+                self.assertShows(shown)
+                self.s.ms(1600)
 
-    def test_env_3_shows_0_to_99(self):
+    def test_env_3_sustain_shows_0_to_99(self):  # a level, as its knob shows it
         self.s.cc(87, 64)
         self.s.ms(60)
         self.assertShows("  50")
@@ -8132,6 +8326,33 @@ class WebSmallThings(unittest.TestCase):
                 self.assertIn("isn't a preset bank", case["shown"][0])
         self.assertEqual(out["looked"], 1, "a good one goes on")
 
+    def test_release_velocity_on_older_firmware_says_so(self):
+        """#8: source 29 is 0.10.0's. To older firmware the page says that, not that the layer's 16 routes are taken."""
+        page = source("tools", "web", "index.html")
+        blocks = ["const FEATURES", "const feature", "const SOURCES", "const VIA_SOURCE", "const ROUTES", "const routesFull",
+                  "const routesTaken", "const RELEASE_VELOCITY_SOURCE", "const sourceTooNew", "async function addRoute("]
+        out = run_node(NODE_DRIVER % ("""
+        let settings = {}, paramsLayer = 0, layerRoutes = [], sent = [], takes = false;
+        const setRoute = async (...a) => { sent.push(a); return takes; }, setRouteVia = async (...a) => { sent.push(a); return takes; };
+        """ + chr(10).join(js_block(page, b) for b in blocks) + """
+        const out = { old: await addRoute(29, 3, 40, 100), oldVia: await addRoute(25, 3, 40, VIA_SOURCE + 29), sentOld: sent.length };
+        out.refused = await addRoute(4, 3, 40, 100);
+        layerRoutes = Array(16).fill({ depth: 10 });
+        out.full = await addRoute(4, 3, 40, 100);
+        settings = { initPatch: 0 };
+        takes = true;
+        out.now = await addRoute(29, 3, 40, VIA_SOURCE + 29);
+        out.sent = sent.length;
+        report(out);
+        """))
+        self.assertEqual(out["old"], "Release velocity (key up) needs firmware 0.10.0 or later")
+        self.assertEqual(out["oldVia"], out["old"], "as a Via too")
+        self.assertEqual(out["sentOld"], 0, "nothing asked of the synth")
+        self.assertEqual(out["refused"], "The synth didn't take that route", "free slots: not 'all in use'")
+        self.assertIn("are in use", out["full"])
+        self.assertEqual(out["now"], "", "0.10.0 takes it")
+        self.assertEqual(out["sent"], 4, "the two refused, then the route and its Via")
+
     def test_a_knob_edit_sends_52_then_6b_and_plans_never_6b(self):
         page = source("tools", "web", "index.html")
         out = run_node(NODE_DRIVER % ("""
@@ -8147,6 +8368,25 @@ class WebSmallThings(unittest.TestCase):
         q = round(0.6 * 16383)
         self.assertEqual(out, [[0x52, 0, 8, q >> 7, q & 0x7F], [0x6B, 1, 8]], "the last value, then show it on layer 1's rule")
         self.assertNotIn("0x6B", source("tools", "web", "sound-plan.js"), "a preset plan leaves the display alone")
+
+    def test_a_drag_goes_out_as_it_moves_and_ends_on_its_value(self):
+        """A pointer drag calls setParam once a frame (about 16 ms): a throttle sends every 25 ms meanwhile, a debounce
+        would wait for the drag to rest, and the synth's display (6B) would jump at the end."""
+        page = source("tools", "web", "index.html")
+        out = run_node(FAKE_CLOCK + NODE_DRIVER % ("""
+        let params = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], sent = [];
+        const offline = () => false, touch = () => {}, NAMES = [], format = () => "", label = i => `#${i}`;
+        const paramLayer = i => 0, send = m => { if (m[0] === 0x52) sent.push({ at: clock.now, q: m[3] << 7 | m[4] }); };
+        """ + js_block(page, "const editedAt") + js_block(page, "function setParam(") + """
+        for (let f = 0; f <= 30; f++) { setParam(8, f / 30); await advance(16); }
+        const during = sent.length;
+        await advance(100);
+        report({ during, sent });
+        """))
+        self.assertGreaterEqual(out["during"], 15, "about every 25 ms of a 500 ms drag")
+        self.assertEqual(out["sent"][-1]["q"], 16383, "the last value goes out")
+        gaps = [b["at"] - a["at"] for a, b in zip(out["sent"], out["sent"][1:])]
+        self.assertGreaterEqual(min(gaps), 25, "never faster than the throttle")
 
     def test_the_init_buttons(self):
         page = source("tools", "web", "index.html")
@@ -8251,7 +8491,7 @@ class WebSmallThings(unittest.TestCase):
         const offered = d => [...viaOptions(d).matchAll(/value="(\\d+)"/g)].map(m => +m[1]);
         report({ macro1: offered(44), macro2: offered(45), chaos: offered(46), cutoff: offered(3) });
         """)
-        every = [0] + [1000 + s for s in range(1, 29) if s != 25]
+        every = [0] + [1000 + s for s in range(1, len(pro800.SOURCE_NAMES)) if s != 25]
         self.assertEqual(menu["cutoff"], every)
         self.assertEqual(menu["chaos"], every, "a macro may drive Arp Chaos's Via")
         for dest in ("macro1", "macro2"):

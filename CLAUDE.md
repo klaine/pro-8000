@@ -45,7 +45,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     `tune`, `tuning` (print the tables), `check` (cents error of every oscillator and, from 0.8.4, every filter through the tables),
     `dac-test` (sweeps the DAC80501 bus and the S&H waits, 0.7.4+; RAM-only probe, silent), `dac-heal` (sets the
     DAC80501's gain wrong and checks the firmware's setup re-send puts it right, 0.8.5+; silent). `engine` (held keys, voice gates and envelope
-    stages, keytrack and switch overrides, from 0.9.3 the LFOs' phases; read-only).
+    stages, keytrack and switch overrides, from 0.9.3 the LFOs' phases, from 0.10.0 each voice's key, note and release
+    velocity; read-only).
 - `tools/pro800.py` is the same tool for Windows, with the same commands: nothing to build, `python tools/pro800.py help`
   (Python 3.8+, WinMM through ctypes). Read `python tools/pro800.py` for `build/pro800` in these notes. Left out: `record`
   and `play --record`. On macOS and Linux it needs `pip install python-rtmidi`; on macOS the Swift tool stays the tested one.

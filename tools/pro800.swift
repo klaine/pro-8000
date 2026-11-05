@@ -7,6 +7,7 @@
 //   pro800 backup <dir> [first] [last]    dump system settings and patches as .syx (stock firmware only)
 //   pro800 play <note> [options]          play a note, optionally recording and measuring it
 //       --channel N (1-16 or "all"; default the synth's MIDI channel, else 6)  --hold S (default 2)  --velocity V (default 100)
+//       --release V (the key-up's velocity, default 64; 0.10.0)
 //       --record [audio device]  (default "Ableton Move Audio")  --wav <file>
 //   pro800 record [seconds] [--window S] [--device D] [--wav file]
 //                                         record the synth's audio, print level and pitch per window
@@ -34,6 +35,7 @@ Read-only:
   pro800 backup <dir> [first] [last]    dump system settings and patches as .syx (stock firmware only)
   pro800 play <note> [options]          play a note, optionally recording and measuring it
       --channel N (1-16 or "all"; default the synth's MIDI channel, else 6)  --hold S (default 2)  --velocity V (default 100)
+      --release V (the key-up's velocity, default 64; 0.10.0)
       --record [audio device]  (default "Ableton Move Audio")  --wav <file>
   pro800 record [seconds] [--window S] [--device D] [--wav file]
                                         record the synth's audio, print level and pitch per window
@@ -498,11 +500,12 @@ final class Recorder {
 
 func play() {
     guard let noteArg = args.first, let note = UInt8(noteArg), note < 128 else {
-        fail("usage: pro800 play <note 0-127> [--channel N|all] [--hold S] [--velocity V] [--record [device]] [--wav file]")
+        fail("usage: pro800 play <note 0-127> [--channel N|all] [--hold S] [--velocity V] [--release V] [--record [device]] [--wav file]")
     }
     let channelArg = option("--channel") ?? "\(synthChannel() ?? 6)"
     let hold = Double(option("--hold") ?? "2") ?? 2
     let velocity = UInt8(option("--velocity") ?? "100") ?? 100
+    let release = min(UInt8(option("--release") ?? "64") ?? 64, 127) // the note-off's velocity (release velocity, 0.10.0)
     let record = option("--record")
     let wav = option("--wav")
     let channels: [UInt8]
@@ -521,7 +524,7 @@ func play() {
 
     for c in channels { midi.send([0x90 | c, note, velocity]) }
     Thread.sleep(forTimeInterval: hold)
-    for c in channels { midi.send([0x80 | c, note, 0]) }
+    for c in channels { midi.send([0x80 | c, note, release]) }
 
     guard let recorder else { return }
     Thread.sleep(forTimeInterval: 0.5)
@@ -1651,7 +1654,7 @@ func patches() {
 
 let sourceNames = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
                    "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre",
-                   "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2", "arp-note"]
+                   "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2", "arp-note", "release-velocity"]
 let destNames = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
                  "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
                  "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
@@ -1828,6 +1831,10 @@ func engine() {
         let at = 53 + 10 * l, phase = { (p: Int) in p >= 100 ? "stopped" : "\(p)%" }
         print("LFO \(l / 2 + 1) layer \(l % 2 + 1): shared \(phase(b[at])), cycles done \(b[at + 1]); voices "
               + b[(at + 2)..<(at + 10)].map { phase($0) }.joined(separator: " "))
+    }
+    guard b.count >= 117 else { return } // per voice its key, note and last release velocity: 0.10.0
+    for v in 0..<8 {
+        print("voice \(v + 1): key \(b[93 + 3 * v]), note \(b[94 + 3 * v]), release velocity \(b[95 + 3 * v])")
     }
 }
 

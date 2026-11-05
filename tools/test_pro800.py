@@ -1136,7 +1136,10 @@ class Writes(unittest.TestCase):
         self.assertEqual(synth.sent, [bytes([0xE0, 0x7F, 0x7F])])
         synth = FakeSynth()
         run(synth, "play", "60", "--channel", "2", "--hold", "0", "--velocity", "99")
-        self.assertEqual(synth.sent, [bytes([0x91, 60, 99]), bytes([0x81, 60, 0])])
+        self.assertEqual(synth.sent, [bytes([0x91, 60, 99]), bytes([0x81, 60, 64])], "note-off at 64: MIDI's default release")
+        synth = FakeSynth()
+        run(synth, "play", "60", "--channel", "2", "--hold", "0", "--release", "90")
+        self.assertEqual(synth.sent, [bytes([0x91, 60, 100]), bytes([0x81, 60, 90])])
         synth = FakeSynth()
         run(synth, "play", "60", "--channel", "all", "--hold", "0")
         self.assertEqual(len(synth.sent), 32)
@@ -1145,11 +1148,11 @@ class Writes(unittest.TestCase):
         synth = FakeSynth()
         synth.settings[77] = 5
         run(synth, "play", "60", "--hold", "0")
-        self.assertEqual(synth.sent[1:], [bytes([0x94, 60, 100]), bytes([0x84, 60, 0])])
+        self.assertEqual(synth.sent[1:], [bytes([0x94, 60, 100]), bytes([0x84, 60, 64])])
         synth = FakeSynth()
         synth.silent = True  # stock: no 54, so the stock firmware's channel 6
         run(synth, "play", "60", "--hold", "0")
-        self.assertEqual(synth.sent[1:], [bytes([0x95, 60, 100]), bytes([0x85, 60, 0])])
+        self.assertEqual(synth.sent[1:], [bytes([0x95, 60, 100]), bytes([0x85, 60, 64])])
         synth = FakeSynth()
         run(synth, "cc", "1", "2")  # every channel: channel 1
         self.assertEqual(synth.sent[-1], bytes([0xB0, 1, 2]))
@@ -1790,7 +1793,7 @@ class ModIds(unittest.TestCase):
 
     def test_the_enums_end_where_the_ids_say(self):
         sources, dests = self.enum("SRC"), self.enum("DEST")
-        self.assertEqual((sources[0], sources[-1], len(sources)), ("SRC_NONE", "SRC_ARP_NOTE", 29))
+        self.assertEqual((sources[0], sources[-1], len(sources)), ("SRC_NONE", "SRC_RELEASE_VELOCITY", 30))
         self.assertEqual((dests[0], dests[-1], len(dests)), ("DEST_PITCH_A", "DEST_ARP_CHAOS", 47))
 
     def c_strings(self, name):
