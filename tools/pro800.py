@@ -11,6 +11,7 @@
 # processes, so that each finds the ports afresh while the synth re-enumerates.
 import atexit
 import datetime
+import json
 import math
 import os
 import re
@@ -80,7 +81,9 @@ Probe (our firmware 0.0.9+):
   pro800 chord capture [1|2|both] --yes take the keys held now as the chord, as Unison pressed over them does
   pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N]
                                         set a parameter by NRPN (0.10.0): a knob 0-16383, a macro offset -99..99,
-                                        the others their number or name; pro800 nrpn list prints every id
+                                        the others their number or name; pro800 nrpn list [--csv] prints every id
+  pro800 cc-map [set <cc> <param|none> [--layer edit|1|2|both] [--fine] | reset --yes | export <file> | import <file> --yes]
+                                        the CC map (0.10.0): which controller sets which parameter; a file replaces it
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
                                         replies on stdout as hex; over one MIDI connection
@@ -2470,9 +2473,13 @@ PARAMS = [
 # pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N]: a parameter by NRPN (0.10.0): CC 99 the layer
 # rule, 98 the id, then 6 (and 38 for a knob's or a macro offset's 14 bits); pro800 nrpn list prints the table
 def nrpn():
-    if args == ["list"]:
+    if args and args[0] == "list":
+        csv = flag("--csv")  # for a controller editor's template: one line a parameter
+        if csv:
+            show("id,name,kind,scope,min,max,values")
         for pid, name, kind, scope, lo, hi, values in PARAMS:
-            show(f"{pid:3d}  {name:24s} {kind:6s} {scope:6s} {lo}..{hi}" + (f"  {' '.join(values)}" if values else ""))
+            show(f"{pid},{name},{kind},{scope},{lo},{hi},{' '.join(values)}" if csv
+                 else f"{pid:3d}  {name:24s} {kind:6s} {scope:6s} {lo}..{hi}" + (f"  {' '.join(values)}" if values else ""))
         return
     layer = option("--layer")  # "" when its value is missing: refused, as in the Swift tool
     rule = {"edit": 0, "1": 1, "2": 2, "both": 3}.get("edit" if layer is None else layer)
@@ -2496,6 +2503,122 @@ def nrpn():
     for m in messages:
         midi().send(m)
     show(f"{name} = {args[1]}" + ("" if scope in ("patch", "shared", "ui") else f" ({['the edit layer', 'layer 1', 'layer 2', 'both layers'][rule]})"))
+
+
+# The CC map (0.10.0): pro800 cc-map prints it (65, a quarter at a time); cc-map set <cc> <param|none> [--layer
+# edit|1|2|both] [--fine] maps one (43); cc-map reset --yes brings the default back (42); cc-map export <file> writes it
+# as JSON and cc-map import <file> --yes replaces the map with a file's (every CC it doesn't list is cleared). The file:
+# {"format": "pro8000-cc-map", "version": 1, "map": [{"cc": 74, "param": "cutoff", "layer": "edit", "fine": false}]}
+CC_RESERVED = {0, 1, 6, 32, 38, 64, 96, 97, 98, 99, 100, 101, *range(120, 128)}
+LAYER_RULES = ["edit", "1", "2", "both"]
+
+
+def read_cc_map():
+    ids, nibbles = [], []
+    for q in range(4):
+        reply = midi().request([0x65, q], expect=[0x65, q], timeout=2)
+        if reply is None:
+            fail("no reply: firmware before 0.10.0?")
+        b = reply_data(reply, 2, 64)
+        ids += list(b[0:64:2])
+        nibbles += list(b[1:64:2])
+    return ids, nibbles
+
+
+def cc_map_entries(ids, nibbles):
+    by_id = {p[0]: p for p in PARAMS}
+    return [{"cc": cc, "param": by_id[ids[cc]][1] if ids[cc] in by_id else str(ids[cc]), "layer": LAYER_RULES[nibbles[cc] & 3],
+             "fine": bool(nibbles[cc] & 4), "nrpn": ids[cc]} for cc in range(128) if ids[cc] != 127]
+
+
+def cc_map_from_file(j):
+    """A map file's slots as {cc: (id, nibble)}, and what's wrong with it (nothing taken if anything is)."""
+    by_name = {p[1]: p for p in PARAMS}
+    problems, slots = [], {}
+    if not isinstance(j, dict) or j.get("format") != "pro8000-cc-map" or j.get("version") != 1 or not isinstance(j.get("map"), list):
+        return {}, ['not a CC map file: {"format": "pro8000-cc-map", "version": 1, "map": [...]}']
+    for e in j["map"]:
+        cc, name, layer, fine = (e.get("cc"), e.get("param"), e.get("layer", "edit"), e.get("fine", False)) if isinstance(e, dict) else (None,) * 4
+        if isinstance(cc, float) and cc.is_integer():
+            cc = int(cc)  # 74.0 is 74, as JSON has one kind of number
+        p = by_name.get(name) if isinstance(name, str) else None
+        if not isinstance(cc, int) or isinstance(cc, bool) or not 0 <= cc <= 127:
+            problems.append(f"{e!r}: cc must be 0-127")
+        elif cc in CC_RESERVED:
+            problems.append(f"CC {cc} keeps its own meaning (0 1 6 32 38 64 96-101 120-127)")
+        elif cc in slots:
+            problems.append(f"CC {cc} is listed twice")
+        elif p is None:
+            problems.append(f"CC {cc}: no parameter {name!r} (pro800 nrpn list)")
+        elif layer not in LAYER_RULES:
+            problems.append(f"CC {cc}: layer must be edit, 1, 2 or both")
+        elif not isinstance(fine, bool) or (fine and p[2] not in ("knob", "signed")):
+            problems.append(f"CC {cc}: fine is true or false, and only for a knob or a macro offset")
+        else:
+            slots[cc] = (p[0], LAYER_RULES.index(layer) | (4 if fine else 0))
+    return slots, problems
+
+
+def cc_map_command():
+    yes, fine = flag("--yes"), flag("--fine")
+    layer = option("--layer")
+    words = list(args)
+    if not words or words == ["list"]:
+        entries = cc_map_entries(*read_cc_map())
+        for e in entries:
+            show(f"CC {e['cc']:3d}  {e['param']}" + (f" (layer {e['layer']})" if e["layer"] != "edit" else "") + (" fine" if e["fine"] else ""))
+        if not entries:
+            show("no CC is mapped")
+        return
+    if words[0] == "set":
+        cc = int_in(words[1], 0, 127) if len(words) == 3 else None
+        p = next((p for p in PARAMS if len(words) == 3 and words[2] in (p[1], str(p[0]))), None)
+        rule = LAYER_RULES.index("edit" if layer is None else layer) if ("edit" if layer is None else layer) in LAYER_RULES else None
+        none = len(words) == 3 and words[2] == "none"
+        if cc is None or (p is None and not none) or rule is None or (fine and (none or p[2] not in ("knob", "signed"))):
+            fail("usage: pro800 cc-map set <cc 0-127> <param|none> [--layer edit|1|2|both] [--fine (a knob or a macro offset)]")
+        if cc in CC_RESERVED:
+            fail(f"CC {cc} keeps its own meaning (0 1 6 32 38 64 96-101 120-127)")
+        if not acked([0x43, cc, 127 if none else p[0], 0 if none else rule | (4 if fine else 0)]):
+            fail("not set: firmware before 0.10.0?")
+        show(f"CC {cc}: " + ("none" if none else p[1] + (f" (layer {LAYER_RULES[rule]})" if rule else "") + (" fine" if fine else "")))
+        return
+    if words == ["reset"]:
+        if not yes:
+            fail("usage: pro800 cc-map reset --yes (the default map again; your own is gone)")
+        if not acked([0x42]):
+            fail("not reset: firmware before 0.10.0?")
+        show("the default CC map")
+        return
+    if len(words) == 2 and words[0] == "export":
+        entries = [{k: e[k] for k in ("cc", "param", "layer", "fine", "nrpn")} for e in cc_map_entries(*read_cc_map())]
+        with open(words[1], "w", encoding="utf-8") as f:
+            json.dump({"format": "pro8000-cc-map", "version": 1, "map": entries}, f, indent=1)
+            f.write("\n")
+        show(f"{len(entries)} CCs written to {words[1]}")
+        return
+    if len(words) == 2 and words[0] == "import":
+        try:
+            with open(words[1], encoding="utf-8-sig") as f:
+                j = json.load(f)
+        except (OSError, ValueError) as e:
+            fail(f"can't read {words[1]}: {e}")
+        slots, problems = cc_map_from_file(j)
+        if problems:
+            fail("refused, nothing changed:\n  " + "\n  ".join(problems))
+        if not yes:
+            fail(f"usage: pro800 cc-map import <file> --yes ({len(slots)} CCs; it replaces the whole map)")
+        ids, nibbles = read_cc_map()
+        sent = 0
+        for cc in range(128):
+            want = slots.get(cc, (127, 0))
+            if cc not in CC_RESERVED and (ids[cc], nibbles[cc] if ids[cc] != 127 else 0) != want:
+                if not acked([0x43, cc, *want]):
+                    fail(f"CC {cc} wasn't taken; the map is partly the file's (pro800 cc-map shows it)")
+                sent += 1
+        show(f"the map is the file's: {len(slots)} CCs ({sent} changed)")
+        return
+    fail("usage: pro800 cc-map [list | set <cc> <param|none> [--layer edit|1|2|both] [--fine] | reset --yes | export <file> | import <file> --yes]")
 
 
 # pro800 cc <controller> <value> [--channel N]
@@ -2810,7 +2933,7 @@ COMMANDS = {
     "direct": direct, "cv": cv, "gate": gate, "measure": measure, "tune": tune, "tuning": tuning, "check": check,
     "dac-test": dac_test, "sh-waits": sh_waits, "dac-heal": dac_heal, "panel": panel, "state": state, "set": set_setting,
     "settings": settings, "params": params, "param": param, "factory": factory, "seq": seq, "layer": layer_command,
-    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "route-move": route_move, "route-via": route_via, "chord": chord, "nrpn": nrpn, "timing": timing, "engine": engine,
+    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "route-move": route_move, "route-via": route_via, "chord": chord, "nrpn": nrpn, "cc-map": cc_map_command, "timing": timing, "engine": engine,
     "sysex": sysex_pipe, "cc": cc, "bend": bend, "eeprom-write": eeprom_write, "format": format_patches,
     "patch": patch_command, "patches": patches, "clock": clock_out, "leds": leds, "update-mode": update_mode,
     "flash": flash, "install": install, "port-present": port_present, "fault": fault, "fault-test": fault_test,

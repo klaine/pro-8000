@@ -5,6 +5,7 @@
 import contextlib
 import glob
 import io
+import json
 import itertools
 import os
 import re
@@ -60,6 +61,8 @@ class FakeSynth:
         self.undo = [1, *b"Pad"]
         self.init_theirs = 1  # 5F 1: Perf's sound, the user's init patch (0.10.0)
         self.chords = [[0] * 8, [0] * 8]  # 68 / 69 (0.10.0)
+        self.cc_ids, self.cc_nibbles = [127] * 128, [0] * 128  # 65 / 43 / 42 (0.10.0)
+        self.cc_ids[74] = 24
         self.captured = (3, 0)  # 6A's reply: the notes each layer took (127: left alone)
         self.has_via = True
         self.vias = [[0] * 16, [0] * 16]
@@ -206,6 +209,16 @@ class FakeSynth:
             self.ack(0x62)
         elif c == 0x68:
             self.reply(0x68, *self.chords[0], *self.chords[1])
+        elif c == 0x65:
+            q = d[1]
+            self.reply(0x65, q, *[b for cc in range(32 * q, 32 * q + 32) for b in (self.cc_ids[cc], self.cc_nibbles[cc])])
+        elif c == 0x43 and len(d) == 4:
+            self.cc_ids[d[1]], self.cc_nibbles[d[1]] = d[2], d[3]
+            self.ack(0x43)
+        elif c == 0x42:
+            self.cc_ids, self.cc_nibbles = [127] * 128, [0] * 128
+            self.cc_ids[74] = 24
+            self.ack(0x42)
         elif c == 0x69 and len(d) == 10:
             self.chords[d[1]] = list(d[2:10])
             self.ack(0x69)
@@ -1140,6 +1153,64 @@ class Writes(unittest.TestCase):
                 self.assertEqual(synth.sent, [])
         out, code = run(FakeSynth(), "nrpn", "list")
         self.assertIn(" 52  layers", out)
+
+    def test_cc_map(self):
+        ids = {p[1]: p[0] for p in pro800.PARAMS}
+        synth = FakeSynth()
+        out, code = run(synth, "cc-map")
+        self.assertEqual(code, 0, out)
+        self.assertIn("CC  74  cutoff", out)
+        for argv, sent in ((("cc-map", "set", "20", "shape 2", "--layer", "1"), [0x43, 20, 84, 1]),
+                           (("cc-map", "set", "87", "cutoff", "--fine"), [0x43, 87, 24, 4]),
+                           (("cc-map", "set", "74", "none"), [0x43, 74, 127, 0]),
+                           (("cc-map", "reset", "--yes"), [0x42])):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertEqual((code, synth.sent), (0, [request_bytes(*sent)]), out)
+        for argv in (("cc-map", "set", "1", "cutoff"), ("cc-map", "set", "20", "nope"), ("cc-map", "set", "20", "layers", "--fine"),
+                     ("cc-map", "set", "20", "cutoff", "--layer"), ("cc-map", "reset"), ("cc-map", "nonsense")):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(synth.sent, [])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "map.json")
+            synth = FakeSynth()
+            synth.cc_ids[20], synth.cc_nibbles[20] = 84, 1
+            run(synth, "cc-map", "export", path)
+            with open(path, encoding="utf-8") as f:
+                j = json.load(f)
+            self.assertEqual([e["cc"] for e in j["map"]], [20, 74])
+            synth = FakeSynth()
+            out, code = run(synth, "cc-map", "import", path, "--yes")
+            self.assertEqual(code, 0, out)
+            self.assertEqual((synth.cc_ids[20], synth.cc_nibbles[20], synth.cc_ids[74]), (84, 1, 24))
+            synth = FakeSynth()
+            out, code = run(synth, "cc-map", "import", os.path.join(HERE, "web", "stock-cc-map.json"), "--yes")
+            self.assertEqual(code, 0, out)
+            self.assertEqual((synth.cc_ids[8], synth.cc_ids[74], synth.cc_ids[71]), (10, ids["button lfo-freq"], 127),
+                             "the stock map replaces ours whole: CC 74 is LFO 1 to pitch there, 71 nothing")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"format": "pro8000-cc-map", "version": 1, "map": [{"cc": 1, "param": "cutoff"}]}, f)
+            synth = FakeSynth()
+            out, code = run(synth, "cc-map", "import", path, "--yes")
+            self.assertNotEqual(code, 0)
+            self.assertIn("keeps its own meaning", out)
+            self.assertFalse([m for m in synth.sent if m[pro800.HEADER_SIZE] == 0x43], "nothing changed")
+            for entry, ok in (({"cc": 74.0, "param": "cutoff"}, True), ({"cc": 74, "param": ["cutoff"]}, False),
+                              ({"cc": 74, "param": "cutoff", "fine": 1}, False)):
+                with self.subTest(entry=entry):
+                    with open(path, "w", encoding="utf-8-sig") as f:  # a BOM, as some editors write
+                        json.dump({"format": "pro8000-cc-map", "version": 1, "map": [entry]}, f)
+                    synth = FakeSynth()
+                    out, code = run(synth, "cc-map", "import", path, "--yes")
+                    self.assertEqual(code == 0, ok, out)
+                    self.assertNotIn("Traceback", out)
+        out, _ = run(FakeSynth(), "nrpn", "list", "--csv")
+        self.assertTrue(out.startswith("id,name,kind,scope,min,max,values"))
+        self.assertIn("52,layers,raw,patch,0,5,off split stack channel 8ch mpe", out)
 
     def test_the_parameter_list(self):
         """tools/params.json: the generated files are fresh, and its names are the tools' and the presets' names."""

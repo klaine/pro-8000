@@ -88,7 +88,9 @@ Probe (our firmware 0.0.9+):
   pro800 chord capture [1|2|both] --yes take the keys held now as the chord, as Unison pressed over them does
   pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N]
                                         set a parameter by NRPN (0.10.0): a knob 0-16383, a macro offset -99..99,
-                                        the others their number or name; pro800 nrpn list prints every id
+                                        the others their number or name; pro800 nrpn list [--csv] prints every id
+  pro800 cc-map [set <cc> <param|none> [--layer edit|1|2|both] [--fine] | reset --yes | export <file> | import <file> --yes]
+                                        the CC map (0.10.0): which controller sets which parameter; a file replaces it
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
                                         replies on stdout as hex; over one MIDI connection
@@ -2140,8 +2142,13 @@ let paramTable: [(id: Int, name: String, kind: String, scope: String, min: Int, 
 // pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N]: a parameter by NRPN (0.10.0): CC 99 the layer
 // rule, 98 the id, then 6 (and 38 for a knob's or a macro offset's 14 bits); pro800 nrpn list prints the table
 func nrpn() {
-    if args == ["list"] {
-        for p in paramTable {
+    if args.first == "list" {
+        let csv = flag("--csv") // for a controller editor's template: one line a parameter
+        if csv { print("id,name,kind,scope,min,max,values") }
+        for p in paramTable where csv {
+            print("\(p.id),\(p.name),\(p.kind),\(p.scope),\(p.min),\(p.max),\(p.values.joined(separator: " "))")
+        }
+        for p in paramTable where !csv {
             let pad = { (s: String, n: Int) in s + String(repeating: " ", count: max(0, n - s.count)) }
             let id = String(repeating: " ", count: 3 - String(p.id).count) + String(p.id)
             print("\(id)  \(pad(p.name, 24)) \(pad(p.kind, 6)) \(pad(p.scope, 6)) \(p.min)..\(p.max)"
@@ -2173,6 +2180,144 @@ func nrpn() {
     pump(0.05)
     let layers = ["the edit layer", "layer 1", "layer 2", "both layers"]
     print("\(p.name) = \(args[1])" + (["patch", "shared", "ui"].contains(p.scope) ? "" : " (\(layers[r]))"))
+}
+
+// The CC map (0.10.0), as pro800.py's cc_map_command: cc-map lists it (65), set maps one CC (43), reset --yes the
+// default (42), export / import --yes a JSON file ({"format": "pro8000-cc-map", "version": 1, "map": [{"cc": 74,
+// "param": "cutoff", "layer": "edit", "fine": false}]}; import replaces the whole map)
+let ccReserved: Set<Int> = Set([0, 1, 6, 32, 38, 64, 96, 97, 98, 99, 100, 101]).union(Set(120...127))
+let layerRules = ["edit", "1", "2", "both"]
+
+func readCcMap(_ midi: Midi) -> (ids: [Int], nibbles: [Int]) {
+    var ids: [Int] = [], nibbles: [Int] = []
+    for q in 0..<4 {
+        guard let reply = midi.request([0x65, UInt8(q)], expect: [0x65, UInt8(q)], timeout: 2) else {
+            fail("no reply: firmware before 0.10.0?")
+        }
+        let b = replyData(reply, 2, 64).map(Int.init)
+        for i in 0..<32 {
+            ids.append(b[2 * i])
+            nibbles.append(b[2 * i + 1])
+        }
+    }
+    return (ids, nibbles)
+}
+
+func ccMapEntries(_ ids: [Int], _ nibbles: [Int]) -> [[String: Any]] {
+    var out: [[String: Any]] = []
+    for cc in 0..<128 where ids[cc] != 127 {
+        let name = paramTable.first(where: { $0.id == ids[cc] })?.name ?? String(ids[cc])
+        out.append(["cc": cc, "param": name, "layer": layerRules[nibbles[cc] & 3], "fine": nibbles[cc] & 4 != 0, "nrpn": ids[cc]])
+    }
+    return out
+}
+
+// A map file's slots (cc: (id, nibble)) and what's wrong with it: nothing is taken if anything is
+func ccMapFromFile(_ j: Any) -> (slots: [Int: (Int, Int)], problems: [String]) {
+    guard let d = j as? [String: Any], d["format"] as? String == "pro8000-cc-map", d["version"] as? Int == 1,
+          let map = d["map"] as? [Any] else {
+        return ([:], ["not a CC map file: {\"format\": \"pro8000-cc-map\", \"version\": 1, \"map\": [...]}"])
+    }
+    var slots: [Int: (Int, Int)] = [:], problems: [String] = []
+    for item in map {
+        let e = item as? [String: Any] ?? [:]
+        // a layer that isn't text, a fine that isn't true or false: refused, as pro800.py and the page refuse them
+        let isBool = { (x: Any?) in x.map { CFGetTypeID($0 as CFTypeRef) == CFBooleanGetTypeID() } ?? true }
+        guard e["layer"] == nil || e["layer"] is String, isBool(e["fine"]) else {
+            problems.append("\(item): layer is edit, 1, 2 or both, and fine true or false")
+            continue
+        }
+        let layer = e["layer"] as? String ?? "edit", fine = e["fine"] as? Bool ?? false
+        guard let cc = e["cc"] as? Int, (0...127).contains(cc) else { problems.append("\(item): cc must be 0-127"); continue }
+        let p = paramTable.first(where: { $0.name == (e["param"] as? String ?? "") })
+        if ccReserved.contains(cc) {
+            problems.append("CC \(cc) keeps its own meaning (0 1 6 32 38 64 96-101 120-127)")
+        } else if slots[cc] != nil {
+            problems.append("CC \(cc) is listed twice")
+        } else if p == nil {
+            problems.append("CC \(cc): no parameter \(e["param"] ?? "") (pro800 nrpn list)")
+        } else if !layerRules.contains(layer) {
+            problems.append("CC \(cc): layer must be edit, 1, 2 or both")
+        } else if fine && p!.kind != "knob" && p!.kind != "signed" {
+            problems.append("CC \(cc): fine is true or false, and only for a knob or a macro offset")
+        } else {
+            slots[cc] = (p!.id, layerRules.firstIndex(of: layer)! | (fine ? 4 : 0))
+        }
+    }
+    return (slots, problems)
+}
+
+func ccMapCommand() {
+    let yes = flag("--yes"), fine = flag("--fine"), layer = option("--layer") ?? "edit"
+    let words = args // each branch opens the port once its arguments (and a file) have passed their checks
+    if words.isEmpty || words == ["list"] {
+        let midi = Midi(port: portName)
+        let map = readCcMap(midi)
+        let entries = ccMapEntries(map.ids, map.nibbles)
+        for e in entries {
+            let cc = e["cc"] as! Int, l = e["layer"] as! String
+            print("CC " + String(repeating: " ", count: 3 - String(cc).count) + "\(cc)  \(e["param"]!)"
+                  + (l != "edit" ? " (layer \(l))" : "") + ((e["fine"] as! Bool) ? " fine" : ""))
+        }
+        if entries.isEmpty { print("no CC is mapped") }
+        return
+    }
+    if words.first == "set" {
+        let none = words.count == 3 && words[2] == "none"
+        let p = words.count == 3 ? paramTable.first(where: { words[2] == $0.name || words[2] == String($0.id) }) : nil
+        guard words.count == 3, let cc = Int(words[1]), (0...127).contains(cc), p != nil || none,
+              let rule = layerRules.firstIndex(of: layer), !(fine && (none || (p!.kind != "knob" && p!.kind != "signed"))) else {
+            fail("usage: pro800 cc-map set <cc 0-127> <param|none> [--layer edit|1|2|both] [--fine (a knob or a macro offset)]")
+        }
+        if ccReserved.contains(cc) { fail("CC \(cc) keeps its own meaning (0 1 6 32 38 64 96-101 120-127)") }
+        let id = none ? 127 : p!.id, nibble = none ? 0 : rule | (fine ? 4 : 0)
+        let midi = Midi(port: portName)
+        guard acked(midi, [0x43, UInt8(cc), UInt8(id), UInt8(nibble)]) else { fail("not set: firmware before 0.10.0?") }
+        print("CC \(cc): " + (none ? "none" : p!.name + (rule != 0 ? " (layer \(layer))" : "") + (fine ? " fine" : "")))
+        return
+    }
+    if words == ["reset"] {
+        guard yes else { fail("usage: pro800 cc-map reset --yes (the default map again; your own is gone)") }
+        let midi = Midi(port: portName)
+        guard acked(midi, [0x42]) else { fail("not reset: firmware before 0.10.0?") }
+        print("the default CC map")
+        return
+    }
+    if words.count == 2 && words[0] == "export" {
+        let midi = Midi(port: portName)
+        let map = readCcMap(midi)
+        let entries = ccMapEntries(map.ids, map.nibbles)
+        let doc: [String: Any] = ["format": "pro8000-cc-map", "version": 1, "map": entries]
+        guard let data = try? JSONSerialization.data(withJSONObject: doc, options: [.prettyPrinted, .sortedKeys]),
+              FileManager.default.createFile(atPath: words[1], contents: data + Data("\n".utf8)) else {
+            fail("can't write \(words[1])")
+        }
+        print("\(entries.count) CCs written to \(words[1])")
+        return
+    }
+    if words.count == 2 && words[0] == "import" {
+        guard let data = FileManager.default.contents(atPath: words[1]), let j = try? JSONSerialization.jsonObject(with: data) else {
+            fail("can't read \(words[1])")
+        }
+        let (slots, problems) = ccMapFromFile(j)
+        if !problems.isEmpty { fail("refused, nothing changed:\n  " + problems.joined(separator: "\n  ")) }
+        guard yes else { fail("usage: pro800 cc-map import <file> --yes (\(slots.count) CCs; it replaces the whole map)") }
+        let midi = Midi(port: portName)
+        let now = readCcMap(midi)
+        var sent = 0
+        for cc in 0..<128 where !ccReserved.contains(cc) {
+            let want = slots[cc] ?? (127, 0), have = (now.ids[cc], now.ids[cc] != 127 ? now.nibbles[cc] : 0)
+            if have != want {
+                guard acked(midi, [0x43, UInt8(cc), UInt8(want.0), UInt8(want.1)]) else {
+                    fail("CC \(cc) wasn't taken; the map is partly the file's (pro800 cc-map shows it)")
+                }
+                sent += 1
+            }
+        }
+        print("the map is the file's: \(slots.count) CCs (\(sent) changed)")
+        return
+    }
+    fail("usage: pro800 cc-map [list | set <cc> <param|none> [--layer edit|1|2|both] [--fine] | reset --yes | export <file> | import <file> --yes]")
 }
 
 // pro800 bend <0-16383> [--channel N]: pitch bend (8192 = centre)
@@ -2467,6 +2612,7 @@ case "route-move": routeMove()
 case "route-via": routeVia()
 case "chord": chord()
 case "nrpn": nrpn()
+case "cc-map": ccMapCommand()
 case "timing": timing()
 case "engine": engine()
 case "sysex": sysexPipe()

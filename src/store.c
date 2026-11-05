@@ -137,6 +137,15 @@ static int is_stock(const uint8_t *b) { return b[0] == 0xA5 && b[1] == 0x16 && b
 static int global_dirty, global_changed, global_failures;
 static uint32_t global_changed_at;
 
+// The CC map's block (store.h), in the global page after the block: written on its own, after the same rest
+#define MAP_ADDRESS 0x1F420u
+#define MAP_MAGIC 0x50384D31u // "P8M1"
+#define MAP_SIZE (4 + 128 + 64 + 4)
+_Static_assert(MAP_ADDRESS + MAP_SIZE <= STORE_TUNING_ADDRESS && MAP_ADDRESS >= 0x1F400u + 32, "the CC map's block");
+static uint8_t map_ids[128], map_nibbles[128];
+static int map_stored, map_dirty, map_changed, map_failures;
+static uint32_t map_changed_at;
+
 static void global_mark(void)
 {
     global_dirty = global_changed = 1;
@@ -180,8 +189,75 @@ static int write_global(void)
     return 1;
 }
 
+static int write_map(void)
+{
+    uint8_t b[MAP_SIZE] = {0};
+    if (map_stored) {
+        put32(b, MAP_MAGIC);
+        for (int i = 0; i < 128; i++) {
+            b[4 + i] = map_ids[i];
+            b[4 + 128 + i / 2] |= (uint8_t)((map_nibbles[i] & 15) << 4 * (i & 1));
+        }
+        put32(b + MAP_SIZE - 4, checksum(b, MAP_SIZE - 4));
+    } // else all 0: no map (the magic's gone)
+    if (!eeprom_write(MAP_ADDRESS, b, sizeof b)) {
+        map_failures++;
+        return 0;
+    }
+    map_dirty = 0;
+    map_failures = 0;
+    return 1;
+}
+
+static void map_mark(void)
+{
+    map_dirty = map_changed = 1;
+    map_failures = 0;
+}
+
+void store_set_cc_map(const uint8_t *ids, const uint8_t *nibbles)
+{
+    for (int i = 0; i < 128; i++) {
+        map_ids[i] = ids[i];
+        map_nibbles[i] = nibbles[i] & 15;
+    }
+    map_stored = 1;
+    map_mark();
+}
+
+void store_clear_cc_map(void)
+{
+    map_stored = 0;
+    map_mark();
+}
+
+int store_cc_map(uint8_t *ids, uint8_t *nibbles)
+{
+    if (!map_stored)
+        return 0;
+    for (int i = 0; i < 128; i++) {
+        ids[i] = map_ids[i];
+        nibbles[i] = map_nibbles[i];
+    }
+    return 1;
+}
+
+static void map_poll(uint32_t now)
+{
+    if (!map_dirty || map_failures >= GLOBAL_TRIES)
+        return;
+    if (map_changed) {
+        map_changed = 0;
+        map_changed_at = now;
+    } else if (now - map_changed_at >= GLOBAL_REST_MS) {
+        map_changed_at = now;
+        write_map();
+    }
+}
+
 void store_poll(uint32_t now)
 {
+    map_poll(now);
     if (!global_dirty || global_failures >= GLOBAL_TRIES)
         return;
     if (global_changed) { // the setters don't know the time
@@ -197,6 +273,8 @@ void store_flush(void)
 {
     if (global_dirty && global_failures < GLOBAL_TRIES)
         write_global();
+    if (map_dirty && map_failures < GLOBAL_TRIES)
+        write_map();
 }
 
 // Wipes the patch area (every record all zero: empty) and writes the global block for this format
@@ -236,6 +314,13 @@ void store_init(void)
         global.last_patch = 0;
     if (global.valid && global.format != FORMAT) // our older layout: the patches can't be read, so start clean
         formatted = format_patches();
+    uint8_t m[MAP_SIZE]; // the CC map: a stored one only under its magic and checksum (stock's leftovers aren't)
+    eeprom_read(MAP_ADDRESS, m, sizeof m);
+    map_stored = get32(m) == MAP_MAGIC && get32(m + MAP_SIZE - 4) == checksum(m, MAP_SIZE - 4);
+    for (int i = 0; i < 128 && map_stored; i++) {
+        map_ids[i] = m[4 + i] & 0x7F;
+        map_nibbles[i] = m[4 + 128 + i / 2] >> 4 * (i & 1) & 15;
+    }
 }
 
 int store_ready(void) { return global.valid; }

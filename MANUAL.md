@@ -125,7 +125,8 @@ web page's MIDI router).
   ignored, so the sound you're storing stays.
 - **Controllers** set knobs on the layer the channel plays (layer 2 for channel 2 in channel mode), else the layer
   you're editing (from 0.10.0 a knob layer 2 takes from layer 1, as linked, sets layer 1's, as its knob does); the
-  knob then picks up as after loading a patch:
+  knob then picks up as after loading a patch. This is the default **CC map**; from 0.10.0 you can make your own
+  (below):
 
 | CC | Knob | CC | Knob | CC | Knob |
 |---|---|---|---|---|---|
@@ -151,6 +152,19 @@ if CC A or B is set to one of them. The display shows a knob's value as the knob
 a second, then their value (on / OFF for a button). The numbers are fixed from 0.10.0 on; `pro800 nrpn list` prints
 them, and `pro800 nrpn cutoff 8000 --layer 2` sends one. System-wide settings (MIDI channel, clock, CC A / B, pickup,
 the init patch) aren't reachable: they'd cut the controller off or write the memory on every message.
+
+**Your own CC map** (0.10.0): any CC can set any parameter in the table below, on the edit layer (in channel mode the
+channel's), layer 1, layer 2 or both: the web page's System tab (Controllers), `pro800 cc-map set 20 "shape 2" --layer
+1`, or a file. A knob takes the CC as a share of its travel, a macro offset centred at 64, a button is on from 64, and
+a setting with a list of values spreads them over the CC's range (layer mode: 0-21 off, 22-42 split...). A CC marked
+fine sets the low 7 of the parameter's 14 bits and keeps the rest as they are (a knob or a macro offset), as stock's
+80 + i: after the coarse CC it's that CC's fine part, and alone it nudges the value. CC 0 1 6 32 38 64 96-101 120-127 keep their meaning and can't be mapped; CC A and B take their CCs first. The
+map is system-wide (a format leaves it), stored a second after a change; `pro800 cc-map reset --yes` or the page's
+Default map brings the table above back. A map travels as JSON: Export and Import on the page, `pro800 cc-map export
+<file>` and `import <file> --yes` (an import replaces the whole map; a file with any mistake is refused whole). The
+page's **Stock map** loads the stock PRO-800's numbers (a parameter on CC 8 + i, its fine part on 80 + i, the buttons
+from 48), for controller templates made for it; set CC A off 11 to have its Freq B there. Parameter list (or
+`pro800 nrpn list --csv`) gives every NRPN number for a controller editor.
 
 <!-- BEGIN PARAMS (tools/gen_params.py) -->
 

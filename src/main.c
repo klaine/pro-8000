@@ -107,6 +107,12 @@
 //   58                     timing; replies 58 <engine, refresh, pass, longest pass, panel poll, display, passes/s, ticks: µs,
 //                          passes in the last second: 3 × 7 bits each>
 //   57 <layer>             the layer's routes; replies 57 <layer> then per route <source> <dest> <d1> <d0>
+//   65 <quarter 0-3>       the CC map (0.10.0): replies 65 <quarter> then for its 32 CCs <parameter id> <nibble>
+//                          (id 127 none; the nibble's bits 0-1 the layer rule as an NRPN's MSB, bit 2 fine)
+//   43 <cc> <id> <nibble>  map a CC to a parameter (id 127: none), stored after a second's rest; acknowledged 7F 43;
+//                          refused for CC 0 1 6 32 38 64 96-101 120-127, an unknown id, and fine but on a knob or a
+//                          macro offset
+//   42                     the default CC map again; acknowledged 7F 42
 //   68                     chord memory (0.10.0); replies 68 then per layer 8 bytes: up to 7 intervals above the key
 //                          (ascending, 0 ends them), then flags (0)
 //   69 <layer> <8 bytes>   set a layer's chord (as 68 gives it; kept as far as it's valid); acknowledged 7F 69
@@ -1751,6 +1757,9 @@ static float cc_shown_value; // a knob's
 static uint32_t cc_shown_at, cc_named_at;
 static int param_known(int id);
 static const char *param_code(int id);
+static uint8_t cc_ids[128], cc_nibbles[128]; // the CC map (below)
+static void cc_map_default(void);
+static int cc_reserved(int cc);
 static void param_text(int id, int layer, char *text);
 
 static void cc_show(uint32_t now)
@@ -2824,6 +2833,29 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = data[0];
         }
     }
+    if (data_length == 2 && data[0] == 0x65 && data[1] < 4) { // a quarter of the CC map (0.10.0)
+        reply[n++] = 0x65;
+        reply[n++] = data[1];
+        for (int i = 32 * data[1]; i < 32 * data[1] + 32; i++) {
+            reply[n++] = cc_ids[i];
+            reply[n++] = cc_nibbles[i];
+        }
+    }
+    if (data_length == 4 && data[0] == 0x43 && !cc_reserved(data[1]) && (data[2] == CC_MAP_NONE || param_known(data[2]))
+        && data[3] < 8 && (!(data[3] & CC_MAP_FINE) || (data[2] != CC_MAP_NONE && (param_defs[data[2]].kind == PARAM_KIND_KNOB
+                                                                                 || param_defs[data[2]].kind == PARAM_KIND_SIGNED)))) {
+        cc_ids[data[1]] = data[2];
+        cc_nibbles[data[1]] = data[2] == CC_MAP_NONE ? 0 : data[3];
+        store_set_cc_map(cc_ids, cc_nibbles); // the whole map, after the second's rest
+        reply[n++] = 0x7F;
+        reply[n++] = 0x43;
+    }
+    if (data_length == 1 && data[0] == 0x42) { // the default map again
+        cc_map_default();
+        store_clear_cc_map();
+        reply[n++] = 0x7F;
+        reply[n++] = 0x42;
+    }
     if (data_length == 1 && data[0] == 0x68) { // chord memory (0.10.0)
         reply[n++] = 0x68;
         for (int l = 0; l < 2; l++, n += CHORD_BYTES)
@@ -3101,17 +3133,18 @@ static struct {
     uint8_t rule, id, msb, on;
 } nrpn[16];
 
-static void nrpn_data(int channel, int how, uint8_t value) // how: 0 CC 6, 1 CC 38, 2 CC 96, 3 CC 97
+// How a value from MIDI reaches a parameter: NRPN's data entry (CC 6, the number itself for a parameter that isn't a
+// knob), its fine part (CC 38, the low 7 of 14 bits under CC 6), a step up or down (CC 96 / 97), a mapped CC (spread
+// over a parameter's range: a button on from 64, the others index = v × count / 128) and a mapped fine CC (the low 7
+// bits of the parameter's 14 as they are now, as on the stock synth: alone it nudges, after its coarse CC it's that
+// CC's fine part)
+enum { FROM_COARSE, FROM_FINE, FROM_UP, FROM_DOWN, FROM_CC, FROM_CC_FINE };
+
+// Sets a parameter from MIDI on the layers the rule names (0: the channel's in channel mode, else the edit layer; 1, 2;
+// 3 both, a linked one once), and shows it. msb: CC 6's (or the CC's) 7 bits; v14: with the fine part.
+static void param_from_midi(int id, int rule, int channel, int how, int msb, int v14)
 {
-    int c = channel & 15, id = nrpn[c].id, rule = nrpn[c].rule;
-    if (!nrpn[c].on || rule > 3 || !param_known(id))
-        return;
     const param_def_t *d = &param_defs[id];
-    if (how == 0)
-        nrpn[c].msb = value;
-    if (how == 1 && (d->kind == PARAM_KIND_RAW || d->kind == PARAM_KIND_BOOL))
-        return;
-    int v14 = nrpn[c].msb << 7 | (how == 1 ? value : 0), msb = nrpn[c].msb;
     int base = synth_layer_mode() == LAYER_CHANNEL ? channel == 1 : synth_edit_layer();
     int layers = d->scope != PARAM_SCOPE_LAYER ? 1 : rule ? rule : 1 << base, shown = -1, done = 0;
     for (int l = 0; l < 2; l++) {
@@ -3120,14 +3153,25 @@ static void nrpn_data(int channel, int how, uint8_t value) // how: 0 CC 6, 1 CC 
             continue; // both layers, one of them linked: one value, set (or stepped) once
         done |= 1 << target;
         int v;
-        if (how >= 2)
-            v = param_get(id, l) + (how == 2 ? 1 : -1) * (d->kind == PARAM_KIND_KNOB ? 129 : 1);
+        if (how == FROM_CC_FINE) { // msb: the CC's 7 bits, under the value's own high ones
+            int now = param_get(id, l);
+            if (d->kind == PARAM_KIND_SIGNED) { // as 14 bits, as an NRPN sends it: round(v × 8191 / 99) + 8192
+                int n = now * 8191;
+                now = (n + (n >= 0 ? 49 : -49)) / 99 + 8192;
+            }
+            v14 = (now & ~0x7F) | (msb & 0x7F);
+        }
+        if (how == FROM_UP || how == FROM_DOWN)
+            v = param_get(id, l) + (how == FROM_UP ? 1 : -1) * (d->kind == PARAM_KIND_KNOB ? 129 : 1);
         else if (d->kind == PARAM_KIND_KNOB)
-            v = how ? v14 : msb * 16383 / 127;
+            v = how == FROM_FINE || how == FROM_CC_FINE ? v14 : msb * 16383 / 127;
         else if (d->kind == PARAM_KIND_SIGNED) { // to the nearest, so a value sent as round(v × 8191 / 99) comes back
-            int n = how ? (v14 - 8192) * 99 : (msb - 64) * 99, by = how ? 8191 : 63;
+            int fine = how == FROM_FINE || how == FROM_CC_FINE;
+            int n = fine ? (v14 - 8192) * 99 : (msb - 64) * 99, by = fine ? 8191 : 63;
             v = (n + (n >= 0 ? by / 2 : -(by / 2))) / by;
-        } else
+        } else if (how == FROM_CC)
+            v = d->kind == PARAM_KIND_BOOL ? msb >= 64 : d->min + msb * (d->max - d->min + 1) / 128;
+        else
             v = msb;
         if (param_set(id, l, v) && shown < 0)
             shown = l;
@@ -3137,6 +3181,61 @@ static void nrpn_data(int channel, int how, uint8_t value) // how: 0 CC 6, 1 CC 
         cc_shown_layer = d->scope == PARAM_SCOPE_LAYER ? shown : synth_edit_layer();
         cc_shown_value = d->kind == PARAM_KIND_KNOB ? (float)param_get(id, shown) / 16383.0f : 0;
     }
+}
+
+static void nrpn_data(int channel, int how, uint8_t value) // how: FROM_COARSE (CC 6), FINE (38), UP (96), DOWN (97)
+{
+    int c = channel & 15, id = nrpn[c].id, rule = nrpn[c].rule;
+    if (!nrpn[c].on || rule > 3 || !param_known(id))
+        return;
+    const param_def_t *d = &param_defs[id];
+    if (how == FROM_COARSE)
+        nrpn[c].msb = value;
+    if (how == FROM_FINE && (d->kind == PARAM_KIND_RAW || d->kind == PARAM_KIND_BOOL))
+        return;
+    param_from_midi(id, rule, channel, how, nrpn[c].msb, nrpn[c].msb << 7 | (how == FROM_FINE ? value : 0));
+}
+
+// The CC map (0.10.0; store.h): per controller number a parameter id and a nibble (the layer rule; fine). The default
+// is the table above (cc_map), each on the edit layer's rule; a stored map replaces it whole.
+
+static void cc_map_default(void)
+{
+    for (int i = 0; i < 128; i++) {
+        cc_ids[i] = CC_MAP_NONE;
+        cc_nibbles[i] = 0;
+    }
+    for (unsigned i = 0; i < sizeof cc_map / sizeof cc_map[0]; i++)
+        cc_ids[cc_map[i].cc] = cc_map[i].param;
+}
+
+static void cc_map_load(void)
+{
+    if (!store_cc_map(cc_ids, cc_nibbles))
+        cc_map_default();
+}
+
+// Controllers that keep their own meaning and never hold a parameter: bank select, the mod wheel, data entry and the
+// (N)RPN numbers, the sustain pedal, the channel mode messages
+static int cc_reserved(int cc)
+{
+    return cc == 0 || cc == 1 || cc == 6 || cc == 32 || cc == 38 || cc == 64 || (cc >= 96 && cc <= 101) || cc >= 120;
+}
+
+// A mapped CC: a coarse one spreads its 7 bits over the parameter (a knob's travel, a macro offset centred at 64, a
+// button on from 64, the rest index = v × count / 128); a fine one is the low 7 bits of the value as it is
+static void cc_mapped(int cc, uint8_t value, int channel)
+{
+    int id = cc_ids[cc], rule = cc_nibbles[cc] & 3;
+    if (!param_known(id))
+        return;
+    const param_def_t *d = &param_defs[id];
+    if (cc_nibbles[cc] & CC_MAP_FINE) {
+        if (d->kind == PARAM_KIND_KNOB || d->kind == PARAM_KIND_SIGNED)
+            param_from_midi(id, rule, channel, FROM_CC_FINE, value, 0);
+        return;
+    }
+    param_from_midi(id, rule, channel, FROM_CC, value, value << 7);
 }
 
 // A note let go on `layers` (the pedal's release): the sequence's key, else the engine's
@@ -3202,7 +3301,7 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
         return;
     }
     if (cc == 6 || cc == 38 || cc == 96 || cc == 97) {
-        nrpn_data(channel, cc == 6 ? 0 : cc == 38 ? 1 : cc == 96 ? 2 : 3, value);
+        nrpn_data(channel, cc == 6 ? FROM_COARSE : cc == 38 ? FROM_FINE : cc == 96 ? FROM_UP : FROM_DOWN, value);
         return;
     }
     int assigned = cc == synth_cc_number(0) || cc == synth_cc_number(1);
@@ -3221,15 +3320,8 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
         if (per_channel || assigned)
             return; // else it's cutoff as well, below
     }
-    for (unsigned i = 0; i < sizeof cc_map / sizeof cc_map[0]; i++)
-        if (cc_map[i].cc == cc) {
-            int layer = synth_param_layer(synth_layer_mode() == LAYER_CHANNEL ? channel == 1 : synth_edit_layer(), cc_map[i].param);
-            synth_set_param(layer, cc_map[i].param, (float)value / 127.0f);
-            cc_shown_param = cc_map[i].param;
-            cc_shown_layer = layer;
-            cc_shown_value = (float)value / 127.0f;
-            return;
-        }
+    if (cc_ids[cc & 0x7F] != CC_MAP_NONE)
+        cc_mapped(cc & 0x7F, value, channel); // the map (by default the table above)
 }
 
 static void handle_midi(void);
@@ -3447,6 +3539,7 @@ int main(void)
     eeprom_init();
     controls_init(); // the buttons are read when a patch loads
     store_init();
+    cc_map_load();
     tuning_load();
     synth_init();
     seq_clear();

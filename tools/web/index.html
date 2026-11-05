@@ -635,6 +635,7 @@
         <li>Program change 0-127 picks patch 1-128; bank select is ignored.</li>
         <li>CCs: 74 cutoff (Timbre alone in 8CH and MPE), 71 resonance, 5 glide, 14 / 15 FREQ A / B, 16 FINE, 17 / 18 PW, 19 / 20 levels, 21 noise, 22 filter env amount, 23-26 filter ADSR, 73 / 75 / 70 / 72 amp A / D / S / R, 76 / 77 LFO 1, 27 / 28 LFO 2, 29 / 30 poly-mod, 31 tune, 85-90 + 102-103 Env 3 / 4.</li>
         <li data-needs="chord">NRPN reaches every parameter in the manual's table (<code>pro800 nrpn list</code>), buttons and the patch's settings too: CC 99 the layer (0 the edit layer, in channel mode the channel's; 1, 2, 3 both), CC 98 the parameter, CC 6 the value (CC 38 its fine part; CC 96 / 97 a step). A knob shows its value as the knob would, the others their name for half a second, then the value.</li>
+        <li data-needs="ccMap">The CCs above are the default map: the System tab's Controllers (or <code>pro800 cc-map</code>) maps any CC to any parameter, on a layer or both, with a fine CC for 14 bits; Stock map loads the stock PRO-800's numbers; Export / Import as JSON.</li>
       </ul>
     </section>
 
@@ -811,6 +812,19 @@
       System-wide, stored a second after a change.</p>
     <div class="row" id="init-patch-row"></div>
   </section>
+  <section data-needs="ccMap">
+    <h2>Controllers</h2>
+    <p class="hint">Which MIDI CC sets which parameter (the CC map; NRPN reaches them all anyway). A layer rule of
+      "edit" is the layer you're editing (in channel mode the channel's). Fine: the CC is the low 7 bits under the
+      parameter's coarse CC, for 14 bits (a knob or a macro offset; stock's 80 + i): the low 7 bits of the value as it is. CC 0 1 6 32 38 64 96-101 120-127
+      keep their meaning, and CC A / B (Shift + A / B LEVEL) take theirs first. System-wide, stored a second after a
+      change. Import replaces the whole map with a file's; the stock map is the stock PRO-800's numbers, for its
+      controller templates (set CC A off 11 for its Freq B).</p>
+    <div class="row" id="ccmap-tools"></div>
+    <table class="ccmap" id="ccmap-table"></table>
+    <input type="file" id="ccmap-file" accept=".json,application/json" hidden>
+    <span class="msg" id="ccmap-msg"></span>
+  </section>
 </div>
 
 <div class="panel" id="tab-mapping">
@@ -863,6 +877,7 @@
 </div>
 </main>
 <footer class="disclaimer">PRO-8000 is wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your synth or your patches. Not affiliated with Behringer or Music Tribe. <a href="https://klaine.github.io/pro-8000/#experimental">The disclaimer</a></footer>
+<script src="params.js"></script>
 <script src="sound-plan.js"></script>
 <script>
 const HEADER = [0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00];
@@ -1354,6 +1369,7 @@ const FEATURES = {
   initPatch: ["initPatch", "your own init patch"],
   releaseVelocity: ["initPatch", "release velocity as a mod source"], // 0.10.0, as the init patch
   chord: ["initPatch", "chord memory and its voicing"],
+  ccMap: ["initPatch", "your own CC map, and every parameter by NRPN"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -3938,6 +3954,119 @@ async function writeBytes(address, bytes) {
   }
   return true;
 }
+// --- the CC map (System tab; 0.10.0): 65 reads it a quarter at a time, 43 sets a slot, 42 the default again ---
+let ccMap = null, ccMapReading = false, ccMapTried = false, ccMapAgain = false; // { ids: [128], nibbles: [128] }, as the synth last said; read once by itself
+const ccMapMsg = (text, cls) => { const e = document.getElementById("ccmap-msg"); e.textContent = text; e.className = "msg " + (cls || ""); };
+async function readCcMap() {
+  const ids = [], nibbles = [];
+  for (let q = 0; q < 4; q++) {
+    const d = await ask([0x65, q], [0x65, q], 1000);
+    if (!d || d.length < 66) return null;
+    for (let i = 0; i < 32; i++) { ids.push(d[2 + 2 * i]); nibbles.push(d[3 + 2 * i]); }
+  }
+  return { ids, nibbles };
+}
+async function refreshCcMap() {
+  if (offline()) return;
+  if (ccMapReading) { ccMapAgain = true; return; } // after the read going on, another: it may predate a change
+  ccMapReading = true;
+  try {
+    do { ccMapAgain = false; ccMap = await readCcMap(); } while (ccMapAgain && ccMap);
+  } finally { ccMapReading = false; ccMapTried = true; }
+  if (!ccMap) ccMapMsg("the synth didn't send its CC map (Read tries again)", "bad");
+  paintCcMap();
+}
+async function applyCcMapFile(j, what) {
+  const { slots, problems } = ccMapFromJson(j, PARAMS);
+  if (problems.length) { ccMapMsg(`${what} refused, nothing changed: ${problems.join("; ")}`, "bad"); return; }
+  if (offline()) return;
+  if (!confirm(`Replace the CC map with ${what}'s ${slots.size} CCs? Every CC it doesn't list is cleared.`)) return;
+  const now = await readCcMap(); // the map as it is (another page, the tool or a memory image may have changed it)
+  if (!now) { ccMapMsg("the synth didn't send its CC map: nothing changed", "bad"); return; }
+  let sent = 0;
+  for (const m of ccMapChanges(now.ids, now.nibbles, slots)) {
+    if (!await ack(m)) { ccMapMsg(`CC ${m[1]} wasn't taken: the map is partly the file's`, "bad"); await refreshCcMap(); return; }
+    sent++;
+  }
+  await refreshCcMap();
+  ccMapMsg(`the map is ${what}'s: ${slots.size} CCs (${sent} changed)`, "ok");
+}
+const paramLabel = p => `${p.label} (${p.id})`;
+function paramOptions(selected) {
+  return [h("option", { value: 127 }, "— none —"), ...PARAMS.map(p => h("option", { value: p.id, selected: p.id === selected }, paramLabel(p)))];
+}
+function paintCcMap() {
+  const table = document.getElementById("ccmap-table");
+  if (!ccMap) { table.replaceChildren(); return; }
+  const rows = [h("tr", {}, h("th", {}, "CC"), h("th", {}, "Parameter"), h("th", {}, "Layer"), h("th", {}, "Fine"), h("th", {}, ""))];
+  for (let cc = 0; cc < 128; cc++) {
+    if (ccMap.ids[cc] === 127) continue;
+    const id = ccMap.ids[cc], nibble = ccMap.nibbles[cc], p = PARAMS.find(x => x.id === id);
+    const param = h("select", {}, paramOptions(id)), layer = h("select", {}, CC_MAP_LAYERS.map((l, k) => h("option", { value: k, selected: (nibble & 3) === k }, l)));
+    const fine = h("input", { type: "checkbox", checked: !!(nibble & 4), disabled: !p || (p.kind !== "knob" && p.kind !== "signed") });
+    const set = async () => {
+      const q = PARAMS.find(x => x.id === +param.value), f = fine.checked && q && (q.kind === "knob" || q.kind === "signed");
+      if (!await ack([0x43, cc, +param.value, +param.value === 127 ? 0 : +layer.value | (f ? 4 : 0)])) ccMapMsg(`CC ${cc} wasn't taken`, "bad");
+      await refreshCcMap();
+    };
+    param.onchange = layer.onchange = fine.onchange = set;
+    const remove = h("button", { type: "button", class: "chip", title: "this CC sets nothing" }, "Remove");
+    remove.onclick = async () => { param.value = "127"; await set(); };
+    rows.push(h("tr", {}, h("td", {}, String(cc)), h("td", {}, param), h("td", {}, layer), h("td", {}, fine), h("td", {}, remove)));
+  }
+  table.replaceChildren(...rows);
+}
+function ccMapSection() {
+  const cc = h("input", { type: "number", min: 0, max: 127, size: 4, placeholder: "CC", title: "the controller number" });
+  const param = h("select", {}, paramOptions(127));
+  const add = h("button", { type: "button" }, "Map");
+  add.onclick = async () => {
+    const n = +cc.value;
+    if (!Number.isInteger(n) || n < 0 || n > 127 || cc.value === "") { ccMapMsg("a CC is 0 to 127", "bad"); return; }
+    if (CC_MAP_RESERVED.has(n)) { ccMapMsg(`CC ${n} keeps its own meaning (0 1 6 32 38 64 96-101 120-127)`, "bad"); return; }
+    if (+param.value === 127) { ccMapMsg("pick the parameter it sets (Remove, in its row, takes a CC off)", "bad"); return; }
+    if (offline()) return;
+    if (!await ack([0x43, n, +param.value, 0])) ccMapMsg(`CC ${n} wasn't taken`, "bad");
+    else ccMapMsg(`CC ${n} mapped`, "ok");
+    await refreshCcMap();
+  };
+  const button = (text, title, onclick) => { const b = h("button", { type: "button", title }, text); b.onclick = onclick; return b; };
+  document.getElementById("ccmap-tools").append(
+    h("label", { class: "sel" }, h("span", { class: "lbl" }, "CC"), cc), h("label", { class: "sel" }, h("span", { class: "lbl" }, "sets"), param), add,
+    button("Read", "read the map from the synth", refreshCcMap),
+    button("Default map", "the firmware's own map again (yours is gone)", async () => {
+      if (offline() || !confirm("Go back to the default CC map? Your own is gone.")) return;
+      ccMapMsg(await ack([0x42]) ? "the default map" : "the synth didn't take it", "ok");
+      await refreshCcMap();
+    }),
+    button("Export", "the map as a JSON file", () => {
+      if (!ccMap) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(ccMapToJson(ccMap.ids, ccMap.nibbles, PARAMS), null, 1) + "\n"], { type: "application/json" }));
+      a.download = "pro8000-cc-map.json"; a.click();
+    }),
+    button("Import", "replace the map with a file's", () => document.getElementById("ccmap-file").click()),
+    button("Stock map", "the stock PRO-800's CC numbers, for its controller templates", async () => {
+      try { await applyCcMapFile(await (await fetch("stock-cc-map.json")).json(), "the stock map"); }
+      catch (e) { ccMapMsg("the stock map couldn't be read", "bad"); }
+    }),
+    button("Parameter list", "every parameter's NRPN number as CSV, for a controller editor's template", () => {
+      const csv = ["id,name,kind,scope,min,max,values", ...PARAMS.map(p => [p.id, p.name, p.kind, p.scope, p.min, p.max, (p.values || []).join(" ")].join(","))]; // as pro800 nrpn list --csv
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv.join("\n") + "\n"], { type: "text/csv" }));
+      a.download = "pro8000-parameters.csv"; a.click();
+    }));
+  document.getElementById("ccmap-file").onchange = async e => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    let j;
+    try { j = JSON.parse(await file.text()); } catch (err) { ccMapMsg(`${file.name} isn't JSON`, "bad"); return; }
+    await applyCcMapFile(j, file.name);
+  };
+  paints.push(() => { if (!ccMapTried && !ccMapReading && !offline() && settings && feature("ccMap")) refreshCcMap(); });
+}
+
 function download(name, bytes) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/octet-stream" }));
@@ -4484,6 +4613,7 @@ document.getElementById("tables").onclick = async () => {
 };
 
 async function afterConnect() {
+  ccMap = null; ccMapTried = false; // another synth, or this one changed meanwhile: read its CC map again
   viaAnswers = fineAnswers = true;
   await refreshSettings();
   await refreshParams();
@@ -4494,6 +4624,7 @@ buildPiano(); relabel(); buildPots(); buildSwitches(); buildKeys(); buildDisplay
 buildPanel();
 document.getElementById("pickup-row").append(pickupSelect());
 document.getElementById("init-patch-row").append(initPatchSelect());
+ccMapSection();
 try { tab = localStorage.getItem("pro800-tab") || "sound"; } catch (e) {}
 if (!document.getElementById("tab-" + tab)) tab = "sound";
 showTab(tab);

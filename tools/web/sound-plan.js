@@ -140,6 +140,47 @@ function chordFromText(text) {
   return iv.length <= 7 && iv.every((x, i) => Number.isInteger(x) && x >= 1 && x <= 127 && (!i || x > iv[i - 1])) ? iv : null;
 }
 
+// The CC map's file (0.10.0; also pro800 cc-map export / import): {"format": "pro8000-cc-map", "version": 1, "map":
+// [{"cc": 74, "param": "cutoff", "layer": "edit", "fine": false}]}, the parameters named as params.js's PARAMS (passed
+// in). A slot is [id, nibble]: the nibble's bits 0-1 the layer rule (edit, 1, 2, both), bit 2 fine.
+const CC_MAP_RESERVED = new Set([0, 1, 6, 32, 38, 64, 96, 97, 98, 99, 100, 101, 120, 121, 122, 123, 124, 125, 126, 127]);
+const CC_MAP_LAYERS = ["edit", "1", "2", "both"];
+// A file's slots by CC, and what's wrong with it: nothing is taken if anything is
+function ccMapFromJson(j, params) {
+  const byName = new Map(params.map(p => [p.name, p])), slots = new Map(), problems = [];
+  if (!j || j.format !== "pro8000-cc-map" || j.version !== 1 || !Array.isArray(j.map))
+    return { slots, problems: ['not a CC map file: {"format": "pro8000-cc-map", "version": 1, "map": [...]}'] };
+  for (const e of j.map) {
+    const cc = e && e.cc, p = e && byName.get(e.param), layer = e && e.layer !== undefined ? e.layer : "edit", fine = e && e.fine !== undefined ? e.fine : false;
+    if (!Number.isInteger(cc) || cc < 0 || cc > 127) problems.push(`${JSON.stringify(e)}: cc must be 0-127`);
+    else if (CC_MAP_RESERVED.has(cc)) problems.push(`CC ${cc} keeps its own meaning (0 1 6 32 38 64 96-101 120-127)`);
+    else if (slots.has(cc)) problems.push(`CC ${cc} is listed twice`);
+    else if (!p) problems.push(`CC ${cc}: no parameter ${JSON.stringify(e.param)}`);
+    else if (!CC_MAP_LAYERS.includes(layer)) problems.push(`CC ${cc}: layer must be edit, 1, 2 or both`);
+    else if (typeof fine !== "boolean" || (fine && p.kind !== "knob" && p.kind !== "signed"))
+      problems.push(`CC ${cc}: fine is true or false, and only for a knob or a macro offset`);
+    else slots.set(cc, [p.id, CC_MAP_LAYERS.indexOf(layer) | (fine ? 4 : 0)]);
+  }
+  return { slots, problems };
+}
+function ccMapToJson(ids, nibbles, params) {
+  const byId = new Map(params.map(p => [p.id, p])), map = [];
+  for (let cc = 0; cc < 128; cc++)
+    if (ids[cc] !== 127)
+      map.push({ cc, param: byId.has(ids[cc]) ? byId.get(ids[cc]).name : String(ids[cc]), layer: CC_MAP_LAYERS[nibbles[cc] & 3], fine: !!(nibbles[cc] & 4), nrpn: ids[cc] });
+  return { format: "pro8000-cc-map", version: 1, map };
+}
+// The 43 messages that turn a map into a file's: every CC whose slot differs (the file's unlisted ones cleared)
+function ccMapChanges(ids, nibbles, slots) {
+  const out = [];
+  for (let cc = 0; cc < 128; cc++) {
+    if (CC_MAP_RESERVED.has(cc)) continue;
+    const [id, nibble] = slots.get(cc) || [127, 0];
+    if (ids[cc] !== id || (id !== 127 && nibbles[cc] !== nibble)) out.push([0x43, cc, id, nibble]);
+  }
+  return out;
+}
+
 // The routes the init sound comes with (main.c, init_patch; also presets/lib/plan.py): a preset has exactly the routes it
 // lists, so they go first, on both layers. A firmware whose init sound hasn't got them acknowledges the removals all the same.
 const INIT_ROUTES = [["velocity", "vca"], ["velocity", "cutoff"]];

@@ -3190,6 +3190,154 @@ class Nrpn(PanelTest):
         self.assertShows("SEt")
 
 
+class CcMap(PanelTest):
+    """#37: the user's CC map (65 / 43 / 42), stored at 0x1F420; by default the table the firmware always had."""
+
+    ID = nrpn_ids()
+    DEFAULT = {5: "glide", 14: "freq-a", 15: "freq-b", 16: "fine", 17: "a-pw", 18: "b-pw", 19: "a-level", 20: "b-level",
+               21: "noise", 74: "cutoff", 71: "resonance", 22: "fil-env-amt", 23: "fil-att", 24: "fil-dec", 25: "fil-sus",
+               26: "fil-rel", 73: "amp-att", 75: "amp-dec", 70: "amp-sus", 72: "amp-rel", 76: "lfo-freq", 77: "lfo-amount",
+               27: "lfo2-rate", 28: "lfo2-amount", 29: "pmod-fil-env", 30: "pmod-osc-b", 31: "macro1", 85: "env3-att",
+               86: "env3-dec", 87: "env3-sus", 88: "env3-rel", 89: "env4-att", 90: "env4-dec", 102: "env4-sus", 103: "env4-rel"}
+
+    def read(self):
+        ids, nibbles = [], []
+        for q in range(4):
+            d = self.s.reply(0x65, q)
+            ids += list(d[1:65:2])
+            nibbles += list(d[2:66:2])
+        return ids, nibbles
+
+    def set(self, cc, name, nibble=0):
+        out = self.s.request(0x43, cc, 127 if name is None else self.ID[name], nibble)
+        return pro800.SYSEX_HEADER + bytes([0x7F, 0x43]) in out
+
+    def param(self, layer, name):
+        d = self.s.reply(0x53, layer)
+        i = pro800.PARAM_NAMES.index(name)
+        return d[2 + 2 * i] << 7 | d[3 + 2 * i]
+
+    def test_the_default_is_the_old_table(self):
+        ids, nibbles = self.read()
+        self.assertEqual({cc: i for cc, i in enumerate(ids) if i != 127}, {cc: self.ID[n] for cc, n in self.DEFAULT.items()})
+        self.assertEqual(set(nibbles), {0})
+
+    def test_a_mapped_setting_steps_through_its_range(self):
+        self.assertTrue(self.set(9, "shape 2", 1))  # layer 1
+        shown = []
+        for v in (0, 15, 14 * 9, 127):
+            self.s.cc(9, v)
+            self.s.ms(20)
+            shown.append(self.s.settings()["shape 1 2"])
+        self.assertEqual(shown, [0, 1, 8, 8], "index = v x 9 / 128")
+        self.s.ms(60)
+        self.assertShows("SH.L2", "a setting's name first")
+
+    def test_a_button_on_from_64(self):
+        self.set(9, "button a-saw")
+        for v, on in ((63, 0), (64, 1), (0, 0)):
+            self.s.cc(9, v)
+            self.s.ms(20)
+            self.assertEqual(self.s.reply(0x4C)[0], on)
+
+    def test_rules_and_an_empty_slot(self):
+        self.s.setting("layers", 2)
+        self.set(9, "cutoff", 3)  # both
+        self.s.cc(9, 100)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), self.param(1, "cutoff"))
+        self.set(74, None)
+        before = self.param(0, "cutoff")
+        self.s.cc(74, 0)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), before, "CC 74 cleared: nothing")
+        self.s.setting("layers", 3)  # channel
+        self.set(9, "cutoff", 0)
+        self.s.cc(9, 20, channel=1)
+        self.s.ms(20)
+        self.assertEqual(self.param(1, "cutoff"), 20 * 16383 // 127, "rule edit, channel 2: layer 2")
+
+    def test_fine_makes_14_bits(self):
+        self.set(15, "cutoff")
+        self.set(87, "cutoff", 4)  # stock's pair
+        self.s.cc(15, 64)
+        self.s.cc(87, 5)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), 64 << 7 | 5)
+        self.assertFalse(self.set(88, "layers", 4), "fine is for a knob or a macro offset")
+
+    def test_a_fine_cc_alone_nudges_the_value(self):
+        """As on the stock synth: a fine CC is the low 7 of the parameter's 14 bits as they are, not under a coarse 0."""
+        self.set(87, "cutoff", 4)
+        self.s.param(0, "cutoff", 10000)
+        self.s.cc(87, 5)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), (10000 & ~0x7F) | 5)
+        self.set(88, "macro 1", 4)
+        self.s.setting("macro 1 1", 99 + 50)
+        v14 = round(50 * 8191 / 99) + 8192
+        self.s.cc(88, v14 & 0x7F)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["macro 1 1"] - 99, 50, "a macro offset keeps its value under the same low bits")
+
+    def test_refused(self):
+        for cc in (0, 1, 6, 32, 38, 64, 96, 101, 120, 127):
+            with self.subTest(cc=cc):
+                self.assertFalse(self.set(cc, "cutoff"))
+        self.assertNotIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x43]), self.s.request(0x43, 9, 124, 0), "no such parameter")
+        self.assertNotIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x43]), self.s.request(0x43, 9, 24, 8), "no such nibble")
+
+    def test_cc_a_comes_first(self):
+        self.set(9, "cutoff")
+        self.s.setting("cc-a", 9)
+        before = self.param(0, "cutoff")
+        self.s.cc(9, 0)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), before)
+        self.s.setting("cc-a", 11)
+
+    def test_kept_after_a_power_cycle_and_a_format_once_written(self):
+        self.s.cmd("writes")
+        for v in range(20):
+            self.set(9, "cutoff" if v % 2 else "shape 2")  # the last one: cutoff
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.read()[0][9], self.ID["cutoff"])
+        self.s.request(0x5B)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.read()[0][9], self.ID["cutoff"], "a format leaves it")
+        self.assertIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x42]), self.s.request(0x42))
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.read()[0][9], 127, "the default again, across a power cycle")
+
+    def test_a_damaged_block_is_the_default(self):
+        self.set(9, "cutoff")
+        self.s.ms(1100)
+        self.s.close()
+        with open(self.path, "r+b") as f:
+            f.seek(0x1F420 + 4 + 9)
+            f.write(bytes([self.ID["resonance"]]))  # the checksum no longer agrees
+        self.s = Synth(self.path)
+        self.s.ms(1600)
+        ids, _ = self.read()
+        self.assertEqual((ids[9], ids[74]), (127, self.ID["cutoff"]))
+
+    def test_one_write_after_a_burst(self):
+        def count():
+            return int(self.s.cmd("writes").split()[0])
+        self.s.ms(1100)
+        start = count()
+        for v in range(20):
+            self.set(9, "cutoff", v % 4)
+        self.s.ms(1100)
+        self.assertEqual(count() - start, 1, "the map once, a second after the last change")
+
+
 class Layers(PanelTest):
     def test_seq_buttons_choose_the_edit_layer(self):
         self.s.press("SEQ2")
@@ -9105,6 +9253,49 @@ class WebSmallThings(unittest.TestCase):
         self.assertEqual(out["route"][2], 28)
         for why in out["bad"]:
             self.assertIsNotNone(why)
+
+    def test_an_import_reads_the_map_first(self):
+        """The page's Import diffs against the map as the synth has it now, not one it read earlier."""
+        page = source("tools", "web", "index.html")
+        out = run_node(FAKE_DOM + source("tools", "web", "params.js") + source("tools", "web", "sound-plan.js") + NODE_DRIVER % ("""
+        let sent = [], now = { ids: Array(128).fill(127), nibbles: Array(128).fill(0) };
+        now.ids[20] = 24;
+        const offline = () => false, confirm = () => true, paintCcMap = () => {};
+        const ask = async (m) => [0x65, m[1], ...Array.from({ length: 32 }, (_, i) => [now.ids[32 * m[1] + i], now.nibbles[32 * m[1] + i]]).flat()];
+        const ack = async (m) => { sent.push(m); if (m[0] === 0x43) { now.ids[m[1]] = m[2]; now.nibbles[m[1]] = m[3]; } return true; };
+        """ + chr(10).join(js_block(page, b) for b in ["let ccMap", "const ccMapMsg", "async function readCcMap(", "async function refreshCcMap(", "async function applyCcMapFile("]) + """
+        ccMap = { ids: Array(128).fill(127), nibbles: Array(128).fill(0) }; // what the page read long ago: nothing on CC 20
+        await applyCcMapFile({ format: "pro8000-cc-map", version: 1, map: [{ cc: 74, param: "cutoff" }] }, "the file");
+        report({ sent, cc20: now.ids[20], cc74: now.ids[74] });
+        """))
+        self.assertIn([0x43, 20, 127, 0], out["sent"], "CC 20, mapped on the synth since, is cleared")
+        self.assertEqual((out["cc20"], out["cc74"]), (127, 24))
+
+    def test_the_cc_map_file(self):
+        """#37: the map's JSON, as the editor and the tools read and write it, and the stock map."""
+        out = run_node(source("tools", "web", "params.js") + source("tools", "web", "sound-plan.js") + NODE_DRIVER % ("""
+        const stock = """ + source("tools", "web", "stock-cc-map.json") + """;
+        const ids = Array(128).fill(127), nibbles = Array(128).fill(0);
+        ids[74] = 24; ids[87] = 24; nibbles[87] = 4; ids[20] = 84; nibbles[20] = 1;
+        const j = ccMapToJson(ids, nibbles, PARAMS), back = ccMapFromJson(JSON.parse(JSON.stringify(j)), PARAMS);
+        const refused = map => ccMapFromJson({ format: "pro8000-cc-map", version: 1, map }, PARAMS).problems;
+        const st = ccMapFromJson(stock, PARAMS);
+        report({ j, slots: [...back.slots], problems: back.problems, changes: ccMapChanges(ids, nibbles, back.slots).length,
+          clear: ccMapChanges(ids, nibbles, new Map()).length, stock: { n: st.slots.size, problems: st.problems, cc8: st.slots.get(8) },
+          bad: [[{ cc: 1, param: "cutoff" }], [{ cc: 9, param: "cutoff" }, { cc: 9, param: "noise" }], [{ cc: 9, param: "nope" }],
+                [{ cc: 9, param: "cutoff", layer: "3" }], [{ cc: 9, param: "layers", fine: true }], [{ cc: 128, param: "cutoff" }]].map(refused),
+          notAFile: ccMapFromJson({ map: [] }, PARAMS).problems.length });
+        """))
+        self.assertEqual(out["j"]["map"], [{"cc": 20, "param": "shape 2", "layer": "1", "fine": False, "nrpn": 84},
+                                           {"cc": 74, "param": "cutoff", "layer": "edit", "fine": False, "nrpn": 24},
+                                           {"cc": 87, "param": "cutoff", "layer": "edit", "fine": True, "nrpn": 24}])
+        self.assertEqual(out["slots"], [[20, [84, 1]], [74, [24, 0]], [87, [24, 4]]])
+        self.assertEqual((out["problems"], out["changes"], out["clear"]), ([], 0, 3), "the round trip changes nothing; an empty file clears three")
+        self.assertEqual((out["stock"]["problems"], out["stock"]["cc8"]), ([], [10, 0]), "the stock map is a good file: CC 8 is FREQ A")
+        self.assertGreater(out["stock"]["n"], 50)
+        for why in out["bad"]:
+            self.assertEqual(len(why), 1, why)
+        self.assertEqual(out["notAFile"], 1)
 
     def test_a_chord_in_the_preset_format(self):
         """#36: "chord 1" / "chord 2" as 69, after the buttons; a firmware before 0.10.0 warns and gets nothing."""

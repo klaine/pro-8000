@@ -430,7 +430,7 @@ Our firmware owns the EEPROM (decided 2026-10-27); `backup/2026-10-27/eeprom-sto
   mode, split, LFO sync and retrigger, latching buttons, keyboard tracking, both layers' 26 knob values (u16),
   reserved space for mod routes, checksum.
 - 0x19000–0x1F3FF: the stock factory bank, untouched (importable later).
-- 0x1F400: global block `P8G1` (last patch, preset/manual). 0x1F500: the autotune tables, which now survive
+- 0x1F400: global block `P8G1` (last patch, preset/manual); from 0.10.0 0x1F420-0x1F4E7 the user's CC map (`P8M1`, 128 ids, 64 nibble bytes, a checksum; no block: the default). 0x1F500: the autotune tables, which now survive
   firmware updates (no more retune after `install`).
 - Import (`pro800 import --yes`): converted all 112 stock patches in place, names kept, 0 errors. The stock fields
   map one to one (u16 little-endian; LFO shape pulse → square; LFO targets bit 0 freq, 1 filter, 2 PW), but the
@@ -2749,6 +2749,24 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
    precedence, enums and buttons scaled (index = v × N / 128, a button on at 64); SysEx 65 / 43 / 42; `pro800 cc-map
    show|set|reset|export|import`. 37d: the editor's System tab, JSON export and import (replace, not merge), a CSV and
    JSON parameter list for controller templates, the **stock map** as a file to import (built from the chart above).
+   **Done 2026-11-05 (simulator only).** `store.c`: the map's block at 0x1F420 (`P8M1`, 128 ids, the nibbles two to a
+   byte, a checksum), its own dirty flag under the global block's one-second rest, cleared by writing zeros (no magic:
+   the default from flash); a format leaves it. main.c: `cc_ids[]` / `cc_nibbles[]` in RAM, the default from the old
+   table, `param_from_midi()` shared with NRPN (rounding, the linked layer once), `cc_mapped()` (a knob's share, a
+   macro offset centred, a button from 64, a list spread as index = v × count / 128; fine under the last coarse CC),
+   CC A / B and CC 74's Timbre still first. SysEx 65 (a quarter of the map), 43 (a slot; refused for the reserved CCs,
+   an unknown id, fine on anything but a knob or a macro offset), 42 (the default). `pro800 cc-map` list / set / reset /
+   export / import and `nrpn list --csv` in both tools; `ccMapFromJson` / `ccMapToJson` / `ccMapChanges` in
+   sound-plan.js; the System tab's Controllers (rows, Map, Read, Default map, Export, Import, Stock map, Parameter
+   list); `tools/web/stock-cc-map.json` from the stock chart (63 slots; fine parts on 100 and 101 left out: RPN
+   numbers here); params.js loaded and published. The review (three lenses, two skeptics; 11 of 16 stood, 9 apart):
+   a fine CC took its high bits from a per-parameter register that started at 0, so a stock template's lone fine knob
+   (or a DAW's LSB lane) closed the filter: now a fine CC sets the low 7 of the parameter's 14 bits as they are, as
+   p600fw and stock do (`FROM_CC_FINE`); the page's Import diffed against a map read earlier (it reads the map first,
+   and a new connection reads it again); the three file codecs disagreed on odd input (Swift took a wrongly typed
+   layer or fine, Python crashed on a list as a name and refused 74.0 and a BOM); Map with no parameter cleared the
+   CC; the page's parameter CSV had a column the tools' hadn't; the stock map's keytrack (how stock spreads three
+   values isn't known) is out and its LFO destination switches (CC 74-76) are in. 97,740 B (+1.2 kB).
 10. **#38 socket and out core.** First on the synth: what 0.9.5's THRU passes, and MIDI_SEL's polarity (a keyboard on IN,
     a receiver on THRU, PB4 driven both ways from a probe build). Then 38-socket-mode: PA0 as UART4 TX with a TX ring and
     a realtime slot, PB4 driven, THRU (default, stock) / OUT / MERGE (in software: forwarded in the RX ISR, merged at

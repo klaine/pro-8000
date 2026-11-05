@@ -4,6 +4,7 @@
 //   0x19000-0x1F3FF  the stock factory bank, left as it is
 //   0x1F400          global block: format, last patch, the CC A / B source numbers (store.c has its bytes); from
 //                    0.10.0 bytes 19-31 too: the init patch, room for MIDI out, their own checksum
+//   0x1F420-0x1F4E7  the user's CC map (0.10.0): "P8M1", 128 parameter ids, 64 bytes of nibbles, a checksum
 //   0x1F500-0x1FBFF  the autotune tables (tuning.c)
 #ifndef STORE_H
 #define STORE_H
@@ -107,5 +108,15 @@ int store_save_sequence(int n);
 int store_finish_import(void);
 int store_last_patch(void);
 void store_set_last(int patch); // written only when it changed
+
+// The user's CC map (0.10.0): per controller number a parameter id (params.h; CC_MAP_NONE for none) and a nibble
+// (bits 0-1 the layer rule, as an NRPN's MSB; bit 2 fine: the low 7 bits of the parameter's 14, after its coarse CC).
+// Kept apart from the global block, written after the same second's rest; a format leaves it. None stored: main.c's
+// default map plays.
+#define CC_MAP_NONE 0x7F
+#define CC_MAP_FINE 4
+int store_cc_map(uint8_t *ids, uint8_t *nibbles); // 1 and the stored map; 0 if none is stored
+void store_set_cc_map(const uint8_t *ids, const uint8_t *nibbles); // stored after the rest
+void store_clear_cc_map(void);                     // none stored any more (after the rest): the default again
 
 #endif

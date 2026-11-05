@@ -33,7 +33,8 @@ if [ ! -f "$SYX" ]; then
   echo "pages: no $SYX for the installer, run scripts/build.sh first" >&2
   exit 1
 fi
-cp tools/web/index.html tools/web/install.html tools/web/sound-plan.js tools/web/panel-map.json "$OUT/editor/"
+cp tools/web/index.html tools/web/install.html tools/web/sound-plan.js tools/web/params.js tools/web/stock-cc-map.json \
+  tools/web/panel-map.json "$OUT/editor/"
 cp "$SYX" "$OUT/editor/firmware.syx"
 "$PYTHON" -I presets/lib/bundle.py "$OUT/editor/presets.json"
 if grep -rl -E '/Users/|/home/' "$OUT"; then

@@ -129,3 +129,18 @@ On P128's init sound, then `pro800 patch init` and `pro800 patch save P128` afte
 - [ ] An NRPN stream with notes held: no stutter from the display.
 - [ ] An MPE keyboard (or `pro800 cc 101 0` / `100 6` / `6 8` in `nPE` mode): nothing changes.
 - [ ] Layer 2 linked to layer 1's filter, editing layer 2: CC 74 and the cutoff NRPN move layer 1's cutoff (heard).
+
+## Step 9: your own CC map (#37)
+
+The map is system-wide: afterwards `pro800 cc-map reset --yes` (or Default map on the page) and CC A back to 11.
+
+- [ ] `pro800 cc-map`: the default list (CC 74 cutoff, 71 resonance...). A controller on CC 74 still moves the cutoff.
+- [ ] `pro800 cc-map set 20 "shape 2" --layer 1`, then CC 20 swept: the display shows `SH.L2`, then the shape number, and
+      LFO 2's shape steps through all nine.
+- [ ] Power off and on: the map is still yours. `pro800 format --yes` isn't needed for this; if you do format, the map
+      stays.
+- [ ] The editor's System tab, Controllers: the map's rows, change one, Export, Default map, Import the exported file,
+      Stock map (a controller template made for the stock synth then works: FREQ A on CC 8, cutoff on 15 with its fine
+      part on 87).
+- [ ] A map change while notes play: no glitch beyond a patch save's (the write comes a second later, once).
+- [ ] Going back to stock (the installer's Empty it) with a map stored: stock boots and keeps its own settings.
