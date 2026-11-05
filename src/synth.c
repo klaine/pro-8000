@@ -152,6 +152,8 @@ typedef struct {
     env_t amp, filter, env3, env4;
     uint8_t fresh;                // started since the main loop last asked: write its pitch before its VCA opens
     uint8_t release_velocity;     // its key's release velocity (SRC_RELEASE_VELOCITY), set as the gate goes off
+    uint8_t key, slot;            // the key that started it and its place in that key's chord (0: the key's own note).
+                                  // Without a chord key == note: note-offs, pressure and a voice's reuse go by the key
     // From the last synth_update(), for the ticks (voice_cvs()), which add the envelopes, the LFOs and the fast
     // routes; in semitones but vca_slow
     float pitch_base;              // the gliding note with bend, tune, unison spread and drift
@@ -588,7 +590,7 @@ void synth_aftertouch(uint8_t value, int layers)
 void synth_poly_pressure(uint8_t note, uint8_t value, int layers)
 {
     for (int v = 0; v < VOICE_COUNT; v++)
-        if (voices[v].gate && voices[v].note == note && layers >> layer_of(v) & 1)
+        if (voices[v].gate && voices[v].key == note && layers >> layer_of(v) & 1)
             voices[v].pressure = (float)value / 127.0f;
 }
 
@@ -914,8 +916,8 @@ int synth_probe(uint8_t *out)
     for (int s = 0; s < 16; s++)
         out[n++] = (uint8_t)(switch_override[s] | switch_value[s] << 1 | controls_on((switch_t)s) << 2);
     n += lfo_probe(&out[n]);
-    for (int v = 0; v < VOICE_COUNT; v++) { // 0.10.0: per voice its key (the note until chord memory), note, release velocity
-        out[n++] = voices[v].note & 0x7F;
+    for (int v = 0; v < VOICE_COUNT; v++) { // 0.10.0: per voice its key, note and release velocity
+        out[n++] = voices[v].key & 0x7F;
         out[n++] = voices[v].note & 0x7F;
         out[n++] = voices[v].release_velocity & 0x7F;
     }
@@ -1123,16 +1125,16 @@ void synth_manual(void)
 
 // --- notes ---
 
-// Within one layer's voices: the voice already on this note, then the oldest silent one, then the quietest released
-// (so a long tail plays on while a nearly silent one is taken), then the oldest. In stacks of `size` voices, by each
-// stack's first voice (its voices play together); the voices left over don't play.
-static int allocate(int layer, uint8_t note, int size)
+// Within one layer's voices: the voice already on this key and chord slot, then the oldest silent one, then the
+// quietest released (so a long tail plays on while a nearly silent one is taken), then the oldest. In stacks of `size`
+// voices, by each stack's first voice (its voices play together); the voices left over don't play.
+static int allocate(int layer, uint8_t key, int slot, int size)
 {
     int first, end, best = -1;
     layer_voices(layer, &first, &end);
     end -= (end - first) % size;
     for (int v = first; v < end; v += size)
-        if (voices[v].note == note && (voices[v].gate || voices[v].amp.stage != ENV_IDLE))
+        if (voices[v].key == key && voices[v].slot == slot && (voices[v].gate || voices[v].amp.stage != ENV_IDLE))
             return v;
     for (int pass = 0; pass < 3 && best < 0; pass++)
         for (int v = first; v < end; v += size) {
@@ -1164,6 +1166,8 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
 {
     int was_silent = x->amp.stage == ENV_IDLE;
     x->note = note;
+    x->key = note;
+    x->slot = 0;
     x->gate = 1;
     x->velocity = velocity;
     x->started = ++allocations;
@@ -1302,7 +1306,7 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
         held[layer][held_count[layer]++] = note;
         uint8_t target = priority_note(layer);
         mono_voices(layer, &first, &end);
-        if (was_held && voices[first].gate && voices[first].note == target)
+        if (was_held && voices[first].gate && voices[first].key == target)
             return; // the priority keeps the note that's sounding
         // mono retriggers every new note; legato and unison only the first after all were released
         int retrigger = !was_held || (voice_mode[layer] == VOICE_MONO);
@@ -1315,7 +1319,7 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
     }
     int was_gated = layer_gated(layer);
     int size = stacked(layer) ? stack_size(layer) : 1;
-    int v = allocate(layer, note, size);
+    int v = allocate(layer, note, 0, size);
     for (int i = v; i < v + size; i++) {
         gate_on(&voices[i], note, velocity, 1);
         lfos_note_on(layer, i, !was_gated);
@@ -1542,17 +1546,17 @@ void synth_note_off_layers(uint8_t note, uint8_t release_velocity, int layers)
                 if (!held_count[layer]) {
                     voices[v].release_velocity = release_velocity; // the last key up releases the line
                     gate_off(&voices[v], 1);
-                } else if (voices[v].note != priority_note(layer)) { // back to a held note: legato, or mono retriggers
+                } else if (voices[v].key != priority_note(layer)) { // back to a held note: legato, or mono retriggers
                     if (voice_mode[layer] == VOICE_MONO)
                         gate_on(&voices[v], priority_note(layer), voices[v].velocity, 1);
                     else
-                        voices[v].note = priority_note(layer);
+                        voices[v].note = voices[v].key = priority_note(layer);
                 }
             }
             continue;
         }
         for (int v = first; v < end; v++)
-            if (voices[v].gate && voices[v].note == note) {
+            if (voices[v].gate && voices[v].key == note) {
                 voices[v].release_velocity = release_velocity;
                 gate_off(&voices[v], 1);
             }
