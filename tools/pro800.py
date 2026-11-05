@@ -78,6 +78,9 @@ Probe (our firmware 0.0.9+):
   pro800 route-via <layer> <src> <dest> <number 0.01-8|source>  what the route is multiplied by (0.9.5; 1 is plain)
   pro800 chord [<layer> off|<notes>]    chord memory (0.10.0): print both layers' chords, or set one, e.g. 0,4,7
   pro800 chord capture [1|2|both] --yes take the keys held now as the chord, as Unison pressed over them does
+  pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N]
+                                        set a parameter by NRPN (0.10.0): a knob 0-16383, a macro offset -99..99,
+                                        the others their number or name; pro800 nrpn list prints every id
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
                                         replies on stdout as hex; over one MIDI connection
@@ -2338,6 +2341,163 @@ def channel_option(default):
     return channel - 1
 
 
+# BEGIN PARAMS (tools/gen_params.py): id, name, kind, scope, min, max, value names
+PARAMS = [
+    (0, "amp-rel", "knob", "layer", 0, 16383, []),
+    (1, "amp-sus", "knob", "layer", 0, 16383, []),
+    (2, "amp-dec", "knob", "layer", 0, 16383, []),
+    (3, "amp-att", "knob", "layer", 0, 16383, []),
+    (4, "fil-rel", "knob", "layer", 0, 16383, []),
+    (5, "fil-sus", "knob", "layer", 0, 16383, []),
+    (6, "fil-dec", "knob", "layer", 0, 16383, []),
+    (7, "fil-att", "knob", "layer", 0, 16383, []),
+    (8, "resonance", "knob", "shared", 0, 16383, []),
+    (9, "fil-env-amt", "knob", "layer", 0, 16383, []),
+    (10, "freq-a", "knob", "layer", 0, 16383, []),
+    (11, "freq-b", "knob", "layer", 0, 16383, []),
+    (12, "fine", "knob", "layer", 0, 16383, []),
+    (13, "a-pw", "knob", "shared", 0, 16383, []),
+    (14, "b-pw", "knob", "shared", 0, 16383, []),
+    (15, "a-level", "knob", "shared", 0, 16383, []),
+    (16, "glide", "knob", "layer", 0, 16383, []),
+    (17, "lfo-freq", "knob", "layer", 0, 16383, []),
+    (18, "lfo-amount", "knob", "layer", 0, 16383, []),
+    (19, "macro1", "knob", "layer", 0, 16383, []),
+    (21, "b-level", "knob", "shared", 0, 16383, []),
+    (22, "pmod-osc-b", "knob", "shared", 0, 16383, []),
+    (23, "pmod-fil-env", "knob", "layer", 0, 16383, []),
+    (24, "cutoff", "knob", "layer", 0, 16383, []),
+    (25, "noise", "knob", "shared", 0, 16383, []),
+    (26, "env3-att", "knob", "layer", 0, 16383, []),
+    (27, "env3-dec", "knob", "layer", 0, 16383, []),
+    (28, "env3-sus", "knob", "layer", 0, 16383, []),
+    (29, "env3-rel", "knob", "layer", 0, 16383, []),
+    (30, "env4-att", "knob", "layer", 0, 16383, []),
+    (31, "env4-dec", "knob", "layer", 0, 16383, []),
+    (32, "env4-sus", "knob", "layer", 0, 16383, []),
+    (33, "env4-rel", "knob", "layer", 0, 16383, []),
+    (34, "lfo2-rate", "knob", "layer", 0, 16383, []),
+    (35, "lfo2-amount", "knob", "layer", 0, 16383, []),
+    (36, "button a-saw", "bool", "shared", 0, 1, []),
+    (37, "button a-tri", "bool", "shared", 0, 1, []),
+    (38, "button a-square", "bool", "shared", 0, 1, []),
+    (39, "button b-saw", "bool", "shared", 0, 1, []),
+    (40, "button b-tri", "bool", "shared", 0, 1, []),
+    (41, "button b-square", "bool", "shared", 0, 1, []),
+    (42, "button lfo-pw", "bool", "shared", 0, 1, []),
+    (43, "button lfo-freq", "bool", "shared", 0, 1, []),
+    (44, "button pmod-freq-a", "bool", "shared", 0, 1, []),
+    (46, "button lfo-filter", "bool", "shared", 0, 1, []),
+    (47, "button pmod-filter", "bool", "shared", 0, 1, []),
+    (48, "button unison", "bool", "shared", 0, 1, []),
+    (51, "button sync", "bool", "shared", 0, 1, []),
+    (52, "layers", "raw", "patch", 0, 5, ["off", "split", "stack", "channel", "8ch", "mpe"]),
+    (53, "split", "raw", "patch", 0, 127, []),
+    (54, "layer-voices", "raw", "patch", 0, 7, []),
+    (55, "keytrack", "raw", "patch", 0, 2, ["off", "half", "full"]),
+    (56, "lfo-sync", "raw", "patch", 0, 1, ["free", "clock"]),
+    (57, "lfo-trigger", "raw", "patch", 0, 5, ["free", "first", "every", "voice", "one-shot", "one-shot-voice"]),
+    (58, "lfo-delay 1", "raw", "patch", 0, 99, []),
+    (59, "lfo-fade 1", "raw", "patch", 0, 99, []),
+    (60, "lfo-cycles", "raw", "patch", 1, 99, []),
+    (61, "lfo2-sync", "raw", "patch", 0, 1, ["free", "clock"]),
+    (62, "lfo2-trigger", "raw", "patch", 0, 5, ["free", "first", "every", "voice", "one-shot", "one-shot-voice"]),
+    (63, "lfo-delay 2", "raw", "patch", 0, 99, []),
+    (64, "lfo-fade 2", "raw", "patch", 0, 99, []),
+    (65, "lfo2-cycles", "raw", "patch", 1, 99, []),
+    (66, "lfo-restart", "raw", "patch", 0, 1, ["steps", "keys"]),
+    (67, "bend", "raw", "patch", 1, 12, []),
+    (68, "detune", "raw", "patch", 0, 100, []),
+    (69, "unison-voices", "raw", "patch", 2, 8, []),
+    (70, "drift", "raw", "patch", 0, 99, []),
+    (71, "scale", "raw", "patch", 0, 12, ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major", "pentatonic-minor", "blues", "whole-tone", "chromatic"]),
+    (72, "root", "raw", "patch", 0, 11, ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]),
+    (73, "link amp-env", "bool", "patch", 0, 1, []),
+    (74, "link filter-env", "bool", "patch", 0, 1, []),
+    (75, "link env3", "bool", "patch", 0, 1, []),
+    (76, "link env4", "bool", "patch", 0, 1, []),
+    (77, "link lfo1", "bool", "patch", 0, 1, []),
+    (78, "link lfo2", "bool", "patch", 0, 1, []),
+    (79, "link filter", "bool", "patch", 0, 1, []),
+    (80, "arp-range", "raw", "patch", 0, 2, ["1", "2", "3"]),
+    (81, "arp-extend", "raw", "patch", 0, 4, ["none", "octave", "fifth", "seventh", "ninth"]),
+    (82, "arp-chaos", "raw", "patch", 0, 99, []),
+    (83, "shape 1", "raw", "layer", 0, 8, ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]),
+    (84, "shape 2", "raw", "layer", 0, 8, ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]),
+    (85, "lfo2-dests pitch", "bool", "layer", 0, 1, []),
+    (86, "lfo2-dests filter", "bool", "layer", 0, 1, []),
+    (87, "lfo2-dests pw", "bool", "layer", 0, 1, []),
+    (88, "voice", "raw", "layer", 0, 2, ["poly", "mono", "legato"]),
+    (89, "priority", "raw", "layer", 0, 2, ["last", "low", "high"]),
+    (90, "macro 1", "signed", "layer", -99, 99, []),
+    (91, "macro 2", "signed", "layer", -99, 99, []),
+    (92, "osc-tune a", "raw", "layer", 0, 3, ["semitones", "octave", "free", "fixed"]),
+    (93, "osc-tune b", "raw", "layer", 0, 3, ["semitones", "octave", "free", "fixed"]),
+    (94, "env-mode amp", "raw", "layer", 0, 17, ["adsr", "dahdsr", "cycle", "cycle 8bar", "cycle 4bar", "cycle 2bar", "cycle 1bar", "cycle 1/2", "cycle 1/4.", "cycle 1/4", "cycle 1/4T", "cycle 1/8.", "cycle 1/8", "cycle 1/8T", "cycle 1/16.", "cycle 1/16", "cycle 1/16T", "cycle 1/32"]),
+    (95, "env-up amp", "bool", "layer", 0, 1, []),
+    (96, "env-tempo amp", "bool", "layer", 0, 1, []),
+    (97, "env-curve amp", "raw", "layer", 0, 2, ["analog", "linear", "swell"]),
+    (98, "env-count amp", "raw", "layer", 0, 99, []),
+    (99, "env-delay amp", "raw", "layer", 0, 99, []),
+    (100, "env-hold amp", "raw", "layer", 0, 99, []),
+    (101, "env-mode filter", "raw", "layer", 0, 17, ["adsr", "dahdsr", "cycle", "cycle 8bar", "cycle 4bar", "cycle 2bar", "cycle 1bar", "cycle 1/2", "cycle 1/4.", "cycle 1/4", "cycle 1/4T", "cycle 1/8.", "cycle 1/8", "cycle 1/8T", "cycle 1/16.", "cycle 1/16", "cycle 1/16T", "cycle 1/32"]),
+    (102, "env-up filter", "bool", "layer", 0, 1, []),
+    (103, "env-tempo filter", "bool", "layer", 0, 1, []),
+    (104, "env-curve filter", "raw", "layer", 0, 2, ["analog", "linear", "swell"]),
+    (105, "env-count filter", "raw", "layer", 0, 99, []),
+    (106, "env-delay filter", "raw", "layer", 0, 99, []),
+    (107, "env-hold filter", "raw", "layer", 0, 99, []),
+    (108, "env-mode env3", "raw", "layer", 0, 17, ["adsr", "dahdsr", "cycle", "cycle 8bar", "cycle 4bar", "cycle 2bar", "cycle 1bar", "cycle 1/2", "cycle 1/4.", "cycle 1/4", "cycle 1/4T", "cycle 1/8.", "cycle 1/8", "cycle 1/8T", "cycle 1/16.", "cycle 1/16", "cycle 1/16T", "cycle 1/32"]),
+    (109, "env-up env3", "bool", "layer", 0, 1, []),
+    (110, "env-tempo env3", "bool", "layer", 0, 1, []),
+    (111, "env-curve env3", "raw", "layer", 0, 2, ["analog", "linear", "swell"]),
+    (112, "env-count env3", "raw", "layer", 0, 99, []),
+    (113, "env-delay env3", "raw", "layer", 0, 99, []),
+    (114, "env-hold env3", "raw", "layer", 0, 99, []),
+    (115, "env-mode env4", "raw", "layer", 0, 17, ["adsr", "dahdsr", "cycle", "cycle 8bar", "cycle 4bar", "cycle 2bar", "cycle 1bar", "cycle 1/2", "cycle 1/4.", "cycle 1/4", "cycle 1/4T", "cycle 1/8.", "cycle 1/8", "cycle 1/8T", "cycle 1/16.", "cycle 1/16", "cycle 1/16T", "cycle 1/32"]),
+    (116, "env-up env4", "bool", "layer", 0, 1, []),
+    (117, "env-tempo env4", "bool", "layer", 0, 1, []),
+    (118, "env-curve env4", "raw", "layer", 0, 2, ["analog", "linear", "swell"]),
+    (119, "env-count env4", "raw", "layer", 0, 99, []),
+    (120, "env-delay env4", "raw", "layer", 0, 99, []),
+    (121, "env-hold env4", "raw", "layer", 0, 99, []),
+    (122, "edit-layer", "raw", "ui", 0, 1, ["1", "2"]),
+    (123, "lfo-select", "raw", "ui", 0, 1, ["1", "2"]),
+]
+# END PARAMS
+
+
+# pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N]: a parameter by NRPN (0.10.0): CC 99 the layer
+# rule, 98 the id, then 6 (and 38 for a knob's or a macro offset's 14 bits); pro800 nrpn list prints the table
+def nrpn():
+    if args == ["list"]:
+        for pid, name, kind, scope, lo, hi, values in PARAMS:
+            show(f"{pid:3d}  {name:24s} {kind:6s} {scope:6s} {lo}..{hi}" + (f"  {' '.join(values)}" if values else ""))
+        return
+    layer = option("--layer")  # "" when its value is missing: refused, as in the Swift tool
+    rule = {"edit": 0, "1": 1, "2": 2, "both": 3}.get("edit" if layer is None else layer)
+    given = option("--channel")  # read after the arguments are checked: nothing goes out for a refused one
+    entry = next((p for p in PARAMS if len(args) == 2 and args[0] in (p[1], str(p[0]))), None)
+    value = None
+    if entry is not None:
+        pid, name, kind, scope, lo, hi, values = entry
+        value = values.index(args[1]) if args[1] in values else int_in(args[1], lo, hi)
+    if rule is None or value is None:
+        fail("usage: pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N] (pro800 nrpn list: the names and ranges)")
+    if given is not None:
+        args.extend(["--channel", given])
+    channel = channel_option(1)
+    messages = [[0xB0 | channel, 99, rule], [0xB0 | channel, 98, pid]]
+    if kind in ("knob", "signed"):
+        v14 = value if kind == "knob" else max(0, min(16383, round(value * 8191 / 99) + 8192))
+        messages += [[0xB0 | channel, 6, v14 >> 7], [0xB0 | channel, 38, v14 & 0x7F]]
+    else:
+        messages.append([0xB0 | channel, 6, value])
+    for m in messages:
+        midi().send(m)
+    show(f"{name} = {args[1]}" + ("" if scope in ("patch", "shared", "ui") else f" ({['the edit layer', 'layer 1', 'layer 2', 'both layers'][rule]})"))
+
+
 # pro800 cc <controller> <value> [--channel N]
 def cc():
     channel = channel_option(1)
@@ -2650,7 +2810,7 @@ COMMANDS = {
     "direct": direct, "cv": cv, "gate": gate, "measure": measure, "tune": tune, "tuning": tuning, "check": check,
     "dac-test": dac_test, "sh-waits": sh_waits, "dac-heal": dac_heal, "panel": panel, "state": state, "set": set_setting,
     "settings": settings, "params": params, "param": param, "factory": factory, "seq": seq, "layer": layer_command,
-    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "route-move": route_move, "route-via": route_via, "chord": chord, "timing": timing, "engine": engine,
+    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "route-move": route_move, "route-via": route_via, "chord": chord, "nrpn": nrpn, "timing": timing, "engine": engine,
     "sysex": sysex_pipe, "cc": cc, "bend": bend, "eeprom-write": eeprom_write, "format": format_patches,
     "patch": patch_command, "patches": patches, "clock": clock_out, "leds": leds, "update-mode": update_mode,
     "flash": flash, "install": install, "port-present": port_present, "fault": fault, "fault-test": fault_test,

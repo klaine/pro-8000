@@ -63,7 +63,9 @@
 //   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
 //   53 <layer>             the layer's parameters; replies 53 <layer> <count> <value 0-16383, 2 × 7 bits, each>
 //   52 <layer> <param> <v1> <v0>  set a parameter (0-16383; its knob goes into pickup); acknowledged
-//   6B <rule> <param>      show a parameter's value on the display, as its knob would (rule 0 the edit layer, 1 layer
+//   6B <rule> <param>      show a parameter's value on the display (from 0.10.0 any NRPN id, tools/params.json:
+//                          0-35 the knobs, as the knob would; the others their name, then the value; an unknown id
+//                          does nothing) (rule 0 the edit layer, 1 layer
 //                          1, 2 layer 2); no reply. The editor sends it after its own edits (0.10.0)
 //   59 <n1> <n0> <name>    rename patch n (up to 16 characters); acknowledged
 //   4F <n1> <n0>           clear patch n (it becomes an empty slot); acknowledged
@@ -548,6 +550,26 @@ static const char *page_name(int page)
     return page_names[page];
 }
 
+// An envelope's mode as page 6 has it: 0 ADSR, 1 DAHDSR, ENV_MODE_CYCLE free cycling, then synced to each division
+static int env_mode_get(int layer, int env)
+{
+    if (synth_env_cycle(layer) >> env & 1)
+        return ENV_MODE_CYCLE + synth_env_sync(layer, env);
+    return synth_env_dahdsr(layer) >> env & 1;
+}
+
+static void env_mode_set(int layer, int env, int value)
+{
+    int bit = 1 << env;
+    if (value < ENV_MODE_CYCLE) { // ADSR or DAHDSR; cycling off
+        int dahdsr = synth_env_dahdsr(layer);
+        synth_set_env_dahdsr(layer, value ? dahdsr | bit : dahdsr & ~bit);
+    }
+    int cycle = synth_env_cycle(layer);
+    synth_set_env_cycle(layer, value >= ENV_MODE_CYCLE ? cycle | bit : cycle & ~bit);
+    synth_set_env_sync(layer, env, value > ENV_MODE_CYCLE ? value - ENV_MODE_CYCLE : 0);
+}
+
 static int menu_open, menu_page = -1, encoder_steps;
 static uint32_t show_value_at; // ms_ticks to replace the page name with its value; 0 = not pending
 
@@ -594,9 +616,7 @@ static int setting_get(int page)
             return synth_env_curve(layer) >> 2 * cycle_env & 3;
         if (alt_page == ENV_PAGE_COUNT)
             return synth_env_count(layer, cycle_env);
-        if (synth_env_cycle(layer) >> cycle_env & 1)
-            return ENV_MODE_CYCLE + synth_env_sync(layer, cycle_env);
-        return synth_env_dahdsr(layer) >> cycle_env & 1;
+        return env_mode_get(layer, cycle_env);
     }
     default: return synth_split_note();
     }
@@ -652,13 +672,7 @@ static void setting_set(int page, int value)
             synth_set_env_count(layer, cycle_env, value);
             break;
         }
-        if (value < ENV_MODE_CYCLE) { // ADSR or DAHDSR; cycling off
-            int dahdsr = synth_env_dahdsr(layer);
-            synth_set_env_dahdsr(layer, value ? dahdsr | bit : dahdsr & ~bit);
-        }
-        int cycle = synth_env_cycle(layer);
-        synth_set_env_cycle(layer, value >= ENV_MODE_CYCLE ? cycle | bit : cycle & ~bit);
-        synth_set_env_sync(layer, cycle_env, value > ENV_MODE_CYCLE ? value - ENV_MODE_CYCLE : 0);
+        env_mode_set(layer, cycle_env, value);
         break;
     }
     default: synth_set_split_note(value); break;
@@ -1728,22 +1742,43 @@ static void param_value_text(int index, int layer, float knob, char *text, int t
     }
 }
 
-// A controller's value on the display, as its knob shows it. The controller can stream and a redraw stalls the loop up
-// to 3.5 ms, so the main loop shows the latest, at most 20 times a second, unless the panel is using the display.
-static int cc_shown_param = -1, cc_shown_layer;
-static float cc_shown_value;
-static uint32_t cc_shown_at;
+// A controller's value on the display (a CC, an NRPN, the host's 6B), by parameter id (params.h; ids below PARAM_COUNT
+// are the knobs' parameters, as their knobs show them). Another parameter shows its name for half a second first. The
+// controller can stream and a redraw stalls the loop up to 3.5 ms, so the main loop shows the latest, at most 20 times
+// a second, unless the panel is using the display.
+static int cc_shown_param = -1, cc_shown_layer, cc_named = -1;
+static float cc_shown_value; // a knob's
+static uint32_t cc_shown_at, cc_named_at;
+static int param_known(int id);
+static const char *param_code(int id);
+static void param_text(int id, int layer, char *text);
 
 static void cc_show(uint32_t now)
 {
     if (cc_shown_param < 0 || (int32_t)(now - cc_shown_at) < 50)
         return;
     int param = cc_shown_param;
-    cc_shown_param = -1;
-    if (report_mode || menu_open || saving || recording || assigning || browsing || comparing || typed_digits)
+    if (report_mode || menu_open || saving || recording || assigning || browsing || comparing || typed_digits) {
+        cc_shown_param = -1;
         return;
+    }
     char text[8];
-    param_value_text(param, cc_shown_layer, cc_shown_value, text, 0);
+    if (param >= PARAM_COUNT && (param != cc_named || (int32_t)(now - cc_named_at) > 1500)) {
+        cc_named = param; // its name, then (cc_shown_param stays) its value
+        cc_named_at = now;
+        display_text(param_code(param));
+        display_until = now + 1500;
+        cc_shown_at = now + 450;
+        return;
+    }
+    cc_shown_param = -1;
+    if (param >= PARAM_COUNT) {
+        param_text(param, cc_shown_layer, text);
+        cc_named_at = now;
+    } else {
+        param_value_text(param, cc_shown_layer, cc_shown_value, text, 0);
+        cc_named = -1;
+    }
     display_text(text);
     display_until = now + 1500; // as a knob's
     cc_shown_at = now;
@@ -2253,6 +2288,8 @@ typedef enum {
 _Static_assert(8 + 2 + 2 * SET_COUNT + 1 <= SYSEX_MAX, "the settings reply fits");
 _Static_assert(SET_INIT_PATCH == 95, "the tools and the page number the settings: 95 is init-patch (NOTES, the 0.10.0 plan)");
 
+#include "params.h" // after the SET_* ids, which its table names
+
 static int host_setting_get(int id)
 {
     switch (id) {
@@ -2714,11 +2751,11 @@ static void handle_sysex(const uint8_t *message, int length)
         reply[n++] = 0x7F;
         reply[n++] = 0x52;
     }
-    if (data_length == 3 && data[0] == 0x6B && data[1] < 3 && data[2] < PARAM_COUNT) { // show a parameter (#34)
+    if (data_length == 3 && data[0] == 0x6B && data[1] < 3 && (data[2] < PARAM_COUNT || param_known(data[2]))) { // show a parameter (#34)
         int layer = data[1] ? data[1] - 1 : synth_edit_layer(); // layer rule: 0 the edit layer, 1 layer 1, 2 layer 2
         cc_shown_param = data[2]; // as a controller's value: at most 20 a second, never over a menu or a save
         cc_shown_layer = layer;
-        cc_shown_value = synth_param(layer, data[2]);
+        cc_shown_value = data[2] < PARAM_COUNT ? synth_param(layer, data[2]) : 0; // a knob's
     }
     if (data_length >= 3 && data_length <= 3 + PATCH_NAME && data[0] == 0x59) {
         int slot = data[1] << 7 | data[2];
@@ -2978,6 +3015,130 @@ static const struct { uint8_t cc, param; } cc_map[] = {
     {31, POT_MASTER_TUNE}, {85, PARAM_ENV3_ATT}, {86, PARAM_ENV3_DEC}, {87, PARAM_ENV3_SUS}, {88, PARAM_ENV3_REL},
     {89, PARAM_ENV4_ATT}, {90, PARAM_ENV4_DEC}, {102, PARAM_ENV4_SUS}, {103, PARAM_ENV4_REL},
 };
+// --- parameters by id (params.h, from tools/params.json): NRPN, 6B and the CC map ---
+
+// The layer a parameter acts on for a layer (0 or 1): none (0) for the patch's and the shared ones; a linked layer 2
+// takes layer 1's, as its knob or its page does
+static int param_layer_of(const param_def_t *d, int layer)
+{
+    if (d->scope != PARAM_SCOPE_LAYER)
+        return 0;
+    if (d->target == PARAM_TARGET_KNOB)
+        return synth_param_layer(layer, d->index);
+    if (d->link >= 1 && d->link <= 4)
+        return synth_env_layer(layer, d->link - 1);
+    if (d->link >= 5)
+        return synth_lfo_layer(layer, d->link - 5);
+    return layer;
+}
+
+static int param_known(int id) { return id >= 0 && id < PARAM_IDS && param_defs[id].kind; }
+
+static const char *param_code(int id) { return param_known(id) ? param_defs[id].code : ""; }
+
+// A parameter's value: a knob's 0-16383, the others' min to max (as the display shows them)
+static int param_get(int id, int layer)
+{
+    const param_def_t *d = &param_defs[id];
+    layer = param_layer_of(d, layer);
+    switch (d->target) {
+    case PARAM_TARGET_KNOB: return (int)(synth_param(layer, d->index) * 16383.0f + 0.5f);
+    case PARAM_TARGET_SWITCH: return synth_switch(d->index);
+    case PARAM_TARGET_ENV_MODE: return env_mode_get(layer, d->index);
+    default: {
+        int v = host_setting_get(d->index + layer * d->stride);
+        return (d->width ? v >> d->shift & ((1 << d->width) - 1) : v) - d->bias;
+    }
+    }
+}
+
+// Sets it, clamped to its range; 0 if the synth refused (a knob then waits for its knob, as after the host's 52)
+static int param_set(int id, int layer, int value)
+{
+    if (!param_known(id))
+        return 0;
+    const param_def_t *d = &param_defs[id];
+    layer = param_layer_of(d, layer);
+    if (d->target == PARAM_TARGET_KNOB) {
+        synth_set_param(layer, d->index, (float)(value < 0 ? 0 : value > 16383 ? 16383 : value) / 16383.0f);
+        return 1;
+    }
+    value = value < d->min ? d->min : value > d->max ? d->max : value;
+    switch (d->target) {
+    case PARAM_TARGET_SWITCH: synth_set_switch(d->index, value); return 1;
+    case PARAM_TARGET_ENV_MODE: env_mode_set(layer, d->index, value); return 1;
+    default: {
+        int setting = d->index + layer * d->stride, v = value + d->bias;
+        if (d->width) {
+            int mask = ((1 << d->width) - 1) << d->shift;
+            v = (host_setting_get(setting) & ~mask) | (value << d->shift & mask);
+        }
+        return host_setting_set(setting, v);
+    }
+    }
+}
+
+// What the display shows for a parameter that isn't a knob: on / OFF, or the number (a scale, a shape: its place in
+// the list, as tools/params.json names them)
+static void param_text(int id, int layer, char *text)
+{
+    int v = param_get(id, layer);
+    if (param_defs[id].kind == PARAM_KIND_BOOL) {
+        static const char on[] = "  on", off[] = " OFF";
+        for (int i = 0; i < 5; i++)
+            text[i] = (v ? on : off)[i];
+        return;
+    }
+    format_signed((float)v, text);
+}
+
+// NRPN (0.10.0): per channel the parameter CC 99 / 98 select (99, the MSB: the layer rule, 0 the edit layer or in
+// channel mode the channel's, 1 layer 1, 2 layer 2, 3 both; 98, the LSB: the id) and data entry's MSB for CC 38. An RPN
+// (CC 101 / 100) deselects it; data with nothing selected does nothing. A knob takes CC 6 as v / 127 of its travel
+// and CC 38 as the 14-bit value with the MSB; a signed value (the macros' offsets) is centred at 64 (8192); the others
+// take CC 6 as the number itself, clamped to their range, and ignore CC 38. CC 96 / 97: one step up / down.
+static struct {
+    uint8_t rule, id, msb, on;
+} nrpn[16];
+
+static void nrpn_data(int channel, int how, uint8_t value) // how: 0 CC 6, 1 CC 38, 2 CC 96, 3 CC 97
+{
+    int c = channel & 15, id = nrpn[c].id, rule = nrpn[c].rule;
+    if (!nrpn[c].on || rule > 3 || !param_known(id))
+        return;
+    const param_def_t *d = &param_defs[id];
+    if (how == 0)
+        nrpn[c].msb = value;
+    if (how == 1 && (d->kind == PARAM_KIND_RAW || d->kind == PARAM_KIND_BOOL))
+        return;
+    int v14 = nrpn[c].msb << 7 | (how == 1 ? value : 0), msb = nrpn[c].msb;
+    int base = synth_layer_mode() == LAYER_CHANNEL ? channel == 1 : synth_edit_layer();
+    int layers = d->scope != PARAM_SCOPE_LAYER ? 1 : rule ? rule : 1 << base, shown = -1, done = 0;
+    for (int l = 0; l < 2; l++) {
+        int target = param_layer_of(d, l);
+        if (!(layers >> l & 1) || done >> target & 1)
+            continue; // both layers, one of them linked: one value, set (or stepped) once
+        done |= 1 << target;
+        int v;
+        if (how >= 2)
+            v = param_get(id, l) + (how == 2 ? 1 : -1) * (d->kind == PARAM_KIND_KNOB ? 129 : 1);
+        else if (d->kind == PARAM_KIND_KNOB)
+            v = how ? v14 : msb * 16383 / 127;
+        else if (d->kind == PARAM_KIND_SIGNED) { // to the nearest, so a value sent as round(v × 8191 / 99) comes back
+            int n = how ? (v14 - 8192) * 99 : (msb - 64) * 99, by = how ? 8191 : 63;
+            v = (n + (n >= 0 ? by / 2 : -(by / 2))) / by;
+        } else
+            v = msb;
+        if (param_set(id, l, v) && shown < 0)
+            shown = l;
+    }
+    if (shown >= 0) {
+        cc_shown_param = id;
+        cc_shown_layer = d->scope == PARAM_SCOPE_LAYER ? shown : synth_edit_layer();
+        cc_shown_value = d->kind == PARAM_KIND_KNOB ? (float)param_get(id, shown) / 16383.0f : 0;
+    }
+}
+
 // A note let go on `layers` (the pedal's release): the sequence's key, else the engine's
 static void release_key(uint8_t note, int layers, uint8_t release_velocity)
 {
@@ -3028,6 +3189,22 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
     }
     if (cc == 0 || cc == 32) // bank select: one bank
         return;
+    if (cc == 99 || cc == 98) { // NRPN: they win over a CC A / B or a map on these numbers
+        nrpn[channel & 15].on = 1;
+        if (cc == 99)
+            nrpn[channel & 15].rule = value;
+        else
+            nrpn[channel & 15].id = value;
+        return;
+    }
+    if (cc == 101 || cc == 100) { // an RPN: none is taken (bend range, MPE's setup), but it deselects the NRPN
+        nrpn[channel & 15].on = 0;
+        return;
+    }
+    if (cc == 6 || cc == 38 || cc == 96 || cc == 97) {
+        nrpn_data(channel, cc == 6 ? 0 : cc == 38 ? 1 : cc == 96 ? 2 : 3, value);
+        return;
+    }
     int assigned = cc == synth_cc_number(0) || cc == synth_cc_number(1);
     if (assigned) {
         synth_cc_source(cc == synth_cc_number(0) ? 0 : 1, value, synth_channel_layers(channel));
@@ -3046,7 +3223,7 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
     }
     for (unsigned i = 0; i < sizeof cc_map / sizeof cc_map[0]; i++)
         if (cc_map[i].cc == cc) {
-            int layer = synth_layer_mode() == LAYER_CHANNEL ? channel == 1 : synth_edit_layer();
+            int layer = synth_param_layer(synth_layer_mode() == LAYER_CHANNEL ? channel == 1 : synth_edit_layer(), cc_map[i].param);
             synth_set_param(layer, cc_map[i].param, (float)value / 127.0f);
             cc_shown_param = cc_map[i].param;
             cc_shown_layer = layer;

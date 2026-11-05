@@ -108,6 +108,8 @@ int synth_layer_link(void);
 void synth_set_layer_link(int bits);
 int synth_env_edit_layer(int env); // the layer the panel edits this envelope, LFO or pot on
 int synth_env_layer(int layer, int env); // the layer whose envelope `layer` uses: 0 for a linked one on layer 2
+int synth_lfo_layer(int layer, int which); // the same for an LFO
+int synth_param_layer(int layer, int param); // the layer whose value of a knob's parameter `layer` plays (its knob's)
 int synth_lfo_edit_layer(int which);
 int synth_pot_linked(int pot);     // this knob, on layer 2, is editing layer 1
 int synth_layer_voices(void);

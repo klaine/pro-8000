@@ -634,6 +634,7 @@
         <li>Sustain (CC 64), pitch bend (range: <kbd>Settings</kbd> <kbd>7</kbd>), mod wheel, poly and channel aftertouch; in channel mode each channel's reach only its layer.</li>
         <li>Program change 0-127 picks patch 1-128; bank select is ignored.</li>
         <li>CCs: 74 cutoff (Timbre alone in 8CH and MPE), 71 resonance, 5 glide, 14 / 15 FREQ A / B, 16 FINE, 17 / 18 PW, 19 / 20 levels, 21 noise, 22 filter env amount, 23-26 filter ADSR, 73 / 75 / 70 / 72 amp A / D / S / R, 76 / 77 LFO 1, 27 / 28 LFO 2, 29 / 30 poly-mod, 31 tune, 85-90 + 102-103 Env 3 / 4.</li>
+        <li data-needs="chord">NRPN reaches every parameter in the manual's table (<code>pro800 nrpn list</code>), buttons and the patch's settings too: CC 99 the layer (0 the edit layer, in channel mode the channel's; 1, 2, 3 both), CC 98 the parameter, CC 6 the value (CC 38 its fine part; CC 96 / 97 a step). A knob shows its value as the knob would, the others their name for half a second, then the value.</li>
       </ul>
     </section>
 

@@ -124,7 +124,8 @@ web page's MIDI router).
 - **Program change** 0-127 picks patch 1-128 (an empty one: the init sound). Bank select is ignored. During a save it's
   ignored, so the sound you're storing stays.
 - **Controllers** set knobs on the layer the channel plays (layer 2 for channel 2 in channel mode), else the layer
-  you're editing; the knob then picks up as after loading a patch:
+  you're editing (from 0.10.0 a knob layer 2 takes from layer 1, as linked, sets layer 1's, as its knob does); the
+  knob then picks up as after loading a patch:
 
 | CC | Knob | CC | Knob | CC | Knob |
 |---|---|---|---|---|---|
@@ -137,6 +138,146 @@ web page's MIDI router).
 
 The display shows a controller's value as it shows its knob's, except while Settings, a save or MOD ASSIGN is using it.
 CC 74 also feeds the `Timbre` mod source, for routes. In the `8CH` and `nPE` modes it's Timbre only, per voice, and leaves the Cutoff knob alone: an MPE keyboard sends it for each note. Up to 0.9.3 CC 74 never reached cutoff, though this table said it did. If CC A or B is set to 74, it's that source and Timbre, and not the knob.
+
+**NRPN** (0.10.0) reaches every parameter in the table below, the buttons and settings included: CC 99 (the NRPN's
+MSB) says which layer, CC 98 (its LSB) which parameter, then CC 6 sends the value (and CC 38 its fine part). The layer:
+0 the layer the channel plays in channel mode, else the one you're editing; 1 layer 1, 2 layer 2, 3 both. A
+parameter of the patch or both layers ignores it, and one layer 2 takes from layer 1 (linked) sets layer 1's, as its
+knob does. A knob takes CC 6 as a share of its travel (0-127, the top its end) and CC 6 with CC 38 as 14 bits (0-16383);
+a macro offset is centred at 64 (8192); the rest take CC 6 as their number, as listed, kept to their range, and ignore
+CC 38. CC 96 / 97 step the value up / down. An RPN (CC 101 / 100) deselects the NRPN, so an MPE keyboard's setup or a
+bend-range message changes nothing (the RPNs themselves aren't read). The CCs these use (6, 38, 96-101) are NRPN's even
+if CC A or B is set to one of them. The display shows a knob's value as the knob would, and the others' name for half
+a second, then their value (on / OFF for a button). The numbers are fixed from 0.10.0 on; `pro800 nrpn list` prints
+them, and `pro800 nrpn cutoff 8000 --layer 2` sends one. System-wide settings (MIDI channel, clock, CC A / B, pickup,
+the init patch) aren't reachable: they'd cut the controller off or write the memory on every message.
+
+<!-- BEGIN PARAMS (tools/gen_params.py) -->
+
+| Id | Name | What | Values | Display |
+|---|---|---|---|---|
+| 0 | `amp-rel` | Amp release (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 1 | `amp-sus` | Amp sustain (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 2 | `amp-dec` | Amp decay (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 3 | `amp-att` | Amp attack (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 4 | `fil-rel` | Filter release (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 5 | `fil-sus` | Filter sustain (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 6 | `fil-dec` | Filter decay (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 7 | `fil-att` | Filter attack (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 8 | `resonance` | Resonance (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 9 | `fil-env-amt` | Filter env amount (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 10 | `freq-a` | Freq A (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 11 | `freq-b` | Freq B (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 12 | `fine` | Fine (B) (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 13 | `a-pw` | PW A (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 14 | `b-pw` | PW B (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 15 | `a-level` | Level A (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 16 | `glide` | Glide (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 17 | `lfo-freq` | LFO 1 rate (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 18 | `lfo-amount` | LFO 1 amount (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 19 | `macro1` | Macro 1 (M TUNE) (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 21 | `b-level` | Level B (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 22 | `pmod-osc-b` | Poly-mod osc B (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 23 | `pmod-fil-env` | Poly-mod filter env (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 24 | `cutoff` | Cutoff (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 25 | `noise` | Noise (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 26 | `env3-att` | Env 3 attack (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 27 | `env3-dec` | Env 3 decay (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 28 | `env3-sus` | Env 3 sustain (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 29 | `env3-rel` | Env 3 release (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 30 | `env4-att` | Env 4 attack (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 31 | `env4-dec` | Env 4 decay (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 32 | `env4-sus` | Env 4 sustain (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 33 | `env4-rel` | Env 4 release (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 34 | `lfo2-rate` | LFO 2 rate (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 35 | `lfo2-amount` | LFO 2 amount (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 36 | `button a-saw` | Osc A saw (both layers) | 0 off, 1 on | `A.SA` |
+| 37 | `button a-tri` | Osc A triangle (both layers) | 0 off, 1 on | `A.tr` |
+| 38 | `button a-square` | Osc A square (both layers) | 0 off, 1 on | `A.SQ` |
+| 39 | `button b-saw` | Osc B saw (both layers) | 0 off, 1 on | `b.SA` |
+| 40 | `button b-tri` | Osc B triangle (both layers) | 0 off, 1 on | `b.tr` |
+| 41 | `button b-square` | Osc B square (both layers) | 0 off, 1 on | `b.SQ` |
+| 42 | `button lfo-pw` | LFO 1 to PW (both layers) | 0 off, 1 on | `L.PU` |
+| 43 | `button lfo-freq` | LFO 1 to pitch (both layers) | 0 off, 1 on | `L.Fr` |
+| 44 | `button pmod-freq-a` | Poly-mod to freq A (both layers) | 0 off, 1 on | `P.FA` |
+| 46 | `button lfo-filter` | LFO 1 to filter (both layers) | 0 off, 1 on | `L.FL` |
+| 47 | `button pmod-filter` | Poly-mod to filter (both layers) | 0 off, 1 on | `P.FL` |
+| 48 | `button unison` | Unison (both layers) | 0 off, 1 on | `UnI` |
+| 51 | `button sync` | Sync (both layers) | 0 off, 1 on | `SYnC` |
+| 52 | `layers` | Layer mode (the patch) | 0 off, 1 split, 2 stack, 3 channel, 4 8ch, 5 mpe | `LAYr` |
+| 53 | `split` | Split note (the patch) | 0 to 127 | `SPLt` |
+| 54 | `layer-voices` | Layer 1's voices (the patch) | 0 to 7 | `Lr.Uo` |
+| 55 | `keytrack` | Filter keytracking (the patch) | 0 off, 1 half, 2 full | `trAC` |
+| 56 | `lfo-sync` | LFO 1 sync (the patch) | 0 free, 1 clock | `L1.SY` |
+| 57 | `lfo-trigger` | LFO 1 retrigger (the patch) | 0 free, 1 first, 2 every, 3 voice, 4 one-shot, 5 one-shot-voice | `L1.tr` |
+| 58 | `lfo-delay 1` | LFO 1 delay (the patch) | 0 to 99 | `L1.dL` |
+| 59 | `lfo-fade 1` | LFO 1 fade (the patch) | 0 to 99 | `L1.FA` |
+| 60 | `lfo-cycles` | LFO 1 one shot's cycles (the patch) | 1 to 99 | `L1.Cn` |
+| 61 | `lfo2-sync` | LFO 2 sync (the patch) | 0 free, 1 clock | `L2.SY` |
+| 62 | `lfo2-trigger` | LFO 2 retrigger (the patch) | 0 free, 1 first, 2 every, 3 voice, 4 one-shot, 5 one-shot-voice | `L2.tr` |
+| 63 | `lfo-delay 2` | LFO 2 delay (the patch) | 0 to 99 | `L2.dL` |
+| 64 | `lfo-fade 2` | LFO 2 fade (the patch) | 0 to 99 | `L2.FA` |
+| 65 | `lfo2-cycles` | LFO 2 one shot's cycles (the patch) | 1 to 99 | `L2.Cn` |
+| 66 | `lfo-restart` | A sequence's LFO restarts (the patch) | 0 steps, 1 keys | `L.rS` |
+| 67 | `bend` | Bend range (the patch) | 1 to 12 | `bEnd` |
+| 68 | `detune` | Unison detune (the patch) | 0 to 100 | `dEtU` |
+| 69 | `unison-voices` | Unison voices (the patch) | 2 to 8 | `Un.Uo` |
+| 70 | `drift` | Drift (the patch) | 0 to 99 | `drFt` |
+| 71 | `scale` | Scale (the patch) | 0 off, 1 major, 2 minor, 3 dorian, 4 phrygian, 5 lydian, 6 mixolydian, 7 harmonic-minor, 8 pentatonic-major, 9 pentatonic-minor, 10 blues, 11 whole-tone, 12 chromatic | `SCAL` |
+| 72 | `root` | Scale root (the patch) | 0 C, 1 C#, 2 D, 3 D#, 4 E, 5 F, 6 F#, 7 G, 8 G#, 9 A, 10 A#, 11 B | `root` |
+| 73 | `link amp-env` | Layer 2 takes the amp envelope from layer 1 (the patch) | 0 off, 1 on | `Ln.EA` |
+| 74 | `link filter-env` | Layer 2 takes the filter envelope from layer 1 (the patch) | 0 off, 1 on | `Ln.EF` |
+| 75 | `link env3` | Layer 2 takes Env 3 from layer 1 (the patch) | 0 off, 1 on | `Ln.E3` |
+| 76 | `link env4` | Layer 2 takes Env 4 from layer 1 (the patch) | 0 off, 1 on | `Ln.E4` |
+| 77 | `link lfo1` | Layer 2 takes LFO 1 from layer 1 (the patch) | 0 off, 1 on | `Ln.L1` |
+| 78 | `link lfo2` | Layer 2 takes LFO 2 from layer 1 (the patch) | 0 off, 1 on | `Ln.L2` |
+| 79 | `link filter` | Layer 2 takes the filter from layer 1 (the patch) | 0 off, 1 on | `Ln.FL` |
+| 80 | `arp-range` | Arp range (octaves above) (the patch) | 0 1, 1 2, 2 3 | `Ar.rA` |
+| 81 | `arp-extend` | Arp added notes (the patch) | 0 none, 1 octave, 2 fifth, 3 seventh, 4 ninth | `Ar.Ad` |
+| 82 | `arp-chaos` | Arp Chaos (the patch) | 0 to 99 | `CHAo` |
+| 83 | `shape 1` | LFO 1 shape (per layer) | 0 tri, 1 square, 2 ramp-up, 3 ramp-down, 4 sine, 5 sh, 6 drift, 7 steps, 8 noise | `SH.L1` |
+| 84 | `shape 2` | LFO 2 shape (per layer) | 0 tri, 1 square, 2 ramp-up, 3 ramp-down, 4 sine, 5 sh, 6 drift, 7 steps, 8 noise | `SH.L2` |
+| 85 | `lfo2-dests pitch` | LFO 2 to pitch (per layer) | 0 off, 1 on | `L2.Fr` |
+| 86 | `lfo2-dests filter` | LFO 2 to filter (per layer) | 0 off, 1 on | `L2.FL` |
+| 87 | `lfo2-dests pw` | LFO 2 to PW (per layer) | 0 off, 1 on | `L2.PU` |
+| 88 | `voice` | Voice mode (per layer) | 0 poly, 1 mono, 2 legato | `UOIC` |
+| 89 | `priority` | Note priority (per layer) | 0 last, 1 low, 2 high | `PrIO` |
+| 90 | `macro 1` | Macro 1 offset (per layer) | -99 to 99 | `nAC1` |
+| 91 | `macro 2` | Macro 2 offset (per layer) | -99 to 99 | `nAC2` |
+| 92 | `osc-tune a` | Freq A's tuning (per layer) | 0 semitones, 1 octave, 2 free, 3 fixed | `tU.A` |
+| 93 | `osc-tune b` | Freq B's tuning (per layer) | 0 semitones, 1 octave, 2 free, 3 fixed | `tU.b` |
+| 94 | `env-mode amp` | Amp envelope mode (per layer) | 0 adsr, 1 dahdsr, 2 cycle, 3 cycle 8bar, 4 cycle 4bar, 5 cycle 2bar, 6 cycle 1bar, 7 cycle 1/2, 8 cycle 1/4., 9 cycle 1/4, 10 cycle 1/4T, 11 cycle 1/8., 12 cycle 1/8, 13 cycle 1/8T, 14 cycle 1/16., 15 cycle 1/16, 16 cycle 1/16T, 17 cycle 1/32 | `En.A` |
+| 95 | `env-up amp` | Amp envelope key-up trigger (per layer) | 0 off, 1 on | `tr.A` |
+| 96 | `env-tempo amp` | Amp envelope times in note values (per layer) | 0 off, 1 on | `tI.A` |
+| 97 | `env-curve amp` | Amp envelope curve (per layer) | 0 analog, 1 linear, 2 swell | `CU.A` |
+| 98 | `env-count amp` | Amp envelope cycles (0 endless) (per layer) | 0 to 99 | `Cn.A` |
+| 99 | `env-delay amp` | Amp envelope delay (per layer) | 0 to 99 | `dL.A` |
+| 100 | `env-hold amp` | Amp envelope hold (per layer) | 0 to 99 | `Ho.A` |
+| 101 | `env-mode filter` | Filter envelope mode (per layer) | 0 adsr, 1 dahdsr, 2 cycle, 3 cycle 8bar, 4 cycle 4bar, 5 cycle 2bar, 6 cycle 1bar, 7 cycle 1/2, 8 cycle 1/4., 9 cycle 1/4, 10 cycle 1/4T, 11 cycle 1/8., 12 cycle 1/8, 13 cycle 1/8T, 14 cycle 1/16., 15 cycle 1/16, 16 cycle 1/16T, 17 cycle 1/32 | `En.F` |
+| 102 | `env-up filter` | Filter envelope key-up trigger (per layer) | 0 off, 1 on | `tr.F` |
+| 103 | `env-tempo filter` | Filter envelope times in note values (per layer) | 0 off, 1 on | `tI.F` |
+| 104 | `env-curve filter` | Filter envelope curve (per layer) | 0 analog, 1 linear, 2 swell | `CU.F` |
+| 105 | `env-count filter` | Filter envelope cycles (0 endless) (per layer) | 0 to 99 | `Cn.F` |
+| 106 | `env-delay filter` | Filter envelope delay (per layer) | 0 to 99 | `dL.F` |
+| 107 | `env-hold filter` | Filter envelope hold (per layer) | 0 to 99 | `Ho.F` |
+| 108 | `env-mode env3` | Env 3 mode (per layer) | 0 adsr, 1 dahdsr, 2 cycle, 3 cycle 8bar, 4 cycle 4bar, 5 cycle 2bar, 6 cycle 1bar, 7 cycle 1/2, 8 cycle 1/4., 9 cycle 1/4, 10 cycle 1/4T, 11 cycle 1/8., 12 cycle 1/8, 13 cycle 1/8T, 14 cycle 1/16., 15 cycle 1/16, 16 cycle 1/16T, 17 cycle 1/32 | `En.3` |
+| 109 | `env-up env3` | Env 3 key-up trigger (per layer) | 0 off, 1 on | `tr.3` |
+| 110 | `env-tempo env3` | Env 3 times in note values (per layer) | 0 off, 1 on | `tI.3` |
+| 111 | `env-curve env3` | Env 3 curve (per layer) | 0 analog, 1 linear, 2 swell | `CU.3` |
+| 112 | `env-count env3` | Env 3 cycles (0 endless) (per layer) | 0 to 99 | `Cn.3` |
+| 113 | `env-delay env3` | Env 3 delay (per layer) | 0 to 99 | `dL.3` |
+| 114 | `env-hold env3` | Env 3 hold (per layer) | 0 to 99 | `Ho.3` |
+| 115 | `env-mode env4` | Env 4 mode (per layer) | 0 adsr, 1 dahdsr, 2 cycle, 3 cycle 8bar, 4 cycle 4bar, 5 cycle 2bar, 6 cycle 1bar, 7 cycle 1/2, 8 cycle 1/4., 9 cycle 1/4, 10 cycle 1/4T, 11 cycle 1/8., 12 cycle 1/8, 13 cycle 1/8T, 14 cycle 1/16., 15 cycle 1/16, 16 cycle 1/16T, 17 cycle 1/32 | `En.4` |
+| 116 | `env-up env4` | Env 4 key-up trigger (per layer) | 0 off, 1 on | `tr.4` |
+| 117 | `env-tempo env4` | Env 4 times in note values (per layer) | 0 off, 1 on | `tI.4` |
+| 118 | `env-curve env4` | Env 4 curve (per layer) | 0 analog, 1 linear, 2 swell | `CU.4` |
+| 119 | `env-count env4` | Env 4 cycles (0 endless) (per layer) | 0 to 99 | `Cn.4` |
+| 120 | `env-delay env4` | Env 4 delay (per layer) | 0 to 99 | `dL.4` |
+| 121 | `env-hold env4` | Env 4 hold (per layer) | 0 to 99 | `Ho.4` |
+| 122 | `edit-layer` | The layer the panel edits (the panel) | 0 1, 1 2 | `Ed.Lr` |
+| 123 | `lfo-select` | The LFO the panel edits (the panel) | 0 1, 1 2 | `L.SEL` |
+
+<!-- END PARAMS -->
 
 ### Voice modes, drift, scale, morph
 

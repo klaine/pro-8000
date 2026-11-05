@@ -509,6 +509,8 @@ void synth_set_layer_link(int bits)
 
 int synth_env_edit_layer(int env) { return env_layer(edit_layer, env); }
 int synth_env_layer(int layer, int env) { return env_layer(layer & 1, env); }
+int synth_lfo_layer(int layer, int which) { return lfo_layer(layer & 1, which & 1); }
+int synth_param_layer(int layer, int param) { return param >= 0 && param < PARAM_COUNT ? param_layer(layer & 1, param) : layer & 1; }
 int synth_lfo_edit_layer(int which) { return lfo_layer(edit_layer, which); }
 int synth_pot_linked(int pot) { return linked(edit_layer, link_of_param[param_of_pot(pot)]); }
 

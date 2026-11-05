@@ -8,6 +8,7 @@ import io
 import itertools
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -1115,6 +1116,43 @@ class Writes(unittest.TestCase):
                 out, code = run(synth, *argv)
                 self.assertEqual(code, 0, out)
                 self.assertEqual(synth.sent, [request_bytes(*expected)], out)
+
+    def test_nrpn(self):
+        ids = {p[1]: p[0] for p in pro800.PARAMS}
+        synth = FakeSynth()
+        run(synth, "nrpn", "cutoff", "8256", "--layer", "2", "--channel", "1")
+        self.assertEqual(synth.sent, [bytes([0xB0, 99, 2]), bytes([0xB0, 98, 24]), bytes([0xB0, 6, 64]), bytes([0xB0, 38, 64])])
+        synth = FakeSynth()
+        run(synth, "nrpn", "layers", "stack", "--channel", "1")
+        self.assertEqual(synth.sent, [bytes([0xB0, 99, 0]), bytes([0xB0, 98, ids["layers"]]), bytes([0xB0, 6, 2])])
+        synth = FakeSynth()
+        run(synth, "nrpn", "macro 1", "-99", "--layer", "both", "--channel", "1")
+        self.assertEqual(synth.sent, [bytes([0xB0, 99, 3]), bytes([0xB0, 98, ids["macro 1"]]), bytes([0xB0, 6, 0]), bytes([0xB0, 38, 1])])
+        synth = FakeSynth()
+        run(synth, "nrpn", "macro 1", "2", "--channel", "1")
+        self.assertEqual(synth.sent[2:], [bytes([0xB0, 6, 65]), bytes([0xB0, 38, 37])], "round(2 x 8191 / 99) + 8192")
+        for argv in (("nrpn", "cutoff", "16384"), ("nrpn", "nothing", "1"), ("nrpn", "layers", "6"), ("nrpn", "drift", "5", "--layer", "3"),
+                     ("nrpn", "cutoff", "1", "--layer")):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(synth.sent, [])
+        out, code = run(FakeSynth(), "nrpn", "list")
+        self.assertIn(" 52  layers", out)
+
+    def test_the_parameter_list(self):
+        """tools/params.json: the generated files are fresh, and its names are the tools' and the presets' names."""
+        gen = subprocess.run([sys.executable, os.path.join(HERE, "gen_params.py"), "--check"], capture_output=True, text=True)
+        self.assertEqual(gen.returncode, 0, gen.stdout + gen.stderr)
+        by_id = {p[0]: p for p in pro800.PARAMS}
+        for i, name in enumerate(pro800.PARAM_NAMES):
+            if name != "master-vol":
+                self.assertEqual((by_id[i][1], by_id[i][2]), (name, "knob"))
+        for s, name in pro800.BUTTON_NAMES.items():
+            self.assertEqual((by_id[36 + s][1], by_id[36 + s][2]), ("button " + name, "bool"))
+        swift = open(os.path.join(HERE, "pro800.swift"), encoding="utf-8").read()
+        self.assertEqual(len(re.findall(r'^    \(\d+, "', swift[swift.index("BEGIN PARAMS"):swift.index("END PARAMS")], re.M)), len(pro800.PARAMS))
 
     def test_chord_prints_and_refuses(self):
         synth = FakeSynth()

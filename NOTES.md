@@ -2726,6 +2726,24 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
    answered on #37. 37b: NRPN receive (99 / 98, 6 / 38, 96 / 97; continuous ids coarse MSB + fine LSB, discrete ids raw
    in CC 6; RPNs only deselect), the value on the display; a CC or NRPN on a linked layer 2 edits layer 1 as the knob
    does. Then 6B for every id (step 5 did the knobs).
+   **Done 2026-11-05 (simulator only).** `tools/params.json`, 120 parameters: 0-35 the knobs (20, master volume, left
+   out), 36 + the switch for the 13 latching buttons (named `button a-saw`…, as `set button`; `lfo-freq` is a knob too),
+   52-82 the patch's settings (the link as seven bits), 83-121 each layer's (LFO shapes, LFO 2's routing bits, voice
+   mode and priority, the macro offsets centred, FREQ A / B's tuning, and per envelope mode, key-up, timing, curve,
+   cycles, delay and hold), 122-123 the edit layer and LFO select. System-wide settings stay out (they'd cut a
+   controller off or write the EEPROM per message). `tools/gen_params.py` writes `src/params.h` (included in main.c after
+   the SET_* ids), `tools/web/params.js` (not loaded yet: step 9's map editor), both tools' PARAMS blocks and MANUAL's
+   table; `--check` for the freshness test. main.c: `env_mode_get/set` out of page 6, `param_get/set/text` over the
+   table through `host_setting_get/set` (stride, bit fields, bias, the link through `synth_param_layer` /
+   `synth_env_layer` / `synth_lfo_layer`), NRPN in `control_change` (per channel; 99 / 98 / 6 / 38 / 96 / 97, RPN
+   deselects), `cc_show` by id (a setting's code for half a second, then its value), 6B for any id, and the CC table's
+   link fix. `pro800 nrpn` / `nrpn list` in both tools. The numbers are still provisional until planist79 answers on
+   #37. The review (three lenses, two skeptics per finding, a finding stands unless both refute it; 6 of 17 stood):
+   a macro offset's 14 bits were truncated, so the tool's own `nrpn "macro 1" 2` set 1 (both decodes round now);
+   rule 3 with CC 96 / 97 stepped a linked parameter twice (a layer resolving to one already set is skipped); the
+   Python tool sent an empty `--layer` to the edit layer (refused, as in Swift); four assertions that couldn't fail,
+   the cheat sheet's NRPN line and the 6B header. Tests for the field writes and for linked envelope and LFO settings
+   came with it, though the skeptics called those coverage. 96,508 B.
 9. **#37 the CC map.** 37c: 128 slots at 0x1F420 (id byte plus the rule-and-fine nibble, own magic and checksum,
    written after the 1 s rest), today's table as the default, CC 0 1 6 32 38 64 96-101 120-127 reserved, CC A / B keep
    precedence, enums and buttons scaled (index = v × N / 128, a button on at 64); SysEx 65 / 43 / 42; `pro800 cc-map

@@ -114,3 +114,18 @@ On P128's init sound, with a MIDI keyboard (the synth has none of its own). Afte
 - [ ] The editor (Chrome / Edge): the Voice section's Chord row shows the chord and its names; typing `0 3 7` sets
       it; Capture with keys held takes them; Clear empties it. The mod matrix's Range for a route into Chord voicing
       reads in steps. Export a preset JSON: it has `"chord 1": "0 3 7"`; installing it brings the chord back.
+
+## Step 8: every parameter by NRPN (#37)
+
+On P128's init sound, then `pro800 patch init` and `pro800 patch save P128` afterwards. A controller that sends NRPN
+(planist79's template, a BCR2000, or `pro800 nrpn`).
+
+- [ ] `pro800 nrpn cutoff 8000`: the cutoff moves, the display shows its value as the knob would; turning CUTOFF on the
+      panel picks up from there.
+- [ ] From a controller, over USB and over the 5-pin DIN: a knob's coarse and fine (CC 6 then 38) with no audible step
+      between them on FREQ A or the cutoff.
+- [ ] `pro800 nrpn layers split`, `pro800 nrpn "env-delay amp" 40`, `pro800 nrpn "button a-saw" 0`: each takes, and the
+      display shows the name (`LAYr`, `dL.A`, `A.SA`) and then the value.
+- [ ] An NRPN stream with notes held: no stutter from the display.
+- [ ] An MPE keyboard (or `pro800 cc 101 0` / `100 6` / `6 8` in `nPE` mode): nothing changes.
+- [ ] Layer 2 linked to layer 1's filter, editing layer 2: CC 74 and the cutoff NRPN move layer 1's cutoff (heard).

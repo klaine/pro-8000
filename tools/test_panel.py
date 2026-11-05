@@ -2609,7 +2609,7 @@ class HostShowsAParameter(PanelTest):
 
     def test_out_of_range_does_nothing(self):
         self.s.request(0x6B, 3, 0)
-        self.s.request(0x6B, 1, 99)
+        self.s.request(0x6B, 1, 124)  # no such parameter (tools/params.json)
         self.s.ms(100)
         self.assertShows("P  1")
 
@@ -2993,6 +2993,201 @@ class ChordMemory(PanelTest):
         self.s.switch("UNISON")
         self.s.note(60)
         self.assertEqual(self.notes(), [60] * 8)
+
+
+def nrpn_ids():
+    with open(os.path.join(ROOT, "tools", "params.json"), encoding="utf-8") as f:
+        return {p["name"]: p["id"] for p in json.load(f)["params"]}
+
+
+class Nrpn(PanelTest):
+    """#37: NRPN reaches every parameter of tools/params.json: CC 99 the layer rule, 98 the id, 6 / 38 the value."""
+
+    ID = nrpn_ids()
+
+    def nrpn(self, name, msb=None, lsb=None, rule=0, channel=0):
+        self.s.cc(99, rule, channel)
+        self.s.cc(98, self.ID[name] if isinstance(name, str) else name, channel)
+        if msb is not None:
+            self.s.cc(6, msb, channel)
+        if lsb is not None:
+            self.s.cc(38, lsb, channel)
+        self.s.ms(20)
+
+    def param(self, layer, name):
+        d = self.s.reply(0x53, layer)
+        i = pro800.PARAM_NAMES.index(name)
+        return d[2 + 2 * i] << 7 | d[3 + 2 * i]
+
+    def test_a_knob_takes_coarse_then_fine(self):
+        self.nrpn("cutoff", 64, rule=1)
+        self.assertEqual(self.param(0, "cutoff"), 64 * 16383 // 127)
+        self.s.cc(38, 5)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), 64 << 7 | 5, "CC 38 with the MSB: 14 bits")
+        self.nrpn("cutoff", 127, rule=1)
+        self.assertEqual(self.param(0, "cutoff"), 16383, "the MSB alone reaches the top")
+
+    def test_a_knob_shows_as_its_knob(self):
+        self.nrpn("resonance", 127)
+        self.s.ms(60)
+        self.assertShows("  99")
+
+    def test_the_others_take_their_number_and_show_their_name_first(self):
+        self.nrpn("layers", 2)
+        self.assertEqual(self.s.settings()["layers"], 2)
+        self.s.ms(60)
+        self.assertShows("LAYr")
+        self.s.ms(500)
+        self.assertShows("   2")
+        self.nrpn("layers", 1)
+        self.s.ms(60)
+        self.assertShows("   1", "the same one again: its value at once")
+        self.nrpn("env-delay amp", 40)
+        self.nrpn("shape 1", 4)
+        self.nrpn("env-curve filter", 2)
+        st = self.s.settings()
+        self.assertEqual((st["env-delay 1 amp"], st["shape 1 1"], st["env-curve 1"] >> 2 & 3), (40, 4, 2))
+        self.nrpn("layers", 99)
+        self.assertEqual(self.s.settings()["layers"], 5, "clamped to its range")
+        self.nrpn("layers", 2)
+        self.s.cc(38, 1)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["layers"], 2, "CC 38 means nothing to a number (it would make 2 << 7 | 1)")
+
+    def test_a_button_and_its_display(self):
+        self.nrpn("button a-saw", 0)
+        self.assertEqual(self.s.reply(0x4C)[0], 0)
+        self.s.ms(600)
+        self.assertShows(" OFF")
+        self.nrpn("button a-saw", 1)
+        self.assertEqual(self.s.reply(0x4C)[0], 1)
+
+    def test_a_macro_offset_is_centred(self):
+        for msb, offset in ((64, 0), (127, 99), (0, -99)):
+            self.nrpn("macro 1", msb)
+            self.assertEqual(self.s.settings()["macro 1 1"] - 99, offset)
+        self.nrpn("macro 2", 64, 0)
+        self.assertEqual(self.s.settings()["macro 1 2"] - 99, 0)
+
+    def test_a_macro_offset_in_14_bits_comes_back(self):
+        """pro800 nrpn sends round(v x 8191 / 99) + 8192: the firmware rounds it back to v."""
+        for offset in (2, -2, 33, 50, -60, -98, 98):
+            v14 = max(0, min(16383, round(offset * 8191 / 99) + 8192))
+            with self.subTest(offset=offset):
+                self.nrpn("macro 1", v14 >> 7, v14 & 0x7F)
+                self.assertEqual(self.s.settings()["macro 1 1"] - 99, offset)
+
+    def test_a_field_leaves_the_rest_of_its_setting(self):
+        self.s.setting("link", 64)  # the filter
+        self.nrpn("link amp-env", 1)
+        self.assertEqual(self.s.settings()["link"], 65)
+        self.s.setting("voice 1", 1 | 2 << 2)  # mono, high note
+        self.nrpn("voice", 2, rule=1)
+        self.assertEqual(self.s.settings()["voice 1"], 2 | 2 << 2, "legato, the priority kept")
+        self.s.setting("env-curve 1", 0b10100110)  # swell, swell, linear, swell (env 4 to amp)
+        self.nrpn("env-curve filter", 0, rule=1)
+        self.assertEqual(self.s.settings()["env-curve 1"], 0b10100010, "the filter's two bits alone")
+
+    def test_a_linked_layer_2_reaches_layer_1s_envelope_and_lfo(self):
+        self.s.setting("layers", 2)
+        self.s.setting("link", 1 | 16)  # the amp envelope, LFO 1
+        self.s.setting("edit-layer", 1)
+        self.nrpn("env-delay amp", 30)
+        self.nrpn("shape 1", 4)
+        st = self.s.settings()
+        self.assertEqual((st["env-delay 1 amp"], st["env-delay 2 amp"]), (30, 0))
+        self.assertEqual((st["shape 1 1"], st["shape 2 1"]), (4, 0))
+        self.nrpn("env-mode amp", 0, rule=3)
+        self.s.cc(96, 0)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["dahdsr 1"] & 1, 1, "both layers, one linked value: one step (ADSR to DAHDSR)")
+        self.assertEqual(self.s.settings()["cycle 1"] & 1, 0, "not two (cycling)")
+
+    def test_an_envelope_mode(self):
+        self.nrpn("env-mode env3", 2 + 7, rule=2)  # synced cycling at the seventh division
+        st = self.s.settings()
+        self.assertEqual((st["cycle 2"] >> 2 & 1, st["cycle-sync 2 env3"]), (1, 7))
+        self.nrpn("env-mode env3", 1, rule=2)
+        st = self.s.settings()
+        self.assertEqual((st["cycle 2"] >> 2 & 1, st["dahdsr 2"] >> 2 & 1), (0, 1))
+
+    def test_the_layer_rules(self):
+        self.s.setting("layers", 2)
+        before = self.param(0, "cutoff")
+        self.nrpn("cutoff", 10, rule=2)
+        self.assertEqual((self.param(0, "cutoff"), self.param(1, "cutoff")), (before, 10 * 16383 // 127), "2: layer 2 alone")
+        self.nrpn("cutoff", 20, rule=3)
+        self.assertEqual((self.param(0, "cutoff"), self.param(1, "cutoff")), (20 * 16383 // 127,) * 2)
+        self.s.setting("edit-layer", 1)
+        self.nrpn("cutoff", 30)
+        self.assertEqual((self.param(0, "cutoff"), self.param(1, "cutoff")), (20 * 16383 // 127, 30 * 16383 // 127), "0: the edit layer")
+        self.s.setting("layers", 3)  # channel: channel 2 plays layer 2
+        self.s.setting("edit-layer", 0)
+        self.nrpn("cutoff", 40, channel=1)
+        self.assertEqual(self.param(1, "cutoff"), 40 * 16383 // 127)
+
+    def test_a_linked_layer_2_edits_layer_1_as_its_knob_does(self):
+        self.s.setting("layers", 2)
+        self.s.setting("link", 64)  # the filter
+        self.s.setting("edit-layer", 1)
+        self.nrpn("cutoff", 50)
+        self.assertEqual(self.param(0, "cutoff"), 50 * 16383 // 127)
+        self.s.cc(74, 100)
+        self.s.ms(20)
+        self.assertLessEqual(abs(self.param(0, "cutoff") - round(100 / 127 * 16383)), 1, "a CC too")
+
+    def test_an_rpn_or_nothing_selected_does_nothing(self):
+        before = self.s.settings()["layers"]
+        self.s.cc(6, 3)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["layers"], before, "nothing selected")
+        self.nrpn("layers")
+        self.s.cc(101, 0)
+        self.s.cc(100, 0)
+        self.s.cc(6, 3)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["layers"], before, "an RPN deselects it")
+        knobs = self.s.reply(0x53, 0)
+        self.nrpn(20, 50)  # master volume: the panel's alone
+        self.nrpn(124, 50)
+        self.assertEqual(self.s.reply(0x53, 0), knobs, "neither an id left out nor one past the list sets anything")
+
+    def test_increment_and_decrement(self):
+        self.nrpn("drift", 10)
+        self.s.cc(96, 0)
+        self.s.cc(96, 0)
+        self.s.cc(97, 0)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["drift"], 11)
+
+    def test_per_channel_and_din(self):
+        self.s.cc(99, 0, 0)
+        self.s.cc(98, self.ID["drift"], 0)
+        self.s.cc(98, self.ID["detune"], 1)
+        self.s.cc(6, 33, 0)
+        self.s.ms(20)
+        self.assertEqual((self.s.settings()["drift"], self.s.settings()["detune"]), (33, 14), "each channel its own")
+        self.s.din(0xB0, 99, 0, 98, self.ID["drift"], 6, 44)  # running status
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["drift"], 44)
+
+    def test_the_host_shows_any_parameter(self):
+        self.s.request(0x6B, 1, self.ID["split"])
+        self.s.ms(60)
+        self.assertShows("SPLt")
+        self.s.ms(500)
+        self.assertShows("  60")
+        self.s.ms(1600)
+        self.s.request(0x6B, 1, 124)
+        self.s.ms(60)
+        self.assertShows("P  1", "no such parameter")
+
+    def test_not_over_a_menu(self):
+        self.s.press("SETTINGS")
+        self.nrpn("drift", 5)
+        self.s.ms(600)
+        self.assertShows("SEt")
 
 
 class Layers(PanelTest):

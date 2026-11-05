@@ -28,7 +28,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
   - Patches: `patches`, `patch load|save|clear <slot>`, `format --yes` (wipe every slot), `eeprom <file>` (read),
     `eeprom-write <image> --yes` (write and verify, e.g. back to stock).
-  - Engine: `set lfo-sync|lfo2-sync free|clock`, `set lfo-trigger|lfo2-trigger free|first|every|voice|one-shot|one-shot-voice`, `set lfo-cycles|lfo2-cycles <1-99>` (a one shot's cycles, 0.9.3), `set lfo-restart steps|keys` (with a sequence on, what restarts the LFOs, 0.9.3), `route-both <layer> <source> <dest> on|off` (a route on both layers' voices, 0.9.3), `route-move <layer> <source> <dest> <new source> <new dest> <depth>` (a route becomes another at once, in its slot, 0.9.5), `route-via <layer> <source> <dest> <number 0.01-8|source>` (source × via × depth, 0.9.5), `chord [<layer> off|0,4,7]` / `chord capture [1|2|both] --yes` (chord memory, 0.10.0), `set layers
+  - Engine: `set lfo-sync|lfo2-sync free|clock`, `set lfo-trigger|lfo2-trigger free|first|every|voice|one-shot|one-shot-voice`, `set lfo-cycles|lfo2-cycles <1-99>` (a one shot's cycles, 0.9.3), `set lfo-restart steps|keys` (with a sequence on, what restarts the LFOs, 0.9.3), `route-both <layer> <source> <dest> on|off` (a route on both layers' voices, 0.9.3), `route-move <layer> <source> <dest> <new source> <new dest> <depth>` (a route becomes another at once, in its slot, 0.9.5), `route-via <layer> <source> <dest> <number 0.01-8|source>` (source × via × depth, 0.9.5), `chord [<layer> off|0,4,7]` / `chord capture [1|2|both] --yes` (chord memory, 0.10.0), `nrpn <name|id> <value> [--layer edit|1|2|both]` / `nrpn list` (a parameter by NRPN, 0.10.0), `set layers
     off|split|stack|channel`, `set split <note>`, `set layer-voices auto|1-7`, `set keytrack`, `set lfo 1|2`, `set shape <layer> <lfo> <shape>`,
     `set lfo2-dests <layer> …`, `set env-up|dahdsr <layer> …`, `set env-curve <layer> <env> analog|linear|swell`,
     `set osc-tune <layer> <a|b> semitones|octave|free|fixed`, `set arp-range 1-3`, `set arp-extend none|octave|fifth|seventh|ninth`, `set arp-chaos 0-99` (a sequence's arp, 0.9.5; `seq set arp=walk`), `set link none|amp-env,filter-env,env3,env4,lfo1,lfo2,filter` (what layer 2 takes from layer 1; `param` and the other `set`s write each layer's own stored values),
@@ -87,6 +87,9 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 - `scripts/pages.sh` builds the GitHub Pages site (`docs/` → `build/pages/`, with the editor and installer from `tools/web/` as
   `editor/`) and writes the `pages` branch as one parentless commit; `--push` force-pushes it. The site is
   https://klaine.github.io/pro-8000/ (repository `klaine/pro-8000`).
+- `tools/params.json` is the parameter list with the NRPN ids (0.10.0; append only, the numbers are permanent once
+  released). After changing it run `python tools/gen_params.py`: it writes `src/params.h`, `tools/web/params.js`, the
+  PARAMS blocks in both tools and the table in MANUAL.md; `test_pro800.py` fails while any is stale.
 - `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, or x.1y.z: the display has four digits, and the packer takes three characters, each the number + '0' (0.10.0 packs as `0:0`, header bytes 00 0A 00; `build.sh` reads them back). The bootloader takes a minor of 10: 0.10.0 installed and answered on 2026-11-04 (NOTES, the 0.10.0 plan's step 1).
 - `MANUAL.md` is the user manual (panel operation, the web page, recovery); keep it in step with panel changes.
 
