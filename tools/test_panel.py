@@ -7423,6 +7423,35 @@ class WebSmallThings(unittest.TestCase):
                 self.assertIn("isn't a preset bank", case["shown"][0])
         self.assertEqual(out["looked"], 1, "a good one goes on")
 
+    def test_a_knob_that_keeps_moving_reaches_the_synth_all_along(self):
+        """A drag sends while it moves, at most every 25 ms, and its last value always goes. It used to wait for 25 ms
+        without a move, so a knob turned smoothly sent nothing until it stopped and the sound came in steps."""
+        page = source("tools", "web", "index.html")
+        out = run_node(FAKE_CLOCK + """
+        Date.now = () => clock.now;
+        let params = new Array(40).fill(0), sent = [];
+        const offline = () => false, touch = () => {}, NAMES = [], label = i => "#" + i, format = (i, v) => String(v), paramLayer = i => 0;
+        const send = m => { sent.push({ at: clock.now, i: m[2], q: m[3] << 7 | m[4] }); return true; };
+        """ + js_block(page, "const SEND_EVERY") + "\n" + js_block(page, "function setParam(") + NODE_DRIVER % """
+        clock.now = 1000;
+        for (let k = 1; k <= 30; k++) { setParam(24, k / 100); await advance(10); } // 300 ms of turning, a move every 10 ms
+        await advance(100);
+        const drag = sent.splice(0);
+        setParam(24, 0.9); setParam(9, 0.5); // a while later, and another knob: at once
+        const alone = sent.splice(0);
+        await advance(100);
+        report({ drag, alone, after: sent });
+        """)
+        drag = out["drag"]
+        self.assertEqual((drag[0]["at"], drag[0]["q"]), (1000, round(0.01 * 16383)), "the first move goes at once")
+        self.assertEqual(drag[-1]["q"], round(0.30 * 16383), "the last value goes")
+        self.assertLessEqual(drag[-1]["at"], 1000 + 300 + 25)
+        gaps = [b["at"] - a["at"] for a, b in zip(drag, drag[1:])]
+        self.assertTrue(all(g >= 25 for g in gaps), f"at most one send every 25 ms: {gaps}")
+        self.assertGreaterEqual(len(drag), 11, f"it sends while it moves: {[(s['at'], s['q']) for s in drag]}")
+        self.assertEqual([(s["i"], s["at"]) for s in out["alone"]], [(24, 1400), (9, 1400)])
+        self.assertEqual(out["after"], [], "nothing more once it's still")
+
     def test_the_init_buttons(self):
         page = source("tools", "web", "index.html")
         self.assertRegex(page[page.index("<header>"):page.index("</header>")], r'<button[^>]*id="init-top"[^>]*>Init</button>')

@@ -1752,16 +1752,25 @@ setInterval(() => { if (touched && Date.now() - touchedAt >= 2500 && Date.now() 
   });
 }
 
-// --- sending a parameter: the model changes at once, the synth gets it throttled ---
-const editedAt = {}, sendTimers = {};
+// --- sending a parameter: the model changes at once, the synth gets it throttled: at once if the knob hasn't sent for
+// SEND_EVERY ms, else once that's up (with the value as it is then), so a knob that keeps moving sends all along and
+// its last value always goes ---
+const SEND_EVERY = 25, editedAt = {}, sendTimers = {}, sentAt = {};
 function setParam(i, v) {
   if (!params || offline()) return;
   v = Math.min(1, Math.max(0, v));
   params[i] = v;
   editedAt[i] = Date.now();
   touch(NAMES[i] || label(i), format(i, v));
-  clearTimeout(sendTimers[i]);
-  sendTimers[i] = setTimeout(() => { const q = Math.round(params[i] * 16383); send([0x52, paramLayer(i), i, q >> 7, q & 0x7F]); }, 25);
+  if (sendTimers[i]) return; // the send already waiting takes this value
+  const go = () => {
+    sendTimers[i] = 0;
+    sentAt[i] = Date.now();
+    const q = Math.round(params[i] * 16383);
+    send([0x52, paramLayer(i), i, q >> 7, q & 0x7F]);
+  };
+  const wait = (sentAt[i] || 0) + SEND_EVERY - Date.now();
+  if (wait <= 0) go(); else sendTimers[i] = setTimeout(go, wait);
 }
 function label(i) {
   if (ENV_KNOB[i]) {
