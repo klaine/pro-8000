@@ -2659,6 +2659,10 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
    0.9.5 before flashing back, or the old bytes stay valid, which is harmless).
 5. **Editor edits on the display**: `6B`, sent by the editor only for its own interactive edits (knobs, settings,
    buttons); plans, preset installs, copies and undo stay silent.
+   **Done 2026-11-05 (knobs; simulator only).** `6B <rule> <param>` puts the parameter's value through `cc_show()`
+   (20 a second at most, nothing over a menu, a save or MOD ASSIGN); the editor's `setParam()` sends it after its 52.
+   Settings and buttons follow with the parameter list (step 8). The hardware checklist starts here:
+   `CHECKLIST-0.10.0.md`, one section a step.
 6. **#8 release velocity**, re-implemented on main with credit to planist79 (Co-Authored-By with their real noreply
    address). A route from rVEL adds nothing while the voice's gate is on and rv × depth after it; as a Via it is ×1
    while gated. Releases no key made (sequence and arp steps, note-on at velocity 0, all notes off) give 64; a note-off

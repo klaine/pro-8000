@@ -2414,6 +2414,47 @@ class SwitchNames(PanelTest):
         self.assertShows("P  1")
 
 
+class HostShowsAParameter(PanelTest):
+    """#34: 6B shows a parameter's value on the display as its knob would; the editor sends it after its own edits."""
+
+    def show(self, rule, name):
+        self.s.request(0x6B, rule, pro800.PARAM_NAMES.index(name))
+        self.s.ms(100)
+
+    def test_set_then_shown_then_gone(self):
+        self.s.param(0, "resonance", 8192)
+        self.s.ms(100)
+        self.assertShows("P  1", "52 alone shows nothing")
+        self.show(1, "resonance")
+        self.assertShows("  50")
+        self.s.ms(1600)
+        self.assertShows("P  1")
+
+    def test_the_layer_rule(self):
+        self.s.setting("layers", 2)
+        self.s.param(1, "cutoff", 0)  # layer 2's cutoff, in Hz on the display
+        self.s.param(0, "cutoff", 16383)
+        self.show(2, "cutoff")
+        layer2 = self.s.shows()
+        self.show(1, "cutoff")
+        self.assertNotEqual(self.s.shows(), layer2)
+        self.s.press("SEQ2")
+        self.s.ms(1100)
+        self.show(0, "cutoff")
+        self.assertEqual(self.s.shows(), layer2, "rule 0: the edit layer")
+
+    def test_not_over_a_menu(self):
+        self.s.press("SETTINGS")
+        self.show(1, "resonance")
+        self.assertShows("SEt")
+
+    def test_out_of_range_does_nothing(self):
+        self.s.request(0x6B, 3, 0)
+        self.s.request(0x6B, 1, 99)
+        self.s.ms(100)
+        self.assertShows("P  1")
+
+
 class Layers(PanelTest):
     def test_seq_buttons_choose_the_edit_layer(self):
         self.s.press("SEQ2")
@@ -8090,6 +8131,22 @@ class WebSmallThings(unittest.TestCase):
                 self.assertEqual(len(case["shown"]), 1)
                 self.assertIn("isn't a preset bank", case["shown"][0])
         self.assertEqual(out["looked"], 1, "a good one goes on")
+
+    def test_a_knob_edit_sends_52_then_6b_and_plans_never_6b(self):
+        page = source("tools", "web", "index.html")
+        out = run_node(NODE_DRIVER % ("""
+        let params = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], sent = [];
+        const offline = () => false, touch = () => {}, NAMES = [], format = () => "", label = i => `#${i}`;
+        const paramLayer = i => i === 8 ? 0 : 1;
+        const send = m => sent.push(m);
+        """ + js_block(page, "const editedAt") + js_block(page, "function setParam(") + """
+        setParam(8, 0.5); setParam(8, 0.6);
+        await new Promise(r => setTimeout(r, 60));
+        report(sent);
+        """))
+        q = round(0.6 * 16383)
+        self.assertEqual(out, [[0x52, 0, 8, q >> 7, q & 0x7F], [0x6B, 1, 8]], "the last value, then show it on layer 1's rule")
+        self.assertNotIn("0x6B", source("tools", "web", "sound-plan.js"), "a preset plan leaves the display alone")
 
     def test_the_init_buttons(self):
         page = source("tools", "web", "index.html")

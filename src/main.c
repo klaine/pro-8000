@@ -62,6 +62,8 @@
 //   7E <layer>             choose the layer the per-layer knobs edit (0 or 1)
 //   53 <layer>             the layer's parameters; replies 53 <layer> <count> <value 0-16383, 2 × 7 bits, each>
 //   52 <layer> <param> <v1> <v0>  set a parameter (0-16383; its knob goes into pickup); acknowledged
+//   6B <rule> <param>      show a parameter's value on the display, as its knob would (rule 0 the edit layer, 1 layer
+//                          1, 2 layer 2); no reply. The editor sends it after its own edits (0.10.0)
 //   59 <n1> <n0> <name>    rename patch n (up to 16 characters); acknowledged
 //   4F <n1> <n0>           clear patch n (it becomes an empty slot); acknowledged
 //   4E <layer> <lfo> <count> <p2> <p1> <p0>  set an LFO's step pattern (count 1-16, bits p2 << 14 | p1 << 7 | p0,
@@ -2708,6 +2710,12 @@ static void handle_sysex(const uint8_t *message, int length)
         synth_set_param(data[1], data[2], (float)(data[3] << 7 | data[4]) / 16383.0f);
         reply[n++] = 0x7F;
         reply[n++] = 0x52;
+    }
+    if (data_length == 3 && data[0] == 0x6B && data[1] < 3 && data[2] < PARAM_COUNT) { // show a parameter (#34)
+        int layer = data[1] ? data[1] - 1 : synth_edit_layer(); // layer rule: 0 the edit layer, 1 layer 1, 2 layer 2
+        cc_shown_param = data[2]; // as a controller's value: at most 20 a second, never over a menu or a save
+        cc_shown_layer = layer;
+        cc_shown_value = synth_param(layer, data[2]);
     }
     if (data_length >= 3 && data_length <= 3 + PATCH_NAME && data[0] == 0x59) {
         int slot = data[1] << 7 | data[2];

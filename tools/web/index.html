@@ -1774,7 +1774,11 @@ function setParam(i, v) {
   editedAt[i] = Date.now();
   touch(NAMES[i] || label(i), format(i, v));
   clearTimeout(sendTimers[i]);
-  sendTimers[i] = setTimeout(() => { const q = Math.round(params[i] * 16383); send([0x52, paramLayer(i), i, q >> 7, q & 0x7F]); }, 25);
+  sendTimers[i] = setTimeout(() => {
+    const q = Math.round(params[i] * 16383);
+    send([0x52, paramLayer(i), i, q >> 7, q & 0x7F]);
+    send([0x6B, paramLayer(i) + 1, i]); // and the synth's display shows it, as its knob would (0.10.0; older ones ignore it)
+  }, 25);
 }
 function label(i) {
   if (ENV_KNOB[i]) {
