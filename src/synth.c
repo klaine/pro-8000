@@ -154,6 +154,7 @@ typedef struct {
     uint8_t release_velocity;     // its key's release velocity (SRC_RELEASE_VELOCITY), set as the gate goes off
     uint8_t key, slot;            // the key that started it and its place in that key's chord (0: the key's own note).
                                   // Without a chord key == note: note-offs, pressure and a voice's reuse go by the key
+    uint8_t chorded;              // the notes of the chord it's part of (0: none), for re-voicing it (DEST_CHORD_VOICING)
     // From the last synth_update(), for the ticks (voice_cvs()), which add the envelopes, the LFOs and the fast
     // routes; in semitones but vca_slow
     float pitch_base;              // the gliding note with bend, tune, unison spread and drift
@@ -274,6 +275,27 @@ static uint8_t held[LAYERS][HELD_MAX];
 static int held_count[LAYERS];
 static int unison;
 static int unison_voices = VOICE_COUNT; // the voices a note takes in unison, 2-8
+static uint8_t chord[LAYERS][CHORD_BYTES]; // chord memory (synth.h)
+static uint8_t chord_plain;                // synth_chord_plain(): the notes starting now play without it
+static uint8_t unison_press;               // the panel's Unison button went: a capture if Unison is coming on
+static uint8_t chord_shown;                // layers a capture from the panel or the pedal just set, for the display
+static uint8_t line_chord[LAYERS];         // mono, legato and unison's one line: its chord's notes as it began (0: none)
+static int8_t voicing_step[LAYERS];        // the voicing ladder's step (DEST_CHORD_VOICING), with its hysteresis
+static int8_t voiced_step[LAYERS];         // the step the layer's held chords are at
+
+// A chord as far as it's valid: ascending intervals 1-127 up to the first 0 or step back; the flags byte is 0 for now
+static int chord_valid(const uint8_t *bytes, uint8_t *c)
+{
+    int n = 0;
+    for (int i = 0; i < CHORD_BYTES; i++)
+        c[i] = 0;
+    for (int i = 0; i < CHORD_NOTES - 1; i++) {
+        if (!bytes[i] || bytes[i] > 127 || (n && bytes[i] <= c[n - 1]))
+            break;
+        c[n++] = bytes[i];
+    }
+    return n + 1;
+}
 static uint8_t arp_range, arp_extend, arp_chaos; // a sequence's arp (seq.h)
 static float arp_position;                       // what the next notes on take as SRC_ARP_NOTE
 
@@ -863,6 +885,7 @@ int synth_dest_for_switch(int s)
     case SWITCH_LFO_FREQ: return lfo_select ? DEST_LFO2_TO_PITCH : DEST_LFO_TO_PITCH;
     case SWITCH_LFO_FILTER: return lfo_select ? DEST_LFO2_TO_FILTER : DEST_LFO_TO_FILTER;
     case SWITCH_LFO_PW: return lfo_select ? DEST_LFO2_TO_PW : DEST_LFO_TO_PW;
+    case SWITCH_UNISON: return DEST_CHORD_VOICING; // next to the chord it voices (0.10.0)
     default: return DEST_NONE;
     }
 }
@@ -1025,6 +1048,13 @@ void synth_apply_patch(const patch_t *patch)
         lfo_fade[w] = patch->lfo_fade[w] > 99 ? 99 : patch->lfo_fade[w];
     }
     unison = sw(SWITCH_UNISON);
+    for (int l = 0; l < LAYERS; l++) {
+        uint8_t c[CHORD_BYTES];
+        chord_valid(patch->chord[l], c);
+        for (int i = 0; i < CHORD_BYTES; i++)
+            chord[l][i] = c[i];
+        voicing_step[l] = voiced_step[l] = 0;
+    }
     unison_voices = patch->unison_voices >= 2 && patch->unison_voices <= VOICE_COUNT ? patch->unison_voices : VOICE_COUNT;
     synth_set_arp_range(patch->arp_range);
     synth_set_arp_extend(patch->arp_extend);
@@ -1102,6 +1132,9 @@ void synth_capture_patch(patch_t *patch)
     patch->bend_range = (uint8_t)bend_range;
     patch->detune = (uint8_t)(detune + 1); // 0 means "not stored"
     patch->unison_voices = (uint8_t)unison_voices;
+    for (int l = 0; l < LAYERS; l++)
+        for (int i = 0; i < CHORD_BYTES; i++)
+            patch->chord[l][i] = chord[l][i];
     patch->arp_range = arp_range;
     patch->arp_extend = arp_extend;
     patch->arp_chaos = arp_chaos;
@@ -1168,6 +1201,7 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
     x->note = note;
     x->key = note;
     x->slot = 0;
+    x->chorded = 0;
     x->gate = 1;
     x->velocity = velocity;
     x->started = ++allocations;
@@ -1227,6 +1261,126 @@ static void gate_off(voice_t *x, int key_up)
             envs[i]->stage = ENV_RELEASE;
 }
 
+// --- chord memory (#36) ---
+
+static int chord_on(int layer) { return unison && chord[layer][0] && !per_channel(); }
+static int unison_on(int layer) { return unison && !chord_on(layer); } // the unison stack, where no chord replaces it
+
+// The layer's chord's notes (the key and its intervals), as far as the layer has voices
+static int chord_count(int layer)
+{
+    int n = 1, first, end;
+    while (n < CHORD_NOTES && chord[layer][n - 1])
+        n++;
+    layer_voices(layer, &first, &end);
+    return n < end - first ? n : end - first;
+}
+
+// The voices a key takes as a chord on this layer now: 1 without one, or for a note that plays plain
+static int chord_size(int layer) { return chord_on(layer) && !chord_plain ? chord_count(layer) : 1; }
+
+// A key's chord at `step` on the voicing ladder: up, each step takes the lowest note (odd steps) or the second lowest
+// (even ones) to its first octave above the highest; down mirrors it with the highest and the second highest, below
+// the lowest. C E G: +1 E G C, +2 E C G, +3 C G E (each an octave up the way), -1 G C E, -2 C G E, -3 E C G. The
+// notes fold back into 0-127 by octaves. out[slot]: each of the n slots' notes, wherever the ladder took them.
+static void chord_pitches(int layer, int key, int n, int step, uint8_t *out)
+{
+    int p[CHORD_NOTES], order[CHORD_NOTES];
+    p[0] = key;
+    for (int i = 1; i < n; i++)
+        p[i] = key + chord[layer][i - 1];
+    for (int k = 1; n > 1 && k <= (step < 0 ? -step : step); k++) {
+        for (int i = 0; i < n; i++) { // the slots by pitch, low to high
+            int j = i;
+            for (; j > 0 && p[order[j - 1]] > p[i]; j--)
+                order[j] = order[j - 1];
+            order[j] = i;
+        }
+        if (step > 0) {
+            int m = order[k & 1 ? 0 : 1];
+            p[m] += 12 * ((p[order[n - 1]] - p[m]) / 12 + 1);
+        } else {
+            int m = order[k & 1 ? n - 1 : n - 2];
+            p[m] -= 12 * ((p[m] - p[order[0]]) / 12 + 1);
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        int q = p[i];
+        while (q > 127)
+            q -= 12;
+        while (q < 0)
+            q += 12;
+        out[i] = (uint8_t)q;
+    }
+}
+
+// Whether any route reaches the layer's chord voicing (its own, or the other layer's both-layers ones)
+static int voicing_routed(int layer)
+{
+    for (int n = 0; n < 2 * ROUTES; n++) {
+        int owner = n < ROUTES ? layer : 1 - layer, r = n % ROUTES;
+        if (owner != layer && (one_layer() || !(route_both[owner] >> r & 1)))
+            continue;
+        const route_t *x = &routes[owner][r];
+        if (x->dest == DEST_CHORD_VOICING && x->depth && x->source != SRC_NONE)
+            return 1;
+    }
+    return 0;
+}
+
+// The ladder's step for a voicing of m (-1..1) on a chord of n notes: n steps either way, depth 99 at the ends. The
+// last step stays while m × n is within 0.65 of it, so a slow source on a boundary doesn't flutter.
+static int voicing_at(int layer, float m, int n)
+{
+    float x = (m < -1 ? -1 : m > 1 ? 1 : m) * (float)n, d = x - (float)voicing_step[layer];
+    if (d >= 0.65f || d <= -0.65f)
+        voicing_step[layer] = (int8_t)(x < 0 ? x - 0.5f : x + 0.5f);
+    return voicing_step[layer];
+}
+
+static void evaluate_routes(int layer, int voice, float *mod, int fast);
+
+// The step a chord starting on voice v takes: the voicing routes read for v, which has the new note's velocity, key and
+// random by now (the rest as the layer has them), so velocity → voicing voices each note by its own velocity
+static int voicing_for(int layer, int v, int n)
+{
+    if (!voicing_routed(layer)) {
+        voicing_step[layer] = 0;
+        return 0;
+    }
+    float mod[DEST_COUNT] = {0};
+    evaluate_routes(layer, v, mod, 0);
+    return voicing_at(layer, mod[DEST_CHORD_VOICING], n);
+}
+
+static void lfos_note_on(int layer, int v, int first);
+
+// Voice v starts slot `slot` of `key`'s chord of n notes, with its LFOs (lfos_note_on(), `first` as there). Slot 0 goes
+// first: it reads the voicing for the new note and fills pitch[] for the others. It begins on the key, as the routes
+// see it, with its LFOs restarted and their delay and fade at the note's start, as the next tick has them; then it
+// takes its own place.
+static void chord_gate_on(int layer, int v, uint8_t key, int slot, int n, uint8_t velocity, int retrigger, int first,
+                          uint8_t *pitch)
+{
+    voice_t *x = &voices[v];
+    int silent = x->amp.stage == ENV_IDLE;
+    gate_on(x, slot ? pitch[slot] : key, velocity, retrigger);
+    x->key = key;
+    x->slot = (uint8_t)slot;
+    x->chorded = (uint8_t)n;
+    lfos_note_on(layer, v, first);
+    if (!slot) {
+        if (x->lfo_age <= 0)
+            for (int w = 0; w < 2; w++)
+                x->lfo_gain[w] = lfo_fade_gain(w, 0, 0);
+        chord_pitches(layer, key, n, voicing_for(layer, v, n), pitch);
+        voiced_step[layer] = voicing_step[layer];
+        x->note = pitch[0];
+        if (silent)
+            x->pitch = pitch[0]; // as gate_on() would have: glide only from a sounding note
+    }
+}
+
 // How many voices a unison note takes on this layer: the patch's number, as far as the layer has them
 static int stack_size(int layer)
 {
@@ -1261,11 +1415,11 @@ static int stacked(int layer)
 {
     int first, end;
     layer_voices(layer, &first, &end);
-    return unison && voice_mode[layer] == VOICE_POLY && (end - first) / stack_size(layer) > 1;
+    return unison_on(layer) && voice_mode[layer] == VOICE_POLY && (end - first) / stack_size(layer) > 1;
 }
 
 // Mono, legato and unison with one stack play one line: the held note the priority picks
-static int mono(int layer) { return voice_mode[layer] != VOICE_POLY || (unison && !stacked(layer)); }
+static int mono(int layer) { return voice_mode[layer] != VOICE_POLY || (unison_on(layer) && !stacked(layer)); }
 
 static uint8_t priority_note(int layer)
 {
@@ -1281,7 +1435,8 @@ static uint8_t priority_note(int layer)
 static void mono_voices(int layer, int *first, int *end)
 {
     layer_voices(layer, first, end);
-    *end = *first + (unison ? stack_size(layer) : 1); // mono / legato: the layer's first voice
+    // the line's chord as it began, unison's stack, or mono / legato's one voice: the layer's first
+    *end = *first + (line_chord[layer] ? line_chord[layer] : unison_on(layer) ? stack_size(layer) : 1);
 }
 
 // A note started on voice v of `layer`. A linked LFO is one LFO for both layers, so "the first key" counts both.
@@ -1304,13 +1459,19 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
         if (held_count[layer] == HELD_MAX)
             remove_held(layer, held[layer][0]);
         held[layer][held_count[layer]++] = note;
-        uint8_t target = priority_note(layer);
+        uint8_t target = priority_note(layer), pitch[CHORD_NOTES];
+        if (!was_held) // the line keeps its chord, or none, to its end
+            line_chord[layer] = (uint8_t)(chord_size(layer) > 1 ? chord_size(layer) : 0);
         mono_voices(layer, &first, &end);
         if (was_held && voices[first].gate && voices[first].key == target)
             return; // the priority keeps the note that's sounding
         // mono retriggers every new note; legato and unison only the first after all were released
         int retrigger = !was_held || (voice_mode[layer] == VOICE_MONO);
         for (int v = first; v < end; v++) {
+            if (line_chord[layer]) {
+                chord_gate_on(layer, v, target, v - first, line_chord[layer], velocity, retrigger, !was_held, pitch);
+                continue;
+            }
             gate_on(&voices[v], target, velocity, retrigger);
             lfos_note_on(layer, v, !was_held);
         }
@@ -1318,6 +1479,17 @@ static void layer_note_on(int layer, uint8_t note, uint8_t velocity)
         return;
     }
     int was_gated = layer_gated(layer);
+    int n = chord_size(layer);
+    if (n > 1) { // a voice per chord note, each found after the last took its own, so never one of this chord's
+        uint8_t pitch[CHORD_NOTES];
+        for (int i = 0; i < n; i++) {
+            int v = allocate(layer, note, i, 1);
+            chord_gate_on(layer, v, note, i, n, velocity, 1, !was_gated, pitch);
+            if (!i)
+                last_voice[layer] = v;
+        }
+        return;
+    }
     int size = stacked(layer) ? stack_size(layer) : 1;
     int v = allocate(layer, note, 0, size);
     for (int i = v; i < v + size; i++) {
@@ -1473,6 +1645,7 @@ void synth_copy_layer(int from, int to)
         synth_all_off(); // the voice split may change (voice_split())
     voice_mode[to] = voice_mode[from];
     priority[to] = priority[from];
+    synth_set_chord(to, chord[from]);
     if (to == edit_layer)
         for (int i = 0; i < PARAM_COUNT; i++)
             if (per_layer[i])
@@ -1542,15 +1715,23 @@ void synth_note_off_layers(uint8_t note, uint8_t release_velocity, int layers)
             if (!was_held)
                 continue;
             mono_voices(layer, &first, &end);
+            uint8_t to = held_count[layer] ? priority_note(layer) : 0, pitch[CHORD_NOTES];
+            if (held_count[layer] && line_chord[layer]) // the line's chord on the key it goes back to, as voiced now
+                chord_pitches(layer, to, line_chord[layer], voicing_step[layer], pitch);
             for (int v = first; v < end; v++) {
+                voice_t *x = &voices[v];
                 if (!held_count[layer]) {
-                    voices[v].release_velocity = release_velocity; // the last key up releases the line
-                    gate_off(&voices[v], 1);
-                } else if (voices[v].key != priority_note(layer)) { // back to a held note: legato, or mono retriggers
+                    x->release_velocity = release_velocity; // the last key up releases the line
+                    gate_off(x, 1);
+                } else if (x->key != to) { // back to a held note: legato, or mono retriggers
+                    uint8_t slot = x->slot, chorded = x->chorded, p = line_chord[layer] ? pitch[slot] : to;
                     if (voice_mode[layer] == VOICE_MONO)
-                        gate_on(&voices[v], priority_note(layer), voices[v].velocity, 1);
+                        gate_on(x, p, x->velocity, 1);
                     else
-                        voices[v].note = voices[v].key = priority_note(layer);
+                        x->note = p;
+                    x->key = to;
+                    x->slot = slot;
+                    x->chorded = chorded;
                 }
             }
             continue;
@@ -1571,6 +1752,173 @@ void synth_all_off(void)
             voices[v].release_velocity = RELEASE_VELOCITY_NONE;
         gate_off(&voices[v], 0);
     }
+}
+
+void synth_chord(int layer, uint8_t *out)
+{
+    for (int i = 0; i < CHORD_BYTES; i++)
+        out[i] = chord[layer & 1][i];
+}
+
+int synth_set_chord(int layer, const uint8_t *bytes)
+{
+    uint8_t c[CHORD_BYTES];
+    int n = chord_valid(bytes, c), same = 1;
+    layer &= 1;
+    for (int i = 0; i < CHORD_BYTES; i++)
+        same &= c[i] == chord[layer][i];
+    if (same)
+        return n;
+    int was = chord_on(layer);
+    for (int i = 0; i < CHORD_BYTES; i++)
+        chord[layer][i] = c[i];
+    if (was || chord_on(layer))
+        synth_all_off(); // the voices change their layout or their notes: none is left on the old one
+    voicing_step[layer] = voiced_step[layer] = 0;
+    return n;
+}
+
+// The keys held on a layer now, lowest first, at most CHORD_NOTES: the sequence's when it takes the layer, else the
+// layer's voices' (the pedal's too) in poly, or the line's in mono, legato and unison's one line
+static int layer_keys(int layer, uint8_t *out)
+{
+    uint8_t k[HELD_MAX];
+    int n = 0;
+    if (seq_takes_layer(layer))
+        n = seq_held_keys(1 << layer, k, HELD_MAX);
+    else if (mono(layer))
+        for (int i = 0; i < held_count[layer]; i++)
+            k[n++] = held[layer][i];
+    else {
+        int first, end;
+        layer_voices(layer, &first, &end);
+        for (int v = first; v < end; v++) {
+            int known = 0;
+            for (int i = 0; i < n; i++)
+                known |= k[i] == voices[v].key;
+            if (voices[v].gate && !known && n < HELD_MAX)
+                k[n++] = voices[v].key;
+        }
+    }
+    for (int i = 1; i < n; i++) { // low to high
+        uint8_t key = k[i];
+        int j = i;
+        for (; j > 0 && k[j - 1] > key; j--)
+            k[j] = k[j - 1];
+        k[j] = key;
+    }
+    if (n > CHORD_NOTES)
+        n = CHORD_NOTES; // the lowest eight
+    for (int i = 0; i < n; i++)
+        out[i] = k[i];
+    return n;
+}
+
+// The layer's chord from keys, lowest first: 2 or more make it, fewer clear it
+static void chord_from_keys(int layer, const uint8_t *keys, int n)
+{
+    uint8_t c[CHORD_BYTES] = {0};
+    for (int i = 1; i < n; i++)
+        c[i - 1] = (uint8_t)(keys[i] - keys[0]);
+    synth_set_chord(layer, c);
+}
+
+int synth_capture_chord(int layers, uint8_t *counts)
+{
+    int set = 0;
+    for (int l = 0; l < LAYERS; l++) {
+        counts[l] = CHORD_UNTOUCHED;
+        if (!(layers >> l & 1) || (l && one_layer()) || per_channel())
+            continue;
+        counts[l] = 0;
+        uint8_t keys[CHORD_NOTES];
+        int n = layer_keys(l, keys);
+        chord_from_keys(l, keys, n);
+        if (n >= 2) {
+            counts[l] = (uint8_t)n;
+            set |= 1 << l;
+        }
+    }
+    return set;
+}
+
+void synth_unison_pressed(void) { unison_press = 1; }
+
+// The keys sounding on a layer, oldest first, with their velocities: the line's in mono, legato and unison's one line,
+// else the voices' (none for a layer the sequence takes: it plays on by itself)
+static int layer_sounding(int layer, uint8_t *keys, uint8_t *velocities)
+{
+    int n = 0, first, end;
+    if (seq_takes_layer(layer) || (layer && one_layer()))
+        return 0;
+    layer_voices(layer, &first, &end);
+    if (mono(layer)) {
+        for (int i = 0; i < held_count[layer]; i++) {
+            keys[n] = held[layer][i];
+            velocities[n++] = voices[first].velocity;
+        }
+        return n;
+    }
+    for (;;) { // the oldest voice not taken yet
+        int oldest = -1;
+        for (int v = first; v < end; v++) {
+            int known = 0;
+            for (int i = 0; i < n; i++)
+                known |= keys[i] == voices[v].key;
+            if (voices[v].gate && !known && (oldest < 0 || voices[v].started < voices[oldest].started))
+                oldest = v;
+        }
+        if (oldest < 0 || n == HELD_MAX)
+            return n;
+        keys[n] = voices[oldest].key;
+        velocities[n++] = voices[oldest].velocity;
+    }
+}
+
+int synth_pedal_down(int layers)
+{
+    if (!unison || per_channel())
+        return 0;
+    uint8_t keys[LAYERS][HELD_MAX], velocities[LAYERS][HELD_MAX];
+    int sounding[LAYERS], set = 0;
+    for (int l = 0; l < LAYERS; l++)
+        sounding[l] = layer_sounding(l, keys[l], velocities[l]);
+    for (int l = 0; l < LAYERS; l++) {
+        uint8_t chord_keys[CHORD_NOTES];
+        int n = (layers >> l & 1) && !(l && one_layer()) ? layer_keys(l, chord_keys) : 0;
+        if (n >= 2) { // a pedal on its own, or on one key, sustains as ever
+            chord_from_keys(l, chord_keys, n);
+            set |= 1 << l;
+        }
+    }
+    // A new chord silenced the voices (synth_set_chord()): the keys still down play again, with it, for the pedal to hold
+    for (int l = 0; l < LAYERS; l++)
+        if (sounding[l] && !layer_gated(l))
+            for (int i = 0; i < sounding[l]; i++)
+                layer_note_on(l, keys[l][i], velocities[l][i]);
+    chord_shown |= (uint8_t)set;
+    return set;
+}
+
+int synth_take_chord_captured(void)
+{
+    int c = chord_shown;
+    chord_shown = 0;
+    return c;
+}
+
+void synth_chord_plain(int on) { chord_plain = on != 0; }
+
+int synth_chord_notes(int layer, uint8_t key, uint8_t *out)
+{
+    layer &= 1;
+    if (!chord_on(layer) || (layer && one_layer())) {
+        out[0] = key;
+        return 1;
+    }
+    int n = chord_count(layer);
+    chord_pitches(layer, key, n, voicing_routed(layer) ? voicing_step[layer] : 0, out);
+    return n;
 }
 
 void synth_pitch_bend(int value, int layers)
@@ -2068,6 +2416,11 @@ static void read_panel(float dt)
     pots_primed = controls_ready(); // until the first full scan, keep copying the panel into both layers
 
     int now_unison = sw(SWITCH_UNISON);
+    if (unison_press && now_unison && !unison) { // the panel's button turns it on: what's held is the chord (stock)
+        uint8_t counts[LAYERS];
+        chord_shown |= (uint8_t)synth_capture_chord(3, counts);
+    }
+    unison_press = 0;
     if (now_unison != unison) {
         synth_all_off();
         unison = now_unison;
@@ -2166,6 +2519,15 @@ static int newest_layer(void)
     return b < 0 ? 0 : a < 0 ? 1 : (int32_t)(voices[b].started - voices[a].started) > 0;
 }
 
+// A route's source for a voice. Into the chord voicing Note is the chord's key, not the voice's pitch, which the
+// voicing itself moves (a held chord would go back and forth between two voicings)
+static float route_source(int voice, int layer, int source, int dest)
+{
+    if (source == SRC_NOTE && dest == DEST_CHORD_VOICING)
+        return ((float)voices[voice].key - 60.0f) / 60.0f;
+    return source_value(&voices[voice], voice, layer, source);
+}
+
 static void evaluate_routes(int layer, int voice, float *mod, int fast)
 {
     // the slow routes in two phases: everything into the macros first, then the routes the macros feed
@@ -2189,7 +2551,7 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
                 || (both && !one_layer() && summed_wire(x->dest) && layer != newest_layer())
                 || (x->source == SRC_RELEASE_VELOCITY && voices[voice].gate)) // nothing until the key is up (#8)
                 continue;
-            float value = source_value(&voices[voice], voice, layer, x->source);
+            float value = route_source(voice, layer, x->source, x->dest);
             float depth = (float)(x->depth * 10 + route_fine[owner][r]) / 990.0f;
             if ((x->dest == DEST_VCA || x->dest == DEST_VOLUME) && !bipolar(x->source)) {
                 value -= 1.0f;
@@ -2202,7 +2564,7 @@ static void evaluate_routes(int layer, int voice, float *mod, int fast)
                 depth *= depth < 0 ? -depth : depth;
             if (via && !(via_source(via) == SRC_RELEASE_VELOCITY && voices[voice].gate)) // a held key's rVEL Via: x1
                 // after the depth's curve, so it scales the result in a straight line
-                depth *= via_source(via) ? source_value(&voices[voice], voice, layer, via_source(via)) : (float)via / 100.0f;
+                depth *= via_source(via) ? route_source(voice, layer, via_source(via), x->dest) : (float)via / 100.0f;
             mod[x->dest] += value * depth;
         }
     }
@@ -2379,6 +2741,32 @@ void synth_update(float dt)
         if (recent_voice(l) >= 0)
             evaluate_routes(l, recent_voice(l), last_mod[l], 0);
     }
+    // held chords follow their voicing as it moves (a wheel, an LFO): each voice to its slot's new note, gliding as
+    // GLIDE says, with no retrigger; released ones keep theirs. As Morph, the layer's most recent voice says where.
+    for (int l = 0; l < LAYERS; l++) {
+        if (!chord_on(l))
+            continue;
+        int n = chord_count(l), step = 0;
+        if (!voicing_routed(l))
+            voicing_step[l] = 0; // no route: the chord as stored, for held chords and the arp's next one alike
+        else if (recent_voice(l) >= 0)
+            step = voicing_at(l, last_mod[l][DEST_CHORD_VOICING], n);
+        else
+            continue;
+        if (step == voiced_step[l])
+            continue;
+        voiced_step[l] = (int8_t)step;
+        int first, end;
+        layer_voices(l, &first, &end);
+        for (int v = first; v < end; v++) {
+            voice_t *x = &voices[v];
+            uint8_t pitch[CHORD_NOTES];
+            if (!x->gate || !x->chorded || x->slot >= x->chorded)
+                continue;
+            chord_pitches(l, x->key, x->chorded, step, pitch);
+            x->note = pitch[x->slot];
+        }
+    }
 
     // the knob values as heard: morphed towards the morph target by the Morph destination
     static float eff[LAYERS][PARAM_COUNT];
@@ -2503,7 +2891,7 @@ static void voice_slow(int v, float dt)
         layer_voices(l, &first, &end);
         int n = stack_size(l);
         float cents = (float)detune + last_mod[l][DEST_DETUNE] * 50.0f;
-        float spread = unison && n > 1 ? ((float)((v - first) % n) / (float)(n - 1) - 0.5f) * cents / 100.0f : 0;
+        float spread = unison_on(l) && n > 1 ? ((float)((v - first) % n) / (float)(n - 1) - 0.5f) * cents / 100.0f : 0;
         // glide and the envelope stages with their routes (times scale by 2^(4 × mod): 16× at full depth)
         x->glide_k = mod[DEST_GLIDE] != 0 && q->glide_s > 0
                    ? 1.0f - fast_exp2(-dt / (q->glide_s * fast_exp2(4.0f * exp_mod(mod[DEST_GLIDE]))) * 1.4427f) : q->glide_k;

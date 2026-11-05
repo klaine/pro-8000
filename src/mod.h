@@ -57,6 +57,7 @@ typedef enum {
     DEST_VOLUME, // master volume, a wire; a 0..1 source counts down from full, as with the VCA
     DEST_MACRO1, DEST_MACRO2, // the macros (SRC_MACRO1 / 2)
     DEST_ARP_CHAOS, // adds to the patch's arp Chaos: per layer, from the most recently played voice, read at each step
+    DEST_CHORD_VOICING, // chord memory's voicing ladder (synth.c): read as a chord note starts, and held chords follow it (0.10.0)
     DEST_COUNT
 } mod_dest_t;
 #define DEST_NONE 0xFF

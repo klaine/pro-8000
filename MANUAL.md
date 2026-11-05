@@ -153,6 +153,32 @@ CC 74 also feeds the `Timbre` mod source, for routes. In the `8CH` and `nPE` mod
   3 voices, two voices stay silent. In mono or legato it's one line on that many voices. In the two-layer modes the
   notes fit in the layer's own voices, so with four each, 2 voices play 2 notes per layer and 3 or more play one line.
   Unison detune (Settings key 8 `dEtU`, Shift + M TUNE, or the web page's knob; 0-100 cents) spreads each note's voices.
+  The Unison button shows `Un.on` / `Un.oF` (0.10.0).
+- **Chord memory** (per layer, 0.10.0, as on the stock synth): hold 2 or more keys and turn Unison on: they're the
+  patch's chord (`CHrd`), and from then on every key plays it, transposed, in place of the unison stack (no unison
+  detune). One key or none held: plain unison, and the chord is gone. With Unison already on, the sustain pedal
+  pressed over 2 or more keys takes them as a new chord too (a pedal over one key, or with Unison off, only
+  sustains; it plays the held keys again with the new chord, for the pedal to hold). The keys held count with the
+  pedal's, and the lowest is the root: in poly the keys sounding (the most recent ones when there are more keys than
+  voices), in mono and legato the lowest 8 held. A chord plays at most as many notes as the layer has voices (8, or 4
+  each in split and stack unless Layer 1's voices says otherwise): the top ones are left out.
+  In poly each key takes a voice per chord note (a chord never steals its own; another key's voices are taken as
+  ever, the oldest first), and a key struck again takes back its own voices; in mono and legato the line plays the
+  chord on as many voices, legato moving it without a retrigger. In split each layer takes the keys held on it; in
+  the per-channel modes (`8CH`, `nPE`) there's no chord. A sequence's step plays the chord from its note, unless the
+  step has a Note 2 / Note 3 of its own (then those, plain); the arp walks the chord's notes from one key. Turning
+  Unison off keeps the chord (a host's Unison on brings it back; the next press over held keys replaces it). It's
+  saved with the patch; 0.9.5 and older play such a patch as plain unison. A scale snaps each chord note. The web
+  page's Voice section shows the edit layer's chord as numbers and note names from C (type `0 4 7` to set one),
+  with Capture (the keys held now) and Clear; `pro800 chord` does the same.
+- **Chord voicing** (a mod destination, `CH.Uo`; in MOD ASSIGN the Unison button picks it without switching): moves
+  each chord along a ladder of inversions. Each step up takes the lowest note, then the second lowest, to its first
+  octave above the highest; down mirrors it (the highest, then the second highest, below the lowest). C E G: +1 E G
+  C, +2 E C G, +3 C G E, each an octave up the way; −1 G C E, −2 C G E, −3 E C G. Depth 99 reaches as many steps as
+  the chord has notes, so depth 25 on a triad only inverts it. It's read as a chord starts, for that note (velocity →
+  voicing: harder notes spread wider), and a held chord follows it as it moves (the mod wheel, an LFO): each note
+  glides with GLIDE to its new place, without a retrigger. Near a step's edge it keeps the step it's on until the
+  value is clearly past (a slow LFO doesn't flutter there). Notes past the MIDI range fold back by octaves.
 - **Drift** (Settings key 0 `drFt`, 0-99): each voice's pitch (up to 15 cents) and cutoff (up to a semitone) wander
   slowly at random, so stacked notes and unison breathe like an old poly.
 - **Scale** (web page: scale and root): the pitch of each voice, with its common pitch modulation (LFO → Freq, LFO
@@ -692,6 +718,7 @@ The Morph destination (web page only) fades toward the morph target patch (see V
 | VALUE / web | Master volume * (a 0-to-1 source counts down from full, as the VCA) | `VOL` | closed to full |
 | VALUE / web | Macro 1, Macro 2 | `nAC1` `nAC2` | −1 to 1 |
 | VALUE / web | Arp Chaos, added to the patch's (see Sequencer) * | `CHAo` | ±99 |
+| Unison button / VALUE / web | Chord voicing, read as each chord starts; held chords follow the layer's newest note (see Voice modes; 0.10.0) | `CH.Uo` | ± the chord's notes, in steps |
 
 \* Single wires for all voices: they follow the most recently played note of the layer. Everything else acts per
 voice.

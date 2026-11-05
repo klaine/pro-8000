@@ -84,6 +84,8 @@ Probe (our firmware 0.0.9+):
   pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
   pro800 route-move <layer> <src> <dest> <new src> <new dest> <depth>  a route becomes another at once, in its slot (0.9.5)
   pro800 route-via <layer> <src> <dest> <number 0.01-8|source>  what the route is multiplied by (0.9.5; 1 is plain)
+  pro800 chord [<layer> off|<notes>]    chord memory (0.10.0): print both layers' chords, or set one, e.g. 0,4,7
+  pro800 chord capture [1|2|both] --yes take the keys held now as the chord, as Unison pressed over them does
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
                                         replies on stdout as hex; over one MIDI connection
@@ -1660,7 +1662,7 @@ let destNames = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "
                  "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
                  "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
                  "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-                 "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"]
+                 "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing"]
 
 // A depth in tenths, -990..990, or nil if it's out of range or finer than that
 func tenthsFromText(_ text: String) -> Int? {
@@ -1725,6 +1727,56 @@ func routeVia() {
         fail("not set: no such route, a macro on a route into a macro, or firmware before 0.9.5")
     }
     print("layer \(layer): \(args[1]) → \(args[2]) via \(viaText(via))")
+}
+
+// Chord memory (0.10.0): pro800 chord prints both layers' (68); pro800 chord <layer> off|0,4,7 sets one (69, the
+// leading 0 optional); pro800 chord capture [1|2|both] --yes takes the keys held now (6A)
+func chordText(_ intervals: [Int]) -> String {
+    let notes = [60] + intervals.map { 60 + $0 }
+    return notes.map { String($0 - 60) }.joined(separator: " ") + " (from C4: "
+        + notes.map { "\(rootNames[$0 % 12])\($0 / 12 - 1)" }.joined(separator: " ") + ")"
+}
+
+func chord() {
+    let midi = Midi(port: portName)
+    if args.first == "capture" {
+        let yes = flag("--yes")
+        let which = args.count == 2 ? args[1] : args.count == 1 ? "both" : ""
+        guard let bits = ["1": 1, "2": 2, "both": 3][which], yes else {
+            fail("usage: pro800 chord capture [1|2|both] --yes (it changes the sound)")
+        }
+        guard let reply = midi.request([0x6A, UInt8(bits)], expect: [0x6A], timeout: 2) else { fail("no reply: firmware before 0.10.0?") }
+        let b = replyData(reply, 1, 2)
+        for layer in 1...2 where bits >> (layer - 1) & 1 == 1 {
+            print("layer \(layer): " + (b[layer - 1] == 127 ? "not captured (layer 2 with layers off, or a per-channel mode)"
+                                        : b[layer - 1] > 0 ? "\(b[layer - 1]) notes" : "fewer than 2 keys held: its chord is cleared"))
+        }
+        return
+    }
+    if args.count == 2 {
+        var notes: [Int]? = args[1] == "off" ? [] : args[1].split(separator: ",").map { Int($0) ?? -1 }
+        if let n = notes, n.first == 0 { notes = Array(n.dropFirst()) }
+        guard let layer = Int(args[0]), layer == 1 || layer == 2, let n = notes, n.count <= 7,
+              n.allSatisfy({ (1...127).contains($0) }), n == Array(Set(n)).sorted() else {
+            fail("usage: pro800 chord <layer 1|2> off|<notes above the key, ascending: 0,4,7 or 4,7; up to 7 besides 0>")
+        }
+        guard acked(midi, [0x69, UInt8(layer - 1)] + n.map { UInt8($0) } + Array(repeating: 0, count: 8 - n.count)) else {
+            fail("not set: firmware before 0.10.0?")
+        }
+        print("layer \(layer): " + (n.isEmpty ? "no chord" : chordText(n)))
+        return
+    }
+    guard args.isEmpty else { fail("usage: pro800 chord [<layer 1|2> off|0,4,7] | pro800 chord capture [1|2|both] --yes") }
+    guard let reply = midi.request([0x68], expect: [0x68], timeout: 2) else { fail("no reply: firmware before 0.10.0?") }
+    let b = replyData(reply, 1, 16).map(Int.init)
+    let switches = midi.request([0x4C], expect: [0x4C], timeout: 2)
+    let unison = switches.map { replyData($0, 1, 16)[12] != 0 } ?? false
+    for layer in 1...2 {
+        let intervals = b[(8 * (layer - 1))..<(8 * (layer - 1) + 7)].filter { $0 != 0 }
+        print("layer \(layer): " + (intervals.isEmpty ? "no chord" : chordText(Array(intervals))))
+    }
+    print(unison ? "Unison is on: a layer with a chord plays it from every key"
+                 : "Unison is off: the chords are kept for when it's on")
 }
 
 // pro800 route-both <layer 1|2> <source> <dest> on|off: the route plays on the other layer too (settings 87-90: a bit per slot)
@@ -2247,6 +2299,7 @@ case "routes": routes()
 case "route-both": routeBoth()
 case "route-move": routeMove()
 case "route-via": routeVia()
+case "chord": chord()
 case "timing": timing()
 case "engine": engine()
 case "sysex": sysexPipe()

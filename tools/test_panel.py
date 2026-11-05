@@ -2614,6 +2614,387 @@ class HostShowsAParameter(PanelTest):
         self.assertShows("P  1")
 
 
+class ChordMemory(PanelTest):
+    """#36: Unison turned on with 2 or more keys held takes them as the patch's chord (CHrd), and every key then plays
+    it in place of the unison stack; the pedal pressed over held keys in Unison does the same. Saved with the patch."""
+
+    def voices(self):
+        """(key, note) of each gated voice, low to high"""
+        d = self.s.reply(0x55)
+        return sorted((d[93 + 3 * v], d[94 + 3 * v]) for v in range(8) if d[10 + 3 * v])
+
+    def notes(self, key=None):
+        return [n for k, n in self.voices() if key is None or k == key]
+
+    def chord(self):
+        d = self.s.reply(0x68)
+        return list(d[0:8]), list(d[8:16])
+
+    def capture(self, *keys, shows="CHrd"):
+        for k in keys:
+            self.s.note(k)
+        self.s.switch("UNISON")
+        self.s.ms(20)
+        self.assertShows(shows)
+        for k in keys:
+            self.s.note_off(k)
+
+    def route(self, source, dest, depth):
+        d = depth + 99
+        self.s.request(0x56, 0, pro800.SOURCE_NAMES.index(source), pro800.DEST_NAMES.index(dest), d >> 7, d & 0x7F)
+
+    def test_unison_over_held_keys_takes_their_chord(self):
+        self.capture(60, 64, 67)
+        self.assertEqual(self.chord()[0], [4, 7, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(self.s.gated(), [], "the keys that made it are let go")
+        self.s.note(62)
+        self.assertEqual(self.voices(), [(62, 62), (62, 66), (62, 69)])
+        self.s.note_off(62)
+        self.assertEqual(self.s.gated(), [])
+        self.s.ms(1000)
+        self.s.switch("UNISON")
+        self.assertShows("Un.oF")
+
+    def test_chords_share_the_voices_and_never_steal_their_own(self):
+        self.capture(60, 64, 67)
+        for k in (50, 55):
+            self.s.note(k)
+        self.assertEqual(len(self.s.gated()), 6)
+        self.s.note(70)
+        self.assertEqual(len(self.s.gated()), 8)
+        self.assertEqual(self.notes(70), [70, 74, 77], "the newest chord is whole")
+        self.assertEqual(self.notes(55), [55, 59, 62])
+        self.assertEqual(len(self.notes(50)), 2, "the oldest gave up a voice")
+        self.s.note(55)
+        self.assertEqual(len(self.notes(55)), 3, "struck again: its own voices")
+        for k in (50, 55, 70):
+            self.s.note_off(k)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_one_key_or_none_is_plain_unison_and_clears_it(self):
+        self.capture(60, 64, 67)
+        self.s.switch("UNISON")
+        for keys in ((), (60,)):
+            with self.subTest(keys=keys):
+                self.s.request(0x69, 0, 4, 7, 0, 0, 0, 0, 0, 0)
+                self.s.ms(1100)
+                self.capture(*keys, shows="Un.on")
+                self.assertEqual(self.chord()[0], [0] * 8)
+                self.s.note(62)
+                self.assertEqual(len(self.s.gated()), 8)
+                self.s.note_off(62)
+                self.s.switch("UNISON")
+
+    def test_off_keeps_it_for_the_host_to_bring_back(self):
+        self.capture(60, 64, 67)
+        self.s.switch("UNISON")
+        self.s.note(62)
+        self.assertEqual(len(self.s.gated()), 1, "Unison off: poly")
+        self.s.note_off(62)
+        self.assertEqual(self.chord()[0][:2], [4, 7], "kept")
+        self.s.request(0x4B, SWITCH["UNISON"], 1)
+        self.s.ms(20)
+        self.s.note(62)
+        self.assertEqual(self.notes(), [62, 66, 69], "the host's Unison: the chord again, no capture")
+        self.s.note_off(62)
+
+    def test_mono_and_legato_play_their_line_as_chords(self):
+        for mode in (1, 2):
+            with self.subTest(mode=pro800.VOICE_MODES[mode]):
+                self.s.setting("voice 1", mode)
+                self.s.param(0, "amp-att", 8700)  # 0.2 s: past it by 400 ms, in it 2 ms after a retrigger
+                self.capture(60, 64, 67)
+                self.s.note(60)
+                self.s.ms(400)
+                self.s.note(65)
+                self.assertEqual(self.voices(), [(65, 65), (65, 69), (65, 72)])
+                self.s.ms(400)
+                self.s.note_off(65)
+                self.assertEqual(self.voices(), [(60, 60), (60, 64), (60, 67)], "back to the held key's chord")
+                amp = self.s.probe()["amp"]
+                self.assertEqual(all(amp[v] in (1, 6) for v in self.s.gated()), mode == 1, "mono retriggers, legato doesn't")
+                self.s.note_off(60)
+                self.assertEqual(self.s.gated(), [])
+                self.s.switch("UNISON")
+
+    def test_a_split_captures_where_the_keys_are(self):
+        self.s.setting("layers", 1)  # split at 60
+        self.capture(48, 52, 55)
+        a, b = self.chord()
+        self.assertEqual((a[:2], b[0]), ([4, 7], 0))
+        self.s.note(50)
+        self.s.note(72)
+        self.assertEqual(self.notes(50), [50, 54, 57])
+        self.assertEqual(self.notes(72), [72] * 4, "layer 2: plain unison on its four voices")
+
+    def test_not_in_the_per_channel_modes(self):
+        self.s.setting("layers", 4)  # 8ch
+        for c, k in enumerate((60, 64, 67)):
+            self.s.note(k, channel=c)
+        self.s.switch("UNISON")
+        self.s.ms(20)
+        self.assertShows("Un.on")
+        self.assertEqual(self.chord()[0], [0] * 8)
+
+    def test_keys_the_pedal_holds_count(self):
+        self.s.cc(64, 127)
+        for k in (60, 64, 67):
+            self.s.note(k)
+        for k in (60, 64, 67):
+            self.s.note_off(k)
+        self.capture(shows="CHrd")
+        self.assertEqual(self.chord()[0][:2], [4, 7])
+        self.s.cc(64, 0)
+
+    def test_the_pedal_over_held_keys_in_unison_latches_a_new_chord(self):
+        self.s.switch("UNISON")
+        for k in (60, 63, 67):
+            self.s.note(k)
+        self.s.cc(64, 127)
+        self.s.ms(20)
+        self.assertShows("CHrd")
+        self.assertEqual(self.chord()[0][:2], [3, 7])
+        self.s.cc(64, 0)
+        for k in (60, 63, 67):
+            self.s.note_off(k)
+        self.s.note(50)
+        self.assertEqual(self.notes(), [50, 53, 57])
+        self.s.note_off(50)
+        for k in (62, 66):  # and again, over the chord's own keys
+            self.s.note(k)
+        self.s.cc(64, 127)
+        self.s.ms(5)
+        self.s.cc(64, 0)
+        for k in (62, 66):
+            self.s.note_off(k)
+        self.assertEqual(self.chord()[0][:2], [4, 0])
+
+    def test_the_pedal_over_one_key_or_without_unison_only_sustains(self):
+        for k in (60, 64):
+            self.s.note(k)
+        self.s.cc(64, 127)
+        self.s.ms(5)
+        self.assertEqual(self.chord()[0], [0] * 8, "Unison off: a sustain")
+        self.s.cc(64, 0)
+        for k in (60, 64):
+            self.s.note_off(k)
+        self.s.switch("UNISON")
+        self.s.note(60)
+        self.s.cc(64, 127)
+        self.s.note_off(60)
+        self.assertEqual(len(self.s.gated()), 8, "one key: sustained in plain unison")
+        self.assertEqual(self.chord()[0], [0] * 8)
+        self.s.cc(64, 0)
+
+    def test_it_is_saved_with_the_patch(self):
+        self.capture(60, 64, 67)
+        self.store_patch(5)
+        self.assertEqual(list(self.s.memory()[4 * 768 + 455:4 * 768 + 471]), [4, 7] + [0] * 14, "store.c: chords at 455")
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(3000)
+        self.s.note(62)
+        self.assertEqual(self.notes(), [62, 66, 69], "loaded with Unison on: the chord")
+
+    def test_the_host_reads_sets_and_captures(self):
+        out = self.s.request(0x69, 1, 3, 7, 10, 0, 0, 0, 0, 0)
+        self.assertIn(b"\x7f\x69", out)
+        self.assertEqual(self.chord()[1][:4], [3, 7, 10, 0])
+        self.s.request(0x69, 0, 7, 4, 9, 0, 0, 0, 0, 0)
+        self.assertEqual(self.chord()[0], [7, 0, 0, 0, 0, 0, 0, 0], "as far as it's valid: up to the step back")
+        for k in (60, 65):
+            self.s.note(k)
+        self.assertEqual(list(self.s.reply(0x6A, 1)), [2, 127], "layer 2 not asked for: left alone")
+        self.assertEqual(self.chord()[0][:2], [5, 0])
+        for k in (60, 65):
+            self.s.note_off(k)
+        self.assertEqual(list(self.s.reply(0x6A, 1)), [0, 127], "nothing held: cleared")
+        self.assertEqual(self.chord()[0], [0] * 8)
+
+    def test_a_sequence_step_plays_the_chord(self):
+        self.capture(60, 64, 67)
+        self.s.seq_set(4)
+        self.s.seq_steps(0, [(0,), (2,), (4,), (5,)])
+        self.s.note(60)
+        self.s.ms(10)
+        self.assertEqual(self.notes(), [60, 64, 67])
+        self.s.ms(125)
+        self.assertEqual(self.notes(), [62, 66, 69], "the next step: its note's chord")
+        self.s.note_off(60)
+        self.s.ms(300)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_a_step_with_its_own_chord_plays_that_alone(self):
+        self.capture(60, 64, 67)
+        self.s.seq_set(1, lanes=1, flags=1 | 1 << 5)
+        self.s.seq_steps(0, [(0, 0, 50, 1, 0, (76, 64, 64, 64))])  # Note 2: +12
+        self.s.note(60)
+        self.s.ms(10)
+        self.assertEqual(self.notes(), [60, 72])
+        self.s.note_off(60)
+
+    def test_the_arp_walks_the_chord_of_one_key(self):
+        self.capture(60, 64, 67)
+        self.s.seq_set(1, arp=1)  # up
+        self.s.seq_steps(0, [(0,)])
+        self.s.note(60)
+        played = []
+        for _ in range(4):
+            self.s.ms(10)
+            played.append(self.notes())
+            self.s.ms(115)
+        self.assertEqual(played, [[60], [64], [67], [60]])
+        self.s.note_off(60)
+        self.s.ms(300)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_a_capture_while_the_arp_runs_takes_the_keys(self):
+        self.s.seq_set(1, arp=1)
+        self.s.seq_steps(0, [(0,)])
+        for k in (60, 63, 67):
+            self.s.note(k)
+        self.s.ms(50)
+        self.capture(shows="CHrd")
+        self.assertEqual(self.chord()[0][:2], [3, 7])
+        for k in (60, 63, 67):
+            self.s.note_off(k)
+
+    def test_the_voicing_ladder(self):
+        """Depth 99 reaches as many steps as the chord has notes: C E G +1 E G C, +2 E C G, +3 C G E; down mirrors it."""
+        self.capture(60, 64, 67)
+        for depth, notes in ((33, [64, 67, 72]), (66, [64, 72, 79]), (99, [72, 79, 88]), (-33, [55, 60, 64]),
+                             (-66, [48, 55, 64]), (-99, [40, 48, 55]), (0, [60, 64, 67])):
+            with self.subTest(depth=depth):
+                self.route("fixed", "chord-voicing", depth)
+                self.s.note(60)
+                self.assertEqual(self.notes(), notes)
+                self.s.note_off(60)
+
+    def test_velocity_voices_each_note_by_its_own(self):
+        self.capture(60, 64, 67)
+        self.route("velocity", "chord-voicing", 99)
+        for velocity, notes in ((127, [72, 79, 88]), (1, [60, 64, 67]), (127, [72, 79, 88])):
+            self.s.note(60, velocity)
+            self.assertEqual(self.notes(), notes, f"velocity {velocity}")
+            self.s.note_off(60)
+
+    def test_the_voicing_holds_its_step_near_a_boundary(self):
+        self.capture(60, 64, 67)
+        self.route("macro2", "chord-voicing", 99)
+        heard = []
+        for offset in (0, 20, 22, 18, 10):
+            self.s.setting("macro 1 2", offset + 99)
+            self.s.ms(20)
+            self.s.note(60)
+            heard.append(self.notes())
+            self.s.note_off(60)
+        c, up = [60, 64, 67], [64, 67, 72]
+        self.assertEqual(heard, [c, c, up, up, c])
+
+    def test_a_held_chord_follows_the_voicing(self):
+        self.s.param(0, "amp-att", 8700)  # 0.2 s: a retrigger would show as the attack again
+        self.capture(60, 64, 67)
+        self.route("macro2", "chord-voicing", 99)
+        self.s.note(60)
+        self.s.ms(400)
+        gated = self.s.gated()
+        self.s.setting("macro 1 2", 99 + 33)
+        self.s.ms(3)
+        amp = self.s.probe()["amp"]
+        self.assertTrue(all(amp[v] not in (1, 6) for v in gated), "no retrigger")
+        self.assertEqual(self.notes(), [64, 67, 72])
+        self.assertEqual(self.s.gated(), gated, "the same voices")
+        self.s.note_off(60)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_note_into_the_voicing_reads_the_key(self):
+        """The voicing moves the pitch: Note as its source is the chord's key, or a held chord would flip every pass."""
+        self.capture(60, 64, 67)
+        self.route("note", "chord-voicing", -99)
+        self.s.note(96)
+        heard = []
+        for gap in (6, 7, 6, 7, 6, 7):  # a reply takes 5 ms: 11 and 12 passes apart, both parities
+            heard.append(self.notes())
+            self.s.ms(gap)
+        self.assertEqual(heard, [heard[0]] * 6, "steady")
+        self.assertEqual(heard[0], [84, 91, 100], "key 96 at -99: x -1.8, step -2 (G and C below)")
+        self.s.note_off(96)
+
+    def test_a_restarted_lfo_voices_the_chord_from_its_start(self):
+        self.s.param(0, "lfo-freq", 5440)  # 0.5 Hz (0.05 x 2^(10 x 0.332))
+        self.s.setting("shape 1 1", 1)  # square: the other half of its cycle reads the other end of the ladder
+        self.s.setting("lfo-trigger", 2)  # every key
+        self.capture(60, 64, 67)
+        self.route("lfo", "chord-voicing", 99)
+        self.s.ms(1500)  # three quarters into the cycle the capture's keys restarted
+        # the note-on and the probe in one read: what the chord started as, before the first pass could re-voice it
+        self.s.cmd("out")
+        self.s.cmd("midi " + (bytes([0x90, 60, 100]) + pro800.SYSEX_HEADER + bytes([0x55]) + b"\xF7").hex())
+        self.s.ms(5)
+        out = bytes.fromhex(self.s.cmd("out"))
+        start = out.index(pro800.SYSEX_HEADER + bytes([0x55]))
+        d = out[start + pro800.HEADER_SIZE + 1:out.index(0xF7, start)]
+        first = sorted(d[94 + 3 * v] for v in range(8) if d[10 + 3 * v])
+        self.assertEqual(first, [72, 79, 88], "the restarted square's first half: the top of the ladder")
+        self.s.ms(30)
+        self.assertEqual(self.notes(), first, "and the passes after it agree")
+        self.s.note_off(60)
+
+    def test_without_its_route_the_voicing_goes_back(self):
+        self.capture(60, 64, 67)
+        self.route("fixed", "chord-voicing", 99)
+        self.s.note(60)
+        self.assertEqual(self.notes(), [72, 79, 88])
+        self.route("fixed", "chord-voicing", 0)
+        self.s.ms(20)
+        self.assertEqual(self.notes(), [60, 64, 67], "held: back to the stored chord")
+        self.s.note_off(60)
+        self.s.seq_set(1, arp=1)
+        self.s.seq_steps(0, [(0,)])
+        self.s.note(60)
+        played = []
+        for _ in range(3):
+            self.s.ms(10)
+            played.append(self.notes())
+            self.s.ms(115)
+        self.assertEqual(played, [[60], [64], [67]], "the arp joins the stored chord")
+        self.s.note_off(60)
+
+    def test_the_pedals_capture_plays_on(self):
+        self.s.switch("UNISON")
+        for k in (60, 63, 67):
+            self.s.note(k)
+        self.s.cc(64, 127)
+        self.s.ms(20)
+        self.assertShows("CHrd")
+        self.assertTrue(self.s.gated(), "the keys held play again, with the new chord")
+        self.assertEqual(self.notes(67), [67, 70, 74], "the newest key whole (three triads take nine voices)")
+        for k in (60, 63, 67):
+            self.s.note_off(k)
+        self.assertTrue(self.s.gated(), "the pedal holds them")
+        self.s.cc(64, 0)
+        self.s.ms(5)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_stack_captures_on_both_layers(self):
+        self.s.setting("layers", 2)
+        self.capture(60, 64, 67)
+        a, b = self.chord()
+        self.assertEqual((a[:2], b[:2]), ([4, 7], [4, 7]))
+        self.assertEqual(list(self.s.reply(0x6A, 3)), [0, 0], "nothing held now: both cleared")
+        self.s.setting("layers", 0)
+        self.assertEqual(list(self.s.reply(0x6A, 3)), [0, 127], "layers off: layer 2 left alone")
+
+    def test_with_no_chord_the_voicing_does_nothing(self):
+        self.route("fixed", "chord-voicing", 99)
+        self.s.note(60)
+        self.assertEqual(self.notes(), [60])
+        self.s.note_off(60)
+        self.s.switch("UNISON")
+        self.s.note(60)
+        self.assertEqual(self.notes(), [60] * 8)
+
+
 class Layers(PanelTest):
     def test_seq_buttons_choose_the_edit_layer(self):
         self.s.press("SEQ2")
@@ -2859,6 +3240,15 @@ class ModAssign(PanelTest):
                 self.s.switch(button)
                 self.assertSaw([name])
                 self.s.press("ASSIGN")
+
+    def test_the_unison_button_is_the_chord_voicing(self):
+        self.begin()
+        self.s.press("9")
+        self.s.history()
+        self.s.switch("UNISON")
+        self.assertSaw(["CH.Uo"])
+        self.assertEqual(self.s.reply(0x4C)[SWITCH["UNISON"]], 0, "selecting, not switching")
+        self.s.press("ASSIGN")
 
     def test_value_scrolls_sources_and_assign_takes_one(self):
         self.begin()
@@ -3854,12 +4244,14 @@ class ButtonsOnTheFace(PanelTest):
                 self.s.ms(1100)
                 self.assertShows("P  1")
 
-    def test_unison_keeps_the_display(self):
-        """Until chord memory names it (the 0.10.0 plan, step 7)."""
-        self.s.history()
+    def test_unison_says_on_and_off(self):
+        """Since chord memory (0.10.0), which names it CHrd when it takes a chord."""
         self.s.switch("UNISON")
-        self.assertEqual([t for _, t in self.s.history()], [])
+        self.assertShows("Un.on")
+        self.s.ms(1100)
         self.assertShows("P  1")
+        self.s.switch("UNISON")
+        self.assertShows("Un.oF")
 
     def test_a_button_takes_over_from_a_loaded_patch(self):
         self.s.switch("A_SAW")
@@ -5502,7 +5894,7 @@ RANGE_BLOCKS = ["const P = {", "const ENVS = [", "const ENV_KNOB = {};", "for (c
                 "function envTime(", "const envFlag", "const QUARTERS", "const envTempo", "const noteStep", "const noteName", "const noteSeconds",
                 "const DIVISIONS", "function seconds(", "function lfoHz(", "function format(", "const DEST_KNOBS", "const DEST_SCALE",
                 "const BIPOLAR_SOURCES", "const FIXED_SOURCE", "const isMacroSource", "const VIA_SOURCE", "const viaName", "const SQUARED_DESTS", "const timeDest", "const rateDest", "const factor",
-                "function swingUnit(", "function routeSwing(", "function swingWhere(", "const SOURCES", "const DESTS", "function modRange(",
+                "let chords = null;", "function chordSize(", "function swingUnit(", "function routeSwing(", "function swingWhere(", "const SOURCES", "const DESTS", "function modRange(",
                 "function hertz(", "function noteValue(", "function paintRange("]
 
 
@@ -5674,7 +6066,7 @@ class WebRanges(PanelTest):
         self.assertEqual(unit["41"], c["TIME_OCTAVES"])
         self.assertAlmostEqual(scale["41"], c["TIME_OCTAVES"] / c["GLIDE_OCTAVES"], 6)
         self.assertEqual(unit["42"], c["DETUNE_CENTS"])
-        self.assertEqual(self.page["dests"], 47)
+        self.assertEqual(self.page["dests"], len(pro800.DEST_NAMES))
 
     def test_pitch_a_is_squared(self):
         v = self.voice()
@@ -8519,6 +8911,54 @@ class WebSmallThings(unittest.TestCase):
         for why in out["bad"]:
             self.assertIsNotNone(why)
 
+    def test_a_chord_in_the_preset_format(self):
+        """#36: "chord 1" / "chord 2" as 69, after the buttons; a firmware before 0.10.0 warns and gets nothing."""
+        out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
+        const plan = planSound({ buttons: ["unison"], settings: { "chord 1": "0 4 7", "chord 2": "off" } }, () => true);
+        const old = planSound({ settings: { "chord 1": "4,7" } }, name => name !== "initPatch");
+        const refused = c => { try { planSound({ settings: { "chord 1": c } }, () => true); return null; } catch (e) { return e.message; } };
+        const at = m => plan.messages.findIndex(x => x[0] === m);
+        report({ chords: plan.messages.filter(m => m[0] === 0x69), afterButtons: at(0x69) > plan.messages.map(m => m[0]).lastIndexOf(0x4B),
+          warned: plan.warnings, old: old.messages.filter(m => m[0] === 0x69).length, oldWarned: old.warnings.length,
+          parsed: ["0 4 7", "4,7", "0, 3, 7, 10", "", "none", " OFF "].map(chordFromText),
+          bad: ["0 7 4", "1 2 3 4 5 6 7 8", "0 128", "0 4 4", "C E G", 5.5].map(refused) });
+        """)
+        self.assertEqual(out["chords"], [[0x69, 0, 4, 7, 0, 0, 0, 0, 0, 0], [0x69, 1, 0, 0, 0, 0, 0, 0, 0, 0]])
+        self.assertTrue(out["afterButtons"])
+        self.assertEqual(out["warned"], [], "not an unknown setting")
+        self.assertEqual((out["old"], out["oldWarned"]), (0, 1))
+        self.assertEqual(out["parsed"], [[4, 7], [4, 7], [3, 7, 10], [], [], []])
+        for why in out["bad"]:
+            self.assertIsNotNone(why)
+
+    def test_the_chord_rows_names_and_the_voicings_range(self):
+        page = source("tools", "web", "index.html")
+        out = run_node(NODE_DRIVER % ("""
+        let paramsLayer = 0, settings = null;
+        """ + chr(10).join(js_block(page, b) for b in RANGE_BLOCKS + ["const NOTE_NAMES", "const chordIntervals", "const chordNames"]) + """
+        const range = d => routeSwing(25, 47, d).text;
+        const none = range(99);
+        chords = [[4, 7, 0, 0, 0, 0, 0, 0], [3, 7, 10, 14, 17, 21, 24, 0]];
+        const out = { none, full: range(99), third: range(33), down: range(-99), names: chordNames(chordIntervals(0)) };
+        paramsLayer = 1;
+        out.seven = range(99);
+        out.names2 = chordNames(chordIntervals(1));
+        out.via = routeSwing(25, 47, 99, 400).text;
+        settings = { layers: 1, layerVoices: 0 };
+        out.split = range(99);
+        paramsLayer = 0;
+        chords[0] = [2, 4, 5, 7, 9, 0, 0, 0];
+        out.split1 = range(99);
+        report(out);
+        """))
+        self.assertEqual(out["none"], "none: the layer has no chord")
+        self.assertEqual((out["full"], out["third"], out["down"]), ("+3 steps", "+1 step", "-3 steps"))
+        self.assertEqual(out["seven"], "+8 steps", "all seven intervals: eight notes")
+        self.assertEqual(out["via"], "+8 steps", "a Via of 4 doesn't take it past the chord's notes")
+        self.assertEqual((out["split"], out["split1"]), ("+4 steps", "+4 steps"), "split: four voices a layer")
+        self.assertEqual(out["names"], "C E G")
+        self.assertEqual(out["names2"], "C D♯ G A♯ D' F' A' C''")
+
     def test_tenths_in_the_preset_format(self):
         out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
         const has = () => true, plan = j => planSound(j, has), route = m => m[0] === 0x56 && m[1] === 0 && m[2] === 1 || m[0] === 0x66;
@@ -9008,6 +9448,18 @@ class PresetRoutes(PanelTest):
             for source_, dest, _ in INIT_ROUTES:
                 self.assertIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x56]), self.s.request(0x56, layer, source_, dest, 0, 99))
 
+    def test_plan_py_takes_a_chord(self):
+        plan = load_plan_py()
+        lines = plan.plan({"slot": 1, "name": "Chord", "buttons": ["unison"], "settings": {"chord 1": "0 4 7", "chord 2": ""}})
+        self.assertIn("chord 1 4,7", lines)
+        self.assertIn("chord 2 off", lines)
+        self.assertGreater(lines.index("chord 1 4,7"), max(i for i, l in enumerate(lines) if l.startswith("set button")))
+        for bad in ("0 7 4", "1 2 3 4 5 6 7 8", "0 128", "C E G"):
+            with self.subTest(chord=bad), self.assertRaises(plan.Bad):
+                plan.plan({"slot": 1, "name": "Chord", "settings": {"chord 1": bad}})
+        with self.assertRaises(plan.Bad):
+            plan.plan({"slot": 1, "name": "Chord", "settings": {"chord 3": "0 4 7"}})
+
     def test_install_sh_gets_exactly_what_each_preset_lists(self):
         plan = load_plan_py()
         for preset in self.shipped():
@@ -9138,7 +9590,7 @@ def velocity_page():
     blocks = RANGE_BLOCKS + ["const ROUTES", "const routesFull", "const routesTaken", "const ROUTE_HOLD_TEXT", "const routeBothMask", "const LINK_FILTER", "const twoLayers", "const linkOn", "const routesBothShown",
                              "const FEATURES", "const feature", "const missingFeatures", "function linkedView(", "function linkedWrites(", "const paramLink",
                              "const wholeDepth", "async function setRoute(", "async function setRouteVia(", "async function setRouteBoth(", "let viaAnswers", "async function readVias(", "let fineAnswers", "async function readFines(", "const exactDepth", "async function refreshLayerRoutes(", "async function setSetting(",
-                             "async function refreshSettings(", "async function refreshParams(", "const WIRE", "const options", "const viaOptions", "const viaOf", "function showVia(", "let routeRowHeld", "const ROUTE_ROW_HOLD",
+                             "async function refreshSettings(", "async function refreshChords(", "async function refreshParams(", "const WIRE", "const options", "const viaOptions", "const viaOf", "function showVia(", "let routeRowHeld", "const ROUTE_ROW_HOLD",
                              'for (const type of ["pointerup"', "const routeRowInUse", "const ROW_CONTROLS", "function renderRoutes(", "async function loadRoutes(",
                              "function adjustable(", "const RING_R", "function dial(", "const SRC_VELOCITY", "let velocitySaid", "const velocityStatus", "function velocityUnsay(", "function velocityKnob(",
                              "const LFO_SOURCE", "async function readParams(", "async function copyParams(", "const set7D", "async function copyLfo("]

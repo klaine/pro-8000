@@ -496,6 +496,7 @@
         <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways (until a knob is touched)</td></tr>
         <tr><td><kbd>VALUE</kbd> after a knob</td><td>While a knob's value shows (1.5 s), a click cycle moves it a tenth <code class="lcd">53.4</code> (Free tuning a tenth of a semitone, a stepped knob a step); the knob then waits until turned, and a save keeps it. Not in a menu, a save or MOD ASSIGN; Shift + <kbd>VALUE</kbd> still steps ten patches</td></tr>
         <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
+        <tr data-needs="chord"><td><kbd>Unison</kbd></td><td><code class="lcd">Un.on</code> / <code class="lcd">Un.oF</code>. Turned on with 2 or more keys held: they're the patch's chord <code class="lcd">CHrd</code>, and every key plays it (in place of the unison stack); with one key or none, plain unison and no chord. The pedal pressed over 2 or more keys in Unison takes a new chord too. Saved with the patch; Unison off keeps it</td></tr>
         <tr><td>Waveform, Sync, PMOD, LFO routing buttons</td><td>As printed; each press shows what now sounds: an oscillator's waves in fixed places, saw, tri, square <code class="lcd">A.St_</code> <code class="lcd">b.oFF</code>, the others <code class="lcd">SY.on</code> <code class="lcd">PA.oF</code> <code class="lcd">PF.on</code> <code class="lcd">Fr.on</code></td></tr>
         <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
         <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span>; M VOL / FIL ENV AMT → the edit layer's Velocity routes to the VCA and the cutoff, the page's Velocity knobs (<code class="lcd">VE.A</code> / <code class="lcd">VE.F</code>; firmware 0.9.4 and up)<span data-needs="pickup">; PMOD FIL ENV → knob pickup <code class="lcd">P.UP</code> <code class="lcd">on</code> / <code class="lcd">OFF</code> (a quarter turn; on firmware before 0.9.4 it's FIL ENV AMT)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page<span data-needs="initPatch">; Settings: the system menu</span>; 0: panic.</td></tr>
@@ -601,6 +602,7 @@
           <tr><td>AMP SUS</td><td>VCA gain <code class="lcd">VCA</code></td></tr>
           <tr><td>LFO AMOUNT / LFO FREQ</td><td>LFO depth / rate <code class="lcd">L.An</code> <code class="lcd">L.rt</code> (<code class="lcd">L2.</code> for LFO 2)</td></tr>
           <tr><td>LFO → Freq / Filter / PW button</td><td>LFO routing depths <code class="lcd">L.Fr</code> <code class="lcd">L.FL</code> <code class="lcd">L.PU</code></td></tr>
+          <tr data-needs="chord"><td>Unison button</td><td>Chord voicing <code class="lcd">CH.Uo</code> (the button doesn't switch meanwhile)</td></tr>
           <tr><td>A LEVEL / B LEVEL / NOISE</td><td>Mixer <code class="lcd">A.LE</code> <code class="lcd">b.LE</code> <code class="lcd">noIS</code></td></tr>
           <tr><td>RESONANCE, PW A / B, PMOD OSC B</td><td><code class="lcd">rES</code> <code class="lcd">A.PU</code> <code class="lcd">b.PU</code> <code class="lcd">P.ob</code></td></tr>
         </table>
@@ -1350,6 +1352,7 @@ const FEATURES = {
   arpChaos: ["arpChaos", "the arp's walk, range, added notes and Chaos"],
   initPatch: ["initPatch", "your own init patch"],
   releaseVelocity: ["initPatch", "release velocity as a mod source"], // 0.10.0, as the init patch
+  chord: ["initPatch", "chord memory and its voicing"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1563,6 +1566,16 @@ const timeDest = d => d === 41 || (d >= 25 && d <= 40 && (d - 25) % 4 !== 2); //
 const rateDest = d => d === 18 || d === 20;                                      // LFO rates: 2^(4 × mod)
 const factor = oct => { const f = 2 ** oct; return f < 9.95 ? +f.toFixed(1) : Math.round(f); };
 // a destination's swing at depth 99 and how to print a value in its units (the engine's constants, synth.c)
+// Chord memory (0.10.0): each layer's 8 bytes from 68, the intervals above the key (0 ends them), then flags
+let chords = null;
+// The edit layer's chord's notes, the key's included (0: none): how many steps either way the voicing has at depth 99
+// (as the synth plays it: no more than the layer has voices, 4 each in the two-layer modes unless Layer 1's voices says)
+function chordSize() {
+  const c = chords && chords[paramsLayer], k = c ? c.slice(0, 7).indexOf(0) : 0;
+  if (!c || k === 0) return 0;
+  const two = settings && [1, 2, 3].includes(settings.layers), first = settings && settings.layerVoices || 4;
+  return Math.min(1 + (k < 0 ? 7 : k), !two ? 8 : paramsLayer ? 8 - first : first);
+}
 function swingUnit(dest) {
   const st = x => (Math.abs(x) < 9.95 ? +x.toFixed(1) : Math.round(x)) + " st";
   const pct = x => Math.round(x) + " %";
@@ -1574,6 +1587,7 @@ function swingUnit(dest) {
   if (dest === 8 || dest === 22) return [48, st];                   // LFO → filter
   if (dest === 14 || dest === 15) return [50, pct];                 // pulse width
   if (dest === 42) return [50, x => Math.round(x) + " ct"];         // unison detune
+  if (dest === 47) return [chordSize(), x => { const k = Math.round(x); return `${k} step${Math.abs(k) === 1 ? "" : "s"}`; }]; // chord voicing
   if ([6, 9, 17, 19, 23, 24, 43, 46].includes(dest)) return [100, pct]; // LFO amounts and → PW, VCA, volume, morph, arp Chaos
   if (rateDest(dest)) return [4, x => +x.toFixed(1) + " oct"];
   if (timeDest(dest)) return [4, x => x < 0 ? "÷" + factor(-x) : "×" + factor(x)];
@@ -1586,12 +1600,14 @@ function swingUnit(dest) {
 function routeSwing(source, dest, depth, via = 0) {
   if (!depth || dest >= DESTS.length) return null;
   if ((dest === 9 || dest === 43) && depth < 0 && !BIPOLAR_SOURCES.has(source) && source !== FIXED_SOURCE) return { lo: 0, hi: 0, text: "none on its own" };
+  if (dest === 47 && !chordSize()) return { lo: 0, hi: 0, text: "none: the layer has no chord" };
   const [full, fmt] = swingUnit(dest);
   let d = depth / 99;
   if (SQUARED_DESTS.has(dest)) d *= Math.abs(d);
   const viaSource = via >= VIA_SOURCE ? via - VIA_SOURCE : 0, exp = rateDest(dest) || timeDest(dest);
   let m = d * full * (via && !viaSource ? via / 100 : 1); // a source as Via: as far as it can reach
   if (exp) m = Math.max(-8, Math.min(8, m));               // exp_mod() in the firmware
+  if (dest === 47) m = Math.max(-full, Math.min(full, m));  // the voicing stops at the chord's notes (voicing_at())
   const bip = BIPOLAR_SOURCES.has(source) || BIPOLAR_SOURCES.has(viaSource), down = (dest === 9 || dest === 43) && !BIPOLAR_SOURCES.has(source);
   let lo, hi;
   if (bip) { lo = -Math.abs(m); hi = Math.abs(m); }
@@ -3380,7 +3396,7 @@ function buildPanel() {
       row(mutateControls()),
       row(settingSelect("Bend", Array.from({ length: 12 }, (_, k) => `±${k + 1} st`),
           () => settings && settings.bend - 1, v => setSetting(SET_ID.bend, v + 1), "pitch bend range (per patch)"),
-        unisonDetuneKnob(), unisonVoicesKnob())), "voice"),
+        unisonDetuneKnob(), unisonVoicesKnob()), chordControls()), "voice"),
     collapsible(matrix, "matrix"),
     collapsible(seqSection(), "sequencer"));
   box.append(face, h("div", { class: "extras-head" }, "Beyond the panel"), extras);
@@ -3459,8 +3475,56 @@ async function refreshSettings() {
   const key = `${s.presetMode}:${s.patch}`;
   if (key !== seqFor) { seqFor = key; await refreshSequence(); } // another patch: its sequence
   if (s.midiChannel !== midiChannelSeen) { midiChannelSeen = s.midiChannel; followChannel(s.midiChannel); }
+  if (feature("chord")) await refreshChords();
   paintSettings();
   return true;
+}
+
+async function refreshChords() {
+  const d = await ask([0x68], [0x68], 1000);
+  chords = d && d.length >= 17 ? [Array.from(d.slice(1, 9)), Array.from(d.slice(9, 17))] : null;
+}
+const chordIntervals = layer => { const c = chords && chords[layer]; if (!c) return []; const k = c.slice(0, 7).indexOf(0); return c.slice(0, k < 0 ? 7 : k); };
+const chordNames = iv => [0, ...iv].map(n => NOTE_NAMES[n % 12] + "'".repeat(Math.floor(n / 12))).join(" ");
+async function setChord(layer, iv) {
+  const bytes = [...iv, ...Array(8 - iv.length).fill(0)];
+  if (!await ack([0x69, layer, ...bytes])) return false;
+  if (chords) chords[layer] = bytes;
+  return true;
+}
+// The Voice section's chord row: the edit layer's chord as numbers (editable) and note names from C, Capture (the keys
+// held now, as Unison pressed over them) and Clear
+function chordControls() {
+  const box = h("input", { type: "text", size: 16, placeholder: "0 4 7",
+    title: "semitones above the key, ascending (0 4 7 is a major triad), up to 7 besides 0; empty for none. Plays from every key while Unison is on (per patch)" });
+  const names = h("span", { class: "small" });
+  const status = text => { document.getElementById("status").textContent = text; };
+  box.onchange = async () => {
+    const iv = chordFromText(box.value); // sound-plan.js
+    if (iv === null) { status("A chord is up to 7 notes above the key, ascending, 1 to 127: 0 4 7"); return; }
+    if (!offline() && !await setChord(paramsLayer, iv)) status("The synth didn't take that chord");
+    paintAll();
+  };
+  const capture = async () => {
+    if (offline()) return;
+    const d = await ask([0x6A, 1 << paramsLayer], [0x6A], 1000);
+    await refreshChords();
+    const n = d && d[1 + paramsLayer];
+    status(!d ? "The synth didn't answer" : n === 127 ? "Not captured: layer 2 isn't playing, or a per-channel mode"
+      : n ? `Chord: ${n} notes` : "Fewer than 2 keys held: the chord is cleared (hold 2 or more, then Capture)");
+    paintAll();
+  };
+  const clear = async () => { if (!offline()) await setChord(paramsLayer, []); paintAll(); };
+  paints.push(() => {
+    const iv = chordIntervals(paramsLayer);
+    if (document.activeElement !== box) box.value = iv.length ? [0, ...iv].join(" ") : "";
+    names.textContent = iv.length ? chordNames(iv) : "no chord";
+  });
+  const e = h("div", { class: "row" }, h("label", { class: "sel" }, h("span", { class: "lbl" }, "Chord"), box), names,
+    h("button", { type: "button", class: "chip", title: "take the keys held now as this layer's chord", onclick: capture }, "Capture"),
+    h("button", { type: "button", class: "chip", title: "no chord: Unison plays its stack again", onclick: clear }, "Clear"));
+  e.dataset.needs = "chord";
+  return e;
 }
 
 const stepsLayer = which => paramsLayer === 1 && linkOn(LINK_LFO(which)) ? 0 : paramsLayer;
@@ -3607,7 +3671,7 @@ const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount
   "Amp env attack", "Amp env decay", "Amp env sustain", "Amp env release",
   "Filter env attack", "Filter env decay", "Filter env sustain", "Filter env release",
   "Env 3 attack", "Env 3 decay", "Env 3 sustain", "Env 3 release", "Env 4 attack", "Env 4 decay", "Env 4 sustain", "Env 4 release",
-  "Glide time", "Unison detune", "Master volume", "Macro 1", "Macro 2", "Arp Chaos"];
+  "Glide time", "Unison detune", "Master volume", "Macro 1", "Macro 2", "Arp Chaos", "Chord voicing"];
 const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 42, 43]);
 const options = (list, skip) => list.map((t, i) => i === skip ? "" :
   `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");
@@ -4038,6 +4102,10 @@ async function readSound() {
   out.settings = {};
   for (const [key, set, c] of JSON_SETTINGS)
     if (rawSettings[set] !== undefined) out.settings[key] = c.dec(c.shift !== undefined ? rawSettings[set] >> c.shift & c.mask : rawSettings[set]);
+  if (feature("chord")) {
+    await refreshChords();
+    for (const l of [0, 1]) if (chordIntervals(l).length) out.settings[`chord ${l + 1}`] = [0, ...chordIntervals(l)].join(" ");
+  }
   for (const layer of [0, 1]) for (const lfo of [0, 1]) {
     const d = await ask([0x4D, layer, lfo], [0x4D, layer, lfo], 1000);
     if (d) out.settings[`steps ${layer + 1} ${lfo + 1}`] = STEP_PATTERN(d[3], d[4] << 14 | d[5] << 7 | d[6]);

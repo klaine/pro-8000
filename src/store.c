@@ -24,7 +24,8 @@
 //   345 stage times in note values[2] (a bit per envelope; 0.9.1)
 //   347 layer links (LINK_* bits: what layer 2 takes from layer 1; 0.9.3), 348 one shot cycles[2] (per LFO, 0 = 1; 0.9.3),
 //   350 1 if a sequence's keys restart the LFOs, 0 its steps (0.9.3), 351 both-layers routes[2] (u16, bit r: route r plays
-//       on the other layer too; 0.9.3), 355 unison voices (2-8, 0 = 8; 0.9.5), 356 route Vias[2][16] (u16, mod.h; 0.9.5), 420 route depths' tenths[2][16] (int8, mod.h; 0.9.5), 452 arp range, 453 arp extension, 454 arp chaos (seq.h; 0.9.5), 455 reserved to 508
+//       on the other layer too; 0.9.3), 355 unison voices (2-8, 0 = 8; 0.9.5), 356 route Vias[2][16] (u16, mod.h; 0.9.5), 420 route depths' tenths[2][16] (int8, mod.h; 0.9.5), 452 arp range, 453 arp extension, 454 arp chaos (seq.h; 0.9.5), 455 chords[2][8] (per layer
+//       up to 7 intervals, 0 ending them, and a flags byte; synth.h; 0.10.0), 471 reserved to 508
 //   508 checksum (u32) over 0-507
 //   512 "P8S2", 516 length, lanes, division, bpm, flags (bits 5-6: chord lanes, 0.9.3), swing, smooth, arp, then from 524 each step's note,
 //       velocity, gate, extra (length × 4 bytes) and each lane's values (length bytes each); 764 checksum over
@@ -94,7 +95,8 @@
 #define OFF_ARP_CHAOS 454
 #define OFF_ROUTE_VIA 356 // 356-419
 #define OFF_ROUTE_FINE 420 // 420-451
-#define OFF_RESERVED 455   // 455-507: free (53 B), written 0; a new field takes its bytes from here (NOTES: 0.10.0 plan)
+#define OFF_CHORD 455      // 455-470
+#define OFF_RESERVED 471   // 471-507: free (37 B), written 0; a new field takes its bytes from here (NOTES: 0.10.0 plan)
 #define OFF_CHECKSUM 508
 #define SEQ_OFF 512
 #define SEQ_HEADER 4
@@ -354,6 +356,9 @@ int store_load_patch(int n, patch_t *patch)
     patch->arp_extend = b[OFF_ARP_EXTEND];
     patch->arp_chaos = b[OFF_ARP_CHAOS];
     for (int l = 0; l < 2; l++)
+        for (int i = 0; i < CHORD_BYTES; i++)
+            patch->chord[l][i] = b[OFF_CHORD + CHORD_BYTES * l + i];
+    for (int l = 0; l < 2; l++)
         for (int r = 0; r < ROUTES; r++)
             patch->route_via[l][r] = get16(b + OFF_ROUTE_VIA + 2 * (l * ROUTES + r));
     for (int l = 0; l < 2; l++)
@@ -431,6 +436,9 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_ARP_EXTEND] = patch->arp_extend;
     b[OFF_ARP_CHAOS] = patch->arp_chaos;
     for (int l = 0; l < 2; l++)
+        for (int i = 0; i < CHORD_BYTES; i++)
+            b[OFF_CHORD + CHORD_BYTES * l + i] = patch->chord[l][i];
+    for (int l = 0; l < 2; l++)
         for (int r = 0; r < ROUTES; r++)
             put16(b + OFF_ROUTE_VIA + 2 * (l * ROUTES + r), patch->route_via[l][r]);
     for (int l = 0; l < 2; l++)
@@ -486,7 +494,8 @@ int store_save_patch(int n, const patch_t *patch)
     _Static_assert(OFF_ROUTE_VIA + 2 * 2 * ROUTES <= OFF_ROUTE_FINE, "route Via overflow");
     _Static_assert(OFF_ROUTE_FINE + 2 * ROUTES <= OFF_ARP_RANGE, "route tenths overflow");
     _Static_assert(OFF_ARP_RANGE + 1 <= OFF_ARP_EXTEND && OFF_ARP_EXTEND + 1 <= OFF_ARP_CHAOS, "arp overflow");
-    _Static_assert(OFF_ARP_CHAOS + 1 <= OFF_RESERVED && OFF_RESERVED <= OFF_CHECKSUM, "reserved bytes overlap");
+    _Static_assert(OFF_ARP_CHAOS + 1 <= OFF_CHORD && OFF_CHORD + 2 * CHORD_BYTES <= OFF_RESERVED, "chords overflow");
+    _Static_assert(OFF_RESERVED <= OFF_CHECKSUM, "reserved bytes overlap");
     _Static_assert(SEQ_OFF + SEQ_SIZE == RECORD_SIZE && SEQ_DATA + SEQ_BYTES <= SEQ_CHECKSUM, "record size");
     put32(b + OFF_CHECKSUM, checksum(b, OFF_CHECKSUM));
     if (!eeprom_write(record_address(n), b, sizeof b))

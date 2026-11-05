@@ -58,6 +58,8 @@ class FakeSynth:
         self.settings = [0] * 99
         self.undo = [1, *b"Pad"]
         self.init_theirs = 1  # 5F 1: Perf's sound, the user's init patch (0.10.0)
+        self.chords = [[0] * 8, [0] * 8]  # 68 / 69 (0.10.0)
+        self.captured = (3, 0)  # 6A's reply: the notes each layer took (127: left alone)
         self.has_via = True
         self.vias = [[0] * 16, [0] * 16]
         self.fines = [[0] * 16, [0] * 16]
@@ -201,6 +203,13 @@ class FakeSynth:
                 self.reply(0x63, d[1], *[b for v in self.vias[d[1]] for b in (v >> 7, v & 0x7F)])
         elif c == 0x62:
             self.ack(0x62)
+        elif c == 0x68:
+            self.reply(0x68, *self.chords[0], *self.chords[1])
+        elif c == 0x69 and len(d) == 10:
+            self.chords[d[1]] = list(d[2:10])
+            self.ack(0x69)
+        elif c == 0x6A:
+            self.reply(0x6A, *self.captured)
         elif c == 0x67:
             if self.has_via:
                 self.reply(0x67, d[1], *[f + 9 for f in self.fines[d[1]]])
@@ -1081,6 +1090,11 @@ class Writes(unittest.TestCase):
             (("patch", "init"), [0x5F]),
             (("patch", "undo"), [0x60]),
             (("patch", "perf"), [0x5F, 1]),
+            (("chord", "1", "0,4,7"), [0x69, 0, 4, 7, 0, 0, 0, 0, 0, 0]),
+            (("chord", "2", "3,7,10,14"), [0x69, 1, 3, 7, 10, 14, 0, 0, 0, 0]),
+            (("chord", "1", "off"), [0x69, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            (("chord", "capture", "--yes"), [0x6A, 3]),
+            (("chord", "capture", "2", "--yes"), [0x6A, 2]),
             (("patch", "rename", "P2", "Foo"), [0x59, 0, 1, 0x46, 0x6F, 0x6F]),
             (("factory", "import", "5", "P128", "--force"), [0x51, 5, 0, 127, 1]),
             (("format", "--yes"), [0x5B]),
@@ -1101,6 +1115,31 @@ class Writes(unittest.TestCase):
                 out, code = run(synth, *argv)
                 self.assertEqual(code, 0, out)
                 self.assertEqual(synth.sent, [request_bytes(*expected)], out)
+
+    def test_chord_prints_and_refuses(self):
+        synth = FakeSynth()
+        synth.chords[0] = [4, 7, 0, 0, 0, 0, 0, 0]
+        synth.buttons[12] = 1
+        out, code = run(synth, "chord")
+        self.assertEqual(code, 0, out)
+        self.assertIn("layer 1: 0 4 7 (from C4: C4 E4 G4)", out)
+        self.assertIn("layer 2: no chord", out)
+        self.assertIn("Unison is on", out)
+        for argv in (("chord", "capture"), ("chord", "1", "0,7,4"), ("chord", "1", "1,2,3,4,5,6,7,8"), ("chord", "3", "0,4,7"),
+                     ("chord", "1", "0,128"), ("chord", "1", "x")):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(synth.sent, [], "nothing sent")
+        synth = FakeSynth()
+        out, _ = run(synth, "chord", "capture", "--yes")
+        self.assertIn("layer 1: 3 notes", out)
+        self.assertIn("layer 2: fewer than 2 keys held: its chord is cleared", out)
+        synth = FakeSynth()
+        synth.captured = (2, 127)
+        out, _ = run(synth, "chord", "capture", "--yes")
+        self.assertIn("layer 2: not captured", out)
 
     def test_read_first_settings(self):
         synth = FakeSynth()
@@ -1794,7 +1833,7 @@ class ModIds(unittest.TestCase):
     def test_the_enums_end_where_the_ids_say(self):
         sources, dests = self.enum("SRC"), self.enum("DEST")
         self.assertEqual((sources[0], sources[-1], len(sources)), ("SRC_NONE", "SRC_RELEASE_VELOCITY", 30))
-        self.assertEqual((dests[0], dests[-1], len(dests)), ("DEST_PITCH_A", "DEST_ARP_CHAOS", 47))
+        self.assertEqual((dests[0], dests[-1], len(dests)), ("DEST_PITCH_A", "DEST_CHORD_VOICING", 48))
 
     def c_strings(self, name):
         found = re.search(r"\b" + name + r"\[\w+\]\[\d+\] = \{(.*?)\};", self.main_c, re.S)

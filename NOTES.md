@@ -2690,6 +2690,36 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
    and the arp walks it. 36c: destination 47, the mirrored ladder with N steps a side, evaluated for the starting note,
    with hysteresis. 36d: held chords re-voice, following GLIDE (droppable). 36e: `pro800 chord`, the web page, preset
    JSON `chord 1/2` and presets/README.md.
+   **Done 2026-11-05 (simulator only).** 38b0a49 first: each voice's `key` and `slot`, note-offs, pressure, reuse
+   and the mono line by key. Then `chord[2][8]` in synth.c (record 455-470, `OFF_RESERVED` 471, 37 B left), chords
+   active with Unison on outside the per-channel modes (`chord_on()`; `unison_on()` is the stack where no chord
+   replaces it, `lone_mono()` keeps the raw switch). Poly: `chord_gate_on()` per slot, slot 0 first so
+   `voicing_for()` reads the new note's velocity, the others allocated after it (never one of the chord's own);
+   mono, legato and unison's one line: `line_chord[]` fixes the line's chord as it begins, legato and the way back to a
+   held key move each slot by the key. Capture: the Unison button sets `unison_press`, `read_panel()` takes the held
+   keys (`layer_keys()`: the sequence's, the voices' with the pedal's, or the mono line's) before the all-off; the
+   pedal down in Unison with 2+ keys (`synth_pedal_down()`), 6A from the host; `CHrd` from the main loop. Any change
+   to a chord that plays (or starts or stops playing) silences the voices. The sequencer: a one-note step plays the
+   chord (`synth_chord_plain()` around its note-ons otherwise, and for the arp), the arp's held list gets the chord's
+   notes with their key (`held[].key`), the last key's release takes them all. Destination 47 `CH.Uo`, the Unison
+   button in MOD ASSIGN; the ladder in `chord_pitches()`, 0.65 hysteresis in `voicing_at()`, held chords re-voiced
+   after `last_mod` when the step changes (`voiced_step[]`, `chorded` per voice). 68 / 69 / 6A; `pro800 chord`; the
+   page's Chord row, the voicing's Range in steps, `chordFromText()` in sound-plan.js for the page and presets,
+   `"chord 1"` / `"chord 2"` in the preset format (plan.py writes `chord 1 4,7`). The Unison button shows
+   `Un.on` / `Un.oF`. The review (two lenses, a skeptic per finding; 10 of 17 held) found: Note → voicing read the
+   pitch the voicing moves, so a held chord flipped between two voicings every pass (`route_source()`: into the
+   voicing Note is the key); the note-on read the voicing before `lfos_note_on()` restarted a key-retriggered LFO
+   (`chord_gate_on()` now restarts them first and sets the delay / fade gain for the note's start); the pedal's
+   capture left the held keys silent (they play again with the new chord: `layer_sounding()`); a removed voicing
+   route left its step for the arp's next chord (no route: step 0, held chords go back); 6A's 0 meant cleared or
+   untouched (127 for untouched); the page's Range for the voicing ignored the clamp and the layer's voices; the
+   manual's "up to 8 notes" and a test that couldn't see a retrigger; checklist and comment wording. 92,496 B.
+   The note-out hook for step 10, at voice level: a voice's note starts in `gate_on()` (every path: poly,
+   `chord_gate_on()`, the mono line, per-channel), stops in `gate_off()` and `synth_all_off()`, and moves without a
+   gate in legato (`layer_note_on()`'s mono branch with retrigger 0, the mono note-off's way back to a held key) and
+   in the re-voicing loop. 'Played' out keeps a count per out channel and note: a note goes out on its first voice
+   and off with its last, a move is an off and an on (or the legato overlap the channel's mode wants), so a unison
+   stack sends one note and a chord every note.
 8. **#37 parameters and NRPN.** 37a: `tools/params.json` with every parameter and its id (NRPN MSB = layer rule, LSB =
    id; 0-35 the SysEx 52 knob indices, then buttons, then the rest), `gen_params.py` writing a C table and a JS list
    (outputs committed, a freshness test), the tools and pages reading it. The numbers stay open until planist79 has

@@ -67,7 +67,8 @@ void seq_fix(void);           // clamps the header to what fits
 // plays the key itself.
 int seq_key_on(uint8_t note, uint8_t velocity, int layers);
 int seq_takes_layer(int layer); // the sequence is on and plays from this layer's keys (0 or 1)
-int seq_key_off(uint8_t note, int layers, uint8_t release_velocity); // the last key's lift releases the sequence
+int seq_key_off(uint8_t note, int layers, uint8_t release_velocity);
+int seq_held_keys(int layers, uint8_t *out, int max); // the keys the sequence holds for those layers (chord memory's capture) // the last key's lift releases the sequence
 void seq_stop(void); // releases what's sounding
 void seq_update(float dt);
 float seq_lane(int lane); // -1..1 while playing, else 0

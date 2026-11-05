@@ -76,6 +76,8 @@ Probe (our firmware 0.0.9+):
   pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
   pro800 route-move <layer> <src> <dest> <new src> <new dest> <depth>  a route becomes another at once, in its slot (0.9.5)
   pro800 route-via <layer> <src> <dest> <number 0.01-8|source>  what the route is multiplied by (0.9.5; 1 is plain)
+  pro800 chord [<layer> off|<notes>]    chord memory (0.10.0): print both layers' chords, or set one, e.g. 0,4,7
+  pro800 chord capture [1|2|both] --yes take the keys held now as the chord, as Unison pressed over them does
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
                                         replies on stdout as hex; over one MIDI connection
@@ -1978,7 +1980,7 @@ DEST_NAMES = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmo
               "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
               "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
               "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-              "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"]
+              "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing"]
 
 
 def source_and_dest():  # None unless args[1] and args[2] name a source and a destination
@@ -2053,6 +2055,59 @@ def route_via():
     if not acked([0x62, layer - 1, SOURCE_NAMES.index(args[1]), DEST_NAMES.index(args[2]), via >> 7, via & 0x7F]):
         fail("not set: no such route, a macro on a route into a macro, or firmware before 0.9.5")
     show(f"layer {layer}: {args[1]} → {args[2]} via {via_text(via)}")
+
+
+# Chord memory (0.10.0): pro800 chord prints both layers' (68); pro800 chord <layer> off|0,4,7 sets one (69, the
+# leading 0 optional); pro800 chord capture [1|2|both] --yes takes the keys held now (6A)
+def chord_text(intervals):
+    notes = [60] + [60 + i for i in intervals]
+    return " ".join(str(n - 60) for n in notes) + " (from C4: " + " ".join(
+        f"{ROOT_NAMES[n % 12]}{n // 12 - 1}" for n in notes) + ")"
+
+
+def chord():
+    if args and args[0] == "capture":
+        yes = flag("--yes")
+        bits = {"1": 1, "2": 2, "both": 3}.get(args[1] if len(args) == 2 else "both" if len(args) == 1 else "")
+        if bits is None or not yes:
+            fail("usage: pro800 chord capture [1|2|both] --yes (it changes the sound)")
+        reply = midi().request([0x6A, bits], expect=[0x6A], timeout=2)
+        if reply is None:
+            fail("no reply: firmware before 0.10.0?")
+        b = reply_data(reply, 1, 2)
+        for layer in (1, 2):
+            if bits >> (layer - 1) & 1:
+                show(f"layer {layer}: " + ("not captured (layer 2 with layers off, or a per-channel mode)" if b[layer - 1] == 127
+                                           else f"{b[layer - 1]} notes" if b[layer - 1] else "fewer than 2 keys held: its chord is cleared"))
+        return
+    if len(args) == 2:
+        layer = int_in(args[0], 1, 2)
+        try:
+            notes = [] if args[1] == "off" else [int(x) for x in args[1].split(",")]
+        except ValueError:
+            notes = None
+        if notes and notes[0] == 0:
+            notes = notes[1:]
+        ok = notes is not None and len(notes) <= 7 and all(1 <= n <= 127 for n in notes) and notes == sorted(set(notes))
+        if layer is None or not ok:
+            fail("usage: pro800 chord <layer 1|2> off|<notes above the key, ascending: 0,4,7 or 4,7; up to 7 besides 0>")
+        if not acked([0x69, layer - 1] + notes + [0] * (8 - len(notes))):
+            fail("not set: firmware before 0.10.0?")
+        show(f"layer {layer}: " + (chord_text(notes) if notes else "no chord"))
+        return
+    if args:
+        fail("usage: pro800 chord [<layer 1|2> off|0,4,7] | pro800 chord capture [1|2|both] --yes")
+    reply = midi().request([0x68], expect=[0x68], timeout=2)
+    if reply is None:
+        fail("no reply: firmware before 0.10.0?")
+    b = reply_data(reply, 1, 16)
+    switches = midi().request([0x4C], expect=[0x4C], timeout=2)
+    unison = switches is not None and reply_data(switches, 1, 16)[12]
+    for layer in (1, 2):
+        intervals = [x for x in b[8 * (layer - 1):8 * (layer - 1) + 7] if x]
+        show(f"layer {layer}: " + (chord_text(intervals) if intervals else "no chord"))
+    show("Unison is on: a layer with a chord plays it from every key" if unison
+         else "Unison is off: the chords are kept for when it's on")
 
 
 # pro800 route-both <layer 1|2> <source> <dest> on|off: the route plays on the other layer too (settings 87-90: a bit per slot)
@@ -2595,7 +2650,7 @@ COMMANDS = {
     "direct": direct, "cv": cv, "gate": gate, "measure": measure, "tune": tune, "tuning": tuning, "check": check,
     "dac-test": dac_test, "sh-waits": sh_waits, "dac-heal": dac_heal, "panel": panel, "state": state, "set": set_setting,
     "settings": settings, "params": params, "param": param, "factory": factory, "seq": seq, "layer": layer_command,
-    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "route-move": route_move, "route-via": route_via, "timing": timing, "engine": engine,
+    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "route-move": route_move, "route-via": route_via, "chord": chord, "timing": timing, "engine": engine,
     "sysex": sysex_pipe, "cc": cc, "bend": bend, "eeprom-write": eeprom_write, "format": format_patches,
     "patch": patch_command, "patches": patches, "clock": clock_out, "leds": leds, "update-mode": update_mode,
     "flash": flash, "install": install, "port-present": port_present, "fault": fault, "fault-test": fault_test,

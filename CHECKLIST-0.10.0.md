@@ -88,3 +88,29 @@ sound: `pro800 route 1 release-velocity amp-rel -60` (put it back with `... amp-
 - [ ] A key-up Env 3 → cutoff 50 via rVEL (Env 3 key-up in the editor's extras): lift a note softly, then play the same
       note again while Env 3 still runs. The fading part jumps to the full depth at the new note (the Via is ×1 while
       a key is down). Is that jump audible enough to want it smoothed?
+
+## Step 7: chord memory (#36)
+
+On P128's init sound, with a MIDI keyboard (the synth has none of its own). Afterwards `pro800 patch init` and
+`pro800 patch save P128` (one item saves the chord into P128), so P128 is the plain init sound once more.
+
+- [ ] Hold C E G, press Unison: `CHrd` shows; each key now plays a major triad from it. `pro800 chord` prints
+      `0 4 7 (from C4: C4 E4 G4)`. `pro800 check` still in tune.
+- [ ] Unison with no key held, then with one key: `Un.on`, plain unison (all 8 voices on one note).
+- [ ] A chord's voices open on their new notes with no blip of each voice's old note (play low, then a chord high).
+- [ ] Level of a 4-note chord at velocity 127 against a single note: headroom, no clipping.
+- [ ] `pro800 timing` while playing fast chords (and an 8-note chord): the longest pass.
+- [ ] Unison on with no chord, hold D F A, press the pedal: `CHrd`, a minor triad from then on. A pedal over one key
+      only sustains.
+- [ ] Voice mode mono and legato (Settings key 9): the line plays chords; legato glides between them without a new
+      attack.
+- [ ] A one-step sequence (or an arp) over a chord: steps play the chord; the arp walks C E G from one key. `timing`.
+- [ ] `pro800 route 1 mod-wheel chord-voicing 99`: rolling the wheel with a chord held moves it up the inversions
+      (E G C, E C G, C G E…), at GLIDE 0 with a jump, with glide sliding. Clicks or zipper on the VCAs? `check` at
+      the ladder's ends (an octave and more above the keyboard's chord) still in tune?
+- [ ] A slow LFO → chord voicing at a step's edge: no flutter between two inversions.
+- [ ] MOD ASSIGN: a source key, then Unison: the display reads `CH.Uo` and Unison stays as it was.
+- [ ] Save to P128, power off and on: P128 loads with Unison on and plays the chord.
+- [ ] The editor (Chrome / Edge): the Voice section's Chord row shows the chord and its names; typing `0 3 7` sets
+      it; Capture with keys held takes them; Clear empties it. The mod matrix's Range for a route into Chord voicing
+      reads in steps. Export a preset JSON: it has `"chord 1": "0 3 7"`; installing it brings the chord back.

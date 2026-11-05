@@ -286,6 +286,24 @@ void synth_set_arp_position(float position);
 int synth_in_scale(int note); // 0 with the scale off
 int synth_unison_voices(void);
 void synth_set_unison_voices(int n);
+// Chord memory (#36). Per layer up to 7 intervals above the key (1-127, ascending; 0 ends them), then a flags byte (0;
+// bit 0 kept for unison stacks on each chord note). With Unison on, a layer with a chord plays it from every key in
+// place of the unison stack (not in the per-channel modes); Unison off keeps it for the next time it comes on.
+#define CHORD_NOTES 8 // the key and up to 7 more (CHORD_BYTES: store.h)
+void synth_chord(int layer, uint8_t *out); // its CHORD_BYTES
+// Sets it as far as it's valid (ascending, up to the first 0 or a step back); a change on a layer that plays its chord
+// silences the voices. Returns the chord's notes, 1 for none.
+int synth_set_chord(int layer, const uint8_t *bytes);
+// From the keys held now on each layer in `layers` (the sequence's when it takes the layer): 2 or more notes set its
+// chord, fewer clear it; counts[layer] gets the notes (0 cleared, CHORD_UNTOUCHED for a layer it left alone: not
+// asked for, layer 2 with layers off, the per-channel modes). Returns the layers that got one.
+#define CHORD_UNTOUCHED 127
+int synth_capture_chord(int layers, uint8_t *counts);
+void synth_unison_pressed(void); // the panel's Unison button: if it turns Unison on, what's held is the chord (stock)
+int synth_pedal_down(int layers); // the pedal went down: with Unison on, 2 or more keys held are the new chord (stock)
+int synth_take_chord_captured(void); // the layers the panel's button or the pedal gave a chord since the last call
+void synth_chord_plain(int on); // the notes started meanwhile play without the chord (a sequence's own chord, the arp)
+int synth_chord_notes(int layer, uint8_t key, uint8_t *out); // what `key` plays on `layer` now (voiced); 1 without a chord
 int synth_pot_pending(int pot);
 // VALUE's fine adjustment of a knob's value (on the edit layer, as the knob edits it): `steps` of the knob's grid, a
 // tenth of the 0-99 the display shows (990), a tenth of a semitone in free tuning (720), or a stepped knob's steps,

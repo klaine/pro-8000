@@ -18,6 +18,8 @@
 #define STORE_TUNING_ADDRESS 0x1F500u
 #define STORE_TUNING_SIZE    0x700u
 
+#define CHORD_BYTES 8 // per layer: chord memory's intervals and flags (synth.h)
+
 typedef struct {
     char name[PATCH_NAME + 1];
     uint8_t layer_mode, split;
@@ -56,6 +58,7 @@ typedef struct {
     uint8_t arp_range, arp_extend, arp_chaos; // a sequence's arp (seq.h): octaves above the first, ARP_EXTEND_*, 0-99; 0 in older patches (0.9.5)
     uint16_t route_via[2][ROUTES];           // each route's Via (mod.h); 0 (older patches) = a number of 1 (0.9.5)
     int8_t route_fine[2][ROUTES];            // each route's tenths on its depth (mod.h); 0 (older patches) = none (0.9.5)
+    uint8_t chord[2][CHORD_BYTES];           // per layer, chord memory's intervals and flags (synth.h); 0 (older patches) = none (0.10.0)
 } patch_t;
 
 typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t; // (SLOT_STOCK: no longer in slots)

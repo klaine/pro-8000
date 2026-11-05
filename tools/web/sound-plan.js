@@ -81,7 +81,7 @@ const JN = {
     "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
     "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph", "amp-att",
     "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel", "env3-att", "env3-dec", "env3-sus",
-    "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel", "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"],
+    "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel", "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing"],
   shapes: ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"],
   divisions: ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
     "1/16T", "1/32"],
@@ -130,6 +130,16 @@ const JSON_SETTINGS = [
   ...[1, 2].flatMap(n => [[`lfo-delay ${n}`, `lfoDelay${n}`, jInt(0, 99)], [`lfo-fade ${n}`, `lfoFade${n}`, jInt(0, 99)]]),
 ];
 
+// A chord (chord memory, 0.10.0) as the preset format's "chord 1" / "chord 2" and the editor's Chord box take it:
+// "0 4 7", "0,4,7" or "4 7", up to 7 notes above the key, ascending, 1-127; "", "off" or "none" for none. The
+// intervals above the key, or null if it isn't one.
+function chordFromText(text) {
+  const t = String(text).trim().toLowerCase();
+  if (!t || t === "off" || t === "none") return [];
+  const n = t.split(/[\s,]+/).map(Number), iv = n[0] === 0 ? n.slice(1) : n;
+  return iv.length <= 7 && iv.every((x, i) => Number.isInteger(x) && x >= 1 && x <= 127 && (!i || x > iv[i - 1])) ? iv : null;
+}
+
 // The routes the init sound comes with (main.c, init_patch; also presets/lib/plan.py): a preset has exactly the routes it
 // lists, so they go first, on both layers. A firmware whose init sound hasn't got them acknowledges the removals all the same.
 const INIT_ROUTES = [["velocity", "vca"], ["velocity", "cutoff"]];
@@ -157,6 +167,15 @@ function planSound(j, has) {
   if (!Array.isArray(on)) bad("buttons: a list of names");
   for (const name of on) if (!Object.values(JN.buttons).includes(name)) bad(`button: ${JSON.stringify(name)}`);
   for (const [i, name] of Object.entries(JN.buttons)) messages.push([0x4B, +i, on.includes(name) ? 1 : 0]);
+  for (const l of [1, 2]) { // after the buttons, so the chord doesn't depend on how a firmware takes a Unison change
+    const key = `chord ${l}`;
+    if (st[key] === undefined) continue;
+    const iv = chordFromText(st[key]);
+    if (iv === null) bad(`${key}: up to 7 notes above the key, ascending, 1-127, as "0 4 7"; not ${JSON.stringify(st[key])}`);
+    delete st[key];
+    if (has("initPatch")) messages.push([0x69, l - 1, ...iv, ...Array(8 - iv.length).fill(0)]);
+    else warnings.push(`"${key}": this firmware hasn't got it`);
+  }
   for (const [group, layer] of [["shared", 0], ["1", 0], ["2", 1]])
     for (const [name, v] of Object.entries((j.params || {})[group] || {})) {
       const i = JN.params.indexOf(name);

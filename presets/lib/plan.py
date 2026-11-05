@@ -31,7 +31,7 @@ DESTS = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env
          "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
          "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
          "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-         "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"]
+         "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing"]
 SHAPES = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]
 DIVISIONS = ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
              "1/16T", "1/32"]
@@ -202,6 +202,22 @@ def sequence_lines(seq):
     return lines
 
 
+def chord_line(key, value):
+    """A "chord 1" / "chord 2" entry (0.10.0) as its `chord` command: up to 7 notes above the key, ascending, 1-127,
+    as "0 4 7" (the 0 optional); "", "off" or "none" for none."""
+    w = words(key)
+    check(len(w) == 2 and w[1] in LAYERS, "chord: " + key)
+    v = str(value).strip().lower()
+    notes = [] if v in ("", "off", "none") else v.replace(",", " ").split()
+    check(all(n.isdigit() for n in notes), '%s: notes above the key as "0 4 7", not %r' % (key, value))
+    notes = [int(n) for n in notes]
+    if notes and notes[0] == 0:
+        notes = notes[1:]
+    check(len(notes) <= 7 and all(1 <= n <= 127 for n in notes) and notes == sorted(set(notes)),
+          '%s: up to 7 notes above the key, ascending, 1-127, as "0 4 7"; not %r' % (key, value))
+    return "chord %s %s" % (w[1], ",".join(map(str, notes)) if notes else "off")
+
+
 def plan(patch):
     slot = in_range(patch["slot"], 1, 128, "slot")
     name = patch["name"]
@@ -216,6 +232,8 @@ def plan(patch):
         check(b in BUTTONS, "button: " + b)
     for b in BUTTONS:
         out.append("set button %s %s" % (b, "on" if b in on else "off"))
+    for key in [k for k in settings if words(k)[0] == "chord"]:  # after the buttons, as the editor plans it
+        out.append(chord_line(key, settings.pop(key)))
     params = patch.get("params", {})
     for layer_key, layer in [("shared", "1"), ("1", "1"), ("2", "2")]:
         for pname, v in params.get(layer_key, {}).items():

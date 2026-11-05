@@ -105,6 +105,12 @@
 //   58                     timing; replies 58 <engine, refresh, pass, longest pass, panel poll, display, passes/s, ticks: µs,
 //                          passes in the last second: 3 × 7 bits each>
 //   57 <layer>             the layer's routes; replies 57 <layer> then per route <source> <dest> <d1> <d0>
+//   68                     chord memory (0.10.0); replies 68 then per layer 8 bytes: up to 7 intervals above the key
+//                          (ascending, 0 ends them), then flags (0)
+//   69 <layer> <8 bytes>   set a layer's chord (as 68 gives it; kept as far as it's valid); acknowledged 7F 69
+//   6A <layer bits 1-3>    take the keys held now as each layer's chord, as the Unison button does (2 or more notes
+//                          set one, fewer clear it); replies 6A <layer 1's notes> <layer 2's> (0: cleared; 127: not
+//                          touched, as for layer 2 with layers off or in the per-channel modes)
 //   5E <n1> <n0>           patch info; replies 5E <n1> <n0> <kind: 0 empty, 1 ours, 2 stock, 3 corrupt> <name>
 //   79 <a2> <a1> <a0> <n>  read n (1-48) bytes of the patch EEPROM at a2 << 14 | a1 << 7 | a0; replies
 //                          79 <a2> <a1> <a0> <n> <status register, 2 nibbles> <each byte as 2 nibbles, high first>
@@ -773,7 +779,7 @@ static const char dest_names[DEST_COUNT][6] = {
     "L.rt", "L2.An", "L2.rt", "L2.Fr", "L2.FL", "L2.PU", "norP",
     "EA-A", "EA-d", "EA-S", "EA-r", "EF-A", "EF-d", "EF-S", "EF-r",
     "E3-A", "E3-d", "E3-S", "E3-r", "E4-A", "E4-d", "E4-S", "E4-r",
-    "GLId", "dEtU", "VOL", "nAC1", "nAC2", "CHAo",
+    "GLId", "dEtU", "VOL", "nAC1", "nAC2", "CHAo", "CH.Uo",
 };
 
 // A depth in tenths: a whole number as ever, the rest with its point, on the display's last digits: 53.5, -53.5, -5.5
@@ -1747,13 +1753,13 @@ static void cc_show(uint32_t now)
 // is saw and tri on, square off; A.oFF all three off), the others as two letters and on / oF. It's what sounds: a
 // loaded patch's value until its button is toggled (synth_switch()). Each wave and sync is one gate for both layers,
 // so no layer is named. Nothing over a menu, a save, MOD ASSIGN or a number being typed, except for LFO 2's routing
-// (`always`): the buttons show LFO 1's, so the display is the only sign of it, and it has always shown. Unison isn't
-// here yet: chord memory will name it (the 0.10.0 plan, step 7).
+// (`always`): the buttons show LFO 1's, so the display is the only sign of it, and it has always shown. Unison shows
+// Un.on / Un.oF, and CHrd follows from the main loop when the press took a chord (0.10.0).
 static void show_switch(int index, int on, int always)
 {
     static const struct { uint8_t index; char name[3]; } names[] = {
         {SWITCH_SYNC, "SY"}, {SWITCH_PMOD_FREQ_A, "PA"}, {SWITCH_PMOD_FILTER, "PF"},
-        {SWITCH_LFO_FREQ, "Fr"}, {SWITCH_LFO_FILTER, "FL"}, {SWITCH_LFO_PW, "PU"},
+        {SWITCH_LFO_FREQ, "Fr"}, {SWITCH_LFO_FILTER, "FL"}, {SWITCH_LFO_PW, "PU"}, {SWITCH_UNISON, "Un"},
     };
     if (!always && (menu_open || saving || recording || assigning || browsing || comparing || typed_digits))
         return;
@@ -2021,9 +2027,11 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             show_value_at = ms_ticks + 700; // then the page's value for this LFO
         }
     }
+    if (kind == CONTROL_SWITCH && index == SWITCH_UNISON)
+        synth_unison_pressed(); // turning it on with keys held captures them as a chord: CHrd after the engine's pass
     if (kind == CONTROL_SWITCH && (index <= SWITCH_B_SQUARE || index == SWITCH_SYNC || index == SWITCH_PMOD_FREQ_A
                                    || index == SWITCH_PMOD_FILTER || index == SWITCH_LFO_FREQ
-                                   || index == SWITCH_LFO_FILTER || index == SWITCH_LFO_PW)) {
+                                   || index == SWITCH_LFO_FILTER || index == SWITCH_LFO_PW || index == SWITCH_UNISON)) {
         int lfo2 = synth_lfo_select() && (index == SWITCH_LFO_FREQ || index == SWITCH_LFO_FILTER || index == SWITCH_LFO_PW);
         show_switch(index, lfo2 ? synth_lfo2_toggle(index) : synth_switch(index), lfo2); // LFO 2's routing toggles here
     }
@@ -2779,6 +2787,23 @@ static void handle_sysex(const uint8_t *message, int length)
             reply[n++] = data[0];
         }
     }
+    if (data_length == 1 && data[0] == 0x68) { // chord memory (0.10.0)
+        reply[n++] = 0x68;
+        for (int l = 0; l < 2; l++, n += CHORD_BYTES)
+            synth_chord(l, &reply[n]);
+    }
+    if (data_length == 2 + CHORD_BYTES && data[0] == 0x69 && data[1] < 2) {
+        synth_set_chord(data[1], &data[2]);
+        reply[n++] = 0x7F;
+        reply[n++] = 0x69;
+    }
+    if (data_length == 2 && data[0] == 0x6A && data[1] >= 1 && data[1] <= 3) {
+        uint8_t counts[2];
+        synth_capture_chord(data[1], counts);
+        reply[n++] = 0x6A;
+        reply[n++] = counts[0];
+        reply[n++] = counts[1];
+    }
     if (data_length == 6 && data[0] == 0x56 && data[1] < 2) {
         int depth = (data[4] << 7 | data[5]) - 99;
         if (synth_set_route(data[1], (mod_source_t)data[2], (mod_dest_t)data[3], depth)) {
@@ -2987,6 +3012,8 @@ static void control_change(uint8_t cc, uint8_t value, int channel)
         int layers = synth_channel_layers(channel);
         synth_set_pedal(layers, value >= 64);
         if (value >= 64) {
+            if (layers & ~sustain) // with Unison on, pressed over 2 or more keys: they're the new chord (stock)
+                synth_pedal_down(layers & ~sustain);
             sustain |= layers;
             return;
         }
@@ -3320,6 +3347,11 @@ int main(void)
             clock_run();
             advance_sequence();
             synth_update(dt);
+            if (synth_take_chord_captured() && !menu_open && !saving && !recording && !assigning && !browsing
+                && !comparing && !typed_digits) {
+                display_text("CHrd"); // the Unison button or the pedal took the held keys as the patch's chord
+                display_until = now + 1000;
+            }
         }
         cycles_engine = DWT_CYCCNT - t0;
 
