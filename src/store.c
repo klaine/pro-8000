@@ -107,6 +107,7 @@ static struct {
     uint16_t last_patch;
     uint8_t format, cc[2], clock_source, midi_channel, no_pickup;
     uint16_t bpm; // ×10
+    uint8_t init_slot; // 0.10.0: Perf's init patch, slot + 1 (0 the built-in sound)
 } global;
 
 static uint32_t get32(const uint8_t *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24; }
@@ -140,9 +141,19 @@ static void global_mark(void)
     global_failures = 0;
 }
 
+// The global block's bytes. 0-15 from 0.7 (checksum at 12 over 0-11), 16-18 the clock (0.9.0, outside it, range-checked).
+// From 0.10.0 (NOTES: the 0.10.0 plan's allocation table): 19 the init patch (slot + 1), 20-27 for MIDI out (20 the socket,
+// 21 notes out, 22 out channel, 23 flags, 24-25 CC out numbers, 26-27 spare), 28-31 a checksum over 16-27. Bytes 20-27
+// are written 0 until they're used, under a valid checksum, so a 0 there must always mean that field's default (CC out
+// 0: its default number, as CC A / B's 0 does). 0.9.5 writes only 0-19, so a block it wrote (any setting changed, a
+// format, another last patch) and older leftovers fail the checksum and read as the defaults; a downgrade that never
+// wrote the block leaves 0.10.0's bytes as they were, which is harmless: they still mean the same patches.
+#define GLOBAL_SIZE 32
+#define GLOBAL_EXT 16 // the second checksum's start
+
 static int write_global(void)
 {
-    uint8_t b[20] = {0};
+    uint8_t b[GLOBAL_SIZE] = {0};
     put32(b, GLOBAL_MAGIC);
     put16(b + 4, global.last_patch);
     b[6] = 1; // preset mode until 0.9.3, whose boot read it; 0.9.4 always boots on the last patch
@@ -154,6 +165,8 @@ static int write_global(void)
     put32(b + 12, checksum(b, 12));
     put16(b + 16, global.bpm); // the clock, outside the checksum (older blocks have anything here: range-checked)
     b[18] = global.clock_source;
+    b[19] = global.init_slot;
+    put32(b + 28, checksum(b + GLOBAL_EXT, 28 - GLOBAL_EXT));
     if (!eeprom_write(GLOBAL_ADDRESS, b, sizeof b)) {
         global_failures++;
         return 0;
@@ -192,6 +205,7 @@ static int format_patches(void)
         if (!eeprom_write(a, zeros, sizeof zeros))
             return 0;
     global.last_patch = 0;
+    global.init_slot = 0; // every slot is empty: a later save there mustn't become the init by surprise
     return write_global();
 }
 
@@ -199,9 +213,11 @@ static int formatted;
 
 void store_init(void)
 {
-    uint8_t b[20];
+    uint8_t b[GLOBAL_SIZE];
     eeprom_read(GLOBAL_ADDRESS, b, sizeof b);
     global.valid = get32(b) == GLOBAL_MAGIC && get32(b + 12) == checksum(b, 12);
+    int ext = global.valid && get32(b + 28) == checksum(b + GLOBAL_EXT, 28 - GLOBAL_EXT); // 0.10.0's bytes 19-27
+    global.init_slot = ext && b[19] <= PATCH_COUNT ? b[19] : 0;
     global.last_patch = global.valid ? get16(b + 4) : 0;
     global.format = global.valid ? b[7] : 0;
     global.cc[0] = global.valid ? b[8] : 0;
@@ -259,6 +275,16 @@ void store_set_clock(int source, int bpm_tenths)
         return;
     global.clock_source = (uint8_t)source;
     global.bpm = (uint16_t)bpm_tenths;
+    global_mark();
+}
+
+int store_init_patch(void) { return global.init_slot; }
+
+void store_set_init_patch(int slot_plus_1)
+{
+    if (slot_plus_1 < 0 || slot_plus_1 > PATCH_COUNT || slot_plus_1 == global.init_slot)
+        return;
+    global.init_slot = (uint8_t)slot_plus_1;
     global_mark();
 }
 

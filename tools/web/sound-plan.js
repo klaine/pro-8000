@@ -20,6 +20,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "routeBoth1Lo", "routeBoth1Hi", "routeBoth2Lo", "routeBoth2Hi", // per layer, a bit per route slot: plays on both layers
   "unisonVoices", // the voices a note takes in unison, 2-8
   "arpRange", "arpExtend", "arpChaos", // a sequence's arp: octaves above the first, the notes it adds, 0-99
+  "initPatch", // what Perf and Init load: the slot + 1, 0 the built-in sound (system-wide; 0.10.0)
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply

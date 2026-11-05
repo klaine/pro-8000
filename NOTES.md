@@ -2568,7 +2568,7 @@ Behringer's multilingual PRO-800 Quick Start Guide, from a Gear4music mirror (Mu
 | What | 0.10.0, steps 0-7 | 0.10.0, MIDI steps 8-12 |
 |---|---|---|
 | Patch record | 455-470 chord: per layer 7 intervals (0 ends) and a flags byte. 471-507 stay free (37 B) | none |
-| Global page 0x1F400 | 19 init slot + 1 (0 none); 28-31 a checksum over 16-27 (bad = defaults: 0.9.5 blocks, downgrades, leftovers); `write_global` writes 32 bytes | 20 socket, 21 notes out, 22 out channel, 23 flags (clock out, knob CC, local off, chain), 24-25 CC out numbers, 26-27 spare; the CC map at 0x1F420-0x1F4E7 with its own magic and checksum |
+| Global page 0x1F400 | 19 init slot + 1 (0 none); 28-31 a checksum over 16-27 (bad = defaults: 0.9.5 blocks, downgrades, leftovers); `write_global` writes 32 bytes | 20 socket, 21 notes out, 22 out channel, 23 flags (clock out, knob CC, local off, chain), 24-25 CC out numbers, 26-27 spare; written 0 from step 4 under a valid checksum, so 0 must mean each field's default; the CC map at 0x1F420-0x1F4E7 with its own magic and checksum |
 | Host settings | 95 init-patch; the read-only four follow; SYSEX_MAX 211 | 96 midi-socket, 97 notes-out, 98 out-channel, 99 clock-out, 100 knob-cc, 101 cc-out-a, 102 cc-out-b, 103 pc-out (stock's MIDI PC Tx); SYSEX_MAX 227 |
 | CC map slot | | a parameter id byte and a nibble: layer rule (2 bits: edit layer, both, 1, 2) and a fine bit (the slot is the low 7 bits of a coarse/fine pair, for stock's 80 + i) |
 | SysEx requests | 68 chord read, 69 chord set, 6A capture, 6B show a parameter, 5F 01 load the user's init | 65 map read (in parts), 43 set a slot, 42 reset. 64 is never a request: it's the button report (60 + kind) |
@@ -2644,6 +2644,19 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
    and sequence without its slot number, `InIt.` (the built-in shows `InIt`), the built-in sound if the slot is empty;
    `5F 01`; setting 95; format resets it. Then the system menu. Then Rec, slot, Perf (saves there and makes it the init)
    and system page 7; the web page's System tab, both Init buttons loading what Perf loads.
+   **Done 2026-11-05 (simulator only).** `HOLD_MS` 600 for Perf, Arp Assign, Sync Clock and Settings. `perf_init()` uses
+   `apply_stored()`, which `load_patch()` now shares; the global block is 32 bytes (`store.c` says which byte is what).
+   Setting 95, `SYSEX_MAX` 211, the read-only four at 96-99 (a `_Static_assert` pins 95); `pro800 set init-patch`,
+   `pro800 patch perf` (5F 01) in both tools; the System tab's Init sound select and Init sending 5F 1 on firmware
+   that has the setting. The system menu: `PAGE_SYS_*` after `PAGE_COUNT`, `menu_system`, `SYS`, the LED blinking;
+   Shift + VALUE goes by ten on any page with more than 20 values (the sound menu's long pages too). The review found:
+   Shift + Settings left MOD ASSIGN running, couldn't close a menu with Shift latched; Perf in a save with a menu open
+   saved where Rec couldn't; SYNC IN's tempo past 300 overran the tempo page; Rec, slot, Perf kept the init a second
+   late (now flushed at `InIt.`); the manual's "never over the template" was wrong straight after Rec, slot, Perf (you're
+   on the template's slot then: Rec, Rec saves over it); and stale lines in MANUAL, the cheat sheet and main.c's
+   protocol header. All fixed, each panel one with a test. 87,840 B. Not tried on the synth: the holds' feel, the
+   blinking LED, bytes 19 and 28-31 of the real EEPROM across a power cycle, and a 0.9.5 downgrade (change a setting on
+   0.9.5 before flashing back, or the old bytes stay valid, which is harmless).
 5. **Editor edits on the display**: `6B`, sent by the editor only for its own interactive edits (knobs, settings,
    buttons); plans, preset installs, copies and undo stay silent.
 6. **#8 release velocity**, re-implemented on main with credit to planist79 (Co-Authored-By with their real noreply

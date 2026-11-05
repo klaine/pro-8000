@@ -152,6 +152,12 @@ class Synth:
             self.hold(b)
             self.let_go(b)
 
+    def long_press(self, button, ms=650):
+        """Held past HOLD_MS (600 ms), then let go: Perf's init sound, Settings' system menu."""
+        self.hold(button)
+        self.ms(ms)
+        self.let_go(button)
+
     def pot(self, name, fraction):
         self.cmd(f"pot {POT[name]} {round(fraction * 4095)}")
         self.ms(40)
@@ -876,7 +882,7 @@ class InitAndUndo(PanelTest):
     def test_perf_shows_init_then_the_slot(self):
         self.s.press("3")
         self.s.ms(3100)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertShows("InIt")
         self.s.ms(1500)
         self.assertShows("P  3")
@@ -887,7 +893,7 @@ class InitAndUndo(PanelTest):
         self.store_patch(2)
         resonance = self.s.params()["resonance"]
         self.assertEqual(resonance, 74)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.s.ms(1600)
         self.assertEqual(self.s.params()["resonance"], 0)
         self.s.hold("SHIFT")
@@ -910,7 +916,7 @@ class InitAndUndo(PanelTest):
         self.store_patch(2)
         self.s.request(0x59, 0, 1, *b"Pad")
         self.s.request(0x5C, 0, 1)  # with its name
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertEqual(self.s.params()["resonance"], 0)
         self.assertEqual(self.undo_from_the_host(), (1, b"Pad"))
         self.assertEqual(self.s.params()["resonance"], 74)
@@ -968,6 +974,275 @@ class InitAndUndo(PanelTest):
         self.assertShows("P  1")
 
 
+class PerfHold(PanelTest):
+    """#34: Perf loads the init sound only when held (600 ms); a tap says HoLd and changes nothing."""
+
+    def test_a_tap_says_hold_and_changes_nothing(self):
+        self.s.param(0, "resonance", 12000)
+        before = self.s.params_raw()["resonance"]
+        self.s.press("PERF")
+        self.assertShows("HoLd")
+        self.assertEqual(self.s.params_raw()["resonance"], before)
+        self.s.ms(900)
+        self.assertShows("P  1")
+
+    def test_held_it_loads_the_init_sound_at_600_ms(self):
+        self.s.param(0, "resonance", 12000)
+        self.s.hold("PERF")
+        self.s.ms(200)
+        self.assertEqual(self.s.params_raw()["resonance"], 12000, "not yet at 500 ms (params_raw waits 300)")
+        self.s.ms(150)
+        self.assertShows("InIt")
+        self.s.let_go("PERF")
+        self.assertShows("InIt", "letting go after the hold adds nothing")
+        self.assertEqual(self.s.params_raw()["resonance"], 0)
+        self.assertEqual(self.s.routes(0), INIT_ROUTES)
+
+
+class InitPatch(PanelTest):
+    """#35: the user's own init patch, a stored slot that Perf loads as a template instead of the built-in sound."""
+
+    def template(self, slot=5):
+        """A sound unlike the init sound in `slot`: resonance, one route, a 5-step sequence at 97 BPM; left loaded."""
+        self.s.no_routes()
+        self.s.param(0, "resonance", 12000)
+        self.s.request(0x56, 0, VELOCITY, CUTOFF, (40 + 99) >> 7, (40 + 99) & 0x7F)
+        self.s.seq_set(5, bpm=97, flags=0)
+        self.store_patch(slot)
+        return self.s.params_raw()["resonance"], self.s.routes(0)
+
+    def test_the_setting_survives_a_power_cycle(self):
+        self.s.setting("init-patch", 5)
+        self.assertEqual(self.s.settings()["init-patch"], 5)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.assertEqual(self.s.settings()["init-patch"], 5)
+
+    def test_perf_loads_it_as_a_template(self):
+        resonance, routes = self.template(5)
+        self.s.setting("init-patch", 5)
+        self.s.press("3")
+        self.s.ms(3100)  # the empty P3: the built-in init sound there
+        self.assertEqual(self.s.params_raw()["resonance"], 0)
+        self.s.long_press("PERF")
+        self.assertShows("InIt.", "the user's init: a dot")
+        self.assertEqual((self.s.params_raw()["resonance"], self.s.routes(0)), (resonance, routes))
+        header = self.s.seq_header()
+        self.assertEqual((header["length"], header["bpm"]), (5, 97), "the template's sequence, not P3's")
+        self.assertEqual(self.s.settings()["patch"], 2, "still P3: Rec saves there, not over the template")
+        self.s.ms(1600)
+        self.assertShows("P  3")
+        self.s.press("REC", "REC")
+        self.s.ms(1100)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.press("3")
+        self.s.ms(3100)
+        self.assertEqual(self.s.params_raw()["resonance"], resonance, "P3 has it now")
+
+    def test_undo_brings_back_the_sound_before(self):
+        self.template(5)
+        self.s.setting("init-patch", 5)
+        self.s.press("3")
+        self.s.ms(3100)
+        self.s.long_press("PERF")
+        self.s.hold("SHIFT")
+        self.s.press("PERF")
+        self.s.let_go("SHIFT")
+        self.assertShows("Undo")
+        self.assertEqual(self.s.params_raw()["resonance"], 0)
+
+    def test_an_empty_slot_or_none_gives_the_built_in_sound(self):
+        self.s.param(0, "resonance", 12000)
+        self.s.setting("init-patch", 7)  # P7 is empty
+        self.s.long_press("PERF")
+        self.assertShows("InIt", "the built-in sound: no dot")
+        self.assertEqual((self.s.params_raw()["resonance"], self.s.routes(0)), (0, INIT_ROUTES))
+
+    def test_a_format_clears_it(self):
+        self.s.setting("init-patch", 5)
+        self.s.request(0x5B)
+        self.s.ms(100)
+        self.assertEqual(self.s.settings()["init-patch"], 0)
+
+    def test_the_host_5f_stays_built_in_and_5f_1_loads_what_perf_does(self):
+        resonance, _ = self.template(5)
+        self.s.setting("init-patch", 5)
+        self.s.request(0x5F)
+        self.assertEqual(self.s.params_raw()["resonance"], 0, "5F: the built-in sound, which presets build on")
+        self.assertEqual(self.s.reply(0x5F, 1)[:1], bytes([1]))
+        self.assertEqual(self.s.params_raw()["resonance"], resonance)
+        self.s.setting("init-patch", 0)
+        self.assertEqual(self.s.reply(0x5F, 1)[:1], bytes([0]))
+        self.assertEqual(self.s.params_raw()["resonance"], 0)
+
+    def test_past_p128_is_refused(self):
+        self.s.setting("init-patch", 5)
+        self.s.request(0x7D, 95, 1, 1)  # 129
+        self.assertEqual(self.s.settings()["init-patch"], 5)
+
+    def test_a_block_written_by_0_9_5_reads_as_none(self):
+        """0.9.5 writes the global block's first 20 bytes: its own, a downgrade's or leftovers fail the new checksum."""
+        self.s.setting("init-patch", 5)
+        self.s.setting("midi-channel", 3)
+        self.s.ms(1100)
+        self.s.close()
+        with open(self.path, "r+b") as f:
+            f.seek(0x1F400 + 28)
+            f.write(bytes(4))
+        self.s = Synth(self.path)
+        self.s.ms(1600)
+        settings = self.s.settings()
+        self.assertEqual((settings["init-patch"], settings["midi-channel"]), (0, 3), "the rest of the block as it was")
+
+    def test_rec_perf_with_no_digits_takes_the_current_slot(self):
+        self.s.press("REC", "PERF")
+        self.assertShows("InIt.")
+        self.assertEqual(self.s.settings()["init-patch"], 1)
+        self.assertTrue(self.s.slot_is_ours(1), "really saved")
+
+
+class SystemMenu(PanelTest):
+    """#2, #34: hold Settings (or Shift + Settings): the system-wide settings, on keys 1-7, the Settings LED blinking."""
+
+    def open(self):
+        self.s.long_press("SETTINGS")
+        self.assertShows("SYS")
+
+    def page(self, key, name):
+        self.s.press(key)
+        self.assertShows(name)
+        self.s.ms(800)
+
+    def test_a_tap_is_the_sound_menu_a_hold_the_system_menu(self):
+        self.s.press("SETTINGS")
+        self.assertShows("SEt")
+        self.s.press("SETTINGS")
+        self.assertShows("P  1")
+        self.open()
+        lit = set()
+        for _ in range(12):
+            self.s.ms(50)
+            lit.add(self.s.led("SETTINGS"))
+        self.assertEqual(lit, {True, False}, "it blinks")
+        self.s.press("SETTINGS")
+        self.assertShows("P  1")
+        self.s.ms(300)
+        self.assertFalse(self.s.led("SETTINGS"))
+
+    def test_shift_settings_opens_it(self):
+        self.s.hold("SHIFT")
+        self.s.press("SETTINGS")
+        self.s.let_go("SHIFT")
+        self.assertShows("SYS")
+
+    def test_the_midi_channel(self):
+        self.open()
+        self.page("1", "CHnL")
+        self.assertShows("ALL")
+        self.s.turn(1)
+        self.assertShows("   1")
+        self.assertEqual(self.s.settings()["midi-channel"], 1)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.assertEqual(self.s.settings()["midi-channel"], 1)
+
+    def test_pickup_the_ccs_the_clock(self):
+        self.open()
+        self.page("2", "P.UP")
+        self.assertShows("on")
+        self.s.turn(1)
+        self.assertShows("OFF")
+        self.page("3", "CC.A")
+        self.assertShows("  11")
+        self.s.turn(1)
+        self.page("4", "CC.b")
+        self.assertShows("   2")
+        self.page("5", "CLoC")
+        self.assertShows("nIdI")
+        self.s.turn(1)
+        self.assertShows("Int")
+        settings = self.s.settings()
+        self.assertEqual((settings["pickup"], settings["cc-a"], settings["clock"]), (0, 12, 1))
+
+    def test_the_tempo_and_shift_for_tens(self):
+        self.open()
+        self.page("6", "tEnP")
+        self.assertShows(" 120")
+        self.s.turn(1)
+        self.assertShows(" 121")
+        self.s.hold("SHIFT")
+        self.s.turn(1)
+        self.s.let_go("SHIFT")
+        self.assertShows(" 131")
+        self.assertEqual(self.s.settings()["bpm"], 131)
+
+    def test_the_init_patch(self):
+        self.open()
+        self.page("7", "InIt")
+        self.assertShows("nonE")
+        self.s.turn(1)
+        self.assertShows("P  1")
+        self.s.hold("SHIFT")
+        self.s.turn(1)
+        self.s.let_go("SHIFT")
+        self.assertShows("P 11")
+        self.assertEqual(self.s.settings()["init-patch"], 11)
+        self.s.turn(-2)
+        self.assertShows("P  9")
+        self.s.hold("SHIFT")
+        self.s.turn(-1)
+        self.s.let_go("SHIFT")
+        self.assertShows("P128", "round past none")
+        self.s.turn(1)
+        self.assertShows("nonE")
+        self.assertEqual(self.s.settings()["init-patch"], 0)
+
+    def test_keys_8_9_0_and_perf_and_rec_do_nothing(self):
+        self.open()
+        for key in ("8", "9", "0", "PERF", "REC"):
+            self.s.press(key)
+            self.assertShows("SYS", key)
+        self.assertEqual(self.s.settings()["init-patch"], 0)
+
+    def test_shift_settings_closes_an_open_menu(self):
+        """With Shift held (or latched), Settings still closes a menu: it opens the system menu only from none."""
+        self.s.press("SETTINGS")
+        self.s.hold("SHIFT")
+        self.s.press("SETTINGS")
+        self.s.let_go("SHIFT")
+        self.assertShows("P  1")
+
+    def test_shift_settings_from_mod_assign_ends_it(self):
+        self.s.press("ASSIGN")
+        self.assertShows("SrC")
+        self.s.hold("SHIFT")
+        self.s.press("SETTINGS")
+        self.s.let_go("SHIFT")
+        self.assertShows("SYS")
+        self.s.press("SETTINGS")
+        self.s.ms(600)
+        self.assertShows("P  1", "MOD ASSIGN didn't come back")
+        self.assertFalse(self.s.led("ARP_ASSIGN"))
+
+    def test_perf_in_a_save_with_a_menu_open_does_nothing(self):
+        self.s.press("REC", "5", "SETTINGS", "PERF")
+        self.assertEqual(self.s.settings()["init-patch"], 0, "as Rec does nothing there")
+
+    def test_shift_digit_goes_to_the_sound_menus_page(self):
+        self.open()
+        self.s.hold("SHIFT")
+        self.s.press("3")
+        self.s.let_go("SHIFT")
+        self.s.ms(300)
+        self.assertShows("OFF", "the layer page")
+        lit = set()
+        for _ in range(12):
+            self.s.ms(50)
+            lit.add(self.s.led("SETTINGS"))
+        self.assertEqual(lit, {True}, "steady: the sound menu")
+
+
 class InitRoutes(PanelTest):
     """The init sound's two velocity routes, on both layers, wherever the init sound comes from (MANUAL, Init)."""
 
@@ -993,7 +1268,7 @@ class InitRoutes(PanelTest):
 
     def test_perf(self):
         self.s.no_routes()
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertShows("InIt")
         self.assertInit()
 
@@ -1129,7 +1404,7 @@ class InitRoutes(PanelTest):
         self.store_patch(5)
         self.s.request(0x56, 1, 1, 13, 0, 99 - 20)
         self.store_patch(6)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertInit()
         self.s.press("5")
         self.s.ms(3100)
@@ -1150,7 +1425,7 @@ class InitRoutes(PanelTest):
     def test_undo_brings_back_the_sound_before(self):
         self.s.no_routes()
         self.store_patch(5)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertInit()
         self.s.hold("SHIFT")
         self.s.press("PERF")
@@ -1233,7 +1508,7 @@ class NoInitRoutesOnStockMemory(PanelTest):
         self.s.press("PRESET")
         self.assertShows("nonE")
         self.assertEqual((self.s.routes(0), self.s.routes(1)), ([], []), "the slot is stock's: the sound stays")
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertEqual((self.s.routes(0), self.s.routes(1)), (INIT_ROUTES, INIT_ROUTES))
 
 
@@ -3014,13 +3289,20 @@ class TwoThingsAtOnce(PanelTest):
         self.s.ms(700)
         self.s.press("PERF")
         self.assertShows("   2")
+        self.s.long_press("PERF")
+        self.assertShows("   2", "held, too")
 
-    def test_perf_in_a_save_does_nothing(self):
+    def test_perf_in_a_save_saves_there_as_the_init_patch(self):
+        """0.10.0 (#35): Rec, the slot, Perf. Before, Perf dropped the number and did nothing."""
         self.s.press("REC", "5")
         self.s.press("PERF")
-        self.assertShows("P  1", "any other button drops a number being typed")
-        self.assertFalse(self.s.settings()["patch"])
-        self.s.press("PRESET")
+        self.assertShows("InIt.")
+        settings = self.s.settings()
+        self.assertEqual((settings["patch"], settings["init-patch"]), (4, 5), "saved to P5, which is the init now")
+        self.assertTrue(self.s.slot_is_ours(5), "really saved")
+        self.assertFalse(self.s.led("REC"))
+        self.power_cycle()  # at once: kept as InIt. shows, as a save is at donE
+        self.assertEqual(self.s.settings()["init-patch"], 5)
 
     def test_shift_digit_from_a_save_keeps_the_display_sensible(self):
         self.s.press("REC")
@@ -3065,6 +3347,7 @@ class TwoThingsAtOnce(PanelTest):
 
     def test_a_long_held_button_does_nothing_more(self):
         self.s.hold("PERF")
+        self.s.ms(650)
         self.assertShows("InIt")
         self.s.ms(3000)
         self.assertShows("P  1")
@@ -4773,7 +5056,7 @@ class PatchStores(PanelTest):
         self.make()
         self.check()
         self.store_patch(9)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.s.ms(1600)
         self.assertEqual(self.s.params(0)["cutoff"], 99, "the init sound replaced it")
         self.assertEqual(self.s.routes(0), INIT_ROUTES)
@@ -4843,7 +5126,7 @@ class Names(PanelTest):
         self.assertEqual(self.s.patch_info(2), (1, "Lead"))
 
     def test_the_init_sound_is_named_init(self):
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.store_patch(2)
         self.assertEqual(self.s.patch_info(1), (1, "Init"))
 
@@ -6550,7 +6833,7 @@ class LfoNoteTimes(PanelTest):
         self.s.setting("lfo2-delay", 7)
         self.s.setting("lfo2-fade", 90)
         self.store_patch(5)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.s.ms(1600)
         self.assertEqual(self.s.settings()["lfo-delay"], 0, "the init sound replaced it")
         self.s.press("5")
@@ -7812,18 +8095,26 @@ class WebSmallThings(unittest.TestCase):
         page = source("tools", "web", "index.html")
         self.assertRegex(page[page.index("<header>"):page.index("</header>")], r'<button[^>]*id="init-top"[^>]*>Init</button>')
         out = run_node(NODE_DRIVER % ("""
-        let patchName = "Pad", seqFor = "1:70", calls = [], answer = true;
+        let patchName = "Pad", seqFor = "1:70", calls = [], answer = true, settings = null, theirs = 1;
+        const feature = name => !settings || settings[name] !== undefined;
         const ack = async (m, t) => { calls.push(m); return answer; };
+        const ask = async (m, prefix, t) => { calls.push(m); return answer ? [0x5F, theirs] : null; };
         const refreshSettings = async () => { calls.push(["settings", seqFor]); }, refreshParams = async () => { calls.push("params"); };
-        """ + js_block(page, "async function loadInitSound(") + """
+        """ + js_block(page, "let initWasTheirs") + js_block(page, "async function loadInitSound(") + """
         const out = { ok: await loadInitSound(), name: patchName, calls };
         answer = false; calls = []; patchName = "Pad"; seqFor = "1:70";
         out.failed = { ok: await loadInitSound(), name: patchName, seq: seqFor, calls };
+        answer = true; calls = []; settings = { initPatch: 5 };  // 0.10.0: what Perf loads
+        out.perf = { ok: await loadInitSound(), theirs: initWasTheirs, calls };
+        theirs = 0; calls = [];
+        out.builtIn = { ok: await loadInitSound(), theirs: initWasTheirs };
         report(out);
         """))
         self.assertEqual(out["calls"], [[0x5F], ["settings", None], "params"], "the page reads the sound back, and the sequence that's gone")
         self.assertEqual((out["ok"], out["name"]), (True, "Init"))
         self.assertEqual(out["failed"], {"ok": False, "name": "Pad", "seq": "1:70", "calls": [[0x5F]]}, "no answer: nothing changes")
+        self.assertEqual(out["perf"], {"ok": True, "theirs": True, "calls": [[0x5F, 1], ["settings", None], "params"]})
+        self.assertEqual(out["builtIn"], {"ok": True, "theirs": False}, "no init patch set: the reply says 0")
 
     def test_the_patch_arrows(self):
         page = source("tools", "web", "index.html")
@@ -8446,8 +8737,10 @@ class PresetRoutes(PanelTest):
 
     def test_every_page_path_from_the_init_sound_goes_through_plansound(self):
         page, installer_page, shared = source("tools", "web", "index.html"), source("tools", "web", "install.html"), source("tools", "web", "sound-plan.js")
-        self.assertEqual(page.count("[0x5F]"), 1, "the Init buttons, which stay on it")
-        self.assertIn('ack([0x5F], 3000);', js_block(page, "async function loadInitSound("))
+        init = js_block(page, "async function loadInitSound(")
+        self.assertEqual(page.count("0x5F"), init.count("0x5F"), "only the Init buttons, which stay on it")
+        self.assertIn('ack([0x5F], 3000);', init)
+        self.assertIn('ask([0x5F, 1], [0x5F], 3000);', init, "0.10.0: what Perf loads")
         self.assertEqual(installer_page.count("0x5F"), 0)
         self.assertEqual(shared.count("[0x5F]"), 1)
         self.assertEqual((page.count("planSound("), installer_page.count("planSound(")), (2, 2), "Load JSON and the bank; the install and its check")

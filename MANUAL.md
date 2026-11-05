@@ -47,8 +47,8 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning). |
 | Preset | Preset mode (a patch loaded) ↔ manual mode (the panel is live). |
 | Rec | Save (blinks, choose the slot, Rec again). Hold Rec and press Seq 1: record sequence steps from MIDI (`rSEq`, see Sequencer). |
-| Perf | Load the init sound: one sawtooth, filter open, velocity on the volume and the cutoff. |
-| Settings | Opens the settings menu (keys 0-9). |
+| Perf | Hold it (0.6 s) to load the init sound: one sawtooth, filter open, velocity on the volume and the cutoff, or your own init patch (see Settings menu → System menu). A tap only shows `HoLd`. |
+| Settings | Opens the settings menu (keys 0-9). Held (0.6 s), or Shift + Settings: the system menu (`SYS`, the LED blinking). |
 | Tune | Autotune (about 25 s, silent). |
 
 The display shows a knob's value while you turn it, in real units where it has one:
@@ -183,7 +183,10 @@ keep them).
   stay as the sound had them (memory that starts on the panel, stock or never formatted, starts with none).
 - **Save:** press Rec (it blinks), choose a slot by number or with VALUE, then press Rec again (`donE`). You don't
   have to wait after typing: `5`, Rec saves to P5 at once. Preset cancels. The patch's name follows the sound into an empty slot.
-- **Init:** Perf loads a plain sound: one sawtooth, the filter open, and on each layer two ordinary mod routes,
+  Perf instead of the second Rec saves there and makes that patch your init patch (`InIt.`).
+- **Init:** hold Perf (0.6 s; a tap only shows `HoLd`, so a stray press can't replace the sound). With an init
+  patch of your own set (Settings menu → System menu), that's what it loads; otherwise a plain sound: one sawtooth,
+  the filter open, and on each layer two ordinary mod routes,
   velocity → VCA at 70 (full level at velocity 127, about 0.65 at 64) and velocity → cutoff at 20 (about 19 semitones
   above the knob at 127). The cutoff knob starts at its maximum, but full keyboard tracking takes a low note's cutoff well
   under that, so velocity changes how bright a low note is straight away (note 36: about 4 kHz at the softest, about
@@ -577,8 +580,8 @@ only plays it.
 - **On the web page also:** Euclid fills the steps with k hits spread evenly over the length; Record writes notes
   you play (the on-screen keys or the routed MIDI input, e.g. the Move) into the steps one by one, relative to the
   first; Reset steps.
-- **Saving:** the sequence is saved with the patch (REC, or Save in Patches) and loaded with it. PERF's init sound
-  has none.
+- **Saving:** the sequence is saved with the patch (REC, or Save in Patches) and loaded with it. The built-in init
+  sound has none; your init patch brings its own.
 
 ## Mod matrix (MOD ASSIGN)
 
@@ -750,6 +753,7 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 | Preset | Save to the current slot (`donE`), without Rec, slot, Rec |
 | Seq 1 / Seq 2 | Copy the edit layer onto that layer (`CoPY`) |
 | 1-9 | Open that Settings page directly |
+| Settings | Open the system menu (`SYS`); with a menu open, it closes it as Settings alone does |
 | 0 | Panic: every note off, the pedal cleared, the sequence stopped (`PAnC`) |
 
 `VE.A` and `VE.F` are ordinary routes, the ones MOD ASSIGN lists and the web page's Velocity knobs turn, on the layer
@@ -787,7 +791,8 @@ The Sync Clock LED blinks on the beat of whichever clock is in use, so a missing
 
 ## Settings menu
 
-Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the value, and Settings closes it.
+Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the value (with Shift held, ten at a
+time on a page with more than 20 values), and Settings closes it.
 
 | Key | Page | Values |
 |---|---|---|
@@ -804,7 +809,33 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 
 Settings live in the patch, so save the patch to keep them.
 
-**System-wide settings** need no save: the MIDI channel, CC A / B, knob pickup, the clock source and the tempo. They take
+### System menu
+
+Hold Settings (0.6 s: `SEt` first, then `SYS`), or press Shift + Settings. The Settings LED blinks while it's open.
+The same keys pick its pages, VALUE changes them (Shift: ten at a time on the long ones), Settings closes it, and
+Shift + 1-9 goes to a page of the settings menu instead.
+
+| Key | Page | Values |
+|---|---|---|
+| 1 | `CHnL`: the MIDI channel it listens on (also Shift + NOISE) | `ALL`, 1-16 |
+| 2 | `P.UP`: knob pickup (also Shift + PMOD FIL ENV) | `on`, `OFF` |
+| 3 | `CC.A`: CC A's controller (also Shift + A LEVEL) | 1-127 (default 11) |
+| 4 | `CC.b`: CC B's controller (also Shift + B LEVEL) | 1-127 (default 2) |
+| 5 | `CLoC`: the clock source (also Shift + Sync Clock) | `nIdI`, `Int`, `SYnC` |
+| 6 | `tEnP`: the internal clock's tempo (also tapping Sync Clock) | 30-300 BPM |
+| 7 | `InIt`: your init patch, what a held Perf loads | `nonE` (the built-in sound), `P  1` … `P128` |
+
+Keys 8, 9 and 0 are free. Perf and Rec do nothing while it's open.
+
+**Your init patch:** with a slot chosen here (or by Rec, the slot, Perf), a held Perf loads that patch as a
+template: its sound, routes, layer settings and step sequence, but not its slot: the slot number stays where you
+were, and Rec, Rec saves there. That's the template's own slot if you were on it (as straight after Rec, the slot,
+Perf), so choose another slot to keep the template as it is. The display says `InIt.` with a dot (the built-in sound has
+none), and Shift + Perf undoes it as any load. If the slot is empty, Perf gives the built-in sound. A format sets it
+back to none.
+
+**System-wide settings** need no save: the MIDI channel, CC A / B, knob pickup, the clock source, the tempo and your
+init patch. They take
 effect and read back at once, and the synth stores them about a second after the last change, so a knob sweep or a run
 of taps costs one write to the memory. Turning the power off inside that second loses the change. An update, an
 autotune, loading another patch, a save on memory never formatted or a format stores them straight away.
@@ -835,7 +866,8 @@ envelope cycles), the Device cheat sheet describes that build's panel, and the s
 
 The arrows beside the patch name in the top bar load the previous or next patch, as VALUE does on the panel: an empty slot gives the init sound, and the ends go round. A run of clicks loads where it stops. What wasn't saved goes with the load, and Undo brings it back.
 
-**Init** in the top bar, beside the layer buttons, loads the init sound, as Perf does on the panel. It isn't saved anywhere. **Undo** beside it brings back the sound before the last patch load or Init, and again redoes, as Shift + Perf does on the panel.
+**Init** in the top bar, beside the layer buttons, loads what a held Perf loads on the panel: your init patch if one
+is set (the System tab's Init sound, from 0.10.0), else the built-in init sound. It isn't saved anywhere. **Undo** beside it brings back the sound before the last patch load or Init, and again redoes, as Shift + Perf does on the panel.
 
 | Tab | What it does |
 |---|---|
@@ -843,7 +875,7 @@ The arrows beside the patch name in the top bar load the previous or next patch,
 | **Device cheat sheet** | How to reach everything this firmware adds from the synth's own panel: the remapped buttons, the display, patches, layers, LFOs, envelopes, mod assign with its source keys and destinations, the settings menu, MIDI and recovery, and what's web-only. |
 | **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 128 as a `.bin` and restore that file over every slot. Kind and the scan say "stock or unreadable" for anything neither empty nor ours (a stock patch and a damaged record read the same). Restore everything on memory holding stock or unreadable data and no patches asks for a format first; on empty, never-formatted memory it works and marks the memory as PRO-8000's. Save here, Import and the JSON box's save check the slot on the synth first, and ask if it holds something or doesn't answer. **In one go:** format the patch memory, copy the whole factory bank into the empty slots, or install the preset bank (66 sounds into P1-P66, from the page's own copy, or a bank file such as the release's `pro8000-presets-<version>.json`; a bank pasted or opened in the JSON box installs too), each after a confirmation. Empty slots are hidden unless "show empty slots" is ticked. **Sound as JSON:** the current sound as JSON in the preset files' format (`presets/README.md`: knobs 0-99, buttons, settings, routes, LFO step patterns, the sequence, the morph target, by the `pro800` tool's names): show it in the text box, copy it, or download it as a `.json` file. Paste JSON into the box (or open a `.json` file, such as one of `presets/`) to load it into the sound: it starts from the init sound and sets what the JSON names, after checking every name and range, and settings the connected firmware hasn't got are left out with a note. Then save it into a slot with its name. A file from here installs with `presets/install.sh` too. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. The browser remembers the router's input and its clock box, and routes again whenever that input is there (after a reload, or when it's plugged back in); choose (off) to forget it. |
-| **System** | Firmware version, timing, autotune and the tuning tables, and knob pickup on or off (0.9.3). |
+| **System** | Firmware version, timing, autotune and the tuning tables, knob pickup on or off (0.9.3), and the Init sound: the built-in one or your init patch (0.10.0). |
 | **Panel mapping** | The developer tools used to map the panel. |
 
 ## The command-line tool

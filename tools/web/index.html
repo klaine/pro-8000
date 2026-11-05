@@ -454,7 +454,7 @@
   <div class="hdr-group" id="layers">
     <button type="button" class="led" data-v="0" title="edit layer 1 (Seq 1 on the panel)"><i class="lamp"></i><span>Layer 1</span></button>
     <button type="button" class="led" data-v="1" title="edit layer 2 (Seq 2 on the panel)"><i class="lamp"></i><span>Layer 2</span></button>
-    <button type="button" id="init-top" title="load the init sound, not saved anywhere yet (Perf on the panel)">Init</button>
+    <button type="button" id="init-top" title="load the init sound, or your init patch (System tab), not saved anywhere yet (a held Perf on the panel)">Init</button>
     <button type="button" id="undo-top" data-needs="unisonVoices" title="undo the last patch load or Init, with its sequence, name and slot; again redoes (Shift + Perf on the panel)">Undo</button>
   </div>
   <div class="hdr-group">
@@ -498,11 +498,11 @@
         <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
         <tr><td>Waveform, Sync, PMOD, LFO routing buttons</td><td>As printed; each press shows what now sounds: an oscillator's waves in fixed places, saw, tri, square <code class="lcd">A.St_</code> <code class="lcd">b.oFF</code>, the others <code class="lcd">SY.on</code> <code class="lcd">PA.oF</code> <code class="lcd">PF.on</code> <code class="lcd">Fr.on</code></td></tr>
         <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
-        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span>; M VOL / FIL ENV AMT → the edit layer's Velocity routes to the VCA and the cutoff, the page's Velocity knobs (<code class="lcd">VE.A</code> / <code class="lcd">VE.F</code>; firmware 0.9.4 and up)<span data-needs="pickup">; PMOD FIL ENV → knob pickup <code class="lcd">P.UP</code> <code class="lcd">on</code> / <code class="lcd">OFF</code> (a quarter turn; on firmware before 0.9.4 it's FIL ENV AMT)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page; 0: panic.</td></tr>
+        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span>; M VOL / FIL ENV AMT → the edit layer's Velocity routes to the VCA and the cutoff, the page's Velocity knobs (<code class="lcd">VE.A</code> / <code class="lcd">VE.F</code>; firmware 0.9.4 and up)<span data-needs="pickup">; PMOD FIL ENV → knob pickup <code class="lcd">P.UP</code> <code class="lcd">on</code> / <code class="lcd">OFF</code> (a quarter turn; on firmware before 0.9.4 it's FIL ENV AMT)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page<span data-needs="initPatch">; Settings: the system menu</span>; 0: panic.</td></tr>
         <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live; the display shows <code class="lcd">PAnL</code>)</td></tr>
         <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
-        <tr><td><kbd>Perf</kbd></td><td>Load the init sound (one saw, filter open, velocity → VCA 70 and → cutoff 20)</td></tr>
-        <tr><td><kbd>Settings</kbd></td><td>The settings menu <code class="lcd">SEt</code> (keys 0-9 below)</td></tr>
+        <tr><td><kbd>Perf</kbd></td><td>Hold (0.6 s): the init sound (one saw, filter open, velocity → VCA 70 and → cutoff 20)<span data-needs="initPatch">, or your init patch <code class="lcd">InIt.</code>; a tap only says <code class="lcd">HoLd</code></span></td></tr>
+        <tr><td><kbd>Settings</kbd></td><td>The settings menu <code class="lcd">SEt</code> (keys 0-9 below)<span data-needs="initPatch">. Held, or Shift + Settings: the system menu <code class="lcd">SYS</code> (LED blinking): 1 <code class="lcd">CHnL</code>, 2 <code class="lcd">P.UP</code>, 3 <code class="lcd">CC.A</code>, 4 <code class="lcd">CC.b</code>, 5 <code class="lcd">CLoC</code>, 6 <code class="lcd">tEnP</code>, 7 <code class="lcd">InIt</code> (your init patch); Shift + <kbd>VALUE</kbd> moves ten</span></td></tr>
         <tr><td><kbd>Tune</kbd></td><td>Autotune, about 25 s, silent <code class="lcd">tUnE</code></td></tr>
       </table>
     </section>
@@ -520,8 +520,8 @@
       <h3>Patches</h3>
       <ul>
         <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a 3 s pause ends it), or <kbd>VALUE</kbd> steps through them, further the faster it turns (<kbd>Shift</kbd> + <kbd>VALUE</kbd>: ten at a time, round the ends), and loads when it rests (<code class="lcd">P  7</code>, <code class="lcd">P128</code>). An empty slot loads the init sound.</li>
-        <li><b>Save:</b> <kbd>Rec</kbd>, two digits or <kbd>VALUE</kbd>, <kbd>Rec</kbd>. <kbd>Preset</kbd> cancels.</li>
-        <li><b>Init:</b> <kbd>Perf</kbd>, then <kbd>Rec</kbd> to keep it anywhere.</li>
+        <li><b>Save:</b> <kbd>Rec</kbd>, two digits or <kbd>VALUE</kbd>, <kbd>Rec</kbd>. <kbd>Preset</kbd> cancels.<span data-needs="initPatch"> <kbd>Perf</kbd> instead of the second <kbd>Rec</kbd>: saved there, and it's your init patch.</span></li>
+        <li><b>Init:</b> hold <kbd>Perf</kbd>, then <kbd>Rec</kbd> to keep it anywhere.</li>
         <li>A patch keeps both layers, settings, routes, LFO shapes and step patterns, and its sequence. M VOL isn't stored.</li>
       </ul>
     </section>
@@ -621,8 +621,8 @@
         <tr><td><kbd>9</kbd></td><td><code class="lcd">UOIC</code> voice mode <code class="lcd">POLY</code> <code class="lcd">nono</code> <code class="lcd">LEG</code></td></tr>
         <tr><td><kbd>0</kbd></td><td><code class="lcd">drFt</code> drift, 0-99</td></tr>
       </table>
-      <p class="dim small"><kbd>Settings</kbd> opens and closes it; <kbd>VALUE</kbd> changes. Settings live in the patch: save to keep them.</p>
-      <p class="dim small">System-wide ones need no save: the clock source and tempo, CC A / B<span data-needs="midiChannel">, the MIDI channel</span><span data-needs="pickup">, knob pickup</span>. The synth stores them a second after the last change, so switching off straight after one loses it.</p>
+      <p class="dim small"><kbd>Settings</kbd> opens and closes it; <kbd>VALUE</kbd> changes<span data-needs="initPatch"> (<kbd>Shift</kbd>: ten at a time on pages with more than 20 values)</span>. Settings live in the patch: save to keep them.</p>
+      <p class="dim small">System-wide ones need no save: the clock source and tempo, CC A / B<span data-needs="midiChannel">, the MIDI channel</span><span data-needs="pickup">, knob pickup</span><span data-needs="initPatch">, your init patch</span>. The synth stores them a second after the last change, so switching off straight after one loses it.</p>
     </section>
 
     <section class="cs">
@@ -798,6 +798,15 @@
       moves nothing either way. System-wide, stored a second after a change and kept through power-off; on the synth: Shift + PMOD FIL ENV
       (<code class="lcd">P.UP</code>).</p>
     <div class="row" id="pickup-row"></div>
+  </section>
+  <section data-needs="initPatch">
+    <h2>Init sound</h2>
+    <p class="hint">What Init (on this page) and a held Perf (on the synth) load: the built-in sound, or a patch of
+      yours as a template. Its sound, routes and sequence come along, but not its slot, so the template stays as it
+      is and a save goes where you choose. If that slot is empty, the built-in sound. On the synth: Rec, the slot,
+      Perf saves there and makes it the init; the system menu (hold Settings) has it on key 7, <code class="lcd">InIt</code>.
+      System-wide, stored a second after a change.</p>
+    <div class="row" id="init-patch-row"></div>
   </section>
 </div>
 
@@ -1339,6 +1348,7 @@ const FEATURES = {
   routeBoth: ["routeBoth1Lo", "mod routes on both layers"],
   unisonVoices: ["unisonVoices", "unison voices, and unison detune to 100 cents"],
   arpChaos: ["arpChaos", "the arp's walk, range, added notes and Chaos"],
+  initPatch: ["initPatch", "your own init patch"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1972,6 +1982,14 @@ function midiChannelSelect() {
     "the channel the synth plays from (system-wide; on the synth: Shift + NOISE). In the layer modes that play by channel it's the first of theirs: by channel N and N+1, a voice per channel N to N+7, MPE N (master) to N+8");
   el.dataset.needs = "midiChannel";
   return el;
+}
+
+// The init patch (system-wide; 0.10.0): the built-in sound, or a slot Perf and Init load as a template
+function initPatchSelect() {
+  return settingSelect("Init loads", ["Built-in: one saw, filter open, velocity routes",
+    ...Array.from({ length: 128 }, (_, n) => slotLabel(n))],
+    () => settings ? settings.initPatch : undefined, v => setSetting(SET_ID.initPatch, v),
+    "what Init here and a held Perf on the synth load (system-wide)");
 }
 
 // Knob pickup (system-wide), with firmware that has it: on (the default) or off (a moved knob jumps)
@@ -3902,8 +3920,19 @@ document.getElementById("import-file").onchange = async e => {
 document.getElementById("show-empty").onchange = paintSlots;
 document.getElementById("scan").onclick = scanSlots;
 // The init sound: the slot number stays and the sequence goes, and the slot's stored name no longer says what's playing
+// What Perf loads: from 0.10.0 the user's init patch if one is set (5F 1, the reply says which), else the built-in
+// sound (5F, which older firmware has)
+let initWasTheirs = false;
 async function loadInitSound() {
-  const ok = await ack([0x5F], 3000);
+  let ok;
+  if (settings && feature("initPatch")) {
+    const d = await ask([0x5F, 1], [0x5F], 3000);
+    ok = !!d;
+    initWasTheirs = !!(d && d[1]);
+  } else {
+    ok = await ack([0x5F], 3000);
+    initWasTheirs = false;
+  }
   if (ok) {
     patchName = "Init";
     seqFor = null;
@@ -3913,11 +3942,12 @@ async function loadInitSound() {
   return ok;
 }
 document.getElementById("init-sound").onclick = async () => {
-  result("patch-msg", await loadInitSound(), "loaded the init sound (not saved anywhere yet)", "no answer");
+  const ok = await loadInitSound();
+  result("patch-msg", ok, `loaded ${initWasTheirs ? "your init patch" : "the init sound"} (not saved anywhere yet)`, "no answer");
 };
 document.getElementById("init-top").onclick = async () => {
   if (offline()) return;
-  if (await loadInitSound()) touch("Init sound", "not saved yet");
+  if (await loadInitSound()) touch(initWasTheirs ? "Init (your init patch)" : "Init sound", "not saved yet");
   else noAnswer("Init");
 };
 function noAnswer(what) { const s = document.getElementById("status"); s.textContent = `${what}: no answer`; s.className = "bad"; }
@@ -4380,6 +4410,7 @@ async function afterConnect() {
 buildPiano(); relabel(); buildPots(); buildSwitches(); buildKeys(); buildDisplay(); paintDisplay(); save();
 buildPanel();
 document.getElementById("pickup-row").append(pickupSelect());
+document.getElementById("init-patch-row").append(initPatchSelect());
 try { tab = localStorage.getItem("pro800-tab") || "sound"; } catch (e) {}
 if (!document.getElementById("tab-" + tab)) tab = "sound";
 showTab(tab);

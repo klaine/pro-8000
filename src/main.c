@@ -53,8 +53,9 @@
 //                          endless, 1-99; in the same order; 0.9.1), 75-76 stage times in note values per layer (a
 //                          bit per envelope; 0.9.1), 77 the MIDI channel (0 every channel, 1-16; 0.9.1), 78-81 the
 //                          tuning mode of FREQ A, B on layer 1, then layer 2 (0 semitones, 1 octave, 2 free, 3
-//                          fixed; 0.9.2); read-only
-//                          after: env select, preset mode, patch, morph
+//                          fixed; 0.9.2); 82 pickup … 94 arp chaos (0.9.3-0.9.5: SET_* below), 95 the init
+//                          patch (slot + 1, 0 the built-in sound, system-wide; 0.10.0); read-only after: env select,
+//                          preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
@@ -84,7 +85,8 @@
 //                          5B <slots, 2 × 7 bits> <1 if a write failed> (up to 0.9.3: 5B 00 <slots> <errors>, whose
 //                          count of 128 wasn't a MIDI data byte)
 //   5C <n1> <n0>           load patch n; 5D <n1> <n0> save the current sound to patch n (both acknowledged)
-//   5F                     load the init sound (as PERF does; acknowledged)
+//   5F                     load the built-in init sound (presets build on it; acknowledged)
+//   5F 01                  load what a held PERF loads (0.10.0): replies 5F <1 the user's init patch, 0 the built-in>
 //   60                     undo the last load or init, again redoes (as Shift + PERF, 0.9.5); replies
 //                          60 <1, 0 with nothing to undo> <the name of the sound now playing>
 //   56 <layer> <source> <dest> <d1> <d0>  set a route's depth (d1 << 7 | d0) - 99, 0 removes it; acknowledged
@@ -127,7 +129,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 209 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 211 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -349,6 +351,19 @@ static int undo_or_redo(void)
 static void init_patch(void);
 static void idle_display(void); // what the display shows when nothing transient is on it
 
+// A stored patch, read from slot n, becomes the sound: its sequence (or none) and its morph target with it; undo keeps
+// the one before. The slot number and name are the caller's.
+static void apply_stored(int n, const patch_t *patch)
+{
+    record_end(0);
+    seq_stop();
+    undo_remember();
+    synth_apply_patch(patch);
+    if (!store_load_sequence(n))
+        seq_clear();
+    load_morph(patch->morph);
+}
+
 // Loads slot n. An empty slot gives the init sound there (so it starts from scratch, and REC saves it in place), with
 // the slot's number on the display like any other (PERF's InIt is for PERF); a slot that isn't one of ours shows nonE
 // and keeps the sound.
@@ -369,13 +384,7 @@ static int load_patch(int n)
         display_until = ms_ticks + 1000;
         return 0;
     }
-    record_end(0);
-    seq_stop();
-    undo_remember();
-    synth_apply_patch(&patch);
-    if (!store_load_sequence(n))
-        seq_clear();
-    load_morph(patch.morph);
+    apply_stored(n, &patch);
     for (int i = 0; i <= PATCH_NAME; i++)
         loaded_name[i] = patch.name[i];
     current_patch = n;
@@ -431,6 +440,30 @@ static void init_patch(void)
     display_until = ms_ticks + 1500;
 }
 
+// What Perf (held) and the host's 5F 1 load (#35): the patch the user chose as their own init (store_init_patch()), as
+// a template: its sound, routes, sequence and morph target, but not its slot, so the slot number stays where it was and
+// Rec, Rec saves there (over the template only from its own slot, as straight after Rec, slot, Perf); named Init, shown
+// InIt. (with a dot). The built-in init sound when none is chosen or that slot is empty. 1 if it was theirs.
+static int perf_init(void)
+{
+    static const char name[] = "Init";
+    patch_t patch;
+    int t = store_init_patch();
+    if (!t || !store_load_patch(t - 1, &patch)) {
+        init_patch();
+        return 0;
+    }
+    turned_patch = -1;
+    apply_stored(t - 1, &patch);
+    for (int i = 0; i <= PATCH_NAME; i++)
+        loaded_name[i] = i < (int)sizeof name ? name[i] : 0;
+    preset_mode = 1;
+    display_led(LED_PRESET, 1);
+    display_text("InIt.");
+    display_until = ms_ticks + 1500;
+    return 1;
+}
+
 static void manual_mode(void)
 {
     loaded_name[0] = 0; // a sound made on the panel has no name yet
@@ -465,7 +498,16 @@ static int save_patch(int n)
 // attack and decay. Arp Up-Dn on key 3 switches between the layer mode and how the two-layer modes share the voices
 // (layer 1 + layer 2, or automatic).
 enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_CYCLE, PAGE_BEND, PAGE_DETUNE,
-       PAGE_VOICE, PAGE_DRIFT, PAGE_COUNT }; // keys 1-9, then 0
+       PAGE_VOICE, PAGE_DRIFT, PAGE_COUNT, // keys 1-9, then 0
+       // the system menu (hold Settings, or Shift + Settings; #2, #34): keys 1-7, 8-0 free (MIDI out, the 0.10.0 plan)
+       PAGE_SYS_CHANNEL = PAGE_COUNT, PAGE_SYS_PICKUP, PAGE_SYS_CC_A, PAGE_SYS_CC_B, PAGE_SYS_CLOCK, PAGE_SYS_TEMPO,
+       PAGE_SYS_INIT, PAGE_ALL };
+static int menu_system; // the menu open is the system menu: keys pick its pages, the Settings LED blinks
+static const char sys_page_names[PAGE_ALL - PAGE_COUNT][5] = {"CHnL", "P.UP", "CC.A", "CC.b", "CLoC", "tEnP", "InIt"};
+static int sys_setting_count(int page);
+static int sys_setting_get(int page);
+static void sys_setting_set(int page, int value);
+static void sys_show_setting(int page);
 
 static const char page_names[PAGE_COUNT][5] = {"SYnC", "trIG", "LAYr", "SPLt", "trAC", "", "bEnd", "dEtU", "UOIC",
                                                 "drFt"};
@@ -481,6 +523,8 @@ enum { ENV_MODE_CYCLE = 2, ENV_MODE_COUNT = ENV_MODE_CYCLE + 1 + LFO_DIVISIONS }
 
 static const char *page_name(int page)
 {
+    if (page >= PAGE_COUNT)
+        return sys_page_names[page - PAGE_COUNT];
     if (page == PAGE_CYCLE)
         return cycle_names[alt_page][cycle_env];
     if (page == PAGE_LAYERS && alt_page)
@@ -499,6 +543,8 @@ static uint32_t show_value_at; // ms_ticks to replace the page name with its val
 
 static int setting_count(int page)
 {
+    if (page >= PAGE_COUNT)
+        return sys_setting_count(page);
     static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3,
                                            ENV_MODE_COUNT,
                                            12, 101,           // bend 1-12 semitones, detune 0-100 cents
@@ -517,6 +563,8 @@ static int setting_count(int page)
 
 static int setting_get(int page)
 {
+    if (page >= PAGE_COUNT)
+        return sys_setting_get(page);
     switch (page) {
     case PAGE_LFO_SYNC: return (int)lfo_sync[synth_lfo_select()];
     case PAGE_LFO_TRIGGER: return alt_page ? lfo_cycles[synth_lfo_select()] - 1 : (int)lfo_trigger[synth_lfo_select()];
@@ -546,6 +594,10 @@ static int setting_get(int page)
 
 static void setting_set(int page, int value)
 {
+    if (page >= PAGE_COUNT) {
+        sys_setting_set(page, value);
+        return;
+    }
     switch (page) {
     case PAGE_LFO_SYNC: lfo_sync[synth_lfo_select()] = (lfo_sync_t)value; break;
     case PAGE_LFO_TRIGGER:
@@ -610,6 +662,10 @@ static void show_setting(int page)
         {"FrEE", "CLoC"}, {"FrEE", "1St", "EACH", "PoLY", "1Sht", "1S.Po"}, {"OFF", "SPLt", "StAC", "CHAn", "8CH", "nPE"}, {0},
         {"OFF", "HALF", "FULL"},
     };
+    if (page >= PAGE_COUNT) {
+        sys_show_setting(page);
+        return;
+    }
     if (page == PAGE_CYCLE) {
         static const char modes[ENV_MODE_CYCLE + 1][5] = {"AdSr", "dAHd", "CYCL"};
         static const char curves[ENV_CURVE_COUNT][5] = {"AnLG", "LIn", "SUEL"};
@@ -694,7 +750,11 @@ static int assign_source_pot = -1;
 static uint32_t assign_source_pot_at;
 static int browsing, browse_index, browse_frame = -1;
 static uint32_t browse_rest_at; // when VALUE last moved in browsing (+ 800 ms): from then the route's parts cycle
+#define HOLD_MS 600 // a button held this long does its second job: Arp Assign browses, Sync Clock restarts, Perf inits
 static uint32_t assign_press_at; // ms_ticks when Arp Assign went down, 0 = up or the hold has fired
+// Perf loads the init sound only when held (#34: a tap used to replace the sound by accident); a tap says so (HoLd)
+static uint32_t perf_press_at;
+static uint32_t settings_press_at; // Settings held from opening the menu: the system menu at HOLD_MS
 static int last_pot = -1;        // the knob last touched outside MOD ASSIGN
 static uint32_t last_pot_at;     // and when: only a knob touched in the 5 s before Arp Assign is offered
 
@@ -1229,6 +1289,73 @@ static void clock_tap(void)
     shift_value_at = ms_ticks + 500;
 }
 
+static void clock_set_source(int source);
+
+// The system menu's pages: the settings kept in the global block, which Shift's knobs reach too (NOISE, PMOD FIL ENV,
+// A / B LEVEL, Shift + Sync Clock), the tempo as a number, and the patch Perf loads (#35)
+static int sys_setting_count(int page)
+{
+    switch (page) {
+    case PAGE_SYS_CHANNEL: return 17; // ALL, then 1-16
+    case PAGE_SYS_PICKUP: return 2;
+    case PAGE_SYS_CC_A: case PAGE_SYS_CC_B: return 127; // controllers 1-127
+    case PAGE_SYS_CLOCK: return 3;
+    case PAGE_SYS_TEMPO: return 271; // 30-300 BPM
+    default: return PATCH_COUNT + 1; // the init patch: none, then P1-P128
+    }
+}
+
+static int sys_setting_get(int page)
+{
+    switch (page) {
+    case PAGE_SYS_CHANNEL: return midi_channel;
+    case PAGE_SYS_PICKUP: return synth_pickup();
+    case PAGE_SYS_CC_A: case PAGE_SYS_CC_B: {
+        int cc = synth_cc_number(page == PAGE_SYS_CC_B);
+        return cc < 1 ? 0 : cc - 1;
+    }
+    case PAGE_SYS_CLOCK: return clock_source;
+    case PAGE_SYS_TEMPO: { // SYNC IN's tempo isn't kept to 30-300
+        int bpm = (int)(clock_bpm + 0.5f);
+        return (bpm < 30 ? 30 : bpm > 300 ? 300 : bpm) - 30;
+    }
+    default: return store_init_patch();
+    }
+}
+
+static void sys_setting_set(int page, int value)
+{
+    switch (page) {
+    case PAGE_SYS_CHANNEL: set_midi_channel(value); break;
+    case PAGE_SYS_PICKUP: set_pickup(value); break;
+    case PAGE_SYS_CC_A: case PAGE_SYS_CC_B:
+        synth_set_cc_number(page == PAGE_SYS_CC_B, value + 1);
+        store_set_cc_number(page == PAGE_SYS_CC_B, value + 1);
+        break;
+    case PAGE_SYS_CLOCK: clock_set_source(value); break;
+    case PAGE_SYS_TEMPO: clock_set_bpm((float)(value + 30)); break;
+    default: store_set_init_patch(value); break;
+    }
+}
+
+static void sys_show_setting(int page)
+{
+    static const char clocks[3][5] = {"nIdI", "Int", "SYnC"};
+    int v = sys_setting_get(page);
+    if (page == PAGE_SYS_CHANNEL && !v)
+        display_text("ALL");
+    else if (page == PAGE_SYS_PICKUP)
+        display_text(v ? "on" : "OFF");
+    else if (page == PAGE_SYS_CLOCK)
+        display_text(clocks[v]);
+    else if (page == PAGE_SYS_INIT && !v)
+        display_text("nonE");
+    else if (page == PAGE_SYS_INIT)
+        show_patch(v - 1);
+    else
+        display_number(page == PAGE_SYS_TEMPO ? v + 30 : page == PAGE_SYS_CHANNEL ? v : v + 1);
+}
+
 static void clock_set_source(int source)
 {
     clock_source = source;
@@ -1263,7 +1390,7 @@ static void idle_display(void)
     else if (menu_open && menu_page >= 0)
         show_setting(menu_page);
     else if (menu_open)
-        display_text("SEt");
+        display_text(menu_system ? "SYS" : "SEt");
     else if (recording)
         display_text("rSEq");
     else if (typed_digits && (saving || preset_mode)) {
@@ -1678,8 +1805,9 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind != CONTROL_ENCODER)
         turned_load(); // whatever comes next acts on the patch VALUE turned to
-    if (typed_digits && kind == CONTROL_BUTTON && value && index > BUTTON_9 && !(index == BUTTON_REC && saving)) {
-        typed_digits = 0; // any other button drops a number being typed; Rec in a save takes it as the slot
+    if (typed_digits && kind == CONTROL_BUTTON && value && index > BUTTON_9
+        && !((index == BUTTON_REC || index == BUTTON_PERF) && saving)) {
+        typed_digits = 0; // any other button drops a number being typed; Rec or Perf in a save takes it as the slot
         idle_display();
     }
     if (kind == CONTROL_BUTTON && (index == BUTTON_SEQ1 || index == BUTTON_SEQ2) && !value
@@ -1815,9 +1943,21 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             display_text("PAnC");
             display_until = ms_ticks + 1000;
             return;
+        case BUTTON_SETTINGS: // straight to the system menu; with a menu open, it closes as without Shift
+            if (menu_open)
+                break;
+            if (assigning || browsing)
+                assign_end();
+            menu_open = menu_system = 1;
+            menu_page = -1;
+            settings_press_at = 0;
+            display_until = 0;
+            idle_display();
+            return;
         default:
             if (index >= BUTTON_1 && index <= BUTTON_9) { // straight to that Settings page
                 menu_open = 1;
+                menu_system = 0;
                 menu_page = index - BUTTON_1;
                 display_led(LED_SETTINGS, 1);
                 display_until = 0;
@@ -1939,8 +2079,25 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         if (index != BUTTON_SETTINGS && index != BUTTON_SEQ1 && index != BUTTON_SEQ2 && index != BUTTON_PRESET
             && index != BUTTON_REC && index != BUTTON_ARP_ASSIGN && index != BUTTON_ARP_UP)
             display_led(button_led[index], (int)value);
-        if (index == BUTTON_PERF && value && !saving && !menu_open)
-            init_patch();
+        if (index == BUTTON_PERF && value && saving && !menu_open) { // Rec, the slot, Perf: saved there, and the init now (#35)
+            if (typed_digits)
+                typed_end();
+            saving = 0;
+            display_led(LED_REC, 0);
+            int saved = save_patch(current_patch);
+            if (saved) {
+                store_set_init_patch(current_patch + 1);
+                store_flush(); // kept as InIt. shows, as a save is at donE (not a second later)
+            }
+            display_text(saved ? "InIt." : "Err");
+            display_until = ms_ticks + 1000;
+        } else if (index == BUTTON_PERF && value && !menu_open)
+            perf_press_at = ms_ticks ? ms_ticks : 1; // the init sound comes from the main loop, after HOLD_MS
+        else if (index == BUTTON_PERF && !value && perf_press_at) { // let go before that: a tap
+            perf_press_at = 0;
+            display_text("HoLd");
+            display_until = ms_ticks + 800;
+        }
         if (index == BUTTON_PRESET && value) {
             if (saving) { // cancels a save
                 saving = 0;
@@ -1970,20 +2127,27 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         if (index == BUTTON_SETTINGS && value) {
             menu_open = !menu_open;
             menu_page = -1;
+            menu_system = 0;
+            settings_press_at = menu_open ? (ms_ticks ? ms_ticks : 1) : 0; // held on: the system menu (main loop)
             display_led(LED_SETTINGS, menu_open);
             display_until = 0;
             idle_display();
-        }
+        } else if (index == BUTTON_SETTINGS)
+            settings_press_at = 0;
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && menu_open) {
         int page = index == BUTTON_0 ? PAGE_DRIFT : index - BUTTON_1; // key 1 = first page, key 0 = the tenth
-        if (page != menu_page)
+        if (menu_system) // the system menu's keys 1-7; the rest do nothing
+            page = index >= BUTTON_1 && index - BUTTON_1 < PAGE_ALL - PAGE_COUNT ? PAGE_COUNT + index - BUTTON_1 : -1;
+        if (page < 0)
+            ;
+        else if (page != menu_page)
             alt_page = 0;
         else if (page == PAGE_LFO_TRIGGER) // its key again: the mode or the one shot's cycles (Arp Up-Dn picks the LFO here)
             alt_page = !alt_page;
         if (page == PAGE_CYCLE)
             cycle_env = menu_page == PAGE_CYCLE ? (cycle_env + 1) % 4 : synth_env_select() ? synth_env_select() + 1 : 0;
-        if (page >= 0 && page < PAGE_COUNT) {
+        if (page >= 0 && page < PAGE_ALL) {
             menu_page = page;
             encoder_steps = 0;
             display_text(page_name(page));
@@ -2036,7 +2200,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         encoder_steps += (int)value;
         if (encoder_steps >= 4 || encoder_steps <= -4) { // 4 transitions per quadrature cycle
             int count = setting_count(menu_page);
-            int next = (setting_get(menu_page) + (encoder_steps > 0 ? 1 : count - 1)) % count;
+            int step = shift_active() && count > 20 ? 10 : 1; // Shift: tens on the long pages (tempo, CCs, slots)
+            int next = (setting_get(menu_page) + (encoder_steps > 0 ? step : count - step)) % count;
             encoder_steps = 0;
             setting_set(menu_page, next);
             show_value_at = 0;
@@ -2076,10 +2241,12 @@ typedef enum {
     SET_ROUTE_BOTH_END = SET_ROUTE_BOTH + 3,
     SET_UNISON_VOICES,                                   // the voices a note takes in unison, 2-8
     SET_ARP_RANGE, SET_ARP_EXTEND, SET_ARP_CHAOS,        // a sequence's arp: octaves above the first, ARP_EXTEND_*, 0-99
+    SET_INIT_PATCH,                                      // the patch Perf loads: slot + 1, 0 the built-in sound (0.10.0)
     SET_WRITABLE,                                       // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
 _Static_assert(8 + 2 + 2 * SET_COUNT + 1 <= SYSEX_MAX, "the settings reply fits");
+_Static_assert(SET_INIT_PATCH == 95, "the tools and the page number the settings: 95 is init-patch (NOTES, the 0.10.0 plan)");
 
 static int host_setting_get(int id)
 {
@@ -2132,6 +2299,7 @@ static int host_setting_get(int id)
     case SET_OSC_TUNE_L1_A ... SET_OSC_TUNE_L2_B:
         return synth_osc_tune_mode((id - SET_OSC_TUNE_L1_A) / 2, (id - SET_OSC_TUNE_L1_A) % 2);
     case SET_PICKUP: return synth_pickup();
+    case SET_INIT_PATCH: return store_init_patch();
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -2157,6 +2325,7 @@ static int host_setting_set(int id, int value)
         [SET_LFO1_CYCLES] = 100, [SET_LFO2_CYCLES] = 100, [SET_LFO_RESTART] = 2,
         [SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END] = 256, [SET_UNISON_VOICES] = VOICE_COUNT + 1,
         [SET_ARP_RANGE] = ARP_RANGE_MAX + 1, [SET_ARP_EXTEND] = ARP_EXTEND_COUNT, [SET_ARP_CHAOS] = ARP_CHAOS_MAX + 1,
+        [SET_INIT_PATCH] = PATCH_COUNT + 1,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id] || (id == SET_UNISON_VOICES && value < 2))
         return 0;
@@ -2228,6 +2397,7 @@ static int host_setting_set(int id, int value)
         synth_set_osc_tune_mode((id - SET_OSC_TUNE_L1_A) / 2, (id - SET_OSC_TUNE_L1_A) % 2, value);
         break;
     case SET_PICKUP: set_pickup(value); break;
+    case SET_INIT_PATCH: store_set_init_patch(value); break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -2672,10 +2842,15 @@ static void handle_sysex(const uint8_t *message, int length)
         }
         cycles_pass_max = 0;
     }
-    if (data_length == 1 && data[0] == 0x5F) {
+    if (data_length == 1 && data[0] == 0x5F) { // the built-in init sound (presets build on it), whatever Perf loads
         init_patch();
         reply[n++] = 0x7F;
         reply[n++] = 0x5F;
+    }
+    if (data_length == 2 && data[0] == 0x5F && data[1] == 1) { // what Perf loads: 5F 1 the user's init patch, 0 built-in
+        int theirs = perf_init();
+        reply[n++] = 0x5F;
+        reply[n++] = (uint8_t)theirs;
     }
     if (data_length == 1 && data[0] == 0x60) {
         reply[n++] = 0x60;
@@ -3160,7 +3335,7 @@ int main(void)
         display_led(LED_SYNC_CLOCK, lfo_beat_phase() < 0.12f); // the beat, from whichever clock
         // signed: the press is stamped from ms_ticks during the poll, which can be a tick past `now`, and unsigned
         // that wrapped into a hold at once (a tap of Arp Assign opened Browse, a tap of Sync Clock restarted the bar)
-        if (sync_press_at && (int32_t)(now - sync_press_at) >= 600) {
+        if (sync_press_at && (int32_t)(now - sync_press_at) >= HOLD_MS) {
             sync_press_at = 0;
             clock_restart();
             display_text("StAr");
@@ -3201,7 +3376,22 @@ int main(void)
         store_poll(now);
         synth_route_poll(now);
         cc_show(now);
-        if (assign_press_at && (int32_t)(now - assign_press_at) >= 600) {
+        if (settings_press_at && (int32_t)(now - settings_press_at) >= HOLD_MS) {
+            settings_press_at = 0;
+            if (menu_open && menu_page < 0 && !menu_system) { // still on SEt, nothing picked: the system menu
+                menu_system = 1;
+                display_until = 0;
+                idle_display();
+            }
+        }
+        if (menu_open && menu_system)
+            display_led(LED_SETTINGS, (now / 250) & 1);
+        if (perf_press_at && (int32_t)(now - perf_press_at) >= HOLD_MS) {
+            perf_press_at = 0;
+            if (!saving && !menu_open)
+                perf_init();
+        }
+        if (assign_press_at && (int32_t)(now - assign_press_at) >= HOLD_MS) {
             assign_press_at = 0;
             assign_hold();
         }

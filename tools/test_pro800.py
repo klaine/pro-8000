@@ -57,6 +57,7 @@ class FakeSynth:
         self.receive = None
         self.settings = [0] * 99
         self.undo = [1, *b"Pad"]
+        self.init_theirs = 1  # 5F 1: Perf's sound, the user's init patch (0.10.0)
         self.has_via = True
         self.vias = [[0] * 16, [0] * 16]
         self.fines = [[0] * 16, [0] * 16]
@@ -208,6 +209,8 @@ class FakeSynth:
                 self.ack(0x66)
         elif c == 0x60:
             self.reply(0x60, *self.undo)
+        elif c == 0x5F and len(d) == 2:
+            self.reply(0x5F, self.init_theirs)
         elif c == 0x4A:
             if self.crashes and d[1:3] == b"\x43\x52":
                 streak = self.crash["streak"] + 1 if self.crash else 1
@@ -313,11 +316,12 @@ class SwiftParity(unittest.TestCase):
         self.assertEqual(names, pro800.SETTING_NAMES)
 
     def test_setting_names(self):
-        self.assertEqual(len(pro800.SETTING_NAMES), 99)
+        self.assertEqual(len(pro800.SETTING_NAMES), 100)
         self.assertEqual(pro800.SETTING_NAMES.index("midi-channel"), 77)
         self.assertEqual(pro800.SETTING_NAMES.index("env-count 2 env4"), 74)
         self.assertEqual(pro800.SETTING_NAMES.index("lfo-restart"), 86)
-        self.assertEqual(pro800.SETTING_NAMES[91:], ["unison-voices", "arp-range", "arp-extend", "arp-chaos", "env-select", "preset-mode", "patch", "morph"])
+        self.assertEqual(pro800.SETTING_NAMES[91:], ["unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
+                                                     "env-select", "preset-mode", "patch", "morph"])
 
     def test_lfo_note_times_read_the_same(self):
         """Swift can't run here: the same formula, version and condition as pro800.py's, read off the source."""
@@ -441,6 +445,18 @@ class ReadOnly(unittest.TestCase):
                      "link                 amp-env,filter", "patch                P128", "morph                P1",
                      "buttons              a-saw sync", "steps 2 2            x.x."):
             self.assertIn(line + "\n", out)
+
+    def test_settings_of_0_10_0_with_the_init_patch(self):
+        self.synth.settings = [0] * 100
+        s = self.synth.settings
+        s[95], s[96], s[98], s[99] = 120, 3, 4, 0
+        out, code = run(self.synth, "settings")
+        self.assertEqual(code, 0)
+        for line in ("init-patch           P120", "env-select           env 3 / env 4 (Shift)", "patch                P5", "morph                none"):
+            self.assertIn(line + "\n", out)
+        s[95] = 0
+        out, _ = run(self.synth, "settings")
+        self.assertIn("init-patch           none (the built-in sound)\n", out)
 
     def test_settings_of_an_older_firmware(self):
         self.synth.settings = self.synth.settings[:82]
@@ -824,7 +840,7 @@ class StockError(unittest.TestCase):
             self.reply(0x01, 0x00, 0x01)
 
     def test_is_not_taken_for_success(self):
-        for argv in (("patch", "load", "P1"), ("patch", "save", "P1"), ("patch", "clear", "P1"), ("patch", "init"), ("patch", "undo"),
+        for argv in (("patch", "load", "P1"), ("patch", "save", "P1"), ("patch", "clear", "P1"), ("patch", "init"), ("patch", "undo"), ("patch", "perf"),
                      ("direct", "on"), ("settings",), ("params", "1"), ("patches",), ("tune",), ("seq",), ("seq", "set", "on=1"),
                      ("routes",), ("factory",), ("factory", "import", "1", "P1"), ("format", "--yes"), ("state",), ("engine",),
                      ("timing",), ("fault",), ("set", "env-curve", "1", "amp", "linear"), ("tuning",)):
@@ -1015,6 +1031,9 @@ class Writes(unittest.TestCase):
             (("set", "arp-range", "3"), [0x7D, 92, 0, 2]),
             (("set", "arp-extend", "ninth"), [0x7D, 93, 0, 4]),
             (("set", "arp-chaos", "40"), [0x7D, 94, 0, 40]),
+            (("set", "init-patch", "P120"), [0x7D, 95, 0, 120]),
+            (("set", "init-patch", "0"), [0x7D, 95, 0, 1]),
+            (("set", "init-patch", "none"), [0x7D, 95, 0, 0]),
             (("set", "voice", "2", "legato", "high"), [0x7D, 28, 0, 10]),
             (("set", "drift", "99"), [0x7D, 29, 0, 99]),
             (("set", "scale", "chromatic"), [0x7D, 30, 0, 12]),
@@ -1061,6 +1080,7 @@ class Writes(unittest.TestCase):
             (("patch", "clear", "127"), [0x4F, 0, 127]),
             (("patch", "init"), [0x5F]),
             (("patch", "undo"), [0x60]),
+            (("patch", "perf"), [0x5F, 1]),
             (("patch", "rename", "P2", "Foo"), [0x59, 0, 1, 0x46, 0x6F, 0x6F]),
             (("factory", "import", "5", "P128", "--force"), [0x51, 5, 0, 127, 1]),
             (("format", "--yes"), [0x5B]),

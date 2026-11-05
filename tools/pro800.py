@@ -66,6 +66,7 @@ Probe (our firmware 0.0.9+):
                                         button a-saw|…|sync on|off (the panel's latching buttons),
                                         midi-channel all|1-16 (the channel it listens on; 0.9.1),
                                         pickup on|off (off: a knob that moves takes over at once; 0.9.3)
+                                        init-patch none|<slot 0-127 or P1-P128> (what PERF loads; 0.10.0)
   pro800 settings                       print every setting
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
@@ -92,7 +93,8 @@ Probe (our firmware 0.0.9+):
                                         lanes, chord (0-2 extra notes per step), smooth (e.g. seq set on=1 length=16 step=1/16 clock=1 lanes=1 smooth=A)
   pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob>] [x<ratchets>] [a<v>]… [n2<v>] [n3<v>] [h<v>]  one step (a-d: lanes, -99..99; n2, n3: chord notes, semitones from the step's note; h: notes held past the gate, 1 own + 2 Note 2 + 4 Note 3)
   pro800 set morph <slot|none>          the morph target patch
-  pro800 patch init                     load the basic sound (osc A saw), as PERF does
+  pro800 patch init                     load the basic sound (osc A saw)
+  pro800 patch perf                     load what PERF (held) loads: your init patch, else the basic sound (0.10.0)
   pro800 patch undo                     undo the last load or init, again redoes, as Shift + PERF does (0.9.5)
   pro800 patch rename <slot> <name>     rename a patch (up to 16 characters)
   pro800 factory                        list the stock factory bank (100 patches, kept in the EEPROM)
@@ -1203,7 +1205,7 @@ SETTING_NAMES = (["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo
                  + ["env-tempo 1", "env-tempo 2", "midi-channel",
                     "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles",
                     "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)", "route-both 2 (0-7)", "route-both 2 (8-15)",
-                    "unison-voices", "arp-range", "arp-extend", "arp-chaos",
+                    "unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
                     "env-select", "preset-mode", "patch", "morph"])
 LINK_NAMES = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 ARP_EXTEND_NAMES = ["none", "octave", "fifth", "seventh", "ninth"]
@@ -1244,7 +1246,7 @@ def set_setting():
     usage = (f"usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger {'|'.join(TRIGGER_MODES)} | lfo-cycles|lfo2-cycles <1-99> | lfo-restart steps|keys | "
              "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | "
              "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | "
-             "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | "
+             "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | init-patch none|<slot> | "
              f"shape <layer 1|2> <lfo 1|2> {'|'.join(SHAPE_NAMES)} | lfo2-dests <layer 1|2> none|pitch,filter,pw | "
              "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | "
              f"cycle-sync <layer 1|2> amp|filter|env3|env4 free|{'|'.join(DIVISION_NAMES)} | "
@@ -1279,6 +1281,8 @@ def set_setting():
         setting = (91, v)
     elif n == 2 and name == "arp-chaos" and (v := int_in(args[1], 0, 99)) is not None:
         setting = (94, v)
+    elif n == 2 and name == "init-patch" and (v := 0 if args[1] == "none" else slot_plus_1(args[1])) is not None:
+        setting = (95, v)
     elif n == 2 and name == "drift" and (v := int_in(args[1], 0, 99)) is not None:
         setting = (29, v)
     elif n == 2 and name == "scale" and args[1] in SCALE_NAMES:
@@ -1437,11 +1441,13 @@ def setting_text(i, v):
         return "1 octave" if v == 0 else f"{v + 1} octaves"
     if i == 93:
         return at(ARP_EXTEND_NAMES, v)
-    if i == 95:
+    if i == SETTING_NAMES.index("init-patch"):
+        return "none (the built-in sound)" if v == 0 else slot_name(v - 1)
+    if i == SETTING_NAMES.index("env-select"):
         return at(["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"], v)
-    if i == 97:
+    if i == SETTING_NAMES.index("patch"):
         return slot_name(v)
-    if i == 98:
+    if i == SETTING_NAMES.index("morph"):
         return "none" if v == 0 else slot_name(v - 1)
     return None
 
@@ -1836,6 +1842,11 @@ def slot_name(n):
     return patch_label(n)
 
 
+def slot_plus_1(text):
+    n = slot_number(text)
+    return None if n is None else n + 1
+
+
 EEPROM_HALF_WRITTEN = ("\nThe memory is now half old, half new, so don't trust its patches. Run eeprom-write again, "
                        "or pro800 format --yes to start empty.")
 
@@ -1910,6 +1921,13 @@ def patch_command():
             fail("no reply")
         show("loaded the init sound")
         return
+    if args == ["perf"]:  # what PERF (held) loads: the init patch set with set init-patch, else the basic sound
+        reply = midi().request([0x5F, 1], expect=[0x5F], timeout=3)
+        if reply is None:
+            fail("no reply (firmware 0.10.0 or later?)")
+        theirs = reply_data(reply, 1, 1)[0]
+        show("loaded your init patch" if theirs else "loaded the init sound (no init patch set, or its slot is empty)")
+        return
     if args == ["undo"]:  # the last load or init, as Shift + PERF
         reply = midi().request([0x60], expect=[0x60], timeout=3)
         if reply is None:
@@ -1921,7 +1939,7 @@ def patch_command():
         return
     n = slot_number(args[1]) if len(args) == 2 and args[0] in ("load", "save", "clear") else None
     if n is None:
-        fail("usage: pro800 patch load|save|clear <slot 0-127 or P1-P128>  or  pro800 patch init")
+        fail("usage: pro800 patch load|save|clear <slot 0-127 or P1-P128>  or  pro800 patch init|perf|undo")
     if args[0] == "clear":  # an empty slot is 256 zero bytes
         probe_ack([0x4F, n >> 7, n & 0x7F])
         show(f"cleared {slot_name(n)}")

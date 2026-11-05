@@ -2,7 +2,8 @@
 // firmware):
 //   0x00000-0x17FFF  128 patches, 768 bytes each: the patch and its step sequence
 //   0x19000-0x1F3FF  the stock factory bank, left as it is
-//   0x1F400          global block: format, last patch, the CC A / B source numbers
+//   0x1F400          global block: format, last patch, the CC A / B source numbers (store.c has its bytes); from
+//                    0.10.0 bytes 19-31 too: the init patch, room for MIDI out, their own checksum
 //   0x1F500-0x1FBFF  the autotune tables (tuning.c)
 #ifndef STORE_H
 #define STORE_H
@@ -81,7 +82,10 @@ void store_set_pickup(int on);
 int store_clock_source(void);
 int store_bpm_tenths(void);
 void store_set_clock(int source, int bpm_tenths);
-// Those four setters only mark the global block; reads show the new value at once. store_poll(), once a pass with
+// The patch Perf loads as the init sound: its slot + 1, 0 = the built-in one (#35). A format clears it.
+int store_init_patch(void);
+void store_set_init_patch(int slot_plus_1);
+// Those setters only mark the global block; reads show the new value at once. store_poll(), once a pass with
 // ms_ticks, writes the block when nothing has changed for a second; store_flush() writes it now if it waits, before
 // anything that stops the main loop or resets.
 void store_poll(uint32_t now);

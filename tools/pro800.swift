@@ -73,6 +73,7 @@ Probe (our firmware 0.0.9+):
                                         button a-saw|…|sync on|off (the panel's latching buttons),
                                         midi-channel all|1-16 (the channel it listens on; 0.9.1),
                                         pickup on|off (off: a knob that moves takes over at once; 0.9.3)
+                                        init-patch none|<slot 0-127 or P1-P128> (what PERF loads; 0.10.0)
   pro800 settings                       print every setting
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
@@ -99,7 +100,8 @@ Probe (our firmware 0.0.9+):
                                         lanes, chord (0-2 extra notes per step), smooth (e.g. seq set on=1 length=16 step=1/16 clock=1 lanes=1 smooth=A)
   pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob>] [x<ratchets>] [a<v>]… [n2<v>] [n3<v>] [h<v>]  one step (a-d: lanes, -99..99; n2, n3: chord notes, semitones from the step's note; h: notes held past the gate, 1 own + 2 Note 2 + 4 Note 3)
   pro800 set morph <slot|none>          the morph target patch
-  pro800 patch init                     load the basic sound (osc A saw), as PERF does
+  pro800 patch init                     load the basic sound (osc A saw)
+  pro800 patch perf                     load what PERF (held) loads: your init patch, else the basic sound (0.10.0)
   pro800 patch undo                     undo the last load or init, again redoes, as Shift + PERF does (0.9.5)
   pro800 patch rename <slot> <name>     rename a patch (up to 16 characters)
   pro800 factory                        list the stock factory bank (100 patches, kept in the EEPROM)
@@ -1007,7 +1009,7 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
     + perEnvelope("env-delay") + perEnvelope("env-hold") + ["layer-voices"] + perEnvelope("env-count")
     + ["env-tempo 1", "env-tempo 2", "midi-channel",
        "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles", "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)",
-       "route-both 2 (0-7)", "route-both 2 (8-15)", "unison-voices", "arp-range", "arp-extend", "arp-chaos",
+       "route-both 2 (0-7)", "route-both 2 (8-15)", "unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
        "env-select", "preset-mode", "patch", "morph"]
 let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
@@ -1037,7 +1039,7 @@ func setSetting() {
     let usage = "usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger \(triggerModes.joined(separator: "|")) | lfo-cycles|lfo2-cycles <1-99> | lfo-restart steps|keys | " +
         "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | " +
         "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
-        "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | " +
+        "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | init-patch none|<slot> | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
@@ -1067,6 +1069,10 @@ func setSetting() {
         (id, v) = (91, n)
     } else if args.count == 2, args[0] == "arp-chaos", let n = Int(args[1]), (0...99).contains(n) {
         (id, v) = (94, n)
+    } else if args.count == 2, args[0] == "init-patch", args[1] == "none" {
+        (id, v) = (95, 0)
+    } else if args.count == 2, args[0] == "init-patch", let n = slotNumber(args[1]) {
+        (id, v) = (95, n + 1)
     } else if args.count == 2, args[0] == "drift", let a = Int(args[1]), (0...99).contains(a) {
         (id, v) = (29, a)
     } else if args.count == 2, args[0] == "scale", let i = scaleNames.firstIndex(of: args[1]) {
@@ -1244,9 +1250,10 @@ func settings() {
         case 86: text = v == 0 ? "steps (a sequence's notes restart the LFOs)" : "keys (the keys restart them, not a sequence's steps)"
         case 92: text = v == 0 ? "1 octave" : "\(v + 1) octaves"
         case 93: text = ["none", "octave", "fifth", "seventh", "ninth"][safe: v] ?? text
-        case 95: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 97: text = slotName(v)
-        case 98: text = v == 0 ? "none" : slotName(v - 1)
+        case 95: text = v == 0 ? "none (the built-in sound)" : slotName(v - 1)
+        case 96: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case 98: text = slotName(v)
+        case 99: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
@@ -1595,6 +1602,12 @@ func patchCommand() {
         print("loaded the init sound")
         return
     }
+    if args == ["perf"] { // what PERF (held) loads: the init patch set with set init-patch, else the basic sound
+        guard let reply = Midi(port: portName).request([0x5F, 1], expect: [0x5F], timeout: 3) else { fail("no reply (firmware 0.10.0 or later?)") }
+        let theirs = replyData(reply, 1, 1)[0]
+        print(theirs != 0 ? "loaded your init patch" : "loaded the init sound (no init patch set, or its slot is empty)")
+        return
+    }
     if args == ["undo"] { // the last load or init, as Shift + PERF
         guard let reply = Midi(port: portName).request([0x60], expect: [0x60], timeout: 3) else { fail("no reply (firmware 0.9.5 or later?)") }
         let b = replyData(reply, 1, 1)
@@ -1604,7 +1617,7 @@ func patchCommand() {
         return
     }
     guard args.count == 2, ["load", "save", "clear"].contains(args[0]), let n = slotNumber(args[1]) else {
-        fail("usage: pro800 patch load|save|clear <slot 0-127 or P1-P128>  or  pro800 patch init")
+        fail("usage: pro800 patch load|save|clear <slot 0-127 or P1-P128>  or  pro800 patch init|perf|undo")
     }
     if args[0] == "clear" { // an empty slot is 256 zero bytes
         probeAck(Midi(port: portName), [0x4F, UInt8(n >> 7), UInt8(n & 0x7F)])
