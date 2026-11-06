@@ -10493,7 +10493,7 @@ class PresetRoutes(PanelTest):
 
     def test_the_whole_bank_saved_and_loaded(self):
         bank = self.shipped()
-        self.assertEqual(len(bank), 70)
+        self.assertEqual(len(bank), 73)
         out = self.plan_on_the_firmware(bank, save=True)
         self.assertEqual(out["failed"], [])
         for preset in bank:  # no rest: what was saved holds no route at 0
@@ -12729,7 +12729,7 @@ class PresetBundle(unittest.TestCase):
         run, out = self.bundle(folder=os.path.join(ROOT, "presets"))
         self.assertEqual(run.returncode, 0, run.stderr)
         with open(out, encoding="utf-8") as f:
-            self.assertEqual(len(json.load(f)["presets"]), 70)
+            self.assertEqual(len(json.load(f)["presets"]), 73)
 
     def test_edges_pass(self):
         run, _ = self.bundle({"slot": 1, "name": "A"}, {"slot": 128, "name": "1234567890123456"}, {"slot": 2, "name": "a b~"})

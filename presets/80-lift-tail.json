@@ -1,0 +1,66 @@
+{
+ "slot": 80,
+ "name": "Lift Tail",
+ "group": "pluck",
+ "notes": {
+  "sound": "A soft square-and-saw keys sound with a long, ringing tail when you let go slowly. Lift a key quickly and the tail is cut short and darker. A keyboard without release velocity sends the same lift every time: then it's a medium tail.",
+  "shows": "Release velocity (firmware 0.10.0) into the amp and filter release with negative depths: a quick lift, a short tail. Older firmware plays it with the long tail."
+ },
+ "buttons": [
+  "a-square",
+  "b-saw"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 76,
+   "b-level": 54,
+   "noise": 0,
+   "resonance": 10,
+   "a-pw": 50
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 50,
+   "fine": 52,
+   "cutoff": 40,
+   "fil-env-amt": 66,
+   "fil-att": 0,
+   "fil-dec": 55,
+   "fil-sus": 20,
+   "fil-rel": 80,
+   "amp-att": 0,
+   "amp-dec": 72,
+   "amp-sus": 30,
+   "amp-rel": 85
+  }
+ },
+ "settings": {
+  "voice 1": "poly last",
+  "detune": 14,
+  "drift": 6
+ },
+ "routes": {
+  "1": [
+   [
+    "release-velocity",
+    "amp-rel",
+    -80
+   ],
+   [
+    "release-velocity",
+    "fil-rel",
+    -60
+   ],
+   [
+    "velocity",
+    "cutoff",
+    35
+   ],
+   [
+    "velocity",
+    "vca",
+    60
+   ]
+  ]
+ }
+}

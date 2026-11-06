@@ -216,3 +216,15 @@ CC A / B out (step 12):
       CC 1, 64 and 120-127 can't be picked there, and `pro800 set cc-out-a 64` is refused.
 - [ ] A fast CC out stream and notes together on THRU: the receiver's notes stay on time (CC out is at most 200
       messages a second each, a fifth of the socket).
+
+## Step 13: the new presets and the guides
+
+Install the bank (the editor's Patches tab, or `presets/install.sh --only 79-81`), or load the three files one by one.
+
+- [ ] P79 Wheel Voicings: one key plays a minor ninth; the mod wheel walks it up through its inversions, gliding.
+- [ ] P80 Lift Tail: let a key go slowly, a long tail; quickly, short and darker (needs a keyboard that sends release
+      velocity; otherwise a medium tail every time).
+- [ ] P81 Drifting Chord: one key held, the voicing wanders slowly up and back with no new attack.
+- [ ] Anything about them that should change (levels against the rest of the bank, depths, names)?
+- [ ] The guides (open `docs/*.html` after `python docs/build.py docs build/docs-check`): read the new parts of the
+      sound-design guide (chord memory, release velocity, the patch bay's new ideas) and the technical tour's MIDI part.

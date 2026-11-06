@@ -1,0 +1,68 @@
+{
+ "slot": 81,
+ "name": "Drifting Chord",
+ "group": "pad",
+ "notes": {
+  "sound": "A slow pad on one key: an open add-nine chord whose voicing wanders up through its inversions and back with LFO 2, each note gliding to its place, so a held note keeps changing shape without a new attack.",
+  "shows": "Chord memory (firmware 0.10.0), a slow free-running LFO 2 (0 to 1) into Chord voicing, glide; on older firmware a plain unison pad."
+ },
+ "buttons": [
+  "a-saw",
+  "b-saw",
+  "unison"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 74,
+   "b-level": 70,
+   "noise": 0,
+   "resonance": 14
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 50,
+   "fine": 53,
+   "cutoff": 46,
+   "fil-env-amt": 40,
+   "fil-att": 70,
+   "fil-dec": 70,
+   "fil-sus": 60,
+   "fil-rel": 72,
+   "amp-att": 66,
+   "amp-dec": 70,
+   "amp-sus": 90,
+   "amp-rel": 74,
+   "glide": 45,
+   "lfo2-rate": 8,
+   "lfo2-amount": 0
+  }
+ },
+ "settings": {
+  "voice 1": "poly last",
+  "chord 1": "0 7 14 16",
+  "lfo2-sync": "free",
+  "lfo2-trigger": "free",
+  "shape 1 2": "sine",
+  "detune": 14,
+  "drift": 12
+ },
+ "routes": {
+  "1": [
+   [
+    "lfo2-uni",
+    "chord-voicing",
+    99
+   ],
+   [
+    "velocity",
+    "vca",
+    40
+   ],
+   [
+    "voice",
+    "pitch-b",
+    4
+   ]
+  ]
+ }
+}

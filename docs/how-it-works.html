@@ -31,12 +31,12 @@
 </header>
 
 <div class="hero">
-  <div class="kicker">PRO-8000 0.9.5 · technical tour</div>
+  <div class="kicker">PRO-8000 0.10.0 · technical tour</div>
   <h1>How the firmware works</h1>
   <p class="lede">The PRO-800 makes its sound with eight fully analog voices. This firmware is the brain that plays them: it reads your hands and your MIDI, does the maths, and sets the voltages that the analog circuits follow. Here's how, from the circuit board up.</p>
   <p class="note-sm">Built on what Music Tribe, Behringer's parent company, published in <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer">PRO800-Firmware-Packer</a>: the main-board <a href="https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer/blob/main/Schematics/PRO800_Main_Schematics.pdf">schematic</a> and the packer that turns a firmware into an update the synth's bootloader accepts.</p>
   <p class="note-sm risk"><b>Wildly experimental:</b> use it at your own risk, with no liability if it harms your hardware. <a href="index.html#experimental">The disclaimer</a></p>
-  <div class="meta"><span class="chip">STM32F446 · 168 MHz</span><span class="chip">Written from scratch in C</span><span class="chip">No operating system</span><span class="chip">About 89 kB</span></div>
+  <div class="meta"><span class="chip">STM32F446 · 168 MHz</span><span class="chip">Written from scratch in C</span><span class="chip">No operating system</span><span class="chip">About 107 kB</span></div>
 </div>
 
 <div class="layout">
@@ -52,7 +52,7 @@
     <li><a href="#engine">The sound engine</a></li>
     <li><a href="#panel">The panel</a></li>
     <li><a href="#memory">Where things are stored</a></li>
-    <li><a href="#usb">USB and the editor</a></li>
+    <li><a href="#usb">MIDI, USB and the editor</a></li>
     <li><a href="#updates">Updating safely</a></li>
     <li><a href="#boot">Power-on</a></li>
     <li><a href="#limits">What it can't change</a></li>
@@ -80,7 +80,7 @@
           <rect class="box" x="16" y="110" width="142" height="52" rx="10"/><text x="30" y="132" class="t-b">Front panel</text><text x="30" y="150" class="t-sm">26 knobs, buttons</text>
           <rect class="box" x="16" y="182" width="142" height="52" rx="10"/><text x="30" y="204" class="t-b">Patch memory</text><text x="30" y="222" class="t-sm">128 kB EEPROM</text>
         </g>
-        <path class="ln-dig" d="M158 64 H198" marker-end="url(#ah-dig)"/>
+        <path class="ln-dig" d="M158 64 H198" marker-start="url(#ah-dig)" marker-end="url(#ah-dig)"/>
         <path class="ln-dig" d="M158 136 H198" marker-end="url(#ah-dig)"/>
         <path class="ln-dig" d="M158 208 H198" marker-start="url(#ah-dig)" marker-end="url(#ah-dig)"/>
         <rect class="box-dig" x="200" y="30" width="200" height="212" rx="14"/>
@@ -123,7 +123,7 @@
     <div class="stat"><b>41</b><span>control voltages kept fresh: 32 per voice, 9 shared</span></div>
     <div class="stat"><b>≈ 0.7 ms</b><span>between updates of each voice's volume (VCA), with all eight sounding</span></div>
     <div class="stat"><b>±0.7 ¢</b><span>tuning across C1–C8 after autotune</span></div>
-    <div class="stat"><b>≈ 89 kB</b><span>the whole firmware, of the 128 kB the bootloader accepts</span></div>
+    <div class="stat"><b>≈ 107 kB</b><span>the whole firmware, of the 128 kB the bootloader accepts</span></div>
   </div>
 </section>
 
@@ -138,7 +138,7 @@
     <div class="fig"><div class="svg-wrap" style="--min:720px">
       <svg viewBox="0 0 880 456" role="img" aria-labelledby="f2t">
         <title id="f2t">Block diagram: USB, front panel, display chip and EEPROM connect to the STM32F446; it drives three DACs, a sample-and-hold stage and gate lines to the voice board, and reads a tuning comparator.</title>
-        <rect class="box" x="16" y="34" width="204" height="70" rx="10"/><text x="30" y="55" class="t-b">MIDI in</text><text x="30" y="74" class="t-sm">USB: notes, clock, editor, updates</text><text x="30" y="92" class="t-sm">5-pin DIN (UART4): notes, clock</text>
+        <rect class="box" x="16" y="34" width="204" height="70" rx="10"/><text x="30" y="55" class="t-b">MIDI in and out</text><text x="30" y="74" class="t-sm">USB: notes, clock, editor, updates</text><text x="30" y="92" class="t-sm">5-pin DIN (UART4): IN, THRU</text>
         <rect class="box" x="16" y="114" width="204" height="152" rx="10"/><text x="30" y="137" class="t-b">Front panel (inputs)</text>
         <text x="30" y="162" class="t-sm">26 knobs → 3 analog</text><text x="30" y="179" class="t-sm">multiplexers → the ADC</text>
         <text x="30" y="204" class="t-sm">14 latching switches and the</text><text x="30" y="221" class="t-sm">3-way switch → input pins</text>
@@ -154,7 +154,7 @@
         <text x="348" y="72" class="t-lg">STM32F446</text>
         <text x="348" y="92" class="t-sm">ARM Cortex-M4F at 168 MHz</text>
         <text x="348" y="110" class="t-sm">128 kB RAM</text>
-        <text x="348" y="128" class="t-sm">firmware ≈ 89 kB of a 128 kB slot</text>
+        <text x="348" y="128" class="t-sm">firmware ≈ 107 kB of a 128 kB slot</text>
         <line class="grid" x1="348" y1="148" x2="532" y2="148"/>
         <text x="348" y="174" class="t-sm t-b">What it runs, in one loop:</text>
         <text x="348" y="198" class="t-sm">• MIDI (USB, 5-pin) and SysEx</text>
@@ -166,7 +166,7 @@
         <text x="348" y="322" class="t-sm">• the CV refresh</text>
         <text x="348" y="344" class="t-sm">• autotune (on request)</text>
         <text x="348" y="384" class="t-xs">Interrupts: a 1 ms tick, USB,</text>
-        <text x="348" y="400" class="t-xs">MIDI IN, the tuning comparator.</text>
+        <text x="348" y="400" class="t-xs">MIDI in and out, the tuning comparator.</text>
 
         <rect class="box-sh" x="610" y="40" width="250" height="56" rx="10"/><text x="624" y="63" class="t-b">DAC80501 · 16-bit</text><text x="624" y="83" class="t-sm">pitch A, pitch B, cutoff (24 CVs)</text>
         <rect class="box-sh" x="610" y="108" width="250" height="54" rx="10"/><text x="624" y="131" class="t-b">On-chip DAC 2 · 12-bit</text><text x="624" y="150" class="t-sm">the 8 VCA levels</text>
@@ -272,13 +272,13 @@
   <div class="prose">
     <p>There's no operating system and no task scheduler. The firmware is one loop that runs forever, doing the same jobs in the same order. Each trip around it is a <strong>pass</strong>:</p>
     <ol>
-      <li>Read any MIDI that arrived over USB or the 5-pin MIDI IN (notes, controllers, and SysEx over USB), run the internal clock if that's the source, and advance the sequencer. MIDI clock doesn't wait for this: the interrupts handle it the moment it arrives.</li>
+      <li>Read any MIDI that arrived over USB or the 5-pin MIDI IN (notes, controllers, and SysEx over USB), run the internal clock if that's the source, advance the sequencer, and hand MIDI out what's waiting. MIDI clock doesn't wait for this: the interrupts handle it the moment it arrives.</li>
       <li>Scan the panel: the next step of the knob scan, the switches, the buttons, the VALUE encoder, Shift.</li>
       <li>Run the slow half of the engine: read the knobs, work out glide, drift, the macros and every route that doesn't need to be fast, and each voice's pitch and cutoff apart from what the envelopes and LFOs add.</li>
       <li>Update the display.</li>
       <li>Refresh the voltages, the long part, with four <strong>ticks</strong> inside it. Each tick reads MIDI again, advances the sequencer, moves every envelope and LFO one step, applies the routes from them, and writes the voltages that changed.</li>
     </ol>
-    <p>Only four things interrupt the loop: a 1 ms clock tick, the USB hardware and the MIDI IN socket's serial port (both timestamp each MIDI clock tick the moment it arrives), and the tuning comparator's edges (used only while tuning). Everything that touches the voices happens in the loop, so nothing can change a voice halfway through being worked out.</p>
+    <p>Only four things interrupt the loop: a 1 ms clock tick, the USB hardware and the MIDI sockets' serial port (both timestamp each MIDI clock tick the moment it arrives, and the serial port sends the next byte out), and the tuning comparator's edges (used only while tuning). Everything that touches the voices happens in the loop, so nothing can change a voice halfway through being worked out.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
@@ -329,7 +329,7 @@
     <ol class="steps">
       <li><b>MIDI arrives.</b> The chip's serial port (UART4) receives the three bytes at MIDI's 31,250 baud and queues them; the loop puts them back together into one message, including running status, where a keyboard leaves out repeated status bytes. Notes from USB arrive already packaged, and both go through the same code from here on.</li>
       <li><b>The sequencer looks first.</b> If the patch's sequence is switched on for that key's layer, the key starts or transposes the sequence instead of playing a note directly.</li>
-      <li><b>A voice is chosen.</b> The layer mode decides which layer (or both) gets the note; that layer's voice mode (poly, mono or legato) and note priority decide which voice. In the per-channel modes (eight mono channels, MPE) the MIDI channel picks the voice directly. The voice records the note, its velocity and a fresh random value, and its four envelopes start.</li>
+      <li><b>A voice is chosen.</b> The layer mode decides which layer (or both) gets the note; that layer's voice mode (poly, mono or legato) and note priority decide which voice. In the per-channel modes (eight mono channels, MPE) the MIDI channel picks the voice directly. With Unison on and a chord stored for the layer (chord memory), the key takes a voice for each of the chord's notes, transposed to it. The voice records the note, its velocity and a fresh random value, and its four envelopes start.</li>
       <li><b>The engine works out pitch in semitones.</b> For every voice it adds up the gliding note, pitch bend, LFOs, mod routes, unison spread and drift; the slow parts once a pass, the envelope and LFO parts in every tick. Each oscillator can use semitone steps, octave steps, a continuous ±36-semitone offset, or a fixed C1-C8 base pitch. Fixed ignores the played note but still responds to bend and modulation. If a scale is set, the note or fixed pitch with common modulation snaps to it. Oscillator A also adds the poly-mod envelope.</li>
       <li><b>The tuning table turns semitones into a number.</b> Each of the 16 oscillators and 8 filters has its own measured table (next section).</li>
       <li><b>Sample and hold.</b> The number goes onto the right capacitor, and the analog oscillator follows it.</li>
@@ -454,7 +454,7 @@
 
   <h3>The mod matrix: adding things up per voice</h3>
   <div class="prose">
-    <p>Each layer has 16 routes. A route is four numbers: a source (one of 28), a destination (one of 47), a depth from −99 to +99 in tenths, and a <strong>Via</strong> that multiplies it, a number from 0.01 to 8 or another source (1 unless set, so a route without one is just source × depth). For every voice, the engine evaluates each route and adds <code>source × via × depth</code> to the destination: routes from envelopes and LFOs into pitch, cutoff and the VCA in every tick, the rest once a pass. Because the sources are per voice too (that voice's velocity, its envelopes, its random value, its pressure, its place in the layer), one route gives every note its own amount. A route can also be set to play on both layers: it keeps one slot and one depth, and each layer's voices read their own sources. A single wire adds both layers' routes up, so there the route counts once, from the newest note.</p>
+    <p>Each layer has 16 routes. A route is four numbers: a source (one of 29), a destination (one of 50), a depth from −99 to +99 in tenths, and a <strong>Via</strong> that multiplies it, a number from 0.01 to 8 or another source (1 unless set, so a route without one is just source × depth). For every voice, the engine evaluates each route and adds <code>source × via × depth</code> to the destination: routes from envelopes and LFOs into pitch, cutoff and the VCA in every tick, the rest once a pass. Because the sources are per voice too (that voice's velocity and release velocity, its envelopes, its random value, its pressure, its place in the layer), one route gives every note its own amount. A route can also be set to play on both layers: it keeps one slot and one depth, and each layer's voices read their own sources. A single wire adds both layers' routes up, so there the route counts once, from the newest note.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
@@ -474,6 +474,9 @@
       <li><strong>Envelope stages and glide</strong> are destinations too: a route scales that time by up to 16× either way, per voice, so velocity → attack time makes hard notes snap while soft ones swell.</li>
       <li><strong>Macros</strong> are a source and a destination at once. Everything routed into Macro 1 is summed with a hand-set offset and the M TUNE knob, which is Macro 1's own knob now (master tune is gone; autotune keeps the voices in tune), and the macro fans out to any number of destinations. Macros are worked out once a pass.</li>
       <li><strong>Morph</strong> fades every knob of the layer towards a second patch before the engine reads the knobs at all.</li>
+      <li><strong>Release velocity</strong> (0.10.0) does nothing while the key is down and acts from the moment it comes up, so a quick lift can shorten the release without touching the held note.</li>
+      <li><strong>Chord voicing</strong> (0.10.0) moves a stored chord along a ladder of inversions: each step up takes the lowest note, then the second lowest, to its first octave above the highest (down mirrors it). It's read as a chord starts, and a held chord follows it, each note gliding to its new place.</li>
+      <li><strong>CC A out</strong> and <strong>CC B out</strong> (0.10.0) aren't voltages at all: both layers' routes are summed, 0 to 127, and sent as a MIDI CC when the sum changes, at most every 5 ms.</li>
     </ul>
   </div>
 </section>
@@ -500,7 +503,7 @@
   </figure>
   <div class="prose">
     <p><strong>Shift</strong> is the Sync Source button, held or latched with two quick presses. Under Shift the filter ADSR knobs edit Env 3 and the amp ADSR knobs Env 4, with pickup, and every other knob <em>nudges</em> a secondary value (LFO delay and fade, drift, unison detune, bend range, the macro offsets, the CC A / B numbers, the MIDI channel, pickup on or off, the edit layer's Velocity routes) by how far it moves, so nothing jumps and nothing needs picking up. The buttons get second jobs too: compare the edit with the stored patch, undo a load or the init sound (the sequence, name and slot come back too), save to the current slot, copy a layer, open a settings page or the system menu, panic.</p>
-    <p>The four-digit, seven-segment display shows real units while you turn a knob: <span class="led"> 737</span> Hz of cutoff, <span class="led"> 1.25</span> seconds of attack, <span class="led">-12</span> semitones, or a clock division like <span class="led">1-16</span>. Several buttons have new jobs, since the stock arpeggiator and sequencer are gone:</p>
+    <p>The four-digit, seven-segment display shows real units while you turn a knob: <span class="led"> 737</span> Hz of cutoff, <span class="led"> 1.25</span> seconds of attack, <span class="led">-12</span> semitones, or a clock division like <span class="led">1-16</span>; the web editor's knob moves show there too. While a knob's value shows, VALUE fine-adjusts it a tenth at a time (<span class="led"> 53.4</span>), finer than the knob itself reads, and a waiting knob takes over only once it's really turned, so noise can't undo that. Several buttons have new jobs, since the stock arpeggiator and sequencer are gone:</p>
   </div>
   <div class="tbl"><table>
     <thead><tr><th>Button</th><th>Now does</th></tr></thead>
@@ -512,7 +515,7 @@
       <tr><td><kbd>Sync Clock</kbd></td><td>Tap the internal clock's tempo; hold to restart the bar; Shift + press cycles the clock source. Its LED blinks on the beat</td></tr>
       <tr><td><kbd>Rec</kbd> + <kbd>Seq 1</kbd></td><td>Record sequence steps from the notes you play</td></tr>
       <tr><td><kbd>LFO Shape</kbd></td><td>Step through nine shapes</td></tr>
-      <tr><td><kbd>Settings</kbd></td><td>A menu on the number keys: LFO sync and retrigger, layers and the split note, keyboard tracking, envelope modes, triggers and curves, bend range, unison detune, voice mode, drift. Held, or with Shift: the system menu (MIDI channel, pickup, CC A / B, clock source and tempo, the init patch)</td></tr>
+      <tr><td><kbd>Settings</kbd></td><td>A menu on the number keys: LFO sync and retrigger, layers and the split note, keyboard tracking, envelope modes, triggers and curves, bend range, unison detune, voice mode, drift. Held, or with Shift: the system menu (MIDI channel, pickup, CC A / B, clock source and tempo, the init patch, MIDI out)</td></tr>
       <tr><td><kbd>Perf</kbd></td><td>Held: a plain init sound, with velocity on the VCA and the cutoff, or your own init patch as a template (a tap only says so)</td></tr>
     </tbody>
   </table></div>
@@ -528,10 +531,10 @@
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
       <svg viewBox="0 0 880 300" role="img" aria-labelledby="f14t">
-        <title id="f14t">Flash map: a write-protected bootloader, then up to 128 kB for this firmware across sector 4 and half of sector 5, about 89 kB used. EEPROM map: 128 patch records with their sequences, the stock factory bank, global settings and tuning tables.</title>
+        <title id="f14t">Flash map: a write-protected bootloader, then up to 128 kB for this firmware across sector 4 and half of sector 5, about 107 kB used. EEPROM map: 128 patch records with their sequences, the stock factory bank, global settings and tuning tables.</title>
         <text x="20" y="28" class="t-b">Microcontroller flash · 256 kB</text>
         <rect class="box" x="20" y="40" width="210" height="58" rx="8"/><text x="34" y="64" class="t-b">Bootloader</text><text x="34" y="84" class="t-xs">64 kB · write-protected</text>
-        <rect class="box-dig" x="230" y="40" width="420" height="58" rx="8"/><rect class="f-dig" x="230" y="40" width="293" height="58" rx="8" opacity=".22"/><text x="244" y="64" class="t-b">This firmware</text><text x="244" y="84" class="t-xs">up to 128 kB: sector 4 and half of 5 · ≈ 79 kB used (shaded)</text>
+        <rect class="box-dig" x="230" y="40" width="420" height="58" rx="8"/><rect class="f-dig" x="230" y="40" width="344" height="58" rx="8" opacity=".22"/><text x="244" y="64" class="t-b">This firmware</text><text x="244" y="84" class="t-xs">up to 128 kB: sector 4 and half of 5 · ≈ 107 kB used (shaded)</text>
         <rect class="box-plain" x="650" y="40" width="210" height="58" rx="8"/><text x="664" y="64" class="t-b">Rest of sector 5</text><text x="664" y="84" class="t-xs">erased with every update</text>
         <text x="20" y="150" class="t-b">EEPROM · 128 kB</text>
         <rect class="box-acc" x="20" y="162" width="630" height="58" rx="8"/><text x="34" y="186" class="t-b">128 patch records</text><text x="34" y="206" class="t-xs">768 bytes each: the patch ("P8P2", 512 bytes) and its step sequence ("P8S2", 256 bytes), each with its own checksum</text>
@@ -539,7 +542,7 @@
         <rect class="box" x="676" y="162" width="164" height="58" rx="8"/><text x="690" y="186" class="t-b">Factory bank</text><text x="690" y="206" class="t-xs">100 stock sounds</text>
         <rect class="box-sh" x="840" y="162" width="20" height="58" rx="4"/>
         <path class="ln" d="M850 222 V246 H700"/>
-        <text x="696" y="250" class="t-sm" text-anchor="end">global block (last patch, clock, CC numbers) + autotune tables (last 3 kB)</text>
+        <text x="696" y="250" class="t-sm" text-anchor="end">global block (last patch, clock, MIDI, CC map) + autotune tables (last 3 kB)</text>
         <text x="20" y="282" class="t-xs">0x00000</text><text x="650" y="282" class="t-xs" text-anchor="middle">0x18000</text><text x="690" y="296" class="t-xs" text-anchor="middle">0x19000</text><text x="860" y="282" class="t-xs" text-anchor="end">0x1FFFF</text>
       </svg>
     </div></div>
@@ -552,7 +555,7 @@
   <h3>The sound you hear isn't the one in memory</h3>
   <div class="prose">
     <p>The engine never plays from the EEPROM. It plays from a working copy in RAM: the knob values, switches, routes and settings the voices read many times a second. <strong>Loading</strong> a patch reads its record from the EEPROM (about 25 ms, which is why notes are released first), checks it and fills the working copy. <strong>Saving</strong> does the opposite: it gathers the working copy back into a record and writes that to a slot. Everything between the two, a knob turned or a route added or a click on the web page, only changes RAM. That's why an edit is lost if you load another patch without saving, and why Mutate and Compare are safe to try.</p>
-    <p>Some settings belong to the synth, not the sound: the MIDI channel, the clock source and tempo, the CC A / B numbers and whether knobs pick up live in a small <strong>global block</strong>, along with the last patch loaded. They apply at once and are written a second after the last change, so sweeping a knob costs one write rather than one per step (a write holds the engine for up to 5 ms), and switching off inside that second loses the change. The master volume is in neither: M VOL follows its knob, and after a turn under Shift it picks up like any other knob.</p>
+    <p>Some settings belong to the synth, not the sound: the MIDI channel, the clock source and tempo, the CC A / B numbers, whether knobs pick up, the init patch and the MIDI out settings live in a small <strong>global block</strong>, along with the last patch loaded, and the CC map has its own block beside it. They apply at once and are written a second after the last change, so sweeping a knob costs one write rather than one per step (a write holds the engine for up to 5 ms), and switching off inside that second loses the change. The master volume is in neither: M VOL follows its knob, and after a turn under Shift it picks up like any other knob.</p>
   </div>
 
   <h3>One record, byte by byte</h3>
@@ -562,7 +565,7 @@
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:700px">
       <svg viewBox="0 0 880 268" role="img" aria-labelledby="f15t">
-        <title id="f15t">A 768-byte patch record drawn to scale. The first 512 bytes: magic and name, settings, knobs, extra knobs, mod routes, later settings, the 0.9.5 settings, 53 reserved bytes and a checksum. The second 256 bytes: sequence header, step data and a checksum.</title>
+        <title id="f15t">A 768-byte patch record drawn to scale. The first 512 bytes: magic and name, settings, knobs, extra knobs, mod routes, later settings, the 0.9.5 settings, the 0.10.0 chords, 37 reserved bytes and a checksum. The second 256 bytes: sequence header, step data and a checksum.</title>
         <text x="20" y="24" class="t-b">The patch: 512 bytes</text><text x="580" y="24" class="t-b">The sequence: 256 bytes</text>
         <rect class="box" x="20" y="74" width="21.9" height="58" rx="2"/>
         <rect class="box-sh" x="41.9" y="74" width="83.1" height="58" rx="2"/>
@@ -571,7 +574,8 @@
         <rect class="box-mod" x="282.5" y="74" width="105" height="58" rx="2"/>
         <rect class="box-sh" x="387.5" y="74" width="20.8" height="58" rx="2"/>
         <rect class="box-dig" x="408.3" y="74" width="109.4" height="58" rx="2"/>
-        <rect class="box-plain" x="517.7" y="74" width="57.9" height="58" rx="2"/>
+        <rect class="box-ana" x="517.7" y="74" width="17.5" height="58" rx="2"/>
+        <rect class="box-plain" x="535.2" y="74" width="40.4" height="58" rx="2"/>
         <rect class="box" x="575.6" y="74" width="4.4" height="58"/>
         <rect class="box" x="580" y="74" width="13.1" height="58" rx="2"/>
         <rect class="box-acc" x="593.1" y="74" width="262.5" height="58" rx="2"/>
@@ -581,17 +585,18 @@
         <text x="260.6" y="108" class="t-xs" text-anchor="middle">extra</text>
         <text x="335" y="108" class="t-xs" text-anchor="middle">mod routes</text>
         <text x="463" y="108" class="t-xs" text-anchor="middle">0.9.5 settings</text>
-        <text x="546.6" y="108" class="t-xs" text-anchor="middle">reserved</text>
+        <text x="555.4" y="108" class="t-xs" text-anchor="middle">reserved</text>
         <text x="724" y="108" class="t-xs" text-anchor="middle">steps and lanes</text>
         <path class="ln" d="M31 74 V54"/><text x="20" y="48" class="t-xs">"P8P2", name</text>
         <path class="ln" d="M398 74 V54"/><text x="398" y="48" class="t-xs" text-anchor="middle">later settings</text>
+        <path class="ln" d="M526.5 74 V54"/><text x="526.5" y="48" class="t-xs" text-anchor="middle">0.10.0 chords</text>
         <path class="ln" d="M578 132 V152"/><text x="578" y="166" class="t-xs" text-anchor="middle">checksum</text>
         <path class="ln" d="M586.5 74 V54"/><text x="592" y="48" class="t-xs">"P8S2", header</text>
         <path class="ln" d="M858 132 V152"/><text x="860" y="166" class="t-xs" text-anchor="end">checksum</text>
-        <text x="20" y="150" class="t-xs">0</text><text x="125" y="150" class="t-xs" text-anchor="middle">96</text><text x="238.75" y="150" class="t-xs" text-anchor="middle">200</text><text x="282.5" y="150" class="t-xs" text-anchor="middle">240</text><text x="387.5" y="150" class="t-xs" text-anchor="middle">336</text><text x="408.3" y="164" class="t-xs" text-anchor="middle">355</text><text x="517.7" y="150" class="t-xs" text-anchor="middle">455</text><text x="593.1" y="150" class="t-xs" text-anchor="middle">524</text>
+        <text x="20" y="150" class="t-xs">0</text><text x="125" y="150" class="t-xs" text-anchor="middle">96</text><text x="238.75" y="150" class="t-xs" text-anchor="middle">200</text><text x="282.5" y="150" class="t-xs" text-anchor="middle">240</text><text x="387.5" y="150" class="t-xs" text-anchor="middle">336</text><text x="408.3" y="164" class="t-xs" text-anchor="middle">355</text><text x="517.7" y="150" class="t-xs" text-anchor="middle">455</text><text x="535.2" y="164" class="t-xs" text-anchor="middle">471</text><text x="593.1" y="150" class="t-xs" text-anchor="middle">524</text>
         <text x="20" y="200" class="t-sm">Layer 1 and layer 2 sit side by side in every per-layer part: the knobs are 26 values for layer 1, then 26 for layer 2.</text>
         <text x="20" y="222" class="t-sm">Reserved bytes are all zero, and zero in a new field always means "what older firmware did".</text>
-        <text x="20" y="244" class="t-sm">The patch half is filled to nine tenths; the 53 bytes left are for what comes next.</text>
+        <text x="20" y="244" class="t-sm">The patch half is more than nine tenths full; the 37 bytes left are for what comes next.</text>
       </svg>
     </div></div>
     <figcaption><b>Figure 15.</b> A record to scale, offsets in bytes. The whole patch memory is 128 of these.</figcaption>
@@ -606,7 +611,8 @@
         <tr><td>240–335</td><td>Mod routes</td><td>16 per layer, 3 bytes each: source, destination, signed depth.</td></tr>
         <tr><td>336–354</td><td>Later settings</td><td>Cycle counts, stage times in note values, layer links, one shot LFO cycles, what restarts the LFOs under a sequence, both-layers routes: the fields added since 0.9.1.</td></tr>
         <tr><td>355–454</td><td>0.9.5 settings</td><td>Unison voices, each route's Via (2 bytes) and depth in tenths, and the arp's range, added notes and Chaos.</td></tr>
-        <tr><td>455–507</td><td>Reserved</td><td>53 bytes of zeros for what comes next.</td></tr>
+        <tr><td>455–470</td><td>0.10.0 chords</td><td>Chord memory, 8 bytes per layer: up to 7 intervals above the key (0 ends them) and a flags byte. All zero, as in every older patch, is no chord.</td></tr>
+        <tr><td>471–507</td><td>Reserved</td><td>37 bytes of zeros for what comes next.</td></tr>
         <tr><td>508–511</td><td>Checksum</td><td>Over everything before it. A record that fails is shown as damaged rather than played.</td></tr>
         <tr><td>512–523</td><td>"P8S2" and the sequence header</td><td>Length, number of lanes, clock division, tempo, flags, swing, smoothing, arpeggio mode.</td></tr>
         <tr><td>524–763</td><td>Steps and lanes</td><td>240 bytes shared: each step takes 4 (note, velocity, gate, and a byte for probability, ratchets and which notes hold past the gate) plus 1 per automation lane. That's 60 steps with no lanes, 30 with all four. The last one or two lanes can hold a step's extra chord notes instead of modulation: two spare bits in the flags say how many.</td></tr>
@@ -616,7 +622,7 @@
   <div class="prose">
     <p>Shared controls such as the mixer and resonance have one wire, but they're stored in both layers' knob lists; only layer 1's copy is read back. The morph target is just a slot number, so morphing to a patch reads that second record into RAM as well.</p>
   </div>
-  <div class="callout tech"><span class="label">How it grows</span>Adding a feature means taking a reserved byte and deciding what zero means, and it has to mean "as before". Unison voices is the newest example: one byte at offset 355, and zero means 8, every voice, as unison always was, so every older patch plays as it always did, and older firmware loading a newer patch ignores the byte and stacks all eight. The 0.9.5 block works the same way throughout: a Via of 0 is the number 1, a fine part of 0 is a whole depth, an arp range of 0 is one octave. Nothing needs converting. The one real break was 0.8.0, which went from 200 patches of 256 bytes to 128 records of 768: its first start wiped the old records (the EEPROM backups keep them).</div>
+  <div class="callout tech"><span class="label">How it grows</span>Adding a feature means taking a reserved byte and deciding what zero means, and it has to mean "as before". Chord memory is the newest example: 16 bytes at offset 455, and all zero means no chord, so every older patch plays as it always did, and older firmware loading a newer patch ignores the bytes and plays plain unison. Unison voices before it took one byte at offset 355, where zero means 8, every voice, as unison always was. The 0.9.5 block works the same way throughout: a Via of 0 is the number 1, a fine part of 0 is a whole depth, an arp range of 0 is one octave. Nothing needs converting. The one real break was 0.8.0, which went from 200 patches of 256 bytes to 128 records of 768: its first start wiped the old records (the EEPROM backups keep them).</div>
   <div class="prose">
     <p>The stock factory bank is left exactly where the stock firmware put it, and any factory sound can be converted into a slot. Before this firmware first wrote to the EEPROM, a full image of it was saved: writing that image back is the way home to stock.</p>
   </div>
@@ -625,18 +631,21 @@
 <!-- 10 ------------------------------------------------------------------------------------------------>
 <section id="usb">
   <span class="sec-num">10</span>
-  <h2>MIDI in: USB, SysEx and the 5-pin socket</h2>
+  <h2>MIDI in and out: USB, SysEx and the 5-pin sockets</h2>
   <div class="prose">
-    <p>The USB driver is written from scratch for the chip's USB hardware and shows up as a standard class-compliant MIDI device. It reports Behringer's own IDs, the name "PRO 800" and the same serial number the stock firmware used, so a Mac treats it as the device it already knows. Notes play on any channel, or on the one set with Shift + NOISE or the web page.</p>
+    <p>The USB driver is written from scratch for the chip's USB hardware and shows up as a standard class-compliant MIDI device. It reports Behringer's own IDs, the name "PRO 800" and the same serial number the stock firmware used, so a Mac treats it as the device it already knows. Notes play on any channel, or on the one set with Shift + NOISE or the web page. Controllers set parameters through a <strong>CC map</strong>: the default one, the stock PRO-800's numbers, or your own, any CC to any parameter, stored system-wide. <strong>NRPN</strong> reaches every parameter, buttons and settings included, by a number fixed from 0.10.0 on.</p>
     <p>When MIDI comes faster than the main loop takes it, the driver stops accepting USB packets until there's room for a whole one. The computer's MIDI driver holds on to them meanwhile, so a burst of any size arrives whole and in order, with clock ticks waiting in the same queue. Autotune is the exception: about 25 s is too long to hold a computer up, and the notes would be stale by then, so while it runs the driver keeps accepting and throws away what doesn't fit, and the clock keeps its ticks.</p>
-    <p>Everything beyond notes and controllers travels as <strong>SysEx</strong>, MIDI's "system exclusive" messages. They start with Behringer's header <code>F0 00 20 32 00 01 24 00</code>, then a command byte. For example, <code>08 00</code> asks for the firmware version, and the synth answers <code>09 00 00 09 05</code> (0.9.5). The firmware understands dozens of commands: read or set any parameter or setting, read the panel, list, load, save and rename patches, import factory sounds, read and write mod routes and the sequence, undo a load, run autotune, report timing, read the last crash's record, the two DAC probes, and a probe of the engine's state (held keys, voices, switch overrides).</p>
+    <p>Everything beyond notes and controllers travels as <strong>SysEx</strong>, MIDI's "system exclusive" messages. They start with Behringer's header <code>F0 00 20 32 00 01 24 00</code>, then a command byte. For example, <code>08 00</code> asks for the firmware version, and the synth answers <code>09 00 00 0A 00</code> (0.10.0: one byte for each part of the version, so a minor version of 10 is <code>0A</code>). The firmware understands dozens of commands: read or set any parameter or setting, read the panel, list, load, save and rename patches, import factory sounds, read and write mod routes, the sequence, the chord and the CC map, undo a load, run autotune, report timing, read the last crash's record, the two DAC probes, and a probe of the engine's state (held keys, voices, switch overrides).</p>
     <p>The <strong>5-pin MIDI IN</strong> socket works too, from 0.7.6. Its opto-isolator feeds the chip's UART4 serial port, which receives at MIDI's 31,250 baud and interrupts on every byte. Clock ticks go straight to the clock, timestamped like USB's; everything else is queued and turned into the same packets USB delivers. It carries notes, controllers, pressure, bend, program changes and clock, so a keyboard with a MIDI out plays the synth with no computer. SysEx stays on USB.</p>
+    <p><strong>MIDI out</strong> came in 0.10.0, on USB and on the rear <strong>THRU</strong> socket. On the board the socket is an AND gate fed by a copy of MIDI IN and by UART4's transmit pin, and a select line (MIDI_SEL, its level read off the schematic, not yet measured) lets the copy through or holds it high. In THRU, the default, it passes IN on as the stock synth does. In OUT the copy is held off and the socket sends only the synth's own bytes. Two serial streams can't be ANDed byte for byte, so MERGE is done in software: the receive interrupt copies IN's bytes into a ring of their own, and the transmit interrupt sends them whole messages at a time, with the synth's own between them.</p>
+    <p>The synth's own messages go into a 64-byte transmit ring that the UART's interrupt drains at 31,250 baud. Clock and Start / Stop have a realtime slot of their own that goes first, between any two bytes, so the clock out never waits behind a note. Above both, <code>midiout.c</code> keeps for each port a queue of whole messages, controller slots where a CC's latest value replaces the one waiting (a knob sweep never queues up), and a bit per channel and note for every note on sent and not yet off: an off that finds no room is owed and goes out before anything else, so no note out is left hanging. USB is written only when its endpoint is free, so nothing ever waits on it. A host that takes nothing for 100 ms (Windows with no program on the port) stalls USB out: what waits is dropped, and when the host reads again the owed offs go first.</p>
+    <p>What goes out: the notes, as they come in or as the voices play them (the sequence, the arp and chords), on an out channel; program changes on a load; the clock, from the internal clock or SYNC IN, or the MIDI clock the synth follows passed on to the other port; knob moves as CCs from the CC map, but only after a knob takes over, so a DAW records real moves and not pickup; and the two mod destinations CC A out and CC B out.</p>
     <p>The USB socket itself is a <em>device</em> port, like a printer's: the synth waits for a computer to talk to it, and it can't power or host a USB keyboard. A USB-only controller needs a computer, or a small USB MIDI host box, in between.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:640px">
-      <svg viewBox="0 0 880 236" role="img" aria-labelledby="f15t">
-        <title id="f15t">The command-line tool, the web editor and MIDI apps talk to the firmware over one USB MIDI port; a keyboard with a MIDI out plays it through the 5-pin MIDI IN socket.</title>
+      <svg viewBox="0 0 880 296" role="img" aria-labelledby="f15bt">
+        <title id="f15bt">The command-line tool, the web editor and MIDI apps talk to the firmware over one USB MIDI port; a keyboard with a MIDI out plays it through the 5-pin MIDI IN socket, and the THRU socket passes IN on, sends the synth's own MIDI, or both merged.</title>
         <rect class="box" x="16" y="16" width="230" height="40" rx="9"/><text x="30" y="41" class="t-b">pro800 tool (macOS, Windows)</text>
         <rect class="box" x="16" y="68" width="230" height="40" rx="9"/><text x="30" y="93" class="t-b">Web editor (Chrome, WebMIDI)</text>
         <rect class="box" x="16" y="120" width="230" height="40" rx="9"/><text x="30" y="145" class="t-b">DAW, Ableton Move, apps</text>
@@ -645,22 +654,29 @@
         <path class="ln-dig" d="M246 140 C300 140 300 88 350 88" marker-end="url(#ah-dig)"/>
         <rect class="box-sh" x="352" y="64" width="150" height="48" rx="10"/><text x="427" y="85" class="t-b" text-anchor="middle">USB MIDI port</text><text x="427" y="102" class="t-xs" text-anchor="middle">"PRO 800"</text>
         <path class="ln-dig" d="M502 88 H560" marker-start="url(#ah-dig)" marker-end="url(#ah-dig)"/>
-        <rect class="box-dig" x="562" y="24" width="300" height="196" rx="12"/>
+        <rect class="box-dig" x="562" y="24" width="300" height="256" rx="12"/>
         <text x="578" y="50" class="t-b">This firmware</text>
         <text x="578" y="74" class="t-sm">notes, bend, CCs, pressure, clock</text>
         <text x="578" y="96" class="t-sm">SysEx: parameters, patches, routes,</text>
         <text x="578" y="114" class="t-sm">sequences, tuning, timing, updates</text>
-        <text x="578" y="138" class="t-xs">answers on the same port</text>
+        <text x="578" y="138" class="t-xs">answers, and MIDI out, on the same port</text>
         <line class="grid" x1="578" y1="156" x2="846" y2="156"/>
-        <text x="578" y="180" class="t-sm">5-pin: notes, bend, CCs, pressure,</text>
+        <text x="578" y="180" class="t-sm">5-pin in: notes, bend, CCs, pressure,</text>
         <text x="578" y="198" class="t-sm">program change, clock</text>
+        <text x="578" y="236" class="t-sm">5-pin out: notes, clock, knob CCs,</text>
+        <text x="578" y="254" class="t-sm">program change, CC A / B out</text>
         <rect class="box" x="16" y="180" width="230" height="40" rx="9"/><text x="30" y="205" class="t-b">Keyboard with a MIDI out</text>
         <path class="ln-ana" d="M246 200 H350" marker-end="url(#ah-ana)"/>
         <rect class="box-sh" x="352" y="176" width="150" height="48" rx="10"/><text x="427" y="197" class="t-b" text-anchor="middle">MIDI IN socket</text><text x="427" y="214" class="t-xs" text-anchor="middle">5-pin DIN, UART4</text>
         <path class="ln-ana" d="M502 200 H560" marker-end="url(#ah-ana)"/>
+        <rect class="box" x="16" y="236" width="230" height="40" rx="9"/><text x="30" y="261" class="t-b">Another synth, a drum machine</text>
+        <path class="ln-ana" d="M560 256 H504" marker-end="url(#ah-ana)"/>
+        <rect class="box-sh" x="352" y="232" width="150" height="48" rx="10"/><text x="427" y="253" class="t-b" text-anchor="middle">THRU socket</text><text x="427" y="270" class="t-xs" text-anchor="middle">THRU, OUT or MERGE</text>
+        <path class="ln-ana dash" d="M427 224 V232"/>
+        <path class="ln-ana" d="M352 256 H248" marker-end="url(#ah-ana)"/>
       </svg>
     </div></div>
-    <figcaption><b>Figure 15.</b> Two ways in. The USB port serves three kinds of client, and the web editor can forward another MIDI input (such as the Move) to the synth. The 5-pin socket takes a keyboard directly, and both can be used at once.</figcaption>
+    <figcaption><b>Figure 16.</b> Two ways in, two ways out. The USB port serves three kinds of client, and the web editor can forward another MIDI input (such as the Move) to the synth. The 5-pin IN socket takes a keyboard directly, and both can be used at once. The THRU socket passes IN on (THRU, the default), sends the synth's own MIDI (OUT), or both merged (MERGE).</figcaption>
   </figure>
 </section>
 
@@ -678,7 +694,7 @@
         <g id="f16"></g>
       </svg>
     </div></div>
-    <figcaption><b>Figure 16.</b> <code>pro800 install</code> does all of this in one command. The erase runs from RAM, because code can't run from the flash sector it's erasing.</figcaption>
+    <figcaption><b>Figure 17.</b> <code>pro800 install</code> does all of this in one command. The erase runs from RAM, because code can't run from the flash sector it's erasing.</figcaption>
   </figure>
   <div class="callout limit"><span class="label">If anything goes wrong</span>Hold buttons <kbd>0</kbd> and <kbd>7</kbd> while switching on. That starts the bootloader directly, and any firmware file can be flashed again: this one, or the stock firmware (the manual has the steps). Never connect a debugger to unlock the flash: that would erase the bootloader too.</div>
 </section>
@@ -690,7 +706,7 @@
   <div class="prose">
     <p>The bootloader jumps into the firmware with its own clocks, interrupts and peripherals still running, so the first job is to put the chip back into a known state. Then, in order:</p>
     <ol class="steps">
-      <li><b>Disconnect every sample-and-hold.</b> All multiplexer enables go high so no capacitor can sample garbage. It happens straight after the chip's peripherals are reset, before anything is in RAM.</li>
+      <li><b>Disconnect every sample-and-hold.</b> All multiplexer enables go high so no capacitor can sample garbage. It happens straight after the chip's peripherals are reset, before anything is in RAM. The MIDI out pin goes high with them, so the THRU socket can't pass on noise from a pin left floating.</li>
       <li><b>Clocks.</b> The 8 MHz crystal is multiplied up to 168 MHz, with the 48 MHz USB needs. Without a working crystal the firmware stays on the chip's 16 MHz internal clock, with USB off: the panel and MIDI IN still work, and everything runs slower.</li>
       <li><b>Timers and memory.</b> The 1 ms tick and tuning timer start; master volume is set to zero; the EEPROM, panel and patch store come up.</li>
       <li><b>Patch store and tuning tables.</b> If the EEPROM is still in an older layout of ours, the patch area is formatted first (<span class="led">Forn</span>, about 2 s). The tuning tables are loaded, and the engine starts.</li>
@@ -698,7 +714,7 @@
       <li><b>Display and LEDs.</b> The power LED lights, and the version shows for a moment; or <span class="led">CrSh</span>, if the last run crashed and the synth restarted itself.</li>
       <li><b>No tuning tables, or tables from a firmware that wrote the voltages differently?</b> Then it tunes now, silently, showing <span class="led">tUnE</span>, before anything else.</li>
       <li><b>Load the last patch</b>, and the clock source and tempo. First comes one full knob scan, so pickup starts from the real knob positions.</li>
-      <li><b>MIDI IN and USB start.</b> Then the main loop runs forever, refreshing the watchdog on every pass.</li>
+      <li><b>The MIDI sockets and USB start.</b> Then the main loop runs forever, refreshing the watchdog on every pass.</li>
     </ol>
   </div>
 </section>
@@ -729,7 +745,7 @@
 </div>
 
 <footer class="site">
-  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.5 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
+  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.10.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
   <a href="index.html">Home</a><a href="sound-design.html">Sound design →</a>
   <br>Wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your hardware. Not affiliated with Behringer or Music Tribe.
 </footer>
@@ -1135,7 +1151,7 @@ function envLevel(t, o) {
   show();
 })();
 
-// Figure 16: the update sequence
+// Figure 17: the update sequence
 (function () {
   var g = document.getElementById("f16"), cols = [130, 440, 750];
   [["pro800 tool", "on the Mac"], ["This firmware", "running"], ["Bootloader", "fixed, protected"]].forEach(function (c, i) {

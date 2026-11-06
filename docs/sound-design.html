@@ -59,11 +59,11 @@
 </header>
 
 <div class="hero">
-  <div class="kicker">PRO-8000 0.9.5 · sound design</div>
+  <div class="kicker">PRO-8000 0.10.0 · sound design</div>
   <h1>New territory for sound design</h1>
   <p class="lede">Same sixteen analog oscillators, same filters, same warm voice board. What changes is how much they can <em>move</em>, and how independently each note can live. This page walks through what the custom firmware adds, with things to try and recipes to start from.</p>
   <p class="note-sm risk"><b>Wildly experimental:</b> use it at your own risk, with no liability if it harms your hardware. <a href="index.html#experimental">The disclaimer</a></p>
-  <div class="meta"><span class="chip">2 layers</span><span class="chip">4 LFOs, per-voice capable</span><span class="chip">4 envelopes per voice</span><span class="chip">16 mod routes per layer, 2 macros</span><span class="chip">A sequence in every patch</span><span class="chip">70 presets to start from</span></div>
+  <div class="meta"><span class="chip">2 layers</span><span class="chip">4 LFOs, per-voice capable</span><span class="chip">4 envelopes per voice</span><span class="chip">16 mod routes per layer, 2 macros</span><span class="chip">A sequence in every patch</span><span class="chip">73 presets to start from</span></div>
 </div>
 
 <div class="layout">
@@ -95,7 +95,7 @@
   <h2>The big shift: from fixed wiring to a patch bay</h2>
   <div class="prose">
     <p class="lead-in">On the stock PRO-800, modulation travels along paths printed on the panel: the LFO goes to pitch, pulse width or filter; poly-mod sends oscillator B and the filter envelope to oscillator A or the filter. Those are wonderful paths, and they're all still here. But they're fixed.</p>
-    <p>This firmware adds a <strong>mod matrix</strong>: any of 28 sources can be routed, with its own depth, to any of 47 destinations, 16 routes per layer; a route can be multiplied by a number or by another source (<strong>Via</strong>), and two <strong>macros</strong> gather several sources into one hand. And because the voltages for pitch, filter and volume are worked out separately for each voice, most routes act <em>per note</em>: each note gets its own velocity, its own envelopes, its own random value, its own pressure, even its own LFO.</p>
+    <p>This firmware adds a <strong>mod matrix</strong>: any of 29 sources can be routed, with its own depth, to any of 50 destinations, 16 routes per layer; a route can be multiplied by a number or by another source (<strong>Via</strong>), and two <strong>macros</strong> gather several sources into one hand. And because the voltages for pitch, filter and volume are worked out separately for each voice, most routes act <em>per note</em>: each note gets its own velocity, its own envelopes, its own random value, its own pressure, even its own LFO.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:660px">
@@ -117,13 +117,13 @@
       <tr><td><b>Sounds at once</b></td><td>One</td><td>Two layers: split, stacked, or by MIDI channel</td></tr>
       <tr><td><b>LFOs</b></td><td>One</td><td>Two per layer, nine shapes, a delay and fade-in per note, locked to the clock in 15 divisions, optionally one per voice</td></tr>
       <tr><td><b>Envelopes per voice</b></td><td>Two (filter, amp)</td><td>Four: ADSR or DAHDSR, from key down or key up, in seconds or note values, three curves, and any of them can loop, freely or in time, endlessly or a count of cycles</td></tr>
-      <tr><td><b>Modulation</b></td><td>The panel's fixed paths</td><td>The same paths, plus 16 routes per layer from 28 sources to 47 destinations, each with a multiplier (Via), and two macros</td></tr>
+      <tr><td><b>Modulation</b></td><td>The panel's fixed paths</td><td>The same paths, plus 16 routes per layer from 29 sources to 50 destinations, each with a multiplier (Via), and two macros</td></tr>
       <tr><td><b>Per-note expression</b></td><td>Velocity, aftertouch</td><td>Poly aftertouch per voice; MPE with per-note bend, pressure and slide; eight mono channels, each with its own bend and pressure</td></tr>
       <tr><td><b>Sequencing</b></td><td>An arpeggiator and two sequences</td><td>A sequence inside every patch, played and transposed from the keys, with probability, ratchets, chords, an arpeggiator that can walk, add chord tones and misbehave on purpose, and 4 automation lanes; steps can be recorded from the panel</td></tr>
       <tr><td><b>Clock</b></td><td>Internal, MIDI or the SYNC IN jack, for the arpeggiator and sequencer</td><td>MIDI clock (USB or 5-pin), an internal clock with tap tempo, or the SYNC IN jack, driving the LFOs, looping envelopes and the sequence alike</td></tr>
       <tr><td><b>Tuning</b> (measured on one synth)</td><td>2–8 cents off</td><td>within 0.7 cents, C1 to C8</td></tr>
-      <tr><td><b>Patches</b></td><td>400</td><td>128, each with its own sequence, and a 70-sound bank to start from</td></tr>
-      <tr><td><b>Trade-offs</b></td><td></td><td>No MIDI OUT or THRU yet, and SysEx (the editor, updates) over USB only; the sequencer, scales, morph, unison voices and a route's Via are edited on the web page</td></tr>
+      <tr><td><b>Patches</b></td><td>400</td><td>128, each with its own sequence, and a 73-sound bank to start from</td></tr>
+      <tr><td><b>Trade-offs</b></td><td></td><td>SysEx (the editor, updates) over USB only (the rear THRU socket is THRU, OUT or a merge of both, with notes, clock, program changes and knob moves out); the sequencer, scales, morph, unison voices and a route's Via are edited on the web page</td></tr>
     </tbody>
   </table></div>
   <p class="note-sm">The stock column lists what's on the stock panel (firmware 1.4.6); its settings menu holds further options not compared here.</p>
@@ -280,7 +280,7 @@
     <p>Each layer has 16 routes. Each route is a source, a destination and a depth from −99 to +99 (in tenths on the web page, where a Via can multiply it too, see the next section). You build them from the panel with <strong>MOD ASSIGN</strong>:</p>
     <ol class="steps">
       <li><b>Press <kbd>Arp Assign</kbd>.</b> Its LED blinks and the display shows <span class="led">SrC</span>. The knobs stay in pickup while you assign, so touching one won't change the sound.</li>
-      <li><b>Pick the source.</b> A number key (1 LFO, again for the other LFO; 2 filter env; 3 amp env; 4 velocity; 5 mod wheel; 6 aftertouch; 7 Env 3; 8 Env 4; 9 random; 0 note), or touch a knob that stands for one (an LFO knob, an ADSR knob), or turn VALUE to scroll through all 28 and press <kbd>Arp Assign</kbd> to take the one shown.</li>
+      <li><b>Pick the source.</b> A number key (1 LFO, again for the other LFO; 2 filter env; 3 amp env; 4 velocity, again for release velocity; 5 mod wheel; 6 aftertouch; 7 Env 3; 8 Env 4; 9 random; 0 note), or touch a knob that stands for one (an LFO knob, an ADSR knob), or turn VALUE to scroll through all 29 and press <kbd>Arp Assign</kbd> to take the one shown.</li>
       <li><b>Pick the destination.</b> Turn its knob a little, or press its LFO routing button. AMP SUS means the VCA, the other ADSR knobs mean that envelope's stage; VALUE scrolls through the rest, and <kbd>Arp Assign</kbd> takes the one shown. A knob you touched in the 5 seconds before pressing Arp Assign is the destination already, so you go straight to the depth.</li>
       <li><b>Turn VALUE for the depth</b>, then press <kbd>Arp Assign</kbd> to finish. At depth 0 the route plays nothing and keeps its slot, so you can sweep through it; 5 s there removes it. Hold Arp Assign for half a second to browse the layer's routes: VALUE steps through them by number (<span class="led">nod1</span>, <span class="led">nod2</span> …) and, when it rests, the route shown cycles through its number, source, destination and depth.</li>
     </ol>
@@ -289,11 +289,11 @@
   <figure>
     <div class="fig">
       <div class="controls"><div class="seg" id="pb-recipes" role="group" aria-label="Route ideas"></div></div>
-      <div class="svg-wrap" style="--min:700px"><svg id="pb-svg" viewBox="0 0 880 520" role="img" aria-label="Mod matrix sources on the left, destinations on the right, with the chosen idea's routes drawn between them"></svg></div>
+      <div class="svg-wrap" style="--min:700px"><svg id="pb-svg" viewBox="0 0 880 540" role="img" aria-label="Mod matrix sources on the left, destinations on the right, with the chosen idea's routes drawn between them"></svg></div>
       <p class="desc" id="pb-desc"></p>
       <div class="legend"><span><i class="k-mod"></i>per voice: every note its own amount</span><span><i class="k-sh"></i>single wire: follows the newest note</span></div>
     </div>
-    <figcaption><b>Figure 7.</b> All 28 sources and 47 destinations. On the panel, VALUE scrolls to the ones without a key or a knob of their own; Morph is set on the web page.</figcaption>
+    <figcaption><b>Figure 7.</b> All 29 sources and 50 destinations. On the panel, VALUE scrolls to the ones without a key or a knob of their own; Morph is set on the web page.</figcaption>
   </figure>
   <div class="prose">
     <p>Depths are tuned so the whole range is useful. Pitch routes follow a squared curve: depth 5 is 6 cents, 10 is a quarter of a semitone, 20 a semitone, 50 six semitones, 99 two octaves. Cutoff at 99 is eight octaves. An envelope stage or the glide time scales by up to 16× either way. The VCA destination is a gain on the amp envelope, so it can never open a voice that isn't playing: velocity → VCA at 99 is plain velocity sensitivity, and aftertouch → VCA at 99 keeps a note silent until you press. The init sound starts with velocity → VCA at 70 and velocity → cutoff at 20, and in the editor those two routes have a Velocity knob each, in the faceplate's amp and filter sections.</p>
@@ -343,6 +343,7 @@
     <p>Velocity, aftertouch, a random value and the note's position are all <em>per voice</em> sources. A route can be set to Both on the web page, in the two-layer modes, so one route with one depth plays on both layers' notes (it adds to the other layer's own routes, and the init sound has its velocity routes on each layer, so take the other layer's off first for one shared response). That's what lets a single route make every note of a chord different.</p>
     <p><strong>Poly aftertouch</strong> is the standout. A controller that sends per-note pressure (the Ableton Move's pads do) moves only the voice playing that note. Route aftertouch to cutoff and one finger can lean into a single note of a chord and open just that note's filter. Channel pressure still works too and moves all voices; each voice uses whichever is larger.</p>
     <p>Two layer modes go further. <strong>MPE</strong> gives every note its own MIDI channel, so each has its own pitch bend (48 semitones), its own pressure and its own slide (CC 74, the <span class="led">tInb</span> source) from an MPE controller. <strong>8CH</strong> gives eight mono lines, one per channel, each with its own bend and pressure, for a sequencer that drives them.</p>
+    <p><strong>Release velocity</strong> (<span class="led">rVEL</span>, 0.10.0; key 4 pressed twice in MOD ASSIGN) is how fast a key came up, 0 to 1, from keyboards that send it. Its routes do nothing while the key is down and act from the moment it comes up, so it shapes only the end of a note: into the amp and filter release with negative depths, a quick lift cuts the tail short and dark and a slow one lets it ring (P80 Lift Tail). A keyboard without it sends the same lift every time, so the route then does the same each time.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:600px">
@@ -373,6 +374,7 @@
   </figure>
   <div class="prose">
     <p>Related controls: <strong>unison detune</strong> (<kbd>Settings</kbd> → <kbd>8</kbd>, or Shift + M TUNE) sets how far apart the outermost voices of a unison note are, 0–100 cents, and <strong>Unison voices</strong> (the editor's Voice section, 0.9.5) how many a note stacks, 2–8: at 2, four-note chords in unison; at 3 or 4, two notes; from 5, one line. Shift + GLIDE nudges the drift. An LFO on <span class="led">drFt</span> or <span class="led">nOIS</span> with <span class="led">PoLY</span> retrigger, routed to pitch at a small amount, gives a faster, more obvious per-voice wander than the Drift setting. Voice modes per layer (poly, mono, legato, with last, low or high note priority) shape how lines connect.</p>
+    <p><strong>Chord memory</strong> (0.10.0, per layer, as on the stock synth): hold two or more keys and turn Unison on, and from then on every key plays that chord, transposed, in place of the unison stack. It's saved with the patch, a sequence's steps and the arp play it too, and one key or none held when you press Unison gives plain unison again. <strong>Chord voicing</strong> is a mod destination (the Unison button picks it in MOD ASSIGN) that walks the chord along its inversions: each step up takes the lowest note, then the second lowest, to its first octave above the highest (down mirrors it), and depth 99 reaches as many steps as the chord has notes. A held chord follows it as it moves, each note gliding with GLIDE to its new place without a new attack. P79 Wheel Voicings puts the mod wheel on it over a minor ninth chord; P81 Drifting Chord a slow LFO 2, so one held key keeps changing shape.</p>
   </div>
 </section>
 
@@ -449,7 +451,7 @@
   <span class="sec-num">13</span>
   <h2>Recipes</h2>
   <div class="prose">
-    <p>Ready-made sounds cover all of this: the bank in <code>presets/</code> (installed from the editor's Patches tab with "Install the preset bank", or with <code>presets/install.sh</code>) fills P1–P64 with eight each of basses, leads, polys, pads, plucks, sequences, effects and curiosities, P65–P66 with two more and P75–P78 with four for the walking arp, and its <code>DESIGN.md</code> explains the techniques. The recipes below are the same ideas by hand. Start from a held <kbd>Perf</kbd> with no init patch of your own set (a plain sawtooth, filter open, with velocity already on the VCA at 70 and the cutoff at 20: a recipe's depth replaces those, and 5 s at depth 0 removes them) unless it says otherwise. Display codes are what you'll see on the synth.</p>
+    <p>Ready-made sounds cover all of this: the bank in <code>presets/</code> (installed from the editor's Patches tab with "Install the preset bank", or with <code>presets/install.sh</code>) fills P1–P64 with eight each of basses, leads, polys, pads, plucks, sequences, effects and curiosities, P65–P66 with two more, P75–P78 with four for the walking arp and P79–P81 with three for chord memory and release velocity, and its <code>DESIGN.md</code> explains the techniques. The recipes below are the same ideas by hand. Start from a held <kbd>Perf</kbd> with no init patch of your own set (a plain sawtooth, filter open, with velocity already on the VCA at 70 and the cutoff at 20: a recipe's depth replaces those, and 5 s at depth 0 removes them) unless it says otherwise. Display codes are what you'll see on the synth.</p>
   </div>
   <div class="cards">
     <div class="card"><span class="tag">Pad · per-voice LFO</span><h4>Shimmering ensemble pad</h4>
@@ -563,7 +565,7 @@
 </div>
 
 <footer class="site">
-  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.9.5 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
+  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.10.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
   <a href="index.html">Home</a><a href="how-it-works.html">← How it works</a>
   <br>Wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your hardware. Not affiliated with Behringer or Music Tribe.
 </footer>
@@ -966,7 +968,8 @@ function envLevel(t, o) {
   var svg = document.getElementById("pb-svg"), desc = document.getElementById("pb-desc"), seg = document.getElementById("pb-recipes");
   var SRC = ["LFO 1", "LFO 2", "LFO 1 as 0–1", "LFO 2 as 0–1", "Filter env", "Amp env", "Env 3", "Env 4", "Velocity", "Mod wheel", "Aftertouch",
              "Pitch bend", "CC 74 (timbre)", "CC A", "CC B", "Sustain pedal", "Gate", "Random", "Note", "Voice number", "Fixed (1)",
-             "Seq lane A", "Seq lane B", "Seq lane C", "Seq lane D", "Macro 1", "Macro 2", "Arp note position"];
+             "Seq lane A", "Seq lane B", "Seq lane C", "Seq lane D", "Macro 1", "Macro 2", "Arp note position",
+             "Release velocity"];
   var ROWS = [
     ["Pitch", [["pa", "A"], ["pb", "B"], ["pab", "A + B"]]],
     ["Filter", [["cut", "Cutoff"], ["fea", "Env amount"]]],
@@ -978,10 +981,11 @@ function envLevel(t, o) {
     ["Filter env", [["ef_a", "Attack"], ["ef_d", "Decay"], ["ef_s", "Sustain"], ["ef_r", "Release"]]],
     ["Env 3", [["e3_a", "Attack"], ["e3_d", "Decay"], ["e3_s", "Sustain"], ["e3_r", "Release"]]],
     ["Env 4", [["e4_a", "Attack"], ["e4_d", "Decay"], ["e4_s", "Sustain"], ["e4_r", "Release"]]],
-    ["Voice", [["glide", "Glide"], ["det", "Detune", 1]]],
+    ["Voice", [["glide", "Glide"], ["det", "Detune", 1], ["chv", "Chord voicing"]]],
     ["Mixer", [["al", "A level", 1], ["bl", "B level", 1], ["noise", "Noise", 1]]],
     ["Shape", [["res", "Resonance", 1], ["pwa", "PW A", 1], ["pwb", "PW B", 1]]],
-    ["Patch", [["morph", "Morph"], ["m1", "Macro 1"], ["m2", "Macro 2"], ["chaos", "Arp Chaos"]]]
+    ["Patch", [["morph", "Morph"], ["m1", "Macro 1"], ["m2", "Macro 2"], ["chaos", "Arp Chaos"]]],
+    ["MIDI out", [["cca", "CC A out", 1], ["ccb", "CC B out", 1]]]
   ];
   var IDEAS = [
     ["Delayed vibrato", [[6, "l1a", 8]], "<b>Env 3 → LFO 1 amount.</b> With LFO 1 → Freq on and its AMOUNT at zero, Env 3's slow attack fades the vibrato in. Each note has its own Env 3, so only long notes get it. (The LFO's own delay and fade do the same without a route.)"],
@@ -994,7 +998,10 @@ function envLevel(t, o) {
     ["Wobble sweep", [[1, "l1r", 50]], "<b>LFO 2 → LFO 1 rate</b> at 50 (±2 octaves). A synced wobble on the filter speeds up and slows down with LFO 2's slow triangle."],
     ["Humanise", [[17, "cut", 8], [17, "pb", 5]], "<b>Random → cutoff</b> and <b>random → pitch B</b> at small depths: every note gets a slightly different brightness and a few cents of detune, rolled fresh at each note."],
     ["Per-step timbre", [[21, "cut", 99], [22, "morph", 99]], "<b>Seq lane A → cutoff</b> and <b>lane B → Morph</b>: the sequence plays a different brightness, and a different blend of two patches, on every step."],
-    ["Gate drop", [[16, "cut", 30], [20, "det", 20]], "<b>Gate → cutoff</b> opens the filter only while a key is down, so releases go dark (P47 Swing Walk); <b>Fixed → detune</b> is a plain offset, here 10 cents more spread for this patch only."]
+    ["Gate drop", [[16, "cut", 30], [20, "det", 20]], "<b>Gate → cutoff</b> opens the filter only while a key is down, so releases go dark (P47 Swing Walk); <b>Fixed → detune</b> is a plain offset, here 10 cents more spread for this patch only."],
+    ["Wheel voicings", [[9, "chv", 99]], "<b>Mod wheel → Chord voicing</b> at 99 over a stored chord: pushing the wheel walks the held chord up through its inversions, each note gliding to its new place. P79 Wheel Voicings."],
+    ["Lift tail", [[28, "ea_r", -80], [28, "ef_r", -60]], "<b>Release velocity → amp and filter release</b>, negative: lift a key quickly and its tail is short and dark, slowly and it rings on. Nothing changes while the key is down. P80 Lift Tail."],
+    ["CC out", [[0, "cca", 60]], "<b>LFO 1 → CC A out</b>: the route's sum goes out as a MIDI CC (12 by default), so the synth's LFO can move a parameter on another instrument or in a DAW. A free LFO streams it with no note played."]
   ];
   var srcY = {}, srcX = {}, dstPos = {}, sw = 124, top = 16, pitch = 18;
   SRC.forEach(function (s, i) { srcY[i] = top + i * pitch + 8; srcX[i] = 16; });

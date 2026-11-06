@@ -1,0 +1,68 @@
+{
+ "slot": 79,
+ "name": "Wheel Voicings",
+ "group": "poly",
+ "notes": {
+  "sound": "One finger plays a minor ninth chord: two saws a few cents apart, a warm filter that velocity opens. Push the mod wheel and the chord climbs through its inversions while you hold it, each note gliding to its new place, until at the top it's the same chord an octave up.",
+  "shows": "Chord memory (firmware 0.10.0: the Unison button with a chord stored, five notes a key), the mod wheel into Chord voicing at 99 (five steps for five notes), glide between voicings."
+ },
+ "buttons": [
+  "a-saw",
+  "b-saw",
+  "unison"
+ ],
+ "params": {
+  "shared": {
+   "a-level": 80,
+   "b-level": 72,
+   "noise": 0,
+   "resonance": 20
+  },
+  "1": {
+   "freq-a": 50,
+   "freq-b": 50,
+   "fine": 54,
+   "cutoff": 44,
+   "fil-env-amt": 60,
+   "fil-att": 0,
+   "fil-dec": 60,
+   "fil-sus": 40,
+   "fil-rel": 60,
+   "amp-att": 8,
+   "amp-dec": 70,
+   "amp-sus": 80,
+   "amp-rel": 62,
+   "glide": 22
+  }
+ },
+ "settings": {
+  "voice 1": "poly last",
+  "chord 1": "0 3 7 10 14",
+  "detune": 14,
+  "drift": 8
+ },
+ "routes": {
+  "1": [
+   [
+    "mod-wheel",
+    "chord-voicing",
+    99
+   ],
+   [
+    "velocity",
+    "cutoff",
+    30
+   ],
+   [
+    "velocity",
+    "vca",
+    55
+   ],
+   [
+    "voice",
+    "pitch-b",
+    4
+   ]
+  ]
+ }
+}

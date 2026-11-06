@@ -2837,6 +2837,15 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
     NOTES. Presets that show chords, rVEL and voicing; the stock CC map file. Full `test_panel.py`, `test_pro800.py`,
     node runs; the hardware pass; build and pack in this worktree. Pushing, the site, the GitHub release and the issue
     replies wait for the owner.
+    **Done 2026-11-06 (but the hardware pass).** The guides at 0.10.0: kickers and footers; how-it-works.html's record
+    figure and table (chords 455-470, 37 reserved), the MIDI section and its figure (THRU / OUT / MERGE, din.c and
+    midiout.c), the firmware size, the figure numbers (two were 15: now 15, 16, 17); sound-design.html's counts (29 /
+    50), Figure 7 (release velocity; chord voicing; a MIDI out row; three new ideas), the trade-offs row, chord memory
+    and release velocity paragraphs; index.html's lede. README and presets/README (73 presets). Presets P79 Wheel
+    Voicings (mod wheel → chord voicing), P80 Lift Tail (release velocity → the releases), P81 Drifting Chord (LFO 2
+    → chord voicing). Each guide fact-checked by a second agent against MANUAL and src; its corrections are in. The
+    bank counts (66, 70) in MANUAL, the editor and two tests are 73. Flashed to the owner's synth on 2026-11-06
+    (EEPROM backed up first in backup/2026-11-06-before-0.10.0-r2/); 919 panel and 146 tool tests pass; 107,376 B.
 
 ### Decisions for the owner
 
