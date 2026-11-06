@@ -293,6 +293,58 @@ from 48), for controller templates made for it; set CC A off 11 to have its Freq
 
 <!-- END PARAMS -->
 
+### MIDI out (0.10.0)
+
+The synth sends MIDI on USB and, when you ask, on the rear THRU socket. Everything is off by default, and the THRU
+socket passes the IN socket through as before. These are system-wide settings (stored a second after a change): the
+system menu's key 8 (Arp Up-Dn steps through its six pages), the web page's System tab (MIDI out), or `pro800 set`.
+
+| Page | Setting | Values | `pro800 set` |
+|---|---|---|---|
+| `dIn` | the THRU socket | `tHru` (the IN socket's messages, the default), `Out` (the synth's own), `nErG` (both merged) | `midi-socket thru\|out\|merge` |
+| `nOtE` | notes out | `OFF`, `In` (the keys as they come in), `PLAY` (what the voices play) | `notes-out off\|keys\|played` |
+| `CH.ou` | the out channel | `FoL` (follow the MIDI channel; 1 with `ALL`), 1-16 | `out-channel follow\|1-16` |
+| `CL.ou` | clock out | `OFF`, `on` | `clock-out on\|off` |
+| `Pt.CC` | knob moves out | `OFF`, `on` | `knob-cc on\|off` |
+| `PC.ou` | program changes out | `OFF`, `on` | `pc-out on\|off` |
+
+- **The THRU socket**: in `Out` the socket sends only the synth's messages; in `nErG` (merge) it passes on what comes in
+  at IN, whole messages at a time, with the synth's own between them (a SysEx going through keeps the synth's waiting
+  until its end; one IN leaves unfinished, a cable pulled mid-dump, is given up after 50 ms with nothing more).
+  `Out` and `nErG` switch the hardware's own copy of IN off. Going back to `tHru`, the notes the socket sent get
+  their offs first.
+- **Notes out**: `In` sends the notes that come in (after the channel filter) on the out channel, never back to the
+  port they came from: a keyboard on the IN socket goes to USB, a DAW's notes to the socket. `PLAY` sends what the voices
+  play: the sequence's steps, the arp and chords, each note once however many voices play it (unison sends one). In
+  channel mode layer 2 goes one channel higher; in the `8CH` and `nPE` modes each voice on its own channel, from the
+  out channel. In `PLAY` a note out ends with the voices that play it (a patch load silences them); the panic
+  (Shift + 0), CC 120 / 123, Tune, an update, a change of these settings, of the MIDI channel the out channel follows
+  and of the layer mode end every note that went out, the keys' too, on the channel it went out on.
+- **Clock out**: with the clock on Internal or SYNC IN, the synth's clock goes out, 24 a quarter note, with Start as
+  clock out turns on and as a held Sync Clock restarts the bar, and Stop when the clock goes back to MIDI or clock out
+  turns off. From SYNC IN each pulse is exactly 12 clocks as the tempo moves (a pulse that comes early sends the half
+  beat's rest at once; with no pulse for a second the clock runs on at the last tempo). Following MIDI clock, it passes the clock (Start, Stop, Continue) on to the other port: USB's to the socket
+  (`Out` or `nErG`), the socket's to USB. In `nErG` with the synth as the clock, the IN socket's clock is left out, so
+  the receivers don't get two.
+- **Knob moves out**: a knob that holds its value sends its CC from the CC map (its first, on the out channel;
+  layer 2's one higher in channel mode) as it moves. A knob in pickup sends nothing until it takes over, so a DAW
+  records only real moves. While a knob is moving (it sent in the last 0.3 s), a CC for its parameter coming in is its
+  echo (a DAW's MIDI thru, its own values or late ones) and changes nothing: the knob keeps it and stays live. After
+  that a CC sets the parameter as ever.
+- **Program changes out**: a patch load sends its program change on the out channel; one a program change in loaded
+  doesn't go back out.
+- **CC A out / CC B out** are mod destinations (`CCo.A`, `CCo.b` in MOD ASSIGN): the sum of their routes, 0-127, goes
+  out as a CC (12 and 13 by default; `pro800 set cc-out-a 20`, or the web page) when it changes, at most every 5 ms, and
+  again on a new number. A CC with its own meaning (1, 6, 32, 38, 64, 96-101, 120-127) can't be one; the page warns
+  when the number is in the CC map or is CC A / B's, as the synth would take it back in if a DAW echoes it. A free LFO
+  streams from power-up with no note played (a layer with no note works out its routes for CC A / B out alone); an
+  envelope moves with the most recent note. Use them to send the synth's LFOs, envelopes or the mod wheel to another
+  synth.
+
+A USB host that stops reading (Windows with no program on the port) doesn't hold anything up: after 100 ms the waiting
+messages are dropped, and when it reads again the note offs it still owes go first, then everything as before. Nothing
+sent while no host listened (the Start at power-up among it) is sent later: hold Sync Clock to start the receivers.
+
 ### Voice modes, drift, scale, morph
 
 - **Voice mode** (per layer; Settings key 9 `UOIC`, or the web page): `POLY`, mono (`nono`: one voice, every new
@@ -874,6 +926,7 @@ The Morph destination (web page only) fades toward the morph target patch (see V
 | VALUE / web | Macro 1, Macro 2 | `nAC1` `nAC2` | −1 to 1 |
 | VALUE / web | Arp Chaos, added to the patch's (see Sequencer) * | `CHAo` | ±99 |
 | Unison button / VALUE / web | Chord voicing, read as each chord starts; held chords follow the layer's newest note (see Voice modes; 0.10.0) | `CH.Uo` | ± the chord's notes, in steps |
+| VALUE / web | CC A out, CC B out: the routes' sum out as a MIDI CC (see MIDI out; 0.10.0) * | `CCo.A` `CCo.b` | 0-127 |
 
 \* Single wires for all voices: they follow the most recently played note of the layer. Everything else acts per
 voice.
@@ -1020,8 +1073,9 @@ Shift + 1-9 goes to a page of the settings menu instead.
 | 5 | `CLoC`: the clock source (also Shift + Sync Clock) | `nIdI`, `Int`, `SYnC` |
 | 6 | `tEnP`: the internal clock's tempo (also tapping Sync Clock) | 30-300 BPM |
 | 7 | `InIt`: your init patch, what a held Perf loads | `nonE` (the built-in sound), `P  1` … `P128` |
+| 8 | `dIn`: MIDI out (Arp Up-Dn: `nOtE`, `CH.ou`, `CL.ou`, `Pt.CC`, `PC.ou`; see MIDI out) | `tHru`, `Out`, `nErG`; `OFF`, `In`, `PLAY`; `FoL`, 1-16; `OFF`, `on` |
 
-Keys 8, 9 and 0 are free. Perf and Rec do nothing while it's open.
+Keys 9 and 0 are free. Perf and Rec do nothing while it's open.
 
 **Your init patch:** with a slot chosen here (or by Rec, the slot, Perf), a held Perf loads that patch as a
 template: its sound, routes, layer settings and step sequence, but not its slot: the slot number stays where you
@@ -1030,8 +1084,8 @@ Perf), so choose another slot to keep the template as it is. The display says `I
 none), and Shift + Perf undoes it as any load. If the slot is empty, Perf gives the built-in sound. A format sets it
 back to none.
 
-**System-wide settings** need no save: the MIDI channel, CC A / B, knob pickup, the clock source, the tempo and your
-init patch. They take
+**System-wide settings** need no save: the MIDI channel, CC A / B, knob pickup, the clock source, the tempo, your
+init patch, the CC map and MIDI out. They take
 effect and read back at once, and the synth stores them about a second after the last change, so a knob sweep or a run
 of taps costs one write to the memory. Turning the power off inside that second loses the change. An update, an
 autotune, loading another patch, a save on memory never formatted or a format stores them straight away.
@@ -1245,8 +1299,14 @@ flash a PRO-8000 `.syx` from the [releases](https://github.com/klaine/pro-8000/r
   FREQ A or FILTER on): then a thin pulse of it can still be heard. Its square has no on/off line, so it's switched
   off by pushing the pulse width to an end, and the silent end would detune oscillator A and the filter through
   poly-mod.
-- MIDI OUT / THRU isn't implemented, and SysEx works over USB only. The sequencer, scale, morph and note priority
-  are set on the web page only.
+- SysEx works over USB only, and goes out on USB only. The sequencer, scale, morph and note priority are set on the
+  web page only.
+- The THRU socket's switch between the hardware's copy of IN and the synth's own (`MIDI_SEL`) was found on the
+  schematic, not measured: if `Out` sends the IN socket's messages and `tHru` sends nothing, the level is the other
+  way round (see NOTES).
+- `nErG` has the socket's 31250 baud for both streams: IN sending at full rate (a long SysEx dump) while the synth adds
+  its own clock or notes fills the forward buffer (128 bytes, a few seconds of it) and bytes are lost. Merge a dump
+  with clock out off and the synth quiet.
 - 128 patches, each with its sequence; the 0.7.x patches are not carried over (the EEPROM backups keep them).
 - The LFO routing buttons are latches with no LEDs: LFO 2's routing shows only on the display when toggled, and on
   the web page, and after an LFO 2 toggle a button no longer shows LFO 1's routing until it's pressed once with LFO 1

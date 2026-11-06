@@ -24,7 +24,7 @@ import pro800  # noqa: E402
 
 BUILD = os.path.join(ROOT, "build", "sim")
 SIM = os.path.join(BUILD, "pro800sim.exe" if os.name == "nt" else "pro800sim")
-FIRMWARE = ["main.c", "synth.c", "lfo.c", "seq.c", "store.c", "fastmath.c", "display.c"]
+FIRMWARE = ["main.c", "synth.c", "lfo.c", "seq.c", "store.c", "fastmath.c", "display.c", "midiout.c"]
 VERSION = open(os.path.join(ROOT, "VERSION")).read().strip()
 
 
@@ -284,8 +284,9 @@ class Synth:
         return out[start + pro800.HEADER_SIZE + 1:out.index(0xF7, start)]
 
     def setting(self, name, value):
+        """What came out meanwhile (the reply, and what the change sent)"""
         i = pro800.SETTING_NAMES.index(name)
-        self.request(0x7D, i, value >> 7, value & 0x7F) if value > 127 else self.request(0x7D, i, value)
+        return self.request(0x7D, i, value >> 7, value & 0x7F) if value > 127 else self.request(0x7D, i, value)
 
     def param(self, layer, name, value):
         """0-16383, as the host sets it"""
@@ -1198,9 +1199,9 @@ class SystemMenu(PanelTest):
         self.assertShows("nonE")
         self.assertEqual(self.s.settings()["init-patch"], 0)
 
-    def test_keys_8_9_0_and_perf_and_rec_do_nothing(self):
-        self.open()
-        for key in ("8", "9", "0", "PERF", "REC"):
+    def test_keys_9_0_and_perf_and_rec_do_nothing(self):
+        self.open()  # (key 8 is MIDI out from 0.10.0: MidiOut)
+        for key in ("9", "0", "PERF", "REC"):
             self.s.press(key)
             self.assertShows("SYS", key)
         self.assertEqual(self.s.settings()["init-patch"], 0)
@@ -3336,6 +3337,685 @@ class CcMap(PanelTest):
             self.set(9, "cutoff", v % 4)
         self.s.ms(1100)
         self.assertEqual(count() - start, 1, "the map once, a second after the last change")
+
+
+def channel_messages(data):
+    """The channel and realtime messages in a byte stream, as tuples; SysEx (the replies) left out."""
+    out, i = [], 0
+    while i < len(data):
+        b = data[i]
+        if b == 0xF0:
+            i = data.index(0xF7, i) + 1
+            continue
+        if b >= 0xF8:
+            out.append((b,))
+            i += 1
+            continue
+        n = 2 if (b & 0xE0) == 0xC0 else 3
+        out.append(tuple(data[i:i + n]))
+        i += n
+    return out
+
+
+class MidiOut(PanelTest):
+    """#38: what the synth sends besides its replies, on USB and the THRU socket (din.c, midiout.c)."""
+
+    def usb(self):
+        return channel_messages(bytes.fromhex(self.s.cmd("out")))
+
+    def din(self):
+        return bytes.fromhex(self.s.cmd("dinout"))
+
+    def socket(self):
+        return [int(x) for x in self.s.cmd("socket").split()]
+
+    def setUp(self):
+        super().setUp()
+        self.s.cmd("out")
+        self.s.cmd("dinout")
+
+    def test_quiet_by_default(self):
+        self.assertEqual(self.socket(), [0, 0], "THRU, MIDI_SEL at its THRU level")
+        self.s.note(60)
+        self.s.cc(74, 30)
+        self.s.ms(50)
+        self.s.note_off(60)
+        self.s.ms(50)
+        self.assertEqual((self.usb(), self.din()), ([], b""))
+
+    def test_the_socket_setting_is_kept(self):
+        self.s.setting("midi-socket", 1)
+        self.assertEqual(self.socket(), [1, 1], "OUT: MIDI_SEL holds U5A's copy off")
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.socket(), [1, 1])
+        self.assertEqual(self.s.settings()["midi-socket"], 1)
+
+    def test_played_notes_once_each(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("midi-socket", 1)
+        self.s.cmd("out")
+        self.s.switch("UNISON")  # eight voices on one note: one note out
+        self.s.note(60, 90)
+        self.s.ms(10)
+        self.s.note_off(60)
+        self.s.ms(10)
+        self.assertEqual(self.usb(), [(0x90, 60, 90), (0x80, 60, 0)])
+        self.assertEqual(self.din(), bytes([0x90, 60, 90, 0x80, 60, 0]), "the socket too, in OUT")
+        self.s.switch("UNISON")
+
+    def test_played_follows_a_chord_and_the_out_channel(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("out-channel", 5)
+        self.s.cmd("out")
+        self.s.request(0x69, 0, 4, 7, 0, 0, 0, 0, 0, 0)
+        self.s.request(0x4B, 12, 1)  # Unison on: the chord plays
+        self.s.ms(20)
+        self.s.cmd("out")
+        self.s.note(60, 100)
+        self.s.ms(10)
+        ons = sorted(m for m in self.usb() if m[0] == 0x94)
+        self.assertEqual(ons, [(0x94, 60, 100), (0x94, 64, 100), (0x94, 67, 100)])
+        self.s.note_off(60)
+        self.s.ms(10)
+        self.assertEqual(sorted(m[1] for m in self.usb() if m[0] == 0x84), [60, 64, 67])
+
+    def test_keys_never_go_back_where_they_came_from(self):
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.s.cmd("out")
+        self.s.din(0x90, 62, 80)
+        self.s.ms(10)
+        self.assertEqual((self.usb(), self.din()), ([(0x90, 62, 80)], b""), "from the socket: out on USB only")
+        self.s.note(64, 70)
+        self.s.ms(10)
+        self.assertEqual((self.usb(), self.din()), ([], bytes([0x90, 64, 70])), "from USB: out on the socket only")
+
+    def test_channel_mode_sends_layer_2_one_higher(self):
+        self.s.setting("layers", 3)  # channel
+        self.s.setting("notes-out", 2)
+        self.s.cmd("out")
+        self.s.note(60, 100, channel=1)
+        self.s.ms(10)
+        self.assertIn((0x91, 60, 100), self.usb())
+
+    def test_a_patch_load_and_cc_123_end_what_went_out(self):
+        self.s.setting("notes-out", 2)  # played: a load silences the voices, and their notes end out too
+        self.s.cmd("out")
+        for n in (60, 64):
+            self.s.note(n)
+        self.s.ms(10)
+        self.usb()
+        out = channel_messages(self.s.request(0x5C, 0, 3))  # (a request reads what went out meanwhile)
+        self.s.ms(20)
+        out += self.usb()
+        self.assertEqual(sorted(m for m in out if m[0] == 0x80), [(0x80, 60, 64), (0x80, 64, 64)])
+        self.s.setting("notes-out", 1)  # keys: no voice says when they stop, a CC 123 does
+        self.s.din(0x90, 67, 100)  # from the socket: out on USB
+        self.s.ms(10)
+        self.usb()
+        self.s.cc(123, 0)
+        self.s.ms(20)
+        self.assertEqual([m for m in self.usb() if m[0] == 0x80], [(0x80, 67, 64)])
+        self.s.din(0x90, 69, 100)
+        self.s.ms(10)
+        self.usb()
+        self.s.hold("SHIFT")
+        self.s.press("0")  # the panic
+        self.s.let_go("SHIFT")
+        self.s.ms(20)
+        self.assertEqual([m for m in self.usb() if m[0] == 0x80], [(0x80, 69, 64)], "and the panel's panic")
+
+    def test_a_usb_host_that_stops_reading(self):
+        self.s.setting("notes-out", 2)
+        self.s.cmd("out")
+        self.s.note(60)
+        self.s.ms(10)
+        self.assertEqual(self.usb(), [(0x90, 60, 100)])
+        self.s.cmd("usbbusy 600")
+        for n in range(62, 80):
+            self.s.note(n)
+            self.s.ms(20)
+            self.s.note_off(n)
+        self.s.note_off(60)
+        self.s.ms(400)
+        out = self.usb()
+        self.assertEqual(out, [(0x80, 60, 64)], "the stall dropped what came meanwhile; the note left sounding gets its off")
+
+    def test_merge_forwards_whole_messages(self):
+        self.s.setting("midi-socket", 2)
+        self.s.setting("pc-out", 1)  # the synth's own message here: a program change as a patch loads
+        self.s.cmd("dinout")
+        sysex = bytes([0xF0, 0x7D] + list(range(1, 59)) + [0xF7])  # 20 ms at 31250 baud
+        self.s.din(*sysex)
+        self.s.request(0x5C, 0, 3)  # while the SysEx is still going out
+        self.s.din(0x90, 50, 40, 0xF8, 51, 41)  # a clock byte inside, then running status
+        self.s.ms(40)
+        out = self.din()
+        self.assertEqual(out.count(0xF8), 1, "the forwarded clock once (realtime: wherever it lands, even in a SysEx)")
+        self.assertEqual(out.replace(bytes([0xF8]), b""), sysex + bytes([0xC0, 3, 0x90, 50, 40, 51, 41]),
+                         "the SysEx whole, ours after its F7, the forwarded notes with their running status")
+
+    def test_merge_puts_the_status_back_after_ours(self):
+        self.s.setting("midi-socket", 2)
+        self.s.setting("pc-out", 1)
+        self.s.cmd("dinout")
+        self.s.din(0x90, 50, 40)
+        self.s.ms(5)
+        self.s.request(0x5C, 0, 3)
+        self.s.ms(5)
+        self.s.din(51, 41)  # running status on the IN socket, after the synth's own message went out between
+        self.s.ms(20)
+        self.assertEqual(self.din(), bytes([0x90, 50, 40, 0xC0, 3, 0x90, 51, 41]), "the forwarded note gets its status again")
+
+    def test_program_change_out(self):
+        self.s.setting("pc-out", 1)
+        self.s.setting("out-channel", 3)
+        self.s.cmd("out")
+        out = channel_messages(self.s.request(0x5C, 0, 9))
+        self.s.ms(10)
+        self.assertIn((0xC2, 9), out + self.usb())
+        self.s.midi(0xC0, 4)
+        self.s.ms(20)
+        self.assertNotIn((0xC2, 4), self.usb(), "one a program change loaded doesn't go back out")
+
+    def test_a_usb_stall_with_nothing_owed_ends_when_the_host_reads(self):
+        """The clock alone going out, then a host that takes nothing: once it reads again, the clock does too."""
+        self.s.setting("clock", 1)
+        self.s.setting("clock-out", 1)
+        self.s.ms(100)
+        self.usb()
+        self.s.cmd("usbbusy 400")
+        self.s.ms(450)
+        self.usb()
+        self.s.ms(200)
+        self.assertGreater(self.usb().count((0xF8,)), 5, "the clock again (no note was sounding, so nothing was owed)")
+
+    def test_out_then_thru_sends_the_offs_first(self):
+        self.s.setting("midi-socket", 1)
+        self.s.setting("notes-out", 2)
+        self.s.note(60)
+        self.s.ms(10)
+        self.din()
+        self.s.setting("midi-socket", 0)
+        self.s.ms(30)
+        self.assertEqual(self.din(), bytes([0x80, 60, 64]), "the note the socket sent ends before it gives the IN socket's")
+        self.assertEqual(self.socket(), [0, 0])
+        self.assertEqual(self.s.settings()["midi-socket"], 0)
+
+    def test_a_forwarded_sysex_left_unfinished_doesnt_block_the_synths_own(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("midi-socket", 2)
+        self.s.din(0xF0, 0x7D, 1, 2)  # no F7: the cable pulled mid-dump
+        self.s.ms(10)
+        self.s.setting("midi-socket", 1)
+        self.din()
+        self.s.note(60)
+        self.s.ms(10)
+        self.assertEqual(self.din(), bytes([0x90, 60, 100]), "OUT forwards nothing, so nothing of it holds ours")
+        self.s.note_off(60)
+        self.s.setting("midi-socket", 2)
+        self.s.din(0xF0, 0x7D, 1)  # and in MERGE: given up after 50 ms with nothing more
+        self.s.ms(10)
+        self.din()
+        self.s.note(62)
+        self.s.ms(100)
+        self.assertIn(bytes([0x90, 62, 100]), self.din())
+
+    def test_a_channel_change_ends_the_notes_on_the_old_one(self):
+        self.s.setting("notes-out", 2)
+        self.s.note(60)
+        self.s.ms(10)
+        self.usb()
+        out = channel_messages(self.s.setting("midi-channel", 3))  # the out channel follows it: 1 before, 3 after
+        self.s.ms(10)
+        self.assertIn((0x80, 60, 64), out + self.usb())
+
+    def test_a_layer_mode_change_ends_the_keys_sent(self):
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.s.din(0x90, 62, 80)
+        self.s.ms(10)
+        self.usb()
+        out = channel_messages(self.s.setting("layers", 3))  # channel mode: the key's off would go out on another channel
+        self.s.ms(10)
+        self.assertIn((0x80, 62, 64), out + self.usb())
+
+    def test_played_notes_in_8ch_and_mpe_go_out_on_each_voices_channel(self):
+        self.s.setting("notes-out", 2)
+        for mode, channel in ((4, 3), (5, 2)):  # 8CH: channel 4 plays voice 4; MPE: member 2 plays voice 2
+            with self.subTest(mode=mode):
+                self.s.setting("layers", mode)
+                self.s.ms(10)
+                self.usb()
+                self.s.note(60, 100, channel=channel)
+                self.s.ms(10)
+                self.assertIn((0x90 | channel, 60, 100), self.usb())
+                self.s.note_off(60, channel=channel)
+                self.s.ms(10)
+
+    def test_a_flood_of_keys_leaves_no_note_hanging_on_the_socket(self):
+        """60 keys down and up at once from USB, to a socket that takes a note a millisecond: what doesn't fit is dropped,
+        and every note that went out gets its off after its on (an off with no room takes its own queued on with it)."""
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.din()
+        self.s.midi(*[b for n in range(30, 90) for b in (0x90, n, 100)])
+        self.s.midi(*[b for n in range(30, 90) for b in (0x80, n, 0)])
+        self.s.ms(400)
+        out, last = self.din(), {}
+        for i in range(0, len(out), 3):
+            last[out[i + 1]] = out[i] & 0xF0
+        self.assertGreater(len(last), 20)
+        self.assertEqual([n for n, kind in last.items() if kind == 0x90], [], "notes left sounding")
+
+    def test_two_ons_of_a_note_in_the_flood_still_end(self):
+        """A source that sends a note on twice before its off: the off with no room takes both queued ons with it."""
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.din()
+        self.s.midi(*[b for n in range(30, 90) for b in (0x90, n, 100, 0x90, n, 90)])
+        self.s.midi(*[b for n in range(30, 90) for b in (0x80, n, 0)])
+        self.s.ms(500)
+        out, last = self.din(), {}
+        for i in range(0, len(out), 3):
+            last[out[i + 1]] = out[i] & 0xF0
+        self.assertEqual([n for n, kind in last.items() if kind == 0x90], [], "notes left sounding")
+
+    def test_the_sysex_tune_ends_the_keys_sent(self):
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.s.note(64)  # from USB: out on the socket
+        self.s.ms(10)
+        self.din()
+        self.s.request(0x75)  # the web page's Autotune
+        self.s.ms(10)
+        self.assertIn(bytes([0x80, 64, 64]), self.din())
+
+    def test_a_slow_forwarded_sysex_goes_through_whole(self):
+        """Nothing of the synth's waits behind it: a SysEx with gaps longer than 50 ms isn't cut."""
+        self.s.setting("midi-socket", 2)
+        self.din()
+        self.s.din(0xF0, 0x7D, 1)
+        self.s.ms(100)
+        self.s.din(2, 3, 0xF7)
+        self.s.ms(10)
+        self.assertEqual(self.din(), bytes([0xF0, 0x7D, 1, 2, 3, 0xF7]))
+
+    def test_an_in_clock_doesnt_keep_an_unfinished_sysex_going(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("midi-socket", 2)
+        self.s.din(0xF0, 0x7D, 1)  # and the dump stops, while the device's clock goes on
+        self.s.ms(5)
+        self.s.note(62)
+        for _ in range(10):
+            self.s.din(0xF8)
+            self.s.ms(20)
+        self.assertIn(bytes([0x90, 62, 100]), self.din())
+
+    def test_a_full_forward_buffer_loses_whole_messages(self):
+        """In running status: a data byte lost to a full ring would pair the rest up wrongly, so the rest of that run goes
+        too, up to the next status."""
+        self.s.setting("midi-socket", 2)
+        self.din()
+        first = [0x90] + [b for n in range(63) for b in (30 + n % 60, 100)]  # 127 bytes: the ring full
+        self.s.din(*first)
+        self.s.din(0x30)  # no room: lost
+        self.s.ms(2)  # a few bytes go out: room again
+        self.s.din(0x31, 0x32, 0x33)  # the run goes on: these would pair up as 31 32, 33 ...
+        self.s.din(0x80, 0x10, 0)
+        self.s.ms(100)
+        self.assertEqual(self.din(), bytes(first + [0x80, 0x10, 0]))
+
+    def test_back_to_thru_gives_the_receiver_the_in_streams_status(self):
+        """OUT: the receiver's last status is the synth's; a keyboard on IN in running status goes on under its own."""
+        self.s.setting("notes-out", 2)
+        self.s.setting("midi-socket", 1)
+        self.s.din(0x91, 50, 40)  # the keyboard's status: 91 (OUT doesn't forward it, the synth plays it)
+        self.s.ms(10)
+        self.s.note_off(50, channel=1)
+        self.s.note(60)
+        self.s.ms(10)
+        self.din()
+        self.s.setting("midi-socket", 0)
+        self.s.ms(30)
+        out = self.din()
+        self.assertEqual(out[-1:], bytes([0x91]), out.hex())
+        self.assertEqual(self.socket(), [0, 0])
+
+    def test_out_channel_16_in_8ch_stays_on_16(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("out-channel", 16)
+        self.s.setting("layers", 4)
+        self.s.ms(10)
+        self.usb()
+        self.s.note(60, 100, channel=3)
+        self.s.ms(10)
+        self.assertIn((0x9F, 60, 100), self.usb())
+
+    def test_a_midi_channel_change_ends_the_keys_on_a_fixed_out_channel(self):
+        self.s.setting("notes-out", 1)
+        self.s.setting("out-channel", 1)
+        self.s.setting("midi-socket", 1)
+        self.s.din(0x92, 62, 80)  # all channels: the key on channel 3 goes out on 1
+        self.s.ms(10)
+        self.assertIn((0x90, 62, 80), self.usb())
+        out = channel_messages(self.s.setting("midi-channel", 1))  # its off on channel 3 won't be listened to now
+        self.s.ms(10)
+        self.assertIn((0x80, 62, 64), out + self.usb())
+
+    def test_program_change_out_on_a_stored_patch(self):
+        self.s.request(0x5D, 0, 6)  # the init sound, stored in P7
+        self.s.ms(20)
+        self.s.setting("pc-out", 1)
+        out = channel_messages(self.s.request(0x5C, 0, 6))
+        self.s.ms(10)
+        self.assertIn((0xC0, 6), out + self.usb())
+
+    def test_the_system_menus_key_8(self):
+        self.s.hold("SETTINGS")
+        self.s.ms(700)
+        self.s.let_go("SETTINGS")
+        self.s.press("8")
+        self.assertShows("dIn")
+        self.s.ms(800)
+        self.assertShows("tHru")
+        self.s.turn(1)
+        self.assertShows("Out")
+        self.assertEqual(self.socket()[0], 1)
+        self.s.press("ARP_UP")
+        self.assertShows("nOtE")
+        self.s.ms(800)
+        self.assertShows("OFF")
+        self.s.press("ARP_UP")
+        self.assertShows("CH.ou")
+        self.s.ms(800)
+        self.assertShows("FoL")
+        self.s.press("SETTINGS")
+
+
+class ClockAndControllersOut(PanelTest):
+    """#38: clock out (the generator's, or the followed MIDI clock forwarded), knob moves as CCs, CC A / B out."""
+
+    def usb(self):
+        return channel_messages(bytes.fromhex(self.s.cmd("out")))
+
+    def din(self):
+        return bytes.fromhex(self.s.cmd("dinout"))
+
+    def setUp(self):
+        super().setUp()
+        self.s.setting("clock", 1)  # internal
+        self.s.setting("bpm", 120)
+        self.s.cmd("out")
+        self.s.cmd("dinout")
+
+    def test_internal_clock_out(self):
+        self.s.ms(500)
+        self.assertEqual([m for m in self.usb() if m == (0xF8,)], [], "off: nothing")
+        out = channel_messages(self.s.setting("clock-out", 1))
+        self.s.ms(500)
+        out += self.usb()
+        self.assertEqual(out[0], (0xFA,), "on: it starts the receivers")
+        self.assertLessEqual(abs(out.count((0xF8,)) - 24), 1, "24 a quarter note at 120 BPM: 24 in 500 ms")
+        out = channel_messages(self.s.setting("clock", 0))  # MIDI: the synth isn't the clock any more
+        self.s.ms(100)
+        self.assertEqual(out + self.usb(), [(0xFC,)])
+
+    def test_the_socket_gets_it_in_out(self):
+        self.s.setting("midi-socket", 1)
+        self.s.setting("clock-out", 1)
+        self.s.ms(500)
+        din = self.din()
+        self.assertEqual(din[0], 0xFA)
+        self.assertLessEqual(abs(din.count(0xF8) - 24), 1)
+
+    def test_a_followed_clock_goes_on_to_the_other_port(self):
+        self.s.setting("clock", 0)
+        self.s.setting("midi-socket", 1)
+        self.s.setting("clock-out", 1)
+        self.s.cmd("out")
+        self.s.cmd("dinout")
+        self.s.midi(0xF8)
+        self.s.midi(0xF8)
+        self.s.ms(10)
+        self.assertEqual((self.din(), self.usb()), (bytes([0xF8, 0xF8]), []), "USB's to the socket, not back")
+        self.s.din(0xFA, 0xF8)
+        self.s.ms(10)
+        self.assertEqual((self.usb(), self.din()), ([(0xFA,), (0xF8,)], b""), "the socket's to USB")
+
+    def test_merge_leaves_out_the_input_clock_while_sending_its_own(self):
+        self.s.setting("midi-socket", 2)
+        self.s.setting("clock-out", 1)
+        self.s.ms(100)
+        self.din()
+        self.s.din(0xF8, 0xF8, 0xF8, 0x90, 60, 1)
+        self.s.ms(1)
+        self.assertNotIn(bytes([0xF8, 0xF8, 0xF8]), self.din(), "the IN socket's clock isn't merged into the synth's")
+
+    def test_knob_moves_out_after_pickup(self):
+        self.s.setting("knob-cc", 1)
+        self.s.request(0x5C, 0, 3)  # the init sound: CUTOFF waits at 99 for its knob
+        self.s.ms(20)
+        self.usb()
+        self.s.pot("CUTOFF", 0.5)
+        self.s.ms(100)
+        self.assertEqual([m for m in self.usb() if m[0] == 0xB0], [], "in pickup: nothing")
+        for v in (0.8, 1.0, 0.7):  # through 99: it takes over
+            self.s.pot("CUTOFF", v)
+            self.s.ms(200)
+        out = [m for m in self.usb() if m[0] == 0xB0]
+        self.assertTrue(out and all(m[1] == 74 for m in out), out)
+        self.assertEqual(out[-1][2], round(self.s.params_raw()["cutoff"] / 16383 * 127))
+
+    def test_a_knobs_own_cc_coming_back_changes_nothing(self):
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)  # takes over at the init sound's 99
+        self.s.ms(300)
+        self.usb()
+        for v in (0.8, 0.7, 0.6):
+            self.s.pot("CUTOFF", v)
+        sent = [m[2] for m in self.usb() if m[:2] == (0xB0, 74)]
+        self.assertGreater(len(sent), 2)
+        for value in (sent[-1], sent[0]):  # a DAW's thru: the last value, and a late one from earlier in the sweep
+            self.s.cc(74, value)
+        self.assertAlmostEqual(self.s.params_raw()["cutoff"] / 16383, 0.6, delta=0.01, msg="the knob keeps it")
+        self.s.pot("CUTOFF", 0.5)
+        self.s.ms(100)
+        self.assertTrue([m for m in self.usb() if m[:2] == (0xB0, 74)], "and goes on sending: no pickup")
+
+    def test_the_echo_is_the_knobs_layers_only(self):
+        """Channel mode: turning layer 1's cutoff leaves CC 74 on layer 2's channel working."""
+        self.s.setting("layers", 3)
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)
+        self.s.ms(300)
+        self.s.pot("CUTOFF", 0.7)
+        self.s.cc(74, 10, channel=1)  # within the knob's window, for layer 2
+        self.assertAlmostEqual(self.s.params_raw(1)["cutoff"] / 16383, 10 / 127, delta=0.01)
+
+    def test_a_knob_resting_on_a_steps_edge_sends_nothing(self):
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)
+        self.s.ms(300)
+        edge = round(63.5 / 127 * 4095)
+        self.s.cmd(f"pot {POT['CUTOFF']} {edge}")
+        self.s.ms(400)
+        self.usb()
+        for _ in range(10):  # its noise, a fifth of a step either way
+            for n in (edge - 6, edge + 6):
+                self.s.cmd(f"pot {POT['CUTOFF']} {n}")
+                self.s.ms(30)
+        self.assertLessEqual(len([m for m in self.usb() if m[:2] == (0xB0, 74)]), 1)
+
+    def test_cc_out_sends_its_value_again_when_the_host_reads_again(self):
+        """The value changed while USB was stalled (and dropped): it goes out once the host reads again."""
+        self.s.no_routes()
+        self.s.setting("notes-out", 2)
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        self.s.request(0x56, 0, fixed, out_a, (50 + 99) >> 7, (50 + 99) & 0x7F)
+        self.s.ms(50)
+        self.usb()
+        self.s.cmd("usbbusy 400")
+        self.s.note(60)  # waiting: the stall comes after 100 ms
+        self.s.ms(200)
+        self.s.cmd("midi " + (pro800.SYSEX_HEADER + bytes([0x56, 0, fixed, out_a, (99 + 99) >> 7, (99 + 99) & 0x7F, 0xF7])).hex())
+        self.s.ms(300)
+        self.assertIn((0xB0, 12, 127), self.usb())
+
+    def test_cc_out_follows_the_out_channel(self):
+        self.s.no_routes()
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        self.s.request(0x56, 0, fixed, out_a, (50 + 99) >> 7, (50 + 99) & 0x7F)
+        self.s.ms(50)
+        self.usb()
+        out = channel_messages(self.s.setting("out-channel", 5))
+        self.s.ms(50)
+        self.assertEqual([m for m in out + self.usb() if m[0] & 0xF0 == 0xB0], [(0xB4, 12, 64)])
+
+    def test_sync_in_stopping_runs_on_without_a_burst(self):
+        self.s.setting("clock", 2)
+        self.s.setting("clock-out", 1)
+        for _ in range(4):
+            self.s.cmd("sw 22 1")
+            self.s.ms(5)
+            self.s.cmd("sw 22 0")
+            self.s.ms(245)
+        self.usb()  # the last pulse was 250 ms ago: its 12 have gone
+        self.s.ms(740)  # a second after it, less a little: still waiting
+        self.assertEqual(self.usb().count((0xF8,)), 0)
+        self.s.ms(60)
+        self.assertLessEqual(self.usb().count((0xF8,)), 4, "no burst of the ticks the wait missed")
+        self.s.ms(500)
+        self.assertLessEqual(abs(self.usb().count((0xF8,)) - 24), 2, "on at the last tempo: 120 BPM")
+
+    def test_after_a_rest_a_cc_sets_the_knobs_parameter_again(self):
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)
+        self.s.ms(300)
+        self.s.pot("CUTOFF", 0.7)
+        self.s.ms(300)
+        sent = [m for m in self.usb() if m[:2] == (0xB0, 74)][-1][2]
+        knob = self.s.params_raw()["cutoff"]
+        self.s.ms(500)
+        self.s.cc(74, sent)  # the same value, from a controller or a DAW's automation, long after
+        raw = self.s.params_raw()["cutoff"]
+        self.assertGreater(abs(knob - round(sent / 127 * 16383)), 5, "(the CC's value isn't the knob's exactly)")
+        self.assertLessEqual(abs(raw - round(sent / 127 * 16383)), 2, "it takes the CC's value")
+
+    def test_knob_moves_on_layer_2_go_out_one_channel_higher_in_channel_mode(self):
+        self.s.setting("layers", 3)
+        self.s.setting("edit-layer", 1)
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)
+        self.s.ms(300)
+        self.usb()
+        self.s.pot("CUTOFF", 0.7)
+        self.s.ms(100)
+        out = [m for m in self.usb() if m[0] & 0xF0 == 0xB0]
+        self.assertTrue(out and all(m[:2] == (0xB1, 74) for m in out), out)
+
+    def test_clock_out_off_stops_the_receivers(self):
+        self.s.setting("clock-out", 1)
+        self.s.ms(100)
+        self.usb()
+        out = channel_messages(self.s.setting("clock-out", 0))
+        self.s.ms(100)
+        out += self.usb()
+        self.assertEqual([m for m in out if m != (0xF8,)], [(0xFC,)])
+        self.assertLessEqual(out.count((0xF8,)), 1, "and the clock ends")
+
+    def test_sync_in_sends_12_clocks_a_pulse(self):
+        """Two pulses a quarter note at the jack: 12 F8s each, never 13, as the tempo moves."""
+        self.s.setting("clock", 2)
+        self.s.setting("clock-out", 1)
+        at_pulse, after = [], []  # F8s as each pulse is taken (its own, and the last half beat's rest if it came early),
+        for gap in (250, 250, 250, 240, 230, 260, 250, 210, 270, 250, 250):  # and until the next; ms: 120 BPM, moving
+            self.usb()
+            self.s.cmd("sw 22 1")
+            self.s.ms(4)
+            at_pulse.append(self.usb().count((0xF8,)))
+            self.s.cmd("sw 22 0")
+            self.s.ms(gap - 4)
+            after.append(self.usb().count((0xF8,)))
+        per_half_beat = [1 + after[i] + at_pulse[i + 1] - 1 for i in range(2, len(after) - 1)]
+        self.assertEqual(per_half_beat, [12] * len(per_half_beat), (at_pulse, after))
+
+    def test_cc_a_out_on_both_layers_adds_up(self):
+        self.s.no_routes()
+        self.s.setting("layers", 2)  # stack
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        self.s.request(0x56, 0, fixed, out_a, (30 + 99) >> 7, (30 + 99) & 0x7F)
+        out = channel_messages(self.s.request(0x56, 1, fixed, out_a, (20 + 99) >> 7, (20 + 99) & 0x7F))
+        self.s.ms(50)
+        out += self.usb()
+        self.assertEqual([m for m in out if m[0] == 0xB0][-1], (0xB0, 12, round(50 / 99 * 127)))
+
+    def test_a_new_cc_out_number_gets_the_value_at_once(self):
+        self.s.no_routes()
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        self.s.request(0x56, 0, fixed, out_a, (50 + 99) >> 7, (50 + 99) & 0x7F)
+        self.s.ms(50)
+        self.usb()
+        out = channel_messages(self.s.setting("cc-out-a", 20))
+        self.s.ms(50)
+        self.assertEqual([m for m in out + self.usb() if m[0] == 0xB0], [(0xB0, 20, 64)])
+
+    def test_a_cc_with_its_own_meaning_cant_be_cc_out(self):
+        for cc in (1, 64, 123):
+            self.s.setting("cc-out-a", cc)
+            self.assertEqual(self.s.settings()["cc-out-a"], 0, cc)
+
+    def test_cc_out_goes_at_most_every_5_ms(self):
+        self.s.no_routes()
+        lfo, out_b = pro800.SOURCE_NAMES.index("lfo-uni"), pro800.DEST_NAMES.index("cc-out-b")
+        self.s.param(0, "lfo-freq", 16383)
+        self.s.request(0x56, 0, lfo, out_b, (99 + 99) >> 7, (99 + 99) & 0x7F)
+        self.s.ms(100)
+        self.usb()
+        self.s.ms(100)
+        n = len([m for m in self.usb() if m[:2] == (0xB0, 13)])
+        self.assertGreater(n, 10)
+        self.assertLessEqual(n, 21)
+
+    def test_a_cc_out_route_with_no_note_leaves_the_rest_alone(self):
+        """The routes of a layer with no note yet are worked out for CC A / B out only: a volume route waits for a note."""
+        self.s.no_routes()
+        fixed = pro800.SOURCE_NAMES.index("fixed")
+        self.s.request(0x56, 0, fixed, pro800.DEST_NAMES.index("volume"), (99 + 99) >> 7, (99 + 99) & 0x7F)
+        self.s.ms(50)
+        volume = self.s.cvs()[35]  # CV_MASTER_VOL
+        self.s.request(0x56, 0, fixed, pro800.DEST_NAMES.index("cc-out-a"), (50 + 99) >> 7, (50 + 99) & 0x7F)
+        self.s.ms(50)
+        self.assertEqual(self.s.cvs()[35], volume)
+
+    def test_cc_a_out_from_a_route(self):
+        self.s.no_routes()
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        out = channel_messages(self.s.request(0x56, 0, fixed, out_a, (50 + 99) >> 7, (50 + 99) & 0x7F))
+        self.s.ms(100)
+        out += self.usb()
+        self.assertEqual([m for m in out if m[0] == 0xB0], [(0xB0, 12, 64)], "once, on CC 12, not every pass")
+        self.s.setting("cc-out-a", 20)
+        out = channel_messages(self.s.request(0x56, 0, fixed, out_a, (99 + 99) >> 7, (99 + 99) & 0x7F))
+        self.s.ms(50)
+        out += self.usb()
+        self.assertEqual([m for m in out if m[0] == 0xB0], [(0xB0, 20, 127)])
+
+    def test_an_lfo_streams_with_no_note_played(self):
+        self.s.no_routes()
+        lfo, out_b = pro800.SOURCE_NAMES.index("lfo-uni"), pro800.DEST_NAMES.index("cc-out-b")
+        self.s.param(0, "lfo-freq", 14000)
+        self.s.request(0x56, 0, lfo, out_b, (99 + 99) >> 7, (99 + 99) & 0x7F)
+        self.s.ms(500)
+        values = [m[2] for m in self.usb() if m[:2] == (0xB0, 13)]
+        self.assertGreater(len(set(values)), 10, "a changing stream from power-up")
+        self.s.request(0x56, 0, lfo, out_b, 0, 99)  # removed (5 s at 0)
+        self.s.ms(5500)
+        self.usb()
+        self.s.ms(200)
+        self.assertEqual([m for m in self.usb() if m[:2] == (0xB0, 13)], [], "no route: no stream")
 
 
 class Layers(PanelTest):
@@ -6698,6 +7378,18 @@ class WebRanges(PanelTest):
         for depth in (99, 50):
             self.assertPage(42, depth, self.delta(42, depth, spread), "ct")
 
+    def test_a_cc_out_reaches_0_to_127(self):
+        """CC A out: the page's reach is the CC's value, and below 0 there's nothing (the firmware clamps the sum)."""
+        fixed, lfo, velocity = 25, 1, 4
+        self.assertEqual(self.swing(48, 50)["text"], "+64")
+        self.assertEqual(self.swing(48, -50)["text"], "none on its own")
+        self.assertEqual(self.swing(48, -50, source=velocity)["text"], "none on its own")
+        self.assertEqual((self.swing(48, 50, source=lfo)["lo"], self.swing(48, 50, source=lfo)["text"]), (0, "0 to +64"))
+        out = channel_messages(self.s.request(0x56, 0, fixed, 48, (50 + 99) >> 7, (50 + 99) & 0x7F))
+        self.s.ms(50)
+        out += channel_messages(bytes.fromhex(self.s.cmd("out")))
+        self.assertEqual([m for m in out if m[0] == 0xB0], [(0xB0, 12, 64)], "what the firmware sends for it")
+
     def test_volume_counts_down(self):
         self.voice()  # a single wire follows the layer's newest note: until one has played, the route does nothing
         self.s.pot("MASTER_VOL", 1.0)
@@ -7869,6 +8561,10 @@ class UsbDriver(unittest.TestCase):
 
     def test_a_flush_opens_a_parked_endpoint(self):
         self.run_scenario("flush")
+
+    def test_ready_follows_the_in_endpoint(self):
+        """usb_midi_ready(), which ends midiout.c's stall: configured and the last transfer read."""
+        self.run_scenario("ready")
 
     def test_a_bus_reset_clears_parked(self):
         self.run_scenario("reset")
@@ -9296,6 +9992,22 @@ class WebSmallThings(unittest.TestCase):
         for why in out["bad"]:
             self.assertEqual(len(why), 1, why)
         self.assertEqual(out["notAFile"], 1)
+
+    def test_cc_out_on_a_cc_that_comes_back(self):
+        """#38: the page warns when CC A / B out sends a CC that would set something coming back in."""
+        out = run_node(source("tools", "web", "params.js") + source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
+        const ids = Array(128).fill(127); ids[74] = 24;
+        const s = { ccA: 11, ccB: 2, ccOutA: 0, ccOutB: 0 };
+        report({ fine: ccOutClashes(s, { ids }, PARAMS), map: ccOutClashes({ ...s, ccOutA: 74 }, { ids }, PARAMS),
+          source: ccOutClashes({ ...s, ccOutB: 11 }, null, PARAMS), old: ccOutClashes({ ccA: 11, ccB: 2 }, { ids }, PARAMS),
+          reserved: ccOutClashes({ ...s, ccOutA: 123 }, null, PARAMS) });
+        """)
+        self.assertEqual((out["fine"], out["old"]), ([], []), "the defaults (12, 13) clash with nothing; a firmware before 0.10.0 has no CC out")
+        self.assertEqual(len(out["map"]), 1)
+        self.assertIn("CC 74", out["map"][0])
+        self.assertIn("Cutoff", out["map"][0])
+        self.assertIn("CC A's source", out["source"][0])
+        self.assertIn("its own meaning", out["reserved"][0])
 
     def test_a_chord_in_the_preset_format(self):
         """#36: "chord 1" / "chord 2" as 69, after the buttons; a firmware before 0.10.0 warns and gets nothing."""

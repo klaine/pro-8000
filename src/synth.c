@@ -282,6 +282,10 @@ static uint8_t chord_shown;                // layers a capture from the panel or
 static uint8_t line_chord[LAYERS];         // mono, legato and unison's one line: its chord's notes as it began (0: none)
 static int8_t voicing_step[LAYERS];        // the voicing ladder's step (DEST_CHORD_VOICING), with its hysteresis
 static int8_t voiced_step[LAYERS];         // the step the layer's held chords are at
+static void (*note_out)(int layer, int voice, uint8_t note, int on, uint8_t velocity); // MIDI out (main.c)
+static uint8_t note_out_quiet;             // a chord's first voice says its note once it knows it
+static uint8_t pot_sent[POT_COUNT];        // each knob's 7-bit value as last counted as a move (0.10.0)
+static uint64_t panel_moves;               // the parameters moved since synth_take_panel_moves()
 
 // A chord as far as it's valid: ascending intervals 1-127 up to the first 0 or step back; the flags byte is 0 for now
 static int chord_valid(const uint8_t *bytes, uint8_t *c)
@@ -1197,9 +1201,31 @@ static int keys_restart_lfos(int layer)
     return lfo_restart_keys && layer_mode != LAYER_VOICE_PER_CHANNEL && layer_mode != LAYER_MPE && seq_takes_layer(layer);
 }
 
+static int layer_of(int v);
+static void voice_note_out(voice_t *x, uint8_t note, int on, uint8_t velocity)
+{
+    if (note_out && !note_out_quiet)
+        note_out(layer_of((int)(x - voices)), (int)(x - voices), note, on, velocity);
+}
+
+void synth_set_note_out(void (*fn)(int layer, int voice, uint8_t note, int on, uint8_t velocity)) { note_out = fn; }
+
+// A voice's gated note moves (legato, a chord re-voiced): out, an off and an on
+static void voice_move(voice_t *x, uint8_t note)
+{
+    if (x->gate && x->note != note) {
+        voice_note_out(x, x->note, 0, 64);
+        voice_note_out(x, note, 1, x->velocity);
+    }
+    x->note = note;
+}
+
 static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
 {
     int was_silent = x->amp.stage == ENV_IDLE;
+    if (x->gate)
+        voice_note_out(x, x->note, 0, 64); // the note it played ends, out at least
+    voice_note_out(x, note, 1, velocity);
     x->note = note;
     x->key = note;
     x->slot = 0;
@@ -1246,6 +1272,8 @@ static void gate_on(voice_t *x, uint8_t note, uint8_t velocity, int retrigger)
 // The key is let go (key_up), or the voice is silenced (synth_all_off()): key-up envelopes start only on a key-up
 static void gate_off(voice_t *x, int key_up)
 {
+    if (x->gate)
+        voice_note_out(x, x->note, 0, x->release_velocity);
     x->gate = 0;
     int up = key_up ? key_up_envs(layer_of((int)(x - voices))) : 0;
     env_t *envs[] = {&x->amp, &x->filter, &x->env3, &x->env4};
@@ -1341,6 +1369,7 @@ static int voicing_at(int layer, float m, int n)
 }
 
 static void evaluate_routes(int layer, int voice, float *mod, int fast);
+static int cc_out_routed(int layer);
 
 // The step a chord starting on voice v takes: the voicing routes read for v, which has the new note's velocity, key and
 // random by now (the rest as the layer has them), so velocity → voicing voices each note by its own velocity
@@ -1365,8 +1394,11 @@ static void chord_gate_on(int layer, int v, uint8_t key, int slot, int n, uint8_
                           uint8_t *pitch)
 {
     voice_t *x = &voices[v];
-    int silent = x->amp.stage == ENV_IDLE;
+    int silent = x->amp.stage == ENV_IDLE, was = x->gate;
+    uint8_t old = x->note;
+    note_out_quiet = !slot;
     gate_on(x, slot ? pitch[slot] : key, velocity, retrigger);
+    note_out_quiet = 0;
     x->key = key;
     x->slot = (uint8_t)slot;
     x->chorded = (uint8_t)n;
@@ -1378,6 +1410,9 @@ static void chord_gate_on(int layer, int v, uint8_t key, int slot, int n, uint8_
         chord_pitches(layer, key, n, voicing_for(layer, v, n), pitch);
         voiced_step[layer] = voicing_step[layer];
         x->note = pitch[0];
+        if (was)
+            voice_note_out(x, old, 0, 64);
+        voice_note_out(x, pitch[0], 1, velocity);
         if (silent)
             x->pitch = pitch[0]; // as gate_on() would have: glide only from a sounding note
     }
@@ -1730,7 +1765,7 @@ void synth_note_off_layers(uint8_t note, uint8_t release_velocity, int layers)
                     if (voice_mode[layer] == VOICE_MONO)
                         gate_on(x, p, x->velocity, 1);
                     else
-                        x->note = p;
+                        voice_move(x, p);
                     x->key = to;
                     x->slot = slot;
                     x->chorded = chorded;
@@ -1921,6 +1956,45 @@ int synth_chord_notes(int layer, uint8_t key, uint8_t *out)
     int n = chord_count(layer);
     chord_pitches(layer, key, n, voicing_routed(layer) ? voicing_step[layer] : 0, out);
     return n;
+}
+
+uint64_t synth_take_panel_moves(void)
+{
+    uint64_t m = panel_moves;
+    panel_moves = 0;
+    return m;
+}
+
+// Whether a route on this layer (or a both-layers one of the other's) reaches CC A or B out; layer 2's count only with
+// two layers playing
+static int cc_out_routed(int layer)
+{
+    if (layer == 1 && one_layer())
+        return 0;
+    for (int n = 0; n < 2 * ROUTES; n++) {
+        int owner = n < ROUTES ? layer : 1 - layer, r = n % ROUTES;
+        if (owner != layer && (one_layer() || !(route_both[owner] >> r & 1)))
+            continue;
+        const route_t *x = &routes[owner][r];
+        if ((x->dest == DEST_CC_OUT_A || x->dest == DEST_CC_OUT_B) && x->depth && x->source != SRC_NONE)
+            return 1;
+    }
+    return 0;
+}
+
+static float last_mod[LAYERS][DEST_COUNT]; // (the layer-level routes, below)
+
+int synth_cc_out(int which, float *value)
+{
+    int d = which ? DEST_CC_OUT_B : DEST_CC_OUT_A, routed = 0;
+    for (int l = 0; l < (one_layer() ? 1 : LAYERS); l++)
+        for (int r = 0; r < ROUTES; r++)
+            routed |= routes[l][r].dest == d && routes[l][r].depth && routes[l][r].source != SRC_NONE;
+    if (!routed)
+        return 0;
+    float v = last_mod[0][d] + (one_layer() ? 0 : last_mod[1][d]);
+    *value = v < 0 ? 0 : v > 1 ? 1 : v;
+    return 1;
 }
 
 void synth_pitch_bend(int value, int layers)
@@ -2372,6 +2446,7 @@ static void read_panel(float dt)
         if (!pots_primed) { // both layers start from the panel
             layer_param[0][p] = layer_param[1][p] = panel[i];
             latched[p] = 1;
+            pot_sent[i] = (uint8_t)(panel[i] * 127.0f + 0.5f); // where it starts is no move
             continue;
         }
         int layer = per_layer[p] ? param_layer(edit_layer, p) : 0; // shared knobs keep one value, in both layers
@@ -2413,7 +2488,13 @@ static void read_panel(float dt)
                 layer_param[layer][p] = panel[i];
             else
                 layer_param[0][p] = layer_param[1][p] = panel[i];
-        }
+            float at = panel[i] * 127.0f, from = (float)pot_sent[i];
+            if (at - from >= 0.75f || from - at >= 0.75f) { // a 7-bit step of a knob that holds its value: a move to
+                pot_sent[i] = (uint8_t)(at + 0.5f);          // send (a quarter step past the middle, so a knob resting
+                panel_moves |= 1ull << p;                    // on a step's edge doesn't send its noise)
+            }
+        } else
+            pot_sent[i] = (uint8_t)(panel[i] * 127.0f + 0.5f); // in pickup nothing goes out, nor as it takes over
     }
     pots_primed = controls_ready(); // until the first full scan, keep copying the panel into both layers
 
@@ -2505,7 +2586,8 @@ static int macro_source(int source) { return source == SRC_MACRO1 || source == S
 // layer with the newest note, as a single wire follows the newest note.
 static int summed_wire(int dest)
 {
-    return (dest >= DEST_A_LEVEL && dest <= DEST_LFO_TO_PW) || dest == DEST_LFO2_TO_PW || dest == DEST_VOLUME;
+    return (dest >= DEST_A_LEVEL && dest <= DEST_LFO_TO_PW) || dest == DEST_LFO2_TO_PW || dest == DEST_VOLUME
+           || dest == DEST_CC_OUT_A || dest == DEST_CC_OUT_B;
 }
 
 // Layer l's most recently played voice, or -1: a change of the voice split can leave it on the other layer
@@ -2742,6 +2824,14 @@ void synth_update(float dt)
             last_mod[l][d] = 0;
         if (recent_voice(l) >= 0)
             evaluate_routes(l, recent_voice(l), last_mod[l], 0);
+        else if (cc_out_routed(l)) { // no note yet: a CC out route still streams (a free LFO), from the layer's first
+            int first, end;          // voice, and only CC A / B take it: the rest stay as with no note
+            float mod[DEST_COUNT] = {0};
+            layer_voices(l, &first, &end);
+            evaluate_routes(l, first, mod, 0);
+            last_mod[l][DEST_CC_OUT_A] = mod[DEST_CC_OUT_A];
+            last_mod[l][DEST_CC_OUT_B] = mod[DEST_CC_OUT_B];
+        }
     }
     // held chords follow their voicing as it moves (a wheel, an LFO): each voice to its slot's new note, gliding as
     // GLIDE says, with no retrigger; released ones keep theirs. As Morph, the layer's most recent voice says where.
@@ -2766,7 +2856,7 @@ void synth_update(float dt)
             if (!x->gate || !x->chorded || x->slot >= x->chorded)
                 continue;
             chord_pitches(l, x->key, x->chorded, step, pitch);
-            x->note = pitch[x->slot];
+            voice_move(x, pitch[x->slot]);
         }
     }
 

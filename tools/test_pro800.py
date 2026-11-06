@@ -339,12 +339,13 @@ class SwiftParity(unittest.TestCase):
         self.assertEqual(names, pro800.SETTING_NAMES)
 
     def test_setting_names(self):
-        self.assertEqual(len(pro800.SETTING_NAMES), 100)
+        self.assertEqual(len(pro800.SETTING_NAMES), 108)
         self.assertEqual(pro800.SETTING_NAMES.index("midi-channel"), 77)
         self.assertEqual(pro800.SETTING_NAMES.index("env-count 2 env4"), 74)
         self.assertEqual(pro800.SETTING_NAMES.index("lfo-restart"), 86)
         self.assertEqual(pro800.SETTING_NAMES[91:], ["unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
-                                                     "env-select", "preset-mode", "patch", "morph"])
+                                                     "midi-socket", "notes-out", "out-channel", "clock-out", "knob-cc", "cc-out-a",
+                                                     "cc-out-b", "pc-out", "env-select", "preset-mode", "patch", "morph"])
 
     def test_lfo_note_times_read_the_same(self):
         """Swift can't run here: the same formula, version and condition as pro800.py's, read off the source."""
@@ -480,6 +481,37 @@ class ReadOnly(unittest.TestCase):
         s[95] = 0
         out, _ = run(self.synth, "settings")
         self.assertIn("init-patch           none (the built-in sound)\n", out)
+
+    def test_settings_of_0_10_0_with_midi_out(self):
+        self.synth.settings = [0] * 108
+        s = self.synth.settings
+        s[96], s[97], s[98], s[99], s[101], s[103], s[104], s[106] = 2, 2, 5, 1, 20, 1, 3, 4
+        out, code = run(self.synth, "settings")
+        self.assertEqual(code, 0)
+        for line in ("midi-socket          merge", "notes-out            played", "out-channel          5", "clock-out            on",
+                     "knob-cc              off", "cc-out-a             CC 20", "cc-out-b             CC 13 (default)", "pc-out               on",
+                     "env-select           env 3 / env 4 (Shift)", "patch                P5"):
+            self.assertIn(line + "\n", out)
+        for argv, sent in ((("set", "midi-socket", "out"), [0x7D, 96, 0, 1]), (("set", "notes-out", "keys"), [0x7D, 97, 0, 1]),
+                           (("set", "out-channel", "follow"), [0x7D, 98, 0, 0]), (("set", "out-channel", "16"), [0x7D, 98, 0, 16]),
+                           (("set", "clock-out", "on"), [0x7D, 99, 0, 1]), (("set", "knob-cc", "off"), [0x7D, 100, 0, 0]),
+                           (("set", "cc-out-b", "default"), [0x7D, 102, 0, 0]), (("set", "pc-out", "on"), [0x7D, 103, 0, 1])):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                synth.settings = [0] * 108
+                run(synth, *argv)
+                self.assertEqual(synth.sent[-1], request_bytes(*sent))
+        for cc in ("1", "64", "120", "0", "128"):  # a CC with its own meaning (the firmware refuses it too), or none
+            with self.subTest(cc=cc):
+                synth = FakeSynth()
+                synth.settings = [0] * 108
+                out, code = run(synth, "set", "cc-out-a", cc)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(synth.sent, [], "nothing sent")
+        synth = FakeSynth()
+        synth.settings = [0] * 108
+        run(synth, "set", "cc-out-a", "20")
+        self.assertEqual(synth.sent[-1], request_bytes(0x7D, 101, 0, 20))
 
     def test_settings_of_an_older_firmware(self):
         self.synth.settings = self.synth.settings[:82]
@@ -1942,7 +1974,7 @@ class ModIds(unittest.TestCase):
     def test_the_enums_end_where_the_ids_say(self):
         sources, dests = self.enum("SRC"), self.enum("DEST")
         self.assertEqual((sources[0], sources[-1], len(sources)), ("SRC_NONE", "SRC_RELEASE_VELOCITY", 30))
-        self.assertEqual((dests[0], dests[-1], len(dests)), ("DEST_PITCH_A", "DEST_CHORD_VOICING", 48))
+        self.assertEqual((dests[0], dests[-1], len(dests)), ("DEST_PITCH_A", "DEST_CC_OUT_B", 50))
 
     def c_strings(self, name):
         found = re.search(r"\b" + name + r"\[\w+\]\[\d+\] = \{(.*?)\};", self.main_c, re.S)

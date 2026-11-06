@@ -2774,13 +2774,62 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
     coalesced controller slots, owed Note Offs per port, USB written only when the endpoint is free, a 100 ms stall
     rule), notes off / keys / played through step 7's hook, a Tx channel (follow, or 1-16), panics on load, Seq off,
     tune and update mode; program change out on a patch load (setting 103).
+    **Done 2026-11-05 (simulator only; MIDI_SEL's level is the schematic's, not measured).** `din.c`: PA0 as UART4 TX
+    (AF8, TE), a 64-byte ring for the synth's own messages, a realtime slot (F8s counted, the latest FA / FB / FC) that
+    goes first, between any two bytes, and for MERGE a 128-byte ring the RX interrupt fills, forwarded at message
+    boundaries (a SysEx whole, ours after its F7), running status put back after one of ours, a stray data byte dropped;
+    TXEIE only while something waits. PB4 driven from `din_set_socket()`: `MIDI_SEL_THRU` (0: U5A's enable is active
+    low) is the one place to swap. `midiout.c`: per port a 64-message FIFO (an on only while 16 places are left for the
+    offs), 16 controller slots where the latest value replaces the one waiting, per channel and note an on bit and an
+    owed bit (an off that finds no room is owed and goes first); USB as one transfer of up to 16 packets whenever the
+    endpoint is free, and a host that takes nothing for 100 ms stalls the port: what waits is dropped, every note on
+    becomes an owed off, new ons are dropped until a transfer goes through. `main.c`: settings 96-103 (system-wide,
+    global block bytes 20-25), the system menu's key 8 (six pages, Arp Up-Dn), notes out off / keys (after the channel
+    filter, never back to the port they came from) / played (synth.c's voice hook, counted per out channel and note:
+    unison sends one), the out channel (follow or 1-16; channel mode's layer 2 one higher, 8CH and MPE per voice); played
+    notes end with their voices (a load), and every note out on the panic, CC 120 / 123, Tune, update mode and a change
+    of these settings, program change out on a load but not for one a program change made (nor the power-up's). The
+    simulator: the UART's TX interrupt at 31250 baud, `dinout`, `socket`, `usbbusy <ms>`.
+    **The review** (four lenses, two skeptics each; 34 of 35 stood, about 20 apart): a USB stall with nothing owed never
+    ended (nothing waiting, nothing tried), so clock out on at power-up (before the host enumerates) killed USB out for
+    the session: now `usb_midi_ready()` (configured, the last transfer read; a UsbDriver scenario) ends it, and the stall
+    time counts from the first poll. A forwarded SysEx or message part left unfinished blocked the synth's own socket
+    output for good, OUT included: the thru state resets on a mode change and is given up after 50 ms of silence
+    (`din_poll()`). `din_send()` published its bytes one at a time, so the interrupt could send a stale byte inside a
+    message: now the whole message at once. The drains before Tune and update mode never ran (`din_tx_room()` was full
+    before the owed offs reached it): `midiout_drain()` polls until nothing is owed (`midiout_pending()`,
+    `din_tx_idle()`), 40 / 100 ms at most. Going to THRU waits for the socket's offs (non-blocking, 100 ms at most). A
+    MIDI channel or layer mode change stranded notes on the old channel: `midi_out_tick()` ends them. An off that found
+    the FIFO full while its on was still queued let that on go out after it: the off cancels it. The knob echo
+    (`echoed[]`) kept a value for good and ignored a late echo: now a 300 ms window after the knob sent. A layer with no
+    note evaluated every route into the shared CVs for CC out's sake: now into scratch, CC A / B kept. SYNC IN could send
+    a 13th F8 a pulse: 12 exactly (the generator waits for the pulse, an early one completes the count). CC out numbers
+    resend on a change and refuse the reserved CCs (firmware, tools, page); the page's range for CC out stops at 0. DIN
+    realtime: Start / Continue before the clocks waiting, Stop after (as USB), race-free counters, a forwarded clock no
+    longer waits behind the synth's ring, a re-inserted status counts its message as started. PA0 is driven high from
+    reset (`din_safe()`). Left as known: MERGE's bandwidth (MANUAL).
 11. **#38 clock and echo.** Clock out (F8 from the internal or SYNC IN generator, and the MIDI clock the synth follows
     forwarded; FA / FC on restart and leaving; input clock dropped in MERGE while sending our own). Knob moves as CCs
     through step 9's map (the first slot holding the parameter), only from the panel and only after pickup; with 39a in,
     an incoming CC equal to the last value echoed doesn't unlatch the knob.
+    **Done 2026-11-05 (simulator only).** `clock_out_byte()`: F8 from `clock_run()` with the source on Internal or SYNC IN,
+    FA as clock out turns on, at power-up and on a restart (Sync Clock held), FC as the source goes to MIDI or clock
+    out turns off. Following MIDI clock, USB's realtime goes to the socket's realtime slot and the socket's to USB
+    (`midiout_forward_usb()`: a count the interrupt alone writes and the main loop reads the change of); Song Position
+    isn't forwarded. MERGE leaves the IN socket's clock out while the synth is the clock. On USB a start or continue goes
+    before the clocks waiting, a stop after them. Knob moves: `synth.c` marks a parameter whose latched knob moved a
+    7-bit step (`panel_moves`; nothing in pickup, nor as it takes over), `controllers_out()` sends it on the first
+    non-fine CC the map has for it, on the out channel, and keeps the value: the same CC coming back changes nothing and
+    leaves the knob live.
 12. **#38 CC out destinations.** Dests 48 / 49, the route sum as clamp(sum) × 127 summed over both layers, at most one
     message per CC every 5 ms, defaults CC 12 / 13, streaming from power-up; the editor warns when a CC-out number is in
     the map or is CC A / B.
+    **Done 2026-11-05 (simulator only).** Destinations 48 / 49 (`CCo.A`, `CCo.b`): both layers' `last_mod` summed,
+    clamped to 0-1, × 127, sent when it changes and at most every 5 ms, on CC 12 / 13 unless settings 101 / 102 say
+    otherwise. A layer with a CC-out route and no note played yet evaluates its routes from its first voice, so a free
+    LFO streams from power-up. The editor's MIDI out section: clock out, knob moves out, the two CC numbers, and a
+    warning when one is in the CC map or is CC A / B's source (`ccOutClashes()` in sound-plan.js). Steps 10-12:
+    104,804 B (+7 kB).
 13. **Release.** Docs: MANUAL (and its known limitations: MIDI OUT / THRU leaves the list), the cheat sheet, docs/
     kickers, footers, the record figure (53 → 37 reserved bytes) and the 5-pin figure, the sources figure (7) and the
     guides' source counts (28 → 29: sound-design.html and how-it-works.html), README counts (29 sources, 50

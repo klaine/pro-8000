@@ -31,7 +31,7 @@ DESTS = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env
          "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
          "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
          "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-         "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing"]
+         "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing", "cc-out-a", "cc-out-b"]
 SHAPES = ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]
 DIVISIONS = ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
              "1/16T", "1/32"]

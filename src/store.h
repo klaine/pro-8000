@@ -113,6 +113,11 @@ void store_set_last(int patch); // written only when it changed
 // (bits 0-1 the layer rule, as an NRPN's MSB; bit 2 fine: the low 7 bits of the parameter's 14, after its coarse CC).
 // Kept apart from the global block, written after the same second's rest; a format leaves it. None stored: main.c's
 // default map plays.
+// MIDI out (0.10.0), in the global block's bytes 20-25 under its second checksum (0 is each one's default)
+enum { STORE_SOCKET, STORE_NOTES_OUT, STORE_OUT_CHANNEL, STORE_OUT_FLAGS, STORE_CC_OUT_A, STORE_CC_OUT_B, STORE_MIDI_OUT_FIELDS };
+int store_midi_out(int field);
+void store_set_midi_out(int field, int value); // stored after the rest
+
 #define CC_MAP_NONE 0x7F
 #define CC_MAP_FINE 4
 int store_cc_map(uint8_t *ids, uint8_t *nibbles); // 1 and the stored map; 0 if none is stored

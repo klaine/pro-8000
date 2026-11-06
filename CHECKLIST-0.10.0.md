@@ -144,3 +144,75 @@ The map is system-wide: afterwards `pro800 cc-map reset --yes` (or Default map o
       part on 87).
 - [ ] A map change while notes play: no glitch beyond a patch save's (the write comes a second later, once).
 - [ ] Going back to stock (the installer's Empty it) with a map stored: stock boots and keeps its own settings.
+
+## Steps 10-12: MIDI out, the THRU socket, clock out, knob moves and CC out (#38)
+
+You need a second MIDI device on the rear THRU socket (another synth, or an interface into a DAW or a MIDI monitor),
+and for some items a keyboard on MIDI IN. The settings are system-wide: put them back afterwards with
+`pro800 set midi-socket thru`, `notes-out off`, `out-channel follow`, `clock-out off`, `knob-cc off`, `pc-out off`,
+`cc-out-a default`, `cc-out-b default` (or the System tab's MIDI out on the page).
+
+First, the one thing read off the schematic and never measured, `MIDI_SEL`'s level:
+
+- [ ] Before flashing, on 0.9.5: a keyboard on IN, a receiver on THRU. Does anything come through? (Most likely not: 0.9.5
+      never drives the line. Note what you see.)
+- [ ] On 0.10.0 with the default `tHru` (system menu key 8, `dIn`): the keyboard's notes come through THRU. If they
+      don't, and `Out` passes them instead, the level is the other way round: tell me, it's one line in `src/din.c`
+      (`MIDI_SEL_THRU`).
+- [ ] Power on with a MIDI monitor on THRU (`tHru` and then `Out`): nothing arrives at power-up or during the
+      autotune.
+
+The socket and notes (step 10):
+
+- [ ] `Out`, notes out `PLAY`: the keyboard's notes don't come through THRU; the synth's notes do, on the out channel
+      (`CH.ou` `FoL`: the MIDI channel, 1 with `ALL`).
+- [ ] `nErG`: the keyboard's notes come through, with the synth's own messages between them (`pc-out on`, change patch
+      while holding a chord on the keyboard): the receiver gets no stuck or wrong notes. A SysEx dump sent from IN
+      comes out whole (with clock out off). Pull the IN cable in the middle of a dump: the synth's own notes still come
+      out a moment later.
+- [ ] Notes out `In` (the keys), the keyboard on IN, a DAW on USB: the DAW records the keys on the out channel; nothing goes back
+      out of THRU to the keyboard's side (in `Out`).
+- [ ] Notes out `PLAY`: the arp, a sequence and a chord (Unison with a chord stored) recorded in the DAW: each note once
+      (unison sends one note, a chord its notes). After Seq off, a patch load, Tune and Shift + 0 (panic), nothing
+      hangs in the DAW.
+- [ ] Windows, no program reading the synth's port (close the DAW and the web page): play for a while, nothing slows
+      down or hangs. Open the DAW: no flood of old notes, and notes (and clock, if on) come in from then on.
+- [ ] Power the synth on with clock out on (Internal) and the DAW already open: the DAW gets the clock within a second or
+      two of the synth's USB appearing (hold Sync Clock for a Start).
+- [ ] Notes out `PLAY` on `Out`, hold a chord, then switch the socket to `tHru`: nothing hangs on the receiver. Hold a
+      chord again and change the MIDI channel (Shift + NOISE) or the layer mode: nothing hangs in the DAW either.
+- [ ] Program change out: loading P5 on the panel sends program change 4 to the DAW; a program change from the DAW
+      loads its patch and doesn't come back.
+- [ ] The system menu's key 8: `dIn`, then Arp Up-Dn through `nOtE`, `CH.ou`, `CL.ou`, `Pt.CC`, `PC.ou`, with VALUE
+      changing each (MANUAL, the system menu).
+
+Clock out (step 11):
+
+- [ ] Clock on Internal at 120 BPM, clock out on, `Out`: a drum machine or a DAW on THRU (and the DAW over USB) reads
+      120 and stays steady. Holding Sync Clock (`StAr`) restarts it on the downbeat; Shift + Sync Clock to `nIdI` stops
+      it.
+- [ ] Clock on MIDI, clock out on, `Out`: the DAW's clock over USB drives a drum machine on THRU through the synth. A
+      clock on IN reaches the DAW over USB.
+- [ ] `nErG` with the synth as the clock and a keyboard sending clock on IN: the receiver follows the synth's tempo
+      only (not twice as fast, not jumping).
+- [ ] SYNC IN as the source, clock out on: the receiver follows the pulses and doesn't drift against the source over a
+      few minutes, also as the source's tempo changes.
+
+Knob moves out (step 11):
+
+- [ ] `Pt.CC` on, the DAW recording: CUTOFF goes out on CC 74, FREQ A on 14 (the CC map's numbers), on the out
+      channel. After a patch load a knob sends nothing until it picks up; then it sends as it moves.
+- [ ] Play the recorded CCs back with the DAW's MIDI thru on: no feedback, and the knob you move stays live. With the
+      knob left alone, the DAW's automation moves the parameter again.
+- [ ] Your own CC map (step 9) moves the numbers: the first CC the map has for the parameter.
+
+CC A / B out (step 12):
+
+- [ ] `pro800 route 1 lfo-uni cc-out-a 99` and another synth's cutoff on CC 12 (or `pro800 set cc-out-a 74`): the
+      other synth's filter sweeps with the PRO-800's LFO, smoothly, from power-up, with no note played. In MOD ASSIGN
+      VALUE scrolls to `CCo.A` and `CCo.b`.
+- [ ] `amp-env → cc-out-b`: follows the most recent note.
+- [ ] The editor's MIDI out section: CC A out set to 74 shows the warning (CC 74 is in the map); back to 12, it goes.
+      CC 1, 64 and 120-127 can't be picked there, and `pro800 set cc-out-a 64` is refused.
+- [ ] A fast CC out stream and notes together on THRU: the receiver's notes stay on time (CC out is at most 200
+      messages a second each, a fifth of the socket).

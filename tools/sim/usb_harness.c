@@ -31,6 +31,7 @@ extern void OTG_FS_IRQHandler(void);
 #define DOEPCTL1 (OTG + 0xB20)
 #define DOEPINT0 (OTG + 0xB08)
 #define DOEPINT1 (OTG + 0xB28)
+#define DIEPINT1 (OTG + 0x928)
 #define DOEPTSIZ1 (OTG + 0xB30)
 #define FIFO0    (OTG + 0x1000)
 #define DWT      0xE0001004u
@@ -40,6 +41,7 @@ extern void OTG_FS_IRQHandler(void);
 #define INT_USBRST (1u << 12)
 #define INT_RXFLVL (1u << 4)
 #define INT_OEPINT (1u << 19)
+#define INT_IEPINT (1u << 18)
 #define IDLE       (1u << 31)
 #define RXFLUSH    (1u << 4)
 #define EPENA      (1u << 31)
@@ -199,6 +201,11 @@ static void interrupt(void)
             daint = 0;
             doepint[0] = doepint[1] = 0;
             *slot_of(DOEPINT0) = *slot_of(DOEPINT1) = 0;
+        }
+        if (handled & INT_IEPINT) { // (ready_follows_the_in_endpoint: the one IN completion it raises)
+            gintsts &= ~INT_IEPINT;
+            daint &= ~0xFFFFu;
+            *slot_of(DIEPINT1) = 0;
         }
     } while (gintsts || fifo_tail != fifo_head);
     in_interrupt = 0;
@@ -782,6 +789,34 @@ static void random_walk(void)
     check_clean();
 }
 
+// usb_midi_ready() (midiout.c's stall ends by it): no before SET_CONFIGURATION, yes once configured, no from a write
+// until the host has read it (XFRC on the IN endpoint), no after a bus reset
+static void ready_follows_the_in_endpoint(void)
+{
+    static const uint8_t clock[4] = {0x0F, 0xF8, 0, 0};
+    usb_midi_realtime(on_realtime);
+    usb_init();
+    CHECK(!usb_midi_ready());
+    bus_reset();
+    CHECK(!usb_midi_ready());
+    CHECK(!usb_midi_write(clock, 1));
+    set_configuration();
+    CHECK(usb_midi_ready());
+    CHECK(usb_midi_write(clock, 1));
+    CHECK(!usb_midi_ready());
+    CHECK(!usb_midi_write(clock, 1));
+    *slot_of(DIEPINT1) = 1u; // XFRC: the host took the transfer
+    daint |= 1u << 1;
+    gintsts |= INT_IEPINT;
+    interrupt();
+    CHECK(usb_midi_ready());
+    CHECK(usb_midi_write(clock, 1));
+    bus_reset();
+    CHECK(!usb_midi_ready());
+    set_configuration();
+    CHECK(usb_midi_ready());
+}
+
 int main(int argc, char **argv)
 {
     static const struct { const char *name; void (*run)(void); } scenarios[] = {
@@ -794,6 +829,7 @@ int main(int argc, char **argv)
         {"toggles", toggles},
         {"preempted", preempted},
         {"random", random_walk},
+        {"ready", ready_follows_the_in_endpoint},
     };
     for (size_t i = 0; argc == 2 && i < sizeof scenarios / sizeof scenarios[0]; i++)
         if (!strcmp(argv[1], scenarios[i].name)) {
@@ -801,6 +837,6 @@ int main(int argc, char **argv)
             printf("ok naks=%d packets=%d arms=%d events=%u\n", naks, packets, arms, next_id);
             return 0;
         }
-    fprintf(stderr, "usage: usbharness burst|park|flush|reset|discard|realtime|toggles|preempted|random\n");
+    fprintf(stderr, "usage: usbharness burst|park|flush|reset|discard|realtime|toggles|preempted|random|ready\n");
     return 2;
 }

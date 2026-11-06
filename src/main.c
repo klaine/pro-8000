@@ -55,8 +55,11 @@
 //                          bit per envelope; 0.9.1), 77 the MIDI channel (0 every channel, 1-16; 0.9.1), 78-81 the
 //                          tuning mode of FREQ A, B on layer 1, then layer 2 (0 semitones, 1 octave, 2 free, 3
 //                          fixed; 0.9.2); 82 pickup … 94 arp chaos (0.9.3-0.9.5: SET_* below), 95 the init
-//                          patch (slot + 1, 0 the built-in sound, system-wide; 0.10.0); read-only after: env select,
-//                          preset mode, patch, morph
+//                          patch (slot + 1, 0 the built-in sound, system-wide; 0.10.0), MIDI out (system-wide,
+//                          0.10.0): 96 the THRU socket (0 thru, 1 out, 2 merge), 97 notes out (0 off, 1 keys, 2
+//                          played), 98 the out channel (0 follow, 1-16), 99 clock out, 100 knob moves out (0 / 1),
+//                          101-102 CC A / B out's controller (0 the default 12 / 13; a reserved CC is refused), 103
+//                          program change out; read-only after: env select, preset mode, patch, morph
 //   44 <t1> <t0>           set the morph target: patch + 1 (0 = none); acknowledged
 //   54                     every setting; replies 54 <count> <value, 2 × 7 bits, per setting> (the settable ones,
 //                          then env select, preset mode, current patch)
@@ -135,6 +138,7 @@
 #include "regs.h"
 #include "dac.h"
 #include "din.h"
+#include "midiout.h"
 #include "sh.h"
 #include "tune.h"
 #include "tuning.h"
@@ -146,7 +150,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 211 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 227 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -385,6 +389,121 @@ static void apply_stored(int n, const patch_t *patch)
 // Loads slot n. An empty slot gives the init sound there (so it starts from scratch, and REC saves it in place), with
 // the slot's number on the display like any other (PERF's InIt is for PERF); a slot that isn't one of ours shows nonE
 // and keeps the sound.
+// --- MIDI out (0.10.0; midiout.c) ---
+// Which notes go out (off; the keys as they come, on the out channel, never back to the port they came from; or what
+// the voices play: the sequence's steps, the arp, chords, each note once however many voices play it) and on which
+// channel: out_channel 1-16, or 0 to follow the MIDI channel (1 with every channel). In channel mode layer 2 goes one
+// higher; in the per-channel modes each voice on its own, from there.
+enum { NOTES_OUT_OFF, NOTES_OUT_KEYS, NOTES_OUT_PLAYED };
+static int midi_channel; // (the receive channel; below)
+static uint8_t notes_out, out_channel, pc_from_midi;
+static uint8_t out_count[16][128]; // played: the voices sounding each note on each out channel
+
+static int8_t socket_to = -1; // a switch to THRU waiting for the socket's offs to go out (midi_out_tick())
+static uint32_t socket_since;
+static int out_ports(void) { return MIDIOUT_USB | (din_socket() != DIN_THRU && socket_to != DIN_THRU ? MIDIOUT_DIN : 0); }
+static int out_base(void) { return out_channel ? out_channel - 1 : midi_channel ? midi_channel - 1 : 0; }
+
+static int out_channel_for(int layer, int offset) // offset: a voice's or a channel's place in the per-channel modes
+{
+    layer_mode_t mode = synth_layer_mode();
+    int c = out_base() + (mode == LAYER_CHANNEL ? layer : mode >= LAYER_VOICE_PER_CHANNEL ? offset : 0);
+    return c > 15 ? 15 : c;
+}
+
+// The engine's notes (synth.c's hook), counted per out channel and note: out as the first voice starts it, off as the
+// last lets go
+static void notes_out_off(void);
+static int cc_out_sent[2]; // (CC A / B out's last values: controllers_out())
+
+// The terms the notes go out on (the layer mode, the out channel's base, the MIDI channel the keys are filtered by, the
+// socket, direct mode): when they change every note out ends, on the channel it went out on, before any note goes out
+// on the new ones (played_note(), the keys' forward, and once a pass); CC A / B out send their values anew
+static void out_terms_check(void)
+{
+    static int terms = -1;
+    int t = (int)synth_layer_mode() | out_base() << 4 | midi_channel << 8 | din_socket() << 13 | (direct_mode != 0) << 15;
+    if (t == terms)
+        return;
+    if (terms >= 0) {
+        notes_out_off();
+        cc_out_sent[0] = cc_out_sent[1] = -1;
+    }
+    terms = t;
+}
+
+static void played_note(int layer, int voice, uint8_t note, int on, uint8_t velocity)
+{
+    if (notes_out != NOTES_OUT_PLAYED)
+        return;
+    out_terms_check();
+    int c = out_channel_for(layer, synth_layer_mode() == LAYER_MPE ? voice + 1 : voice);
+    note &= 0x7F;
+    if (on && !out_count[c][note]++)
+        midiout_note(out_ports(), (uint8_t)(0x90 | c), note, velocity ? velocity : 1);
+    else if (!on && out_count[c][note] && !--out_count[c][note])
+        midiout_note(out_ports(), (uint8_t)(0x80 | c), note, velocity);
+}
+
+// Every note that went out ends (the panic, CC 120 / 123, Tune, update mode, a change of the socket, notes out, the out
+// channel or the terms above; a patch load ends only the played ones, through their voices)
+static void notes_out_off(void)
+{
+    midiout_all_notes_off(MIDIOUT_USB | MIDIOUT_DIN);
+    for (int c = 0; c < 16; c++)
+        for (int n = 0; n < 128; n++)
+            out_count[c][n] = 0;
+}
+
+// What's owed and queued goes out before the main loop stops (Tune, update mode): up to max_ms, the watchdog fed (a
+// USB host that doesn't read gets its offs when it does)
+static void midiout_drain(uint32_t max_ms)
+{
+    for (uint32_t start = ms_ticks; ms_ticks - start < max_ms;) {
+        IWDG_KR = IWDG_KR_REFRESH;
+        midiout_poll(ms_ticks);
+        if (!midiout_pending(MIDIOUT_USB | MIDIOUT_DIN) && din_tx_idle())
+            break;
+    }
+}
+
+// Once a pass, from the main loop (direct mode too): the terms above; CC A / B out's values again when a stalled USB
+// host reads again; and a switch to THRU, which waits for the socket's offs (at most 100 ms: they'd stick on the
+// receiver, as THRU sends nothing of ours), then for the IN stream's running status (din_prepare_thru()), then a
+// millisecond more for the UART to finish the last byte before MIDI_SEL changes
+static void midi_out_tick(uint32_t now)
+{
+    static int was_stalled, idle_seen;
+    static uint32_t idle_since;
+    out_terms_check();
+    int stalled = midiout_usb_stalled();
+    if (was_stalled && !stalled)
+        cc_out_sent[0] = cc_out_sent[1] = -1;
+    was_stalled = stalled;
+    if (socket_to < 0) {
+        idle_seen = 0;
+        return;
+    }
+    int idle = !midiout_pending(MIDIOUT_DIN) && din_tx_idle();
+    if ((int32_t)(now - socket_since) < 100) {
+        if (!idle) {
+            idle_seen = 0;
+            return;
+        }
+        if (!idle_seen) {
+            din_prepare_thru();
+            idle_seen = 1;
+            idle_since = now;
+            return;
+        }
+        if ((int32_t)(now - idle_since) < 1 || !din_tx_idle())
+            return;
+    }
+    din_set_socket(socket_to);
+    socket_to = -1;
+    idle_seen = 0;
+}
+
 static int load_patch(int n)
 {
     patch_t patch;
@@ -393,6 +512,10 @@ static int load_patch(int n)
         if (store_slot_kind(n) == SLOT_EMPTY) {
             init_patch();
             current_patch = n;
+            if (store_midi_out(STORE_OUT_FLAGS) >> 4 & 1 && !pc_from_midi) {
+                uint8_t pc[2] = {(uint8_t)(0xC0 | out_base()), (uint8_t)n};
+                midiout_message(out_ports(), pc, 2);
+            }
             store_set_last(n);
             display_until = 0;
             idle_display();
@@ -406,6 +529,10 @@ static int load_patch(int n)
     for (int i = 0; i <= PATCH_NAME; i++)
         loaded_name[i] = patch.name[i];
     current_patch = n;
+    if (store_midi_out(STORE_OUT_FLAGS) >> 4 & 1 && !pc_from_midi) { // program change out (stock's MIDI PC Tx)
+        uint8_t pc[2] = {(uint8_t)(0xC0 | out_base()), (uint8_t)n};
+        midiout_message(out_ports(), pc, 2);
+    }
     preset_mode = 1;
     display_led(LED_PRESET, 1);
     display_until = 0;
@@ -517,11 +644,24 @@ static int save_patch(int n)
 // (layer 1 + layer 2, or automatic).
 enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_CYCLE, PAGE_BEND, PAGE_DETUNE,
        PAGE_VOICE, PAGE_DRIFT, PAGE_COUNT, // keys 1-9, then 0
-       // the system menu (hold Settings, or Shift + Settings; #2, #34): keys 1-7, 8-0 free (MIDI out, the 0.10.0 plan)
+       // the system menu (hold Settings, or Shift + Settings; #2, #34): keys 1-8 (8 MIDI out, 0.10.0), 9 and 0 free
        PAGE_SYS_CHANNEL = PAGE_COUNT, PAGE_SYS_PICKUP, PAGE_SYS_CC_A, PAGE_SYS_CC_B, PAGE_SYS_CLOCK, PAGE_SYS_TEMPO,
-       PAGE_SYS_INIT, PAGE_ALL };
+       PAGE_SYS_INIT, PAGE_SYS_OUT, PAGE_ALL };
 static int menu_system; // the menu open is the system menu: keys pick its pages, the Settings LED blinks
-static const char sys_page_names[PAGE_ALL - PAGE_COUNT][5] = {"CHnL", "P.UP", "CC.A", "CC.b", "CLoC", "tEnP", "InIt"};
+static const char sys_page_names[PAGE_ALL - PAGE_COUNT][5] = {"CHnL", "P.UP", "CC.A", "CC.b", "CLoC", "tEnP", "InIt", "Out"};
+// Key 8's pages (Arp Up-Dn steps them): MIDI out (0.10.0), each a host setting
+enum { OUT_PAGES = 6 };
+#define SET_OUT_FIRST 96 // SET_MIDI_SOCKET; the enum further down asserts it
+#define SET_MIDI_SOCKET_ID SET_OUT_FIRST
+#define SET_NOTES_OUT_ID (SET_OUT_FIRST + 1)
+#define SET_OUT_CHANNEL_ID (SET_OUT_FIRST + 2)
+#define SET_CLOCK_OUT_ID (SET_OUT_FIRST + 3)
+#define SET_KNOB_CC_ID (SET_OUT_FIRST + 4)
+#define SET_PC_OUT_ID (SET_OUT_FIRST + 7)
+static const char out_page_names[OUT_PAGES][6] = {"dIn", "nOtE", "CH.ou", "CL.ou", "Pt.CC", "PC.ou"};
+static int host_setting_get(int id);
+static int host_setting_set(int id, int value);
+static int cc_reserved(int cc);
 static int sys_setting_count(int page);
 static int sys_setting_get(int page);
 static void sys_setting_set(int page, int value);
@@ -541,6 +681,8 @@ enum { ENV_MODE_CYCLE = 2, ENV_MODE_COUNT = ENV_MODE_CYCLE + 1 + LFO_DIVISIONS }
 
 static const char *page_name(int page)
 {
+    if (page == PAGE_SYS_OUT)
+        return out_page_names[alt_page % OUT_PAGES];
     if (page >= PAGE_COUNT)
         return sys_page_names[page - PAGE_COUNT];
     if (page == PAGE_CYCLE)
@@ -799,8 +941,9 @@ static const char dest_names[DEST_COUNT][6] = {
     "L.rt", "L2.An", "L2.rt", "L2.Fr", "L2.FL", "L2.PU", "norP",
     "EA-A", "EA-d", "EA-S", "EA-r", "EF-A", "EF-d", "EF-S", "EF-r",
     "E3-A", "E3-d", "E3-S", "E3-r", "E4-A", "E4-d", "E4-S", "E4-r",
-    "GLId", "dEtU", "VOL", "nAC1", "nAC2", "CHAo", "CH.Uo",
+    "GLId", "dEtU", "VOL", "nAC1", "nAC2", "CHAo", "CH.Uo", "CCo.A", "CCo.b",
 };
+_Static_assert(DEST_CC_OUT_B == 49, "a destination's name goes in dest_names, in order"); // (a missing one is just empty)
 
 // A depth in tenths: a whole number as ever, the rest with its point, on the display's last digits: 53.5, -53.5, -5.5
 static void show_depth(int tenths)
@@ -1271,7 +1414,7 @@ static uint32_t clock_next, clock_period;
 static int clock_primed;
 static uint32_t tap_at[4];
 static int taps;
-static uint32_t sync_pulse_at;
+static uint32_t sync_pulse_at, sync_pulse_ms;
 
 static void clock_set_bpm(float bpm)
 {
@@ -1280,9 +1423,33 @@ static void clock_set_bpm(float bpm)
     store_set_clock(clock_source, (int)(clock_bpm * 10.0f + 0.5f));
 }
 
+// Clock out (0.10.0): the generator's ticks (internal or SYNC IN) as F8, with FA as it restarts and FC as it stops
+// being the clock; following MIDI clock, its F8 / FA / FB / FC go on to the other port
+static int clock_out_on(void) { return store_midi_out(STORE_OUT_FLAGS) & 1; }
+static void clock_out_byte(uint8_t byte)
+{
+    if (clock_out_on() && clock_source != CLOCK_MIDI)
+        midiout_realtime(out_ports(), byte);
+}
+
+// SYNC IN: the ticks since the last pulse. At 2 pulses a quarter note each pulse is 12 ticks, no more (the generator
+// waits for the pulse) and no fewer (a pulse that comes early sends the rest at once), so what follows the synth (the
+// LFOs, clock out) keeps the jack's count even as its tempo moves.
+#define SYNC_TICKS 12
+static uint8_t sync_ticks;
+
+static void clock_tick(uint32_t at)
+{
+    lfo_clock_tick(at);
+    clock_out_byte(0xF8);
+    if (sync_ticks < 255)
+        sync_ticks++;
+}
+
 static void clock_restart(void) // the next tick is the downbeat, now
 {
     lfo_clock_start();
+    clock_out_byte(0xFA);
     clock_next = DWT_CYCCNT;
     clock_primed = 1;
 }
@@ -1298,7 +1465,13 @@ static void clock_run(void)
         clock_primed = 1;
     }
     for (int n = 0; (int32_t)(now - clock_next) >= 0 && n < 4; n++) {
-        lfo_clock_tick(clock_next);
+        if (clock_source == CLOCK_SYNC_IN && sync_ticks == SYNC_TICKS) {
+            if (ms_ticks - sync_pulse_ms < 1000)
+                break; // the next is the pulse's
+            clock_next = now; // no pulse for a second: on at the last tempo from now (not with the ticks of the wait)
+            sync_ticks++;     // and no waiting again until a pulse
+        }
+        clock_tick(clock_next);
         clock_next += clock_period;
     }
 }
@@ -1330,6 +1503,14 @@ static void clock_set_source(int source);
 
 // The system menu's pages: the settings kept in the global block, which Shift's knobs reach too (NOISE, PMOD FIL ENV,
 // A / B LEVEL, Shift + Sync Clock), the tempo as a number, and the patch Perf loads (#35)
+// Key 8's page as a host setting (`alt_page` picks which)
+static int out_page_setting(void)
+{
+    static const uint8_t ids[OUT_PAGES] = {SET_MIDI_SOCKET_ID, SET_NOTES_OUT_ID, SET_OUT_CHANNEL_ID, SET_CLOCK_OUT_ID,
+                                           SET_KNOB_CC_ID, SET_PC_OUT_ID};
+    return ids[alt_page % OUT_PAGES];
+}
+
 static int sys_setting_count(int page)
 {
     switch (page) {
@@ -1338,6 +1519,10 @@ static int sys_setting_count(int page)
     case PAGE_SYS_CC_A: case PAGE_SYS_CC_B: return 127; // controllers 1-127
     case PAGE_SYS_CLOCK: return 3;
     case PAGE_SYS_TEMPO: return 271; // 30-300 BPM
+    case PAGE_SYS_OUT: {
+        static const uint8_t counts[OUT_PAGES] = {3, 3, 17, 2, 2, 2};
+        return counts[alt_page % OUT_PAGES];
+    }
     default: return PATCH_COUNT + 1; // the init patch: none, then P1-P128
     }
 }
@@ -1356,6 +1541,7 @@ static int sys_setting_get(int page)
         int bpm = (int)(clock_bpm + 0.5f);
         return (bpm < 30 ? 30 : bpm > 300 ? 300 : bpm) - 30;
     }
+    case PAGE_SYS_OUT: return host_setting_get(out_page_setting());
     default: return store_init_patch();
     }
 }
@@ -1371,6 +1557,7 @@ static void sys_setting_set(int page, int value)
         break;
     case PAGE_SYS_CLOCK: clock_set_source(value); break;
     case PAGE_SYS_TEMPO: clock_set_bpm((float)(value + 30)); break;
+    case PAGE_SYS_OUT: host_setting_set(out_page_setting(), value); break;
     default: store_set_init_patch(value); break;
     }
 }
@@ -1385,7 +1572,15 @@ static void sys_show_setting(int page)
         display_text(v ? "on" : "OFF");
     else if (page == PAGE_SYS_CLOCK)
         display_text(clocks[v]);
-    else if (page == PAGE_SYS_INIT && !v)
+    else if (page == PAGE_SYS_OUT) {
+        static const char *const names[OUT_PAGES][3] = {{"tHru", "Out", "nErG"}, {"OFF", "In", "PLAY"}, {"FoL"},
+                                                         {"OFF", "on"}, {"OFF", "on"}, {"OFF", "on"}};
+        const char *name = v < 3 ? names[alt_page % OUT_PAGES][v] : 0;
+        if (name)
+            display_text(name);
+        else
+            display_number(v); // the out channel, 1-16
+    } else if (page == PAGE_SYS_INIT && !v)
         display_text("nonE");
     else if (page == PAGE_SYS_INIT)
         show_patch(v - 1);
@@ -1395,7 +1590,13 @@ static void sys_show_setting(int page)
 
 static void clock_set_source(int source)
 {
+    if (clock_source != CLOCK_MIDI && source == CLOCK_MIDI)
+        clock_out_byte(0xFC); // the synth stops being the clock
+    int was = clock_source;
     clock_source = source;
+    if (was == CLOCK_MIDI && source != CLOCK_MIDI)
+        clock_out_byte(0xFA);
+    din_drop_input_clock(clock_out_on() && source != CLOCK_MIDI); // MERGE: two clocks would double the tempo
     clock_primed = 0;
     store_set_clock(clock_source, (int)(clock_bpm * 10.0f + 0.5f));
 }
@@ -1404,12 +1605,17 @@ static void sync_in_pulse(void) // a rising edge on the jack: 2 pulses per quart
 {
     uint32_t now = DWT_CYCCNT, since = now - sync_pulse_at;
     sync_pulse_at = now;
+    sync_pulse_ms = ms_ticks;
     float s = (float)since / (float)system_hz;
     if (s > 0.04f && s < 1.0f) { // 30-750 BPM at 2 ppq
         clock_bpm = 30.0f / s;
         clock_period = (uint32_t)((float)system_hz * 60.0f / (clock_bpm * 24.0f));
+        while (sync_ticks && sync_ticks < SYNC_TICKS) // early (speeding up): the half beat's ticks complete first
+            clock_tick(now);
     }
-    clock_next = now; // the pulse is a tick
+    sync_ticks = 0;
+    clock_tick(now); // the pulse is a tick
+    clock_next = now + clock_period;
     clock_primed = 1;
 }
 
@@ -1758,6 +1964,11 @@ static uint32_t cc_shown_at, cc_named_at;
 static int param_known(int id);
 static const char *param_code(int id);
 static uint8_t cc_ids[128], cc_nibbles[128]; // the CC map (below)
+static uint8_t echoed[PARAM_COUNT]; // knob moves out (below)
+static uint32_t echoed_at[PARAM_COUNT];
+static uint8_t echoed_layer[PARAM_COUNT]; // the layer it sent from (param_layer_of())
+#define ECHO_MS 300 // a CC for a knob that sent within this long is its echo
+static int cc_out_sent[2];
 static void cc_map_default(void);
 static int cc_reserved(int cc);
 static void param_text(int id, int layer, char *text);
@@ -1984,6 +2195,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         case BUTTON_0: // panic
             seq_stop();
             synth_all_off();
+            notes_out_off(); // the keys' too
             sustain = 0;
             for (int n = 0; n < 128; n++)
                 sustained[n] = 0;
@@ -2053,9 +2265,11 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         return;
     }
     if (kind == CONTROL_BUTTON && index == BUTTON_ARP_UP && value && menu_open
-        && (menu_page == PAGE_CYCLE || menu_page == PAGE_LAYERS)) {
-        // the envelope page: its mode, trigger, timing, curve, count; the layer page: the mode or the voice share
-        alt_page = menu_page == PAGE_CYCLE ? (alt_page + 1) % ENV_PAGES : !alt_page;
+        && (menu_page == PAGE_CYCLE || menu_page == PAGE_LAYERS || menu_page == PAGE_SYS_OUT)) {
+        // the envelope page: its mode, trigger, timing, curve, count; the layer page: the mode or the voice share;
+        // MIDI out's: the socket, notes, channel, clock, knob CCs, program changes
+        alt_page = menu_page == PAGE_CYCLE ? (alt_page + 1) % ENV_PAGES : menu_page == PAGE_SYS_OUT ? (alt_page + 1) % OUT_PAGES
+                 : !alt_page;
         display_text(page_name(menu_page));
         display_until = 0;
         show_value_at = ms_ticks + 700;
@@ -2186,7 +2400,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && menu_open) {
         int page = index == BUTTON_0 ? PAGE_DRIFT : index - BUTTON_1; // key 1 = first page, key 0 = the tenth
-        if (menu_system) // the system menu's keys 1-7; the rest do nothing
+        if (menu_system) // the system menu's keys 1-8; 9 and 0 do nothing
             page = index >= BUTTON_1 && index - BUTTON_1 < PAGE_ALL - PAGE_COUNT ? PAGE_COUNT + index - BUTTON_1 : -1;
         if (page < 0)
             ;
@@ -2291,12 +2505,16 @@ typedef enum {
     SET_UNISON_VOICES,                                   // the voices a note takes in unison, 2-8
     SET_ARP_RANGE, SET_ARP_EXTEND, SET_ARP_CHAOS,        // a sequence's arp: octaves above the first, ARP_EXTEND_*, 0-99
     SET_INIT_PATCH,                                      // the patch Perf loads: slot + 1, 0 the built-in sound (0.10.0)
+    // MIDI out (0.10.0; system-wide): the socket (din.h), notes out (0 off, 1 keys, 2 played), the out channel (0
+    // follow, 1-16), clock out, knob moves as CCs, CC A / B out's numbers (0: 12 and 13), program changes out
+    SET_MIDI_SOCKET, SET_NOTES_OUT, SET_OUT_CHANNEL, SET_CLOCK_OUT, SET_KNOB_CC, SET_CC_OUT_A, SET_CC_OUT_B, SET_PC_OUT,
     SET_WRITABLE,                                       // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
 _Static_assert(8 + 2 + 2 * SET_COUNT + 1 <= SYSEX_MAX, "the settings reply fits");
 _Static_assert(SET_INIT_PATCH == 95, "the tools and the page number the settings: 95 is init-patch (NOTES, the 0.10.0 plan)");
 
+_Static_assert(SET_MIDI_SOCKET == SET_OUT_FIRST && SET_PC_OUT == SET_OUT_FIRST + 7, "key 8's pages name these ids");
 #include "params.h" // after the SET_* ids, which its table names
 
 static int host_setting_get(int id)
@@ -2351,6 +2569,13 @@ static int host_setting_get(int id)
         return synth_osc_tune_mode((id - SET_OSC_TUNE_L1_A) / 2, (id - SET_OSC_TUNE_L1_A) % 2);
     case SET_PICKUP: return synth_pickup();
     case SET_INIT_PATCH: return store_init_patch();
+    case SET_MIDI_SOCKET: return socket_to >= 0 ? socket_to : din_socket();
+    case SET_NOTES_OUT: return notes_out;
+    case SET_OUT_CHANNEL: return out_channel;
+    case SET_CLOCK_OUT: return store_midi_out(STORE_OUT_FLAGS) & 1;
+    case SET_KNOB_CC: return store_midi_out(STORE_OUT_FLAGS) >> 1 & 1;
+    case SET_CC_OUT_A: case SET_CC_OUT_B: return store_midi_out(id == SET_CC_OUT_A ? STORE_CC_OUT_A : STORE_CC_OUT_B);
+    case SET_PC_OUT: return store_midi_out(STORE_OUT_FLAGS) >> 4 & 1;
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -2376,10 +2601,13 @@ static int host_setting_set(int id, int value)
         [SET_LFO1_CYCLES] = 100, [SET_LFO2_CYCLES] = 100, [SET_LFO_RESTART] = 2,
         [SET_ROUTE_BOTH ... SET_ROUTE_BOTH_END] = 256, [SET_UNISON_VOICES] = VOICE_COUNT + 1,
         [SET_ARP_RANGE] = ARP_RANGE_MAX + 1, [SET_ARP_EXTEND] = ARP_EXTEND_COUNT, [SET_ARP_CHAOS] = ARP_CHAOS_MAX + 1,
-        [SET_INIT_PATCH] = PATCH_COUNT + 1,
+        [SET_INIT_PATCH] = PATCH_COUNT + 1, [SET_MIDI_SOCKET] = 3, [SET_NOTES_OUT] = 3, [SET_OUT_CHANNEL] = 17,
+        [SET_CLOCK_OUT] = 2, [SET_KNOB_CC] = 2, [SET_CC_OUT_A] = 128, [SET_CC_OUT_B] = 128, [SET_PC_OUT] = 2,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id] || (id == SET_UNISON_VOICES && value < 2))
         return 0;
+    if ((id == SET_CC_OUT_A || id == SET_CC_OUT_B) && value && cc_reserved(value))
+        return 0; // a CC with its own meaning (the mod wheel, sustain, data entry, the channel mode messages)
     switch (id) {
     case SET_LFO1_SYNC: case SET_LFO2_SYNC: lfo_sync[id == SET_LFO2_SYNC] = (lfo_sync_t)value; break;
     case SET_LFO1_TRIGGER: case SET_LFO2_TRIGGER: lfo_trigger[id == SET_LFO2_TRIGGER] = (lfo_trigger_t)value; break;
@@ -2449,6 +2677,39 @@ static int host_setting_set(int id, int value)
         break;
     case SET_PICKUP: set_pickup(value); break;
     case SET_INIT_PATCH: store_set_init_patch(value); break;
+    case SET_MIDI_SOCKET:
+        notes_out_off(); // what the socket sent ends while it still can
+        store_set_midi_out(STORE_SOCKET, value);
+        if (value == DIN_THRU && din_socket() != DIN_THRU) { // its offs go first: midi_out_tick() switches
+            socket_to = DIN_THRU;
+            socket_since = ms_ticks;
+        } else {
+            socket_to = -1;
+            din_set_socket(value);
+        }
+        break;
+    case SET_NOTES_OUT: case SET_OUT_CHANNEL:
+        notes_out_off(); // what went out on the old terms ends
+        if (id == SET_NOTES_OUT)
+            notes_out = (uint8_t)value;
+        else
+            out_channel = (uint8_t)value;
+        store_set_midi_out(id == SET_NOTES_OUT ? STORE_NOTES_OUT : STORE_OUT_CHANNEL, value);
+        break;
+    case SET_CLOCK_OUT: case SET_KNOB_CC: case SET_PC_OUT: {
+        int bit = id == SET_CLOCK_OUT ? 1 : id == SET_KNOB_CC ? 2 : 16, flags = store_midi_out(STORE_OUT_FLAGS);
+        if (id == SET_CLOCK_OUT && !value)
+            clock_out_byte(0xFC); // while it still may
+        store_set_midi_out(STORE_OUT_FLAGS, value ? flags | bit : flags & ~bit);
+        if (id == SET_CLOCK_OUT && value && !(flags & 1))
+            clock_out_byte(0xFA);
+        din_drop_input_clock(clock_out_on() && clock_source != CLOCK_MIDI);
+        break;
+    }
+    case SET_CC_OUT_A: case SET_CC_OUT_B:
+        store_set_midi_out(id == SET_CC_OUT_A ? STORE_CC_OUT_A : STORE_CC_OUT_B, value);
+        cc_out_sent[id == SET_CC_OUT_B] = -1; // the value goes out again on the new number
+        break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -2475,6 +2736,8 @@ static void drop_stale_midi(void)
 // accepting meanwhile and drops what doesn't fit, and all of it goes at the end. The clock keeps its ticks this way.
 static int tune_dropping_midi(void)
 {
+    notes_out_off(); // (the panel's Tune and SysEx 75 alike: the voices are off already)
+    midiout_drain(40); // the offs go out before the loop stops for the tune
     store_flush(); // no pass for 25 s, in which the power may go
     usb_midi_discard(1);
     int rows = tuning_run();
@@ -2482,6 +2745,7 @@ static int tune_dropping_midi(void)
     synth_init();
     drop_stale_midi();
     usb_midi_discard(0);
+    midiout_resume(ms_ticks);
     return rows;
 }
 
@@ -2504,6 +2768,8 @@ static void enter_update_mode(void)
 {
     store_flush();
     synth_all_off();
+    notes_out_off();
+    midiout_drain(100); // the offs go out before the reset
     sh_set(CV_MASTER_VOL, 0);
     for (int i = 0; i < 4; i++)
         sh_refresh();
@@ -3224,6 +3490,18 @@ static int cc_reserved(int cc)
 
 // A mapped CC: a coarse one spreads its 7 bits over the parameter (a knob's travel, a macro offset centred at 64, a
 // button on from 64, the rest index = v × count / 128); a fine one is the low 7 bits of the value as it is
+// Whether a CC by this rule on this channel sets the parameter on the layer a knob's move went out from (rule 0: the
+// channel's layer in channel mode, else the edit layer; 1 / 2 a layer; 3 both)
+static int echo_lands(const param_def_t *d, int rule, int channel, int layer)
+{
+    int layers = rule == 1 ? 1 : rule == 2 ? 2 : rule == 3 ? 3
+               : synth_layer_mode() == LAYER_CHANNEL ? synth_channel_layers(channel) : 1 << synth_edit_layer();
+    for (int l = 0; l < 2; l++)
+        if (layers >> l & 1 && param_layer_of(d, l) == layer)
+            return 1;
+    return 0;
+}
+
 static void cc_mapped(int cc, uint8_t value, int channel)
 {
     int id = cc_ids[cc], rule = cc_nibbles[cc] & 3;
@@ -3235,7 +3513,54 @@ static void cc_mapped(int cc, uint8_t value, int channel)
             param_from_midi(id, rule, channel, FROM_CC_FINE, value, 0);
         return;
     }
+    if (id < PARAM_COUNT && echoed[id] && ms_ticks - echoed_at[id] < ECHO_MS && echo_lands(d, rule, channel, echoed_layer[id]))
+        return; // the knob moving it sent a CC within ECHO_MS: this is its echo (a DAW's MIDI thru, its own values or
+                // older ones), and the knob keeps the parameter; afterwards a CC sets it as ever. One for the other
+                // layer (channel mode, a map rule) isn't its echo
     param_from_midi(id, rule, channel, FROM_CC, value, value << 7);
+}
+
+// Controllers out, once a pass (0.10.0). Knob moves (knob CC on): a knob that holds its value and moved a 7-bit step
+// goes out on the first CC the map has for its parameter, on the out channel (layer 2's in channel mode one higher);
+// one in pickup never does. CC A / B out: the routes' sum, when it changes, at most every 5 ms each.
+static uint8_t echoed[PARAM_COUNT]; // a knob that sent (the value + 1, 0 none), and when (echoed_at)
+static int cc_out_sent[2] = {-1, -1};
+static uint32_t cc_out_at[2];
+
+static void controllers_out(uint32_t now)
+{
+    uint64_t moved = synth_take_panel_moves();
+    int layer = synth_edit_layer();
+    for (int p = 0; moved && store_midi_out(STORE_OUT_FLAGS) & 2; p++, moved >>= 1) {
+        if (!(moved & 1))
+            continue;
+        int cc = -1;
+        for (int c = 0; c < 128 && cc < 0; c++)
+            if (cc_ids[c] == p && !(cc_nibbles[c] & CC_MAP_FINE))
+                cc = c;
+        if (cc < 0)
+            continue; // no CC for it (M VOL)
+        int v = (int)(synth_param(synth_param_layer(layer, p), p) * 127.0f + 0.5f);
+        echoed[p] = (uint8_t)(v + 1);
+        echoed_at[p] = now;
+        echoed_layer[p] = (uint8_t)param_layer_of(&param_defs[p], layer);
+        midiout_cc(out_ports(), (uint8_t)out_channel_for(layer, 0), (uint8_t)cc, (uint8_t)v);
+    }
+    for (int w = 0; w < 2; w++) {
+        float v;
+        if (!synth_cc_out(w, &v)) {
+            cc_out_sent[w] = -1;
+            continue;
+        }
+        int x = (int)(v * 127.0f + 0.5f), number = store_midi_out(w ? STORE_CC_OUT_B : STORE_CC_OUT_A);
+        if (cc_reserved(number))
+            number = 0; // (one stored by an EEPROM image: as the default)
+        if (x == cc_out_sent[w] || now - cc_out_at[w] < 5)
+            continue;
+        midiout_cc(out_ports(), (uint8_t)out_base(), (uint8_t)(number ? number : w ? 13 : 12), (uint8_t)x);
+        cc_out_sent[w] = x;
+        cc_out_at[w] = now;
+    }
 }
 
 // A note let go on `layers` (the pedal's release): the sequence's key, else the engine's
@@ -3358,6 +3683,7 @@ static void refresh_cvs(void)
         last_tick = now;
         if (k) { // (the pass began with these)
             handle_midi();
+            midiout_poll(ms_ticks);
             clock_run();
             advance_sequence();
             unsigned started = synth_take_fresh_voices();
@@ -3383,6 +3709,22 @@ static void refresh_cvs(void)
 
 // MIDI realtime and Song Position Pointer, straight from the USB and DIN interrupts (usb_midi_realtime(), din_init()):
 // the clock the LFOs and the sequence follow
+static void realtime(uint8_t status, uint16_t data, uint32_t cycles);
+// Following MIDI clock with clock out on, the clock goes on to the other port (the socket's own in MERGE is merged)
+static void realtime_from_usb(uint8_t status, uint16_t data, uint32_t cycles)
+{
+    realtime(status, data, cycles);
+    if (status != 0xF2 && status <= 0xFC && clock_source == CLOCK_MIDI && clock_out_on())
+        din_realtime(status); // both interrupts at one priority: they never interrupt each other
+}
+
+static void realtime_from_din(uint8_t status, uint16_t data, uint32_t cycles)
+{
+    realtime(status, data, cycles);
+    if (status != 0xF2 && status <= 0xFC && clock_source == CLOCK_MIDI && clock_out_on())
+        midiout_forward_usb(status);
+}
+
 static void realtime(uint8_t status, uint16_t data, uint32_t cycles)
 {
     if (clock_source != CLOCK_MIDI)
@@ -3431,7 +3773,13 @@ static void handle_midi(void)
     uint8_t p[4];
 
     // The 5-pin socket first: at 31250 baud it can't use up the bound, while a USB flood would leave it none
-    for (int left = MIDI_PER_CALL; left > 0 && (din_midi_read(p) || usb_midi_read(p)); left--) {
+    for (int left = MIDI_PER_CALL, from = 0; left > 0 && ((from = din_midi_read(p) ? MIDIOUT_DIN : 0) || (from = usb_midi_read(p) ? MIDIOUT_USB : 0)); left--) {
+        if (notes_out == NOTES_OUT_KEYS && ((p[0] & 0x0F) == 0x8 || (p[0] & 0x0F) == 0x9) && !direct_mode) {
+            out_terms_check();
+            int channel = listen_channel(p[1]); // keys out: as they come, after the channel filter, on the out channel
+            if (channel >= 0)
+                midiout_note(out_ports() & ~from, (uint8_t)((p[1] & 0xF0) | out_channel_for(channel == 1, channel)), p[2], p[3]);
+        }
         uint8_t cin = p[0] & 0x0F;
         uint8_t status = p[1] & 0xF0;
         if (cin >= 0x8 && cin <= 0xE) { // a channel message: from here on its channel counts from the setting
@@ -3470,13 +3818,17 @@ static void handle_midi(void)
             key_off(p[2], p[3], p[1] & 0x0F); // its release velocity, 0 included
             break;
         case 0xC: // program change 0-127: patch 1-128
-            if (p[2] < PATCH_COUNT && !saving) // a save in progress keeps the sound it's about to store
+            if (p[2] < PATCH_COUNT && !saving) { // a save in progress keeps the sound it's about to store
+                pc_from_midi = 1; // no program change goes back out for it
                 load_patch(p[2]);
+                pc_from_midi = 0;
+            }
             break;
         case 0xB:
             if (status == 0xB0 && (p[2] == 120 || p[2] == 123)) { // all sound off, all notes off
                 seq_stop();
                 synth_all_off();
+                notes_out_off();
             }
             if (status == 0xB0 && p[2] == 1)
                 synth_mod_wheel(p[3], synth_channel_layers(p[1] & 0x0F));
@@ -3524,6 +3876,7 @@ static void handle_midi(void)
 int main(void)
 {
     sh_safe();
+    din_safe();
     fault_boot_check(&fault_record);
     int crashed = fault_record.streak != 0; // a record survives a clean run, with its streak cleared
     int crystal = clock_init();
@@ -3568,11 +3921,17 @@ int main(void)
     clock_source = store_clock_source();
     clock_bpm = (float)store_bpm_tenths() / 10.0f;
     clock_period = (uint32_t)((float)system_hz * 60.0f / (clock_bpm * 24.0f));
+    notes_out = (uint8_t)store_midi_out(STORE_NOTES_OUT);
+    out_channel = (uint8_t)store_midi_out(STORE_OUT_CHANNEL);
+    synth_set_note_out(played_note);
     if (store_ready()) {
         current_patch = store_last_patch();
         for (uint32_t start = ms_ticks; !controls_ready() && ms_ticks - start < 200;)
             controls_poll(ms_ticks, 0); // read every knob once, so the patch's pickup starts from them
-        if (load_patch(current_patch)) {
+        pc_from_midi = 1; // the power-up's own load sends no program change
+        int loaded = load_patch(current_patch);
+        pc_from_midi = 0;
+        if (loaded) {
             undo_valid = 0; // nothing of the user's to bring back yet
             show_boot(crashed); // the load showed the slot: the version gets its time first
         }
@@ -3581,8 +3940,11 @@ int main(void)
         display_text("Forn"); // an older layout of ours was wiped: every slot is empty now (n stands in for m)
         display_until = ms_ticks + 1500;
     }
-    usb_midi_realtime(realtime);
-    din_init(realtime);
+    usb_midi_realtime(realtime_from_usb);
+    din_init(realtime_from_din);
+    din_set_socket(store_midi_out(STORE_SOCKET));
+    din_drop_input_clock(clock_out_on() && clock_source != CLOCK_MIDI);
+    clock_out_byte(0xFA); // (with clock out on and the synth the clock: the receivers start with it)
     if (crystal) {
         usb_init();
         usb_running = 1;
@@ -3593,6 +3955,8 @@ int main(void)
     for (;;) {
         IWDG_KR = IWDG_KR_REFRESH;
         handle_midi();
+        midiout_poll(ms_ticks);
+        midi_out_tick(ms_ticks);
 
         uint32_t cycles = DWT_CYCCNT;
         float dt = (float)(cycles - last) / (float)system_hz;
@@ -3617,6 +3981,7 @@ int main(void)
             clock_run();
             advance_sequence();
             synth_update(dt);
+            controllers_out(now);
             if (synth_take_chord_captured() && !menu_open && !saving && !recording && !assigning && !browsing
                 && !comparing && !typed_digits) {
                 display_text("CHrd"); // the Unison button or the pedal took the held keys as the patch's chord

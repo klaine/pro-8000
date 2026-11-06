@@ -1020,6 +1020,7 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
     + ["env-tempo 1", "env-tempo 2", "midi-channel",
        "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles", "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)",
        "route-both 2 (0-7)", "route-both 2 (8-15)", "unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
+       "midi-socket", "notes-out", "out-channel", "clock-out", "knob-cc", "cc-out-a", "cc-out-b", "pc-out",
        "env-select", "preset-mode", "patch", "morph"]
 let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
@@ -1050,6 +1051,8 @@ func setSetting() {
         "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | " +
         "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
         "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | init-patch none|<slot> | " +
+        "midi-socket thru|out|merge | notes-out off|keys|played | out-channel follow|<1-16> | clock-out|knob-cc|pc-out on|off | " +
+        "cc-out-a|cc-out-b default|<1-127, not 1 6 32 38 64 96-101 120-127> | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
         "cycle-sync <layer 1|2> amp|filter|env3|env4 free|\(divisionNames.joined(separator: "|")) | " +
@@ -1083,6 +1086,21 @@ func setSetting() {
         (id, v) = (95, 0)
     } else if args.count == 2, args[0] == "init-patch", let n = slotNumber(args[1]) {
         (id, v) = (95, n + 1)
+    } else if args.count == 2, args[0] == "midi-socket", let i = ["thru", "out", "merge"].firstIndex(of: args[1]) {
+        (id, v) = (96, i) // MIDI out (0.10.0), system-wide
+    } else if args.count == 2, args[0] == "notes-out", let i = ["off", "keys", "played"].firstIndex(of: args[1]) {
+        (id, v) = (97, i)
+    } else if args.count == 2, args[0] == "out-channel", args[1] == "follow" {
+        (id, v) = (98, 0)
+    } else if args.count == 2, args[0] == "out-channel", let c = Int(args[1]), (1...16).contains(c) {
+        (id, v) = (98, c)
+    } else if args.count == 2, let i = ["clock-out": 99, "knob-cc": 100, "pc-out": 103][args[0]], ["on", "off"].contains(args[1]) {
+        (id, v) = (UInt8(i), args[1] == "on" ? 1 : 0)
+    } else if args.count == 2, ["cc-out-a", "cc-out-b"].contains(args[0]), args[1] == "default" {
+        (id, v) = (args[0] == "cc-out-a" ? 101 : 102, 0)
+    } else if args.count == 2, ["cc-out-a", "cc-out-b"].contains(args[0]), let n = Int(args[1]), (1...127).contains(n),
+              !ccReserved.contains(n) { // (the firmware refuses a CC with its own meaning too)
+        (id, v) = (args[0] == "cc-out-a" ? 101 : 102, n)
     } else if args.count == 2, args[0] == "drift", let a = Int(args[1]), (0...99).contains(a) {
         (id, v) = (29, a)
     } else if args.count == 2, args[0] == "scale", let i = scaleNames.firstIndex(of: args[1]) {
@@ -1261,9 +1279,14 @@ func settings() {
         case 92: text = v == 0 ? "1 octave" : "\(v + 1) octaves"
         case 93: text = ["none", "octave", "fifth", "seventh", "ninth"][safe: v] ?? text
         case 95: text = v == 0 ? "none (the built-in sound)" : slotName(v - 1)
-        case 96: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
-        case 98: text = slotName(v)
-        case 99: text = v == 0 ? "none" : slotName(v - 1)
+        case 96: text = ["thru", "out", "merge"][safe: v] ?? text
+        case 97: text = ["off", "keys", "played"][safe: v] ?? text
+        case 98: text = v == 0 ? "follow (the MIDI channel, 1 with all)" : String(v)
+        case 99, 100, 103: text = v != 0 ? "on" : "off"
+        case 101, 102: text = v != 0 ? "CC \(v)" : "CC \(i == 101 ? 12 : 13) (default)"
+        case settingNames.firstIndex(of: "env-select")!: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
+        case settingNames.firstIndex(of: "patch")!: text = slotName(v)
+        case settingNames.firstIndex(of: "morph")!: text = v == 0 ? "none" : slotName(v - 1)
         default: break
         }
         print("\(settingNames[i].padding(toLength: 20, withPad: " ", startingAt: 0)) \(text)")
@@ -1667,7 +1690,7 @@ let destNames = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "
                  "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
                  "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
                  "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-                 "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing"]
+                 "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing", "cc-out-a", "cc-out-b"]
 
 // A depth in tenths, -990..990, or nil if it's out of range or finer than that
 func tenthsFromText(_ text: String) -> Int? {

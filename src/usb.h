@@ -23,6 +23,8 @@ void usb_midi_discard(int on);
 void usb_midi_realtime(void (*handler)(uint8_t status, uint16_t data, uint32_t cycles));
 // Sends USB MIDI event packets to the host (at most 16 at a time). Returns 0 if not configured or still busy.
 int usb_midi_write(const uint8_t *packets, int count);
+// Whether a write would be taken now: configured, and the last transfer read by the host (midiout.c's stall ends)
+int usb_midi_ready(void);
 // Drops off the bus, so the host sees the device unplugged.
 void usb_disconnect(void);
 

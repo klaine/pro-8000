@@ -58,6 +58,7 @@ typedef enum {
     DEST_MACRO1, DEST_MACRO2, // the macros (SRC_MACRO1 / 2)
     DEST_ARP_CHAOS, // adds to the patch's arp Chaos: per layer, from the most recently played voice, read at each step
     DEST_CHORD_VOICING, // chord memory's voicing ladder (synth.c): read as a chord note starts, and held chords follow it (0.10.0)
+    DEST_CC_OUT_A, DEST_CC_OUT_B, // a controller out (main.c): the routes' sum over both layers, 0..1 as 0-127 (0.10.0)
     DEST_COUNT
 } mod_dest_t;
 #define DEST_NONE 0xFF

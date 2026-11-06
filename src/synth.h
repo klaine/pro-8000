@@ -305,6 +305,14 @@ void synth_unison_pressed(void); // the panel's Unison button: if it turns Uniso
 int synth_pedal_down(int layers); // the pedal went down: with Unison on, 2 or more keys held are the new chord (stock)
 int synth_take_chord_captured(void); // the layers the panel's button or the pedal gave a chord since the last call
 void synth_chord_plain(int on); // the notes started meanwhile play without the chord (a sequence's own chord, the arp)
+// The notes the voices play, for MIDI out (0.10.0): fn(layer, voice, note, on, velocity) as a voice's note starts, stops
+// or moves (legato, a chord re-voiced: an off, then an on). A unison stack calls it for each of its voices.
+void synth_set_note_out(void (*fn)(int layer, int voice, uint8_t note, int on, uint8_t velocity));
+// The parameters (bits, PARAM_* order) whose knobs moved a 7-bit step since the last call, latched (after pickup) on
+// the edit layer: knob moves out as CCs
+uint64_t synth_take_panel_moves(void);
+// CC A / B out (DEST_CC_OUT_A + which): 1 and the routes' sum over both layers (0..1) if any route reaches it
+int synth_cc_out(int which, float *value);
 int synth_chord_notes(int layer, uint8_t key, uint8_t *out); // what `key` plays on `layer` now (voiced); 1 without a chord
 int synth_pot_pending(int pot);
 // VALUE's fine adjustment of a knob's value (on the edit layer, as the knob edits it): `steps` of the knob's grid, a

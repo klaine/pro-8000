@@ -1217,8 +1217,11 @@ SETTING_NAMES = (["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo
                     "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles",
                     "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)", "route-both 2 (0-7)", "route-both 2 (8-15)",
                     "unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
+                    "midi-socket", "notes-out", "out-channel", "clock-out", "knob-cc", "cc-out-a", "cc-out-b", "pc-out",
                     "env-select", "preset-mode", "patch", "morph"])
 LINK_NAMES = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
+SOCKET_NAMES = ["thru", "out", "merge"]  # the THRU socket (0.10.0)
+NOTES_OUT_NAMES = ["off", "keys", "played"]
 ARP_EXTEND_NAMES = ["none", "octave", "fifth", "seventh", "ninth"]
 CURVE_NAMES = ["analog", "linear", "swell"]
 SCALE_NAMES = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
@@ -1258,6 +1261,8 @@ def set_setting():
              "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | "
              "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | "
              "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | init-patch none|<slot> | "
+             "midi-socket thru|out|merge | notes-out off|keys|played | out-channel follow|<1-16> | clock-out|knob-cc|pc-out on|off | "
+             "cc-out-a|cc-out-b default|<1-127, not 1 6 32 38 64 96-101 120-127> | "
              f"shape <layer 1|2> <lfo 1|2> {'|'.join(SHAPE_NAMES)} | lfo2-dests <layer 1|2> none|pitch,filter,pw | "
              "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | "
              f"cycle-sync <layer 1|2> amp|filter|env3|env4 free|{'|'.join(DIVISION_NAMES)} | "
@@ -1294,6 +1299,17 @@ def set_setting():
         setting = (94, v)
     elif n == 2 and name == "init-patch" and (v := 0 if args[1] == "none" else slot_plus_1(args[1])) is not None:
         setting = (95, v)
+    elif n == 2 and name == "midi-socket" and args[1] in SOCKET_NAMES:  # MIDI out (0.10.0), system-wide
+        setting = (96, SOCKET_NAMES.index(args[1]))
+    elif n == 2 and name == "notes-out" and args[1] in NOTES_OUT_NAMES:
+        setting = (97, NOTES_OUT_NAMES.index(args[1]))
+    elif n == 2 and name == "out-channel" and (v := 0 if args[1] == "follow" else int_in(args[1], 1, 16)) is not None:
+        setting = (98, v)
+    elif n == 2 and name in ("clock-out", "knob-cc", "pc-out") and args[1] in ("on", "off"):
+        setting = ({"clock-out": 99, "knob-cc": 100, "pc-out": 103}[name], int(args[1] == "on"))
+    elif (n == 2 and name in ("cc-out-a", "cc-out-b") and (v := 0 if args[1] == "default" else int_in(args[1], 1, 127)) is not None
+          and (v == 0 or v not in CC_RESERVED)):  # (the firmware refuses a CC with its own meaning too)
+        setting = (101 if name == "cc-out-a" else 102, v)
     elif n == 2 and name == "drift" and (v := int_in(args[1], 0, 99)) is not None:
         setting = (29, v)
     elif n == 2 and name == "scale" and args[1] in SCALE_NAMES:
@@ -1454,6 +1470,16 @@ def setting_text(i, v):
         return at(ARP_EXTEND_NAMES, v)
     if i == SETTING_NAMES.index("init-patch"):
         return "none (the built-in sound)" if v == 0 else slot_name(v - 1)
+    if i == SETTING_NAMES.index("midi-socket"):
+        return at(SOCKET_NAMES, v)
+    if i == SETTING_NAMES.index("notes-out"):
+        return at(NOTES_OUT_NAMES, v)
+    if i == SETTING_NAMES.index("out-channel"):
+        return "follow (the MIDI channel, 1 with all)" if v == 0 else str(v)
+    if i in (SETTING_NAMES.index("clock-out"), SETTING_NAMES.index("knob-cc"), SETTING_NAMES.index("pc-out")):
+        return "on" if v else "off"
+    if i in (SETTING_NAMES.index("cc-out-a"), SETTING_NAMES.index("cc-out-b")):
+        return f"CC {v}" if v else f"CC {12 if i == SETTING_NAMES.index('cc-out-a') else 13} (default)"
     if i == SETTING_NAMES.index("env-select"):
         return at(["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"], v)
     if i == SETTING_NAMES.index("patch"):
@@ -1986,7 +2012,7 @@ DEST_NAMES = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmo
               "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
               "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
               "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-              "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing"]
+              "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing", "cc-out-a", "cc-out-b"]
 
 
 def source_and_dest():  # None unless args[1] and args[2] name a source and a destination

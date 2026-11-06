@@ -503,7 +503,7 @@
         <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live; the display shows <code class="lcd">PAnL</code>)</td></tr>
         <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
         <tr><td><kbd>Perf</kbd></td><td>Hold (0.6 s): the init sound (one saw, filter open, velocity → VCA 70 and → cutoff 20)<span data-needs="initPatch">, or your init patch <code class="lcd">InIt.</code>; a tap only says <code class="lcd">HoLd</code></span></td></tr>
-        <tr><td><kbd>Settings</kbd></td><td>The settings menu <code class="lcd">SEt</code> (keys 0-9 below)<span data-needs="initPatch">. Held, or Shift + Settings: the system menu <code class="lcd">SYS</code> (LED blinking): 1 <code class="lcd">CHnL</code>, 2 <code class="lcd">P.UP</code>, 3 <code class="lcd">CC.A</code>, 4 <code class="lcd">CC.b</code>, 5 <code class="lcd">CLoC</code>, 6 <code class="lcd">tEnP</code>, 7 <code class="lcd">InIt</code> (your init patch); Shift + <kbd>VALUE</kbd> moves ten</span></td></tr>
+        <tr><td><kbd>Settings</kbd></td><td>The settings menu <code class="lcd">SEt</code> (keys 0-9 below)<span data-needs="initPatch">. Held, or Shift + Settings: the system menu <code class="lcd">SYS</code> (LED blinking): 1 <code class="lcd">CHnL</code>, 2 <code class="lcd">P.UP</code>, 3 <code class="lcd">CC.A</code>, 4 <code class="lcd">CC.b</code>, 5 <code class="lcd">CLoC</code>, 6 <code class="lcd">tEnP</code>, 7 <code class="lcd">InIt</code> (your init patch)<span data-needs="midiOut">, 8 <code class="lcd">dIn</code> MIDI out (Arp Up-Dn: <code class="lcd">nOtE</code> <code class="lcd">CH.ou</code> <code class="lcd">CL.ou</code> <code class="lcd">Pt.CC</code> <code class="lcd">PC.ou</code>)</span>; Shift + <kbd>VALUE</kbd> moves ten</span></td></tr>
         <tr><td><kbd>Tune</kbd></td><td>Autotune, about 25 s, silent <code class="lcd">tUnE</code></td></tr>
       </table>
     </section>
@@ -605,6 +605,7 @@
           <tr data-needs="chord"><td>Unison button</td><td>Chord voicing <code class="lcd">CH.Uo</code> (the button doesn't switch meanwhile)</td></tr>
           <tr><td>A LEVEL / B LEVEL / NOISE</td><td>Mixer <code class="lcd">A.LE</code> <code class="lcd">b.LE</code> <code class="lcd">noIS</code></td></tr>
           <tr><td>RESONANCE, PW A / B, PMOD OSC B</td><td><code class="lcd">rES</code> <code class="lcd">A.PU</code> <code class="lcd">b.PU</code> <code class="lcd">P.ob</code></td></tr>
+          <tr data-needs="midiOut"><td>VALUE</td><td>CC A / B out, the routes' sum as a MIDI CC <code class="lcd">CCo.A</code> <code class="lcd">CCo.b</code></td></tr>
         </table>
       </div>
     </section>
@@ -811,6 +812,17 @@
       Perf saves there and makes it the init; the system menu (hold Settings) has it on key 7, <code class="lcd">InIt</code>.
       System-wide, stored a second after a change.</p>
     <div class="row" id="init-patch-row"></div>
+  </section>
+  <section data-needs="midiOut">
+    <h2>MIDI out</h2>
+    <p class="hint">What the synth sends, on USB and (Out or Merge) the THRU socket. Notes: the keys as they come (never
+      back to the port they came from), or what the voices play: the sequence, the arp, chords. The out channel follows
+      the MIDI channel (1 with all) unless set; in channel mode layer 2 goes one higher. Merge passes the IN socket's
+      messages through with the synth's between them. Clock out sends the internal or SYNC IN clock; following MIDI
+      clock it passes the clock on to the other port. Knob moves go out on the knob's CC once it holds its value (none
+      in pickup). CC A / B out are mod destinations: the routes' sum as a CC. System-wide, stored a second after a
+      change; on the synth: the system menu's key 8 (<code class="lcd">dIn</code>), Arp Up-Dn for its pages.</p>
+    <div class="row" id="midi-out-row"></div>
   </section>
   <section data-needs="ccMap">
     <h2>Controllers</h2>
@@ -1370,6 +1382,7 @@ const FEATURES = {
   releaseVelocity: ["initPatch", "release velocity as a mod source"], // 0.10.0, as the init patch
   chord: ["initPatch", "chord memory and its voicing"],
   ccMap: ["initPatch", "your own CC map, and every parameter by NRPN"],
+  midiOut: ["midiSocket", "MIDI out: the THRU socket, notes, clock and knobs"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -1605,6 +1618,7 @@ function swingUnit(dest) {
   if (dest === 14 || dest === 15) return [50, pct];                 // pulse width
   if (dest === 42) return [50, x => Math.round(x) + " ct"];         // unison detune
   if (dest === 47) return [chordSize(), x => { const k = Math.round(x); return `${k} step${Math.abs(k) === 1 ? "" : "s"}`; }]; // chord voicing
+  if (dest === 48 || dest === 49) return [127, x => String(Math.round(x))]; // CC A / B out: the controller's value
   if ([6, 9, 17, 19, 23, 24, 43, 46].includes(dest)) return [100, pct]; // LFO amounts and → PW, VCA, volume, morph, arp Chaos
   if (rateDest(dest)) return [4, x => +x.toFixed(1) + " oct"];
   if (timeDest(dest)) return [4, x => x < 0 ? "÷" + factor(-x) : "×" + factor(x)];
@@ -1624,12 +1638,17 @@ function routeSwing(source, dest, depth, via = 0) {
   const viaSource = via >= VIA_SOURCE ? via - VIA_SOURCE : 0, exp = rateDest(dest) || timeDest(dest);
   let m = d * full * (via && !viaSource ? via / 100 : 1); // a source as Via: as far as it can reach
   if (exp) m = Math.max(-8, Math.min(8, m));               // exp_mod() in the firmware
-  if (dest === 47) m = Math.max(-full, Math.min(full, m));  // the voicing stops at the chord's notes (voicing_at())
+  if (dest === 47 || dest === 48 || dest === 49) m = Math.max(-full, Math.min(full, m)); // the voicing stops at the
+  // chord's notes (voicing_at()), a CC out at 127
   const bip = BIPOLAR_SOURCES.has(source) || BIPOLAR_SOURCES.has(viaSource), down = (dest === 9 || dest === 43) && !BIPOLAR_SOURCES.has(source);
   let lo, hi;
   if (bip) { lo = -Math.abs(m); hi = Math.abs(m); }
   else if (source === FIXED_SOURCE && !viaSource) lo = hi = down ? -Math.abs(m) : m;
   else { const x = down ? -m : m; lo = Math.min(x, 0); hi = Math.max(x, 0); }
+  if (dest === 48 || dest === 49) { // a CC out's sum stops at 0: below it there's nothing to send
+    lo = Math.max(0, lo); hi = Math.max(0, hi);
+    if (!hi) return { lo: 0, hi: 0, text: "none on its own" };
+  }
   const mul = timeDest(dest), s = x => !x ? (mul ? "×1" : "0") : (x > 0 && !mul ? "+" : "") + fmt(x);
   const text = viaSource && lo !== -hi ? "up to " + s(lo || hi) // nothing at its bottom, so the far end says it
     : (viaSource ? "up to " : "") + (lo === hi ? s(hi) : !mul && lo === -hi ? "±" + fmt(hi) : `${s(lo)} to ${s(hi)}`);
@@ -2038,8 +2057,8 @@ function pickupSelect() {
     "what a knob does after a patch load or a change of job (system-wide; on the synth: Shift + PMOD FIL ENV)");
 }
 
-function settingSelect(text, options, get, set, title) {
-  const sel = h("select", { title }, options.map((o, k) => h("option", { value: k }, o)));
+function settingSelect(text, options, get, set, title, disabled) { // disabled(k): an option that can't be picked
+  const sel = h("select", { title }, options.map((o, k) => h("option", { value: k, disabled: !!(disabled && disabled(k)) }, o)));
   sel.onchange = () => set(+sel.value);
   paints.push(() => { const v = get(); if (v !== undefined && document.activeElement !== sel) sel.value = String(v); });
   return text ? h("label", { class: "sel" }, h("span", { class: "lbl" }, text), sel) : sel;
@@ -3688,8 +3707,8 @@ const DESTS = ["Pitch A", "Pitch B", "Pitch A + B", "Cutoff", "Filter env amount
   "Amp env attack", "Amp env decay", "Amp env sustain", "Amp env release",
   "Filter env attack", "Filter env decay", "Filter env sustain", "Filter env release",
   "Env 3 attack", "Env 3 decay", "Env 3 sustain", "Env 3 release", "Env 4 attack", "Env 4 decay", "Env 4 sustain", "Env 4 release",
-  "Glide time", "Unison detune", "Master volume", "Macro 1", "Macro 2", "Arp Chaos", "Chord voicing"];
-const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 42, 43]);
+  "Glide time", "Unison detune", "Master volume", "Macro 1", "Macro 2", "Arp Chaos", "Chord voicing", "CC A out", "CC B out"];
+const WIRE = new Set([10, 11, 12, 13, 14, 15, 16, 17, 23, 24, 42, 43, 48, 49]);
 const options = (list, skip) => list.map((t, i) => i === skip ? "" :
   `<option value="${i}">${t}${list === DESTS && WIRE.has(i) ? " (wire)" : ""}</option>`).join("");
 // The Via menu: Number, then every source but Fixed, which is the number 1, and no macro on a route into a macro (it would
@@ -3997,6 +4016,7 @@ function paramOptions(selected) {
 }
 function paintCcMap() {
   const table = document.getElementById("ccmap-table");
+  paintCcOutWarn();
   if (!ccMap) { table.replaceChildren(); return; }
   const rows = [h("tr", {}, h("th", {}, "CC"), h("th", {}, "Parameter"), h("th", {}, "Layer"), h("th", {}, "Fine"), h("th", {}, ""))];
   for (let cc = 0; cc < 128; cc++) {
@@ -4624,6 +4644,29 @@ buildPiano(); relabel(); buildPots(); buildSwitches(); buildKeys(); buildDisplay
 buildPanel();
 document.getElementById("pickup-row").append(pickupSelect());
 document.getElementById("init-patch-row").append(initPatchSelect());
+document.getElementById("midi-out-row").append(
+  settingSelect("THRU socket", ["Thru: the IN socket's messages", "Out: the synth's", "Merge: both"], () => settings && settings.midiSocket,
+    v => setSetting(SET_ID.midiSocket, v), "what the THRU socket sends (system-wide)"),
+  settingSelect("Notes out", ["Off", "Keys as they come", "What the voices play"], () => settings && settings.notesOut,
+    v => setSetting(SET_ID.notesOut, v), "which notes go out (system-wide)"),
+  settingSelect("Out channel", ["Follow the MIDI channel", ...Array.from({ length: 16 }, (_, k) => `${k + 1}`)], () => settings && settings.outChannel,
+    v => setSetting(SET_ID.outChannel, v), "the channel the notes, knobs and program changes go out on"),
+  settingSelect("Program changes out", ["Off", "On a patch load"], () => settings && settings.pcOut,
+    v => setSetting(SET_ID.pcOut, v), "a program change out as a patch loads (not one a program change in loaded)"),
+  settingSelect("Clock out", ["Off", "On"], () => settings && settings.clockOut,
+    v => setSetting(SET_ID.clockOut, v), "the internal or SYNC IN clock out, with Start and Stop; a followed MIDI clock on to the other port"),
+  settingSelect("Knob moves out", ["Off", "On"], () => settings && settings.knobCc,
+    v => setSetting(SET_ID.knobCc, v), "a knob that holds its value sends its CC (the first the map has for it); none in pickup"),
+  ...[["A", 12], ["B", 13]].map(([w, n]) => settingSelect(`CC ${w} out`,
+    [`${n} (default)`, ...Array.from({ length: 127 }, (_, k) => `CC ${k + 1}`)], () => settings && settings["ccOut" + w],
+    v => setSetting(SET_ID["ccOut" + w], v), `the controller the CC ${w} out destination sends`,
+    k => k > 0 && CC_MAP_RESERVED.has(k))), // (a CC with a meaning of its own: the synth refuses it)
+  h("span", { class: "msg bad", id: "cc-out-warn" }));
+function paintCcOutWarn() { // (also after a map read: paintCcMap())
+  const e = document.getElementById("cc-out-warn");
+  if (e) e.textContent = ccOutClashes(settings, ccMap, PARAMS).join("; ");
+}
+paints.push(paintCcOutWarn);
 ccMapSection();
 try { tab = localStorage.getItem("pro800-tab") || "sound"; } catch (e) {}
 if (!document.getElementById("tab-" + tab)) tab = "sound";

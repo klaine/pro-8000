@@ -21,6 +21,9 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "unisonVoices", // the voices a note takes in unison, 2-8
   "arpRange", "arpExtend", "arpChaos", // a sequence's arp: octaves above the first, the notes it adds, 0-99
   "initPatch", // what Perf and Init load: the slot + 1, 0 the built-in sound (system-wide; 0.10.0)
+  // MIDI out (system-wide; 0.10.0): the THRU socket (thru, out, merge), notes out (off, keys, played), the out channel
+  // (0 follow, 1-16), clock out, knob moves as CCs, CC A / B out's numbers (0 the defaults, 12 and 13), program changes out
+  "midiSocket", "notesOut", "outChannel", "clockOut", "knobCc", "ccOutA", "ccOutB", "pcOut",
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -81,7 +84,7 @@ const JN = {
     "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
     "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph", "amp-att",
     "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel", "env3-att", "env3-dec", "env3-sus",
-    "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel", "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing"],
+    "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel", "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing", "cc-out-a", "cc-out-b"],
   shapes: ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"],
   divisions: ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
     "1/16T", "1/32"],
@@ -177,6 +180,23 @@ function ccMapChanges(ids, nibbles, slots) {
     if (CC_MAP_RESERVED.has(cc)) continue;
     const [id, nibble] = slots.get(cc) || [127, 0];
     if (ids[cc] !== id || (id !== 127 && nibbles[cc] !== nibble)) out.push([0x43, cc, id, nibble]);
+  }
+  return out;
+}
+// CC A / B out on a CC that means something coming back in (#38): through a DAW's MIDI thru, or a loop through another
+// device, the synth's own output would set a mapped parameter or feed CC A / B's source. The settings as 54 reads them
+// (ccOutA / B 0: the default 12 / 13), the map as 65 reads it (or null, not read yet).
+function ccOutClashes(s, map, params) {
+  const out = [];
+  if (!s || s.ccOutA === undefined) return out;
+  for (const [w, cc] of [["A", s.ccOutA || 12], ["B", s.ccOutB || 13]]) {
+    const why = [];
+    if (CC_MAP_RESERVED.has(cc)) why.push("a CC with its own meaning (the synth refuses it)");
+    if (s.ccA === cc) why.push("CC A's source");
+    if (s.ccB === cc) why.push("CC B's source");
+    const id = map ? map.ids[cc] : 127, p = params.find(x => x.id === id);
+    if (id !== 127) why.push(`in the CC map (${p ? p.label : "parameter " + id})`);
+    if (why.length) out.push(`CC ${w} out sends CC ${cc}, also ${why.join(" and ")}: sent back to the synth it would set that`);
   }
   return out;
 }

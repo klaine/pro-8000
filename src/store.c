@@ -110,6 +110,7 @@ static struct {
     uint8_t format, cc[2], clock_source, midi_channel, no_pickup;
     uint16_t bpm; // ×10
     uint8_t init_slot; // 0.10.0: Perf's init patch, slot + 1 (0 the built-in sound)
+    uint8_t midi_out[STORE_MIDI_OUT_FIELDS]; // bytes 20-25 (0.10.0)
 } global;
 
 static uint32_t get32(const uint8_t *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24; }
@@ -177,6 +178,8 @@ static int write_global(void)
     put16(b + 16, global.bpm); // the clock, outside the checksum (older blocks have anything here: range-checked)
     b[18] = global.clock_source;
     b[19] = global.init_slot;
+    for (int i = 0; i < STORE_MIDI_OUT_FIELDS; i++)
+        b[20 + i] = global.midi_out[i];
     put32(b + 28, checksum(b + GLOBAL_EXT, 28 - GLOBAL_EXT));
     if (!eeprom_write(GLOBAL_ADDRESS, b, sizeof b)) {
         global_failures++;
@@ -298,6 +301,9 @@ void store_init(void)
     global.valid = get32(b) == GLOBAL_MAGIC && get32(b + 12) == checksum(b, 12);
     int ext = global.valid && get32(b + 28) == checksum(b + GLOBAL_EXT, 28 - GLOBAL_EXT); // 0.10.0's bytes 19-27
     global.init_slot = ext && b[19] <= PATCH_COUNT ? b[19] : 0;
+    static const uint8_t out_max[STORE_MIDI_OUT_FIELDS] = {2, 2, 16, 0x13, 127, 127}; // the flags: bits 0, 1 and 4
+    for (int i = 0; i < STORE_MIDI_OUT_FIELDS; i++)
+        global.midi_out[i] = ext && (i == STORE_OUT_FLAGS ? !(b[20 + i] & ~out_max[i]) : b[20 + i] <= out_max[i]) ? b[20 + i] : 0;
     global.last_patch = global.valid ? get16(b + 4) : 0;
     global.format = global.valid ? b[7] : 0;
     global.cc[0] = global.valid ? b[8] : 0;
@@ -761,4 +767,14 @@ void store_set_last(int patch)
     global.last_patch = (uint16_t)patch;
     if (global.valid) // on memory never formatted, this alone doesn't make it ours: the next block written carries it
         write_global();
+}
+
+int store_midi_out(int field) { return field >= 0 && field < STORE_MIDI_OUT_FIELDS ? global.midi_out[field] : 0; }
+
+void store_set_midi_out(int field, int value)
+{
+    if (field < 0 || field >= STORE_MIDI_OUT_FIELDS || global.midi_out[field] == (uint8_t)value)
+        return;
+    global.midi_out[field] = (uint8_t)value;
+    global_mark();
 }
