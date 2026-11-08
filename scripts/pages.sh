@@ -4,7 +4,8 @@
 #   scripts/pages.sh --push   # also push it to origin
 #
 # The site is docs/ (three guides, style and script inlined by docs/build.py) plus the WebMIDI editor and installer
-# from tools/web/ as editor/, with the firmware the installer flashes (build/, from scripts/build.sh) next to them. The branch is written with git plumbing, so the working tree and the current branch are
+# from tools/web/ as editor/, with the firmware the installer flashes (build/, from scripts/build.sh) next to them, and v/
+# (PRO-8000 V in a browser, from the pro-8000-vst repository) carried over from the branch. The branch is written with git plumbing, so the working tree and the current branch are
 # left alone; it holds one commit with no history, replaced only when the site changes, which is why the push is
 # forced. A checkout of the branch (git worktree) is reset to the new commit.
 #
@@ -44,6 +45,13 @@ fi
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "== pages: not a git checkout, skipped"; exit 0; }
 GITDIR=$(git rev-parse --absolute-git-dir)
+# v/ is PRO-8000 V in a browser, put on the branch by the pro-8000-vst repository (its scripts/publish_web.sh) and linked
+# from nowhere on the site: carried over as the branch has it (the pushed one first), so a rebuild here keeps it
+KEEP=$(git rev-parse -q --verify refs/remotes/origin/pages || git rev-parse -q --verify refs/heads/pages || true)
+if [ -n "$KEEP" ] && git cat-file -e "$KEEP:v" 2>/dev/null; then
+  git archive "$KEEP" v | tar -x -C "$OUT"
+  echo "== pages: v/ carried over from ${KEEP%"${KEEP#???????}"}"
+fi
 INDEX=$ROOT/build/pages.index
 rm -f "$INDEX"
 TREE=$(cd "$OUT" && GIT_DIR=$GITDIR GIT_WORK_TREE=$OUT GIT_INDEX_FILE=$INDEX git -c core.autocrlf=false add -A . \

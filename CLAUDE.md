@@ -86,7 +86,9 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   and `scripts/build.sh` `build/pro8000-presets-<VERSION>.json`, which a release carries with the `.syx`.
 - `scripts/pages.sh` builds the GitHub Pages site (`docs/` → `build/pages/`, with the editor and installer from `tools/web/` as
   `editor/`) and writes the `pages` branch as one parentless commit; `--push` force-pushes it. The site is
-  https://klaine.github.io/pro-8000/ (repository `klaine/pro-8000`).
+  https://klaine.github.io/pro-8000/ (repository `klaine/pro-8000`). `v/` on the branch is PRO-8000 V in a browser,
+  put there by the pro-8000-vst repository's `scripts/publish_web.sh` and linked from nowhere on the site (noindex):
+  `pages.sh` carries it over as the branch has it; don't link it or drop it.
 - `tools/params.json` is the parameter list with the NRPN ids (0.10.0; append only, the numbers are permanent once
   released). After changing it run `python tools/gen_params.py`: it writes `src/params.h`, `tools/web/params.js`, the
   PARAMS blocks in both tools and the table in MANUAL.md; `test_pro800.py` fails while any is stale.
