@@ -2,7 +2,9 @@
 // firmware):
 //   0x00000-0x17FFF  128 patches, 768 bytes each: the patch and its step sequence
 //   0x19000-0x1F3FF  the stock factory bank, left as it is
-//   0x1F400          global block: format, last patch, the CC A / B source numbers
+//   0x1F400          global block: format, last patch, the CC A / B source numbers (store.c has its bytes); from
+//                    0.10.0 bytes 19-31 too: the init patch, room for MIDI out, their own checksum
+//   0x1F420-0x1F4E7  the user's CC map (0.10.0): "P8M1", 128 parameter ids, 64 bytes of nibbles, a checksum
 //   0x1F500-0x1FBFF  the autotune tables (tuning.c)
 #ifndef STORE_H
 #define STORE_H
@@ -16,6 +18,8 @@
 #define FACTORY_COUNT 100
 #define STORE_TUNING_ADDRESS 0x1F500u
 #define STORE_TUNING_SIZE    0x700u
+
+#define CHORD_BYTES 8 // per layer: chord memory's intervals and flags (synth.h)
 
 typedef struct {
     char name[PATCH_NAME + 1];
@@ -55,6 +59,7 @@ typedef struct {
     uint8_t arp_range, arp_extend, arp_chaos; // a sequence's arp (seq.h): octaves above the first, ARP_EXTEND_*, 0-99; 0 in older patches (0.9.5)
     uint16_t route_via[2][ROUTES];           // each route's Via (mod.h); 0 (older patches) = a number of 1 (0.9.5)
     int8_t route_fine[2][ROUTES];            // each route's tenths on its depth (mod.h); 0 (older patches) = none (0.9.5)
+    uint8_t chord[2][CHORD_BYTES];           // per layer, chord memory's intervals and flags (synth.h); 0 (older patches) = none (0.10.0)
 } patch_t;
 
 typedef enum { SLOT_EMPTY, SLOT_OURS, SLOT_STOCK, SLOT_CORRUPT } slot_kind_t; // (SLOT_STOCK: no longer in slots)
@@ -81,7 +86,10 @@ void store_set_pickup(int on);
 int store_clock_source(void);
 int store_bpm_tenths(void);
 void store_set_clock(int source, int bpm_tenths);
-// Those four setters only mark the global block; reads show the new value at once. store_poll(), once a pass with
+// The patch Perf loads as the init sound: its slot + 1, 0 = the built-in one (#35). A format clears it.
+int store_init_patch(void);
+void store_set_init_patch(int slot_plus_1);
+// Those setters only mark the global block; reads show the new value at once. store_poll(), once a pass with
 // ms_ticks, writes the block when nothing has changed for a second; store_flush() writes it now if it waits, before
 // anything that stops the main loop or resets.
 void store_poll(uint32_t now);
@@ -100,5 +108,20 @@ int store_save_sequence(int n);
 int store_finish_import(void);
 int store_last_patch(void);
 void store_set_last(int patch); // written only when it changed
+
+// The user's CC map (0.10.0): per controller number a parameter id (params.h; CC_MAP_NONE for none) and a nibble
+// (bits 0-1 the layer rule, as an NRPN's MSB; bit 2 fine: the low 7 bits of the parameter's 14, after its coarse CC).
+// Kept apart from the global block, written after the same second's rest; a format leaves it. None stored: main.c's
+// default map plays.
+// MIDI out (0.10.0), in the global block's bytes 20-25 under its second checksum (0 is each one's default)
+enum { STORE_SOCKET, STORE_NOTES_OUT, STORE_OUT_CHANNEL, STORE_OUT_FLAGS, STORE_CC_OUT_A, STORE_CC_OUT_B, STORE_MIDI_OUT_FIELDS };
+int store_midi_out(int field);
+void store_set_midi_out(int field, int value); // stored after the rest
+
+#define CC_MAP_NONE 0x7F
+#define CC_MAP_FINE 4
+int store_cc_map(uint8_t *ids, uint8_t *nibbles); // 1 and the stored map; 0 if none is stored
+void store_set_cc_map(const uint8_t *ids, const uint8_t *nibbles); // stored after the rest
+void store_clear_cc_map(void);                     // none stored any more (after the rest): the default again
 
 #endif

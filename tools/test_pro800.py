@@ -5,9 +5,11 @@
 import contextlib
 import glob
 import io
+import json
 import itertools
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -57,6 +59,11 @@ class FakeSynth:
         self.receive = None
         self.settings = [0] * 99
         self.undo = [1, *b"Pad"]
+        self.init_theirs = 1  # 5F 1: Perf's sound, the user's init patch (0.10.0)
+        self.chords = [[0] * 8, [0] * 8]  # 68 / 69 (0.10.0)
+        self.cc_ids, self.cc_nibbles = [127] * 128, [0] * 128  # 65 / 43 / 42 (0.10.0)
+        self.cc_ids[74] = 24
+        self.captured = (3, 0)  # 6A's reply: the notes each layer took (127: left alone)
         self.has_via = True
         self.vias = [[0] * 16, [0] * 16]
         self.fines = [[0] * 16, [0] * 16]
@@ -200,6 +207,23 @@ class FakeSynth:
                 self.reply(0x63, d[1], *[b for v in self.vias[d[1]] for b in (v >> 7, v & 0x7F)])
         elif c == 0x62:
             self.ack(0x62)
+        elif c == 0x68:
+            self.reply(0x68, *self.chords[0], *self.chords[1])
+        elif c == 0x65:
+            q = d[1]
+            self.reply(0x65, q, *[b for cc in range(32 * q, 32 * q + 32) for b in (self.cc_ids[cc], self.cc_nibbles[cc])])
+        elif c == 0x43 and len(d) == 4:
+            self.cc_ids[d[1]], self.cc_nibbles[d[1]] = d[2], d[3]
+            self.ack(0x43)
+        elif c == 0x42:
+            self.cc_ids, self.cc_nibbles = [127] * 128, [0] * 128
+            self.cc_ids[74] = 24
+            self.ack(0x42)
+        elif c == 0x69 and len(d) == 10:
+            self.chords[d[1]] = list(d[2:10])
+            self.ack(0x69)
+        elif c == 0x6A:
+            self.reply(0x6A, *self.captured)
         elif c == 0x67:
             if self.has_via:
                 self.reply(0x67, d[1], *[f + 9 for f in self.fines[d[1]]])
@@ -208,6 +232,8 @@ class FakeSynth:
                 self.ack(0x66)
         elif c == 0x60:
             self.reply(0x60, *self.undo)
+        elif c == 0x5F and len(d) == 2:
+            self.reply(0x5F, self.init_theirs)
         elif c == 0x4A:
             if self.crashes and d[1:3] == b"\x43\x52":
                 streak = self.crash["streak"] + 1 if self.crash else 1
@@ -313,11 +339,13 @@ class SwiftParity(unittest.TestCase):
         self.assertEqual(names, pro800.SETTING_NAMES)
 
     def test_setting_names(self):
-        self.assertEqual(len(pro800.SETTING_NAMES), 99)
+        self.assertEqual(len(pro800.SETTING_NAMES), 108)
         self.assertEqual(pro800.SETTING_NAMES.index("midi-channel"), 77)
         self.assertEqual(pro800.SETTING_NAMES.index("env-count 2 env4"), 74)
         self.assertEqual(pro800.SETTING_NAMES.index("lfo-restart"), 86)
-        self.assertEqual(pro800.SETTING_NAMES[91:], ["unison-voices", "arp-range", "arp-extend", "arp-chaos", "env-select", "preset-mode", "patch", "morph"])
+        self.assertEqual(pro800.SETTING_NAMES[91:], ["unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
+                                                     "midi-socket", "notes-out", "out-channel", "clock-out", "knob-cc", "cc-out-a",
+                                                     "cc-out-b", "pc-out", "env-select", "preset-mode", "patch", "morph"])
 
     def test_lfo_note_times_read_the_same(self):
         """Swift can't run here: the same formula, version and condition as pro800.py's, read off the source."""
@@ -441,6 +469,49 @@ class ReadOnly(unittest.TestCase):
                      "link                 amp-env,filter", "patch                P128", "morph                P1",
                      "buttons              a-saw sync", "steps 2 2            x.x."):
             self.assertIn(line + "\n", out)
+
+    def test_settings_of_0_10_0_with_the_init_patch(self):
+        self.synth.settings = [0] * 100
+        s = self.synth.settings
+        s[95], s[96], s[98], s[99] = 120, 3, 4, 0
+        out, code = run(self.synth, "settings")
+        self.assertEqual(code, 0)
+        for line in ("init-patch           P120", "env-select           env 3 / env 4 (Shift)", "patch                P5", "morph                none"):
+            self.assertIn(line + "\n", out)
+        s[95] = 0
+        out, _ = run(self.synth, "settings")
+        self.assertIn("init-patch           none (the built-in sound)\n", out)
+
+    def test_settings_of_0_10_0_with_midi_out(self):
+        self.synth.settings = [0] * 108
+        s = self.synth.settings
+        s[96], s[97], s[98], s[99], s[101], s[103], s[104], s[106] = 2, 2, 5, 1, 20, 1, 3, 4
+        out, code = run(self.synth, "settings")
+        self.assertEqual(code, 0)
+        for line in ("midi-socket          merge", "notes-out            played", "out-channel          5", "clock-out            on",
+                     "knob-cc              off", "cc-out-a             CC 20", "cc-out-b             CC 13 (default)", "pc-out               on",
+                     "env-select           env 3 / env 4 (Shift)", "patch                P5"):
+            self.assertIn(line + "\n", out)
+        for argv, sent in ((("set", "midi-socket", "out"), [0x7D, 96, 0, 1]), (("set", "notes-out", "keys"), [0x7D, 97, 0, 1]),
+                           (("set", "out-channel", "follow"), [0x7D, 98, 0, 0]), (("set", "out-channel", "16"), [0x7D, 98, 0, 16]),
+                           (("set", "clock-out", "on"), [0x7D, 99, 0, 1]), (("set", "knob-cc", "off"), [0x7D, 100, 0, 0]),
+                           (("set", "cc-out-b", "default"), [0x7D, 102, 0, 0]), (("set", "pc-out", "on"), [0x7D, 103, 0, 1])):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                synth.settings = [0] * 108
+                run(synth, *argv)
+                self.assertEqual(synth.sent[-1], request_bytes(*sent))
+        for cc in ("1", "64", "120", "0", "128"):  # a CC with its own meaning (the firmware refuses it too), or none
+            with self.subTest(cc=cc):
+                synth = FakeSynth()
+                synth.settings = [0] * 108
+                out, code = run(synth, "set", "cc-out-a", cc)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(synth.sent, [], "nothing sent")
+        synth = FakeSynth()
+        synth.settings = [0] * 108
+        run(synth, "set", "cc-out-a", "20")
+        self.assertEqual(synth.sent[-1], request_bytes(0x7D, 101, 0, 20))
 
     def test_settings_of_an_older_firmware(self):
         self.synth.settings = self.synth.settings[:82]
@@ -824,7 +895,7 @@ class StockError(unittest.TestCase):
             self.reply(0x01, 0x00, 0x01)
 
     def test_is_not_taken_for_success(self):
-        for argv in (("patch", "load", "P1"), ("patch", "save", "P1"), ("patch", "clear", "P1"), ("patch", "init"), ("patch", "undo"),
+        for argv in (("patch", "load", "P1"), ("patch", "save", "P1"), ("patch", "clear", "P1"), ("patch", "init"), ("patch", "undo"), ("patch", "perf"),
                      ("direct", "on"), ("settings",), ("params", "1"), ("patches",), ("tune",), ("seq",), ("seq", "set", "on=1"),
                      ("routes",), ("factory",), ("factory", "import", "1", "P1"), ("format", "--yes"), ("state",), ("engine",),
                      ("timing",), ("fault",), ("set", "env-curve", "1", "amp", "linear"), ("tuning",)):
@@ -1015,6 +1086,9 @@ class Writes(unittest.TestCase):
             (("set", "arp-range", "3"), [0x7D, 92, 0, 2]),
             (("set", "arp-extend", "ninth"), [0x7D, 93, 0, 4]),
             (("set", "arp-chaos", "40"), [0x7D, 94, 0, 40]),
+            (("set", "init-patch", "P120"), [0x7D, 95, 0, 120]),
+            (("set", "init-patch", "0"), [0x7D, 95, 0, 1]),
+            (("set", "init-patch", "none"), [0x7D, 95, 0, 0]),
             (("set", "voice", "2", "legato", "high"), [0x7D, 28, 0, 10]),
             (("set", "drift", "99"), [0x7D, 29, 0, 99]),
             (("set", "scale", "chromatic"), [0x7D, 30, 0, 12]),
@@ -1061,6 +1135,12 @@ class Writes(unittest.TestCase):
             (("patch", "clear", "127"), [0x4F, 0, 127]),
             (("patch", "init"), [0x5F]),
             (("patch", "undo"), [0x60]),
+            (("patch", "perf"), [0x5F, 1]),
+            (("chord", "1", "0,4,7"), [0x69, 0, 4, 7, 0, 0, 0, 0, 0, 0]),
+            (("chord", "2", "3,7,10,14"), [0x69, 1, 3, 7, 10, 14, 0, 0, 0, 0]),
+            (("chord", "1", "off"), [0x69, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            (("chord", "capture", "--yes"), [0x6A, 3]),
+            (("chord", "capture", "2", "--yes"), [0x6A, 2]),
             (("patch", "rename", "P2", "Foo"), [0x59, 0, 1, 0x46, 0x6F, 0x6F]),
             (("factory", "import", "5", "P128", "--force"), [0x51, 5, 0, 127, 1]),
             (("format", "--yes"), [0x5B]),
@@ -1081,6 +1161,126 @@ class Writes(unittest.TestCase):
                 out, code = run(synth, *argv)
                 self.assertEqual(code, 0, out)
                 self.assertEqual(synth.sent, [request_bytes(*expected)], out)
+
+    def test_nrpn(self):
+        ids = {p[1]: p[0] for p in pro800.PARAMS}
+        synth = FakeSynth()
+        run(synth, "nrpn", "cutoff", "8256", "--layer", "2", "--channel", "1")
+        self.assertEqual(synth.sent, [bytes([0xB0, 99, 2]), bytes([0xB0, 98, 24]), bytes([0xB0, 6, 64]), bytes([0xB0, 38, 64])])
+        synth = FakeSynth()
+        run(synth, "nrpn", "layers", "stack", "--channel", "1")
+        self.assertEqual(synth.sent, [bytes([0xB0, 99, 0]), bytes([0xB0, 98, ids["layers"]]), bytes([0xB0, 6, 2])])
+        synth = FakeSynth()
+        run(synth, "nrpn", "macro 1", "-99", "--layer", "both", "--channel", "1")
+        self.assertEqual(synth.sent, [bytes([0xB0, 99, 3]), bytes([0xB0, 98, ids["macro 1"]]), bytes([0xB0, 6, 0]), bytes([0xB0, 38, 1])])
+        synth = FakeSynth()
+        run(synth, "nrpn", "macro 1", "2", "--channel", "1")
+        self.assertEqual(synth.sent[2:], [bytes([0xB0, 6, 65]), bytes([0xB0, 38, 37])], "round(2 x 8191 / 99) + 8192")
+        for argv in (("nrpn", "cutoff", "16384"), ("nrpn", "nothing", "1"), ("nrpn", "layers", "6"), ("nrpn", "drift", "5", "--layer", "3"),
+                     ("nrpn", "cutoff", "1", "--layer")):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(synth.sent, [])
+        out, code = run(FakeSynth(), "nrpn", "list")
+        self.assertIn(" 52  layers", out)
+
+    def test_cc_map(self):
+        ids = {p[1]: p[0] for p in pro800.PARAMS}
+        synth = FakeSynth()
+        out, code = run(synth, "cc-map")
+        self.assertEqual(code, 0, out)
+        self.assertIn("CC  74  cutoff", out)
+        for argv, sent in ((("cc-map", "set", "20", "shape 2", "--layer", "1"), [0x43, 20, 84, 1]),
+                           (("cc-map", "set", "87", "cutoff", "--fine"), [0x43, 87, 24, 4]),
+                           (("cc-map", "set", "74", "none"), [0x43, 74, 127, 0]),
+                           (("cc-map", "reset", "--yes"), [0x42])):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertEqual((code, synth.sent), (0, [request_bytes(*sent)]), out)
+        for argv in (("cc-map", "set", "1", "cutoff"), ("cc-map", "set", "20", "nope"), ("cc-map", "set", "20", "layers", "--fine"),
+                     ("cc-map", "set", "20", "cutoff", "--layer"), ("cc-map", "reset"), ("cc-map", "nonsense")):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(synth.sent, [])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "map.json")
+            synth = FakeSynth()
+            synth.cc_ids[20], synth.cc_nibbles[20] = 84, 1
+            run(synth, "cc-map", "export", path)
+            with open(path, encoding="utf-8") as f:
+                j = json.load(f)
+            self.assertEqual([e["cc"] for e in j["map"]], [20, 74])
+            synth = FakeSynth()
+            out, code = run(synth, "cc-map", "import", path, "--yes")
+            self.assertEqual(code, 0, out)
+            self.assertEqual((synth.cc_ids[20], synth.cc_nibbles[20], synth.cc_ids[74]), (84, 1, 24))
+            synth = FakeSynth()
+            out, code = run(synth, "cc-map", "import", os.path.join(HERE, "web", "stock-cc-map.json"), "--yes")
+            self.assertEqual(code, 0, out)
+            self.assertEqual((synth.cc_ids[8], synth.cc_ids[74], synth.cc_ids[71]), (10, ids["button lfo-freq"], 127),
+                             "the stock map replaces ours whole: CC 74 is LFO 1 to pitch there, 71 nothing")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"format": "pro8000-cc-map", "version": 1, "map": [{"cc": 1, "param": "cutoff"}]}, f)
+            synth = FakeSynth()
+            out, code = run(synth, "cc-map", "import", path, "--yes")
+            self.assertNotEqual(code, 0)
+            self.assertIn("keeps its own meaning", out)
+            self.assertFalse([m for m in synth.sent if m[pro800.HEADER_SIZE] == 0x43], "nothing changed")
+            for entry, ok in (({"cc": 74.0, "param": "cutoff"}, True), ({"cc": 74, "param": ["cutoff"]}, False),
+                              ({"cc": 74, "param": "cutoff", "fine": 1}, False)):
+                with self.subTest(entry=entry):
+                    with open(path, "w", encoding="utf-8-sig") as f:  # a BOM, as some editors write
+                        json.dump({"format": "pro8000-cc-map", "version": 1, "map": [entry]}, f)
+                    synth = FakeSynth()
+                    out, code = run(synth, "cc-map", "import", path, "--yes")
+                    self.assertEqual(code == 0, ok, out)
+                    self.assertNotIn("Traceback", out)
+        out, _ = run(FakeSynth(), "nrpn", "list", "--csv")
+        self.assertTrue(out.startswith("id,name,kind,scope,min,max,values"))
+        self.assertIn("52,layers,raw,patch,0,5,off split stack channel 8ch mpe", out)
+
+    def test_the_parameter_list(self):
+        """tools/params.json: the generated files are fresh, and its names are the tools' and the presets' names."""
+        gen = subprocess.run([sys.executable, os.path.join(HERE, "gen_params.py"), "--check"], capture_output=True, text=True)
+        self.assertEqual(gen.returncode, 0, gen.stdout + gen.stderr)
+        by_id = {p[0]: p for p in pro800.PARAMS}
+        for i, name in enumerate(pro800.PARAM_NAMES):
+            if name != "master-vol":
+                self.assertEqual((by_id[i][1], by_id[i][2]), (name, "knob"))
+        for s, name in pro800.BUTTON_NAMES.items():
+            self.assertEqual((by_id[36 + s][1], by_id[36 + s][2]), ("button " + name, "bool"))
+        swift = open(os.path.join(HERE, "pro800.swift"), encoding="utf-8").read()
+        self.assertEqual(len(re.findall(r'^    \(\d+, "', swift[swift.index("BEGIN PARAMS"):swift.index("END PARAMS")], re.M)), len(pro800.PARAMS))
+
+    def test_chord_prints_and_refuses(self):
+        synth = FakeSynth()
+        synth.chords[0] = [4, 7, 0, 0, 0, 0, 0, 0]
+        synth.buttons[12] = 1
+        out, code = run(synth, "chord")
+        self.assertEqual(code, 0, out)
+        self.assertIn("layer 1: 0 4 7 (from C4: C4 E4 G4)", out)
+        self.assertIn("layer 2: no chord", out)
+        self.assertIn("Unison is on", out)
+        for argv in (("chord", "capture"), ("chord", "1", "0,7,4"), ("chord", "1", "1,2,3,4,5,6,7,8"), ("chord", "3", "0,4,7"),
+                     ("chord", "1", "0,128"), ("chord", "1", "x")):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                out, code = run(synth, *argv)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(synth.sent, [], "nothing sent")
+        synth = FakeSynth()
+        out, _ = run(synth, "chord", "capture", "--yes")
+        self.assertIn("layer 1: 3 notes", out)
+        self.assertIn("layer 2: fewer than 2 keys held: its chord is cleared", out)
+        synth = FakeSynth()
+        synth.captured = (2, 127)
+        out, _ = run(synth, "chord", "capture", "--yes")
+        self.assertIn("layer 2: not captured", out)
 
     def test_read_first_settings(self):
         synth = FakeSynth()
@@ -1116,7 +1316,10 @@ class Writes(unittest.TestCase):
         self.assertEqual(synth.sent, [bytes([0xE0, 0x7F, 0x7F])])
         synth = FakeSynth()
         run(synth, "play", "60", "--channel", "2", "--hold", "0", "--velocity", "99")
-        self.assertEqual(synth.sent, [bytes([0x91, 60, 99]), bytes([0x81, 60, 0])])
+        self.assertEqual(synth.sent, [bytes([0x91, 60, 99]), bytes([0x81, 60, 64])], "note-off at 64: MIDI's default release")
+        synth = FakeSynth()
+        run(synth, "play", "60", "--channel", "2", "--hold", "0", "--release", "90")
+        self.assertEqual(synth.sent, [bytes([0x91, 60, 100]), bytes([0x81, 60, 90])])
         synth = FakeSynth()
         run(synth, "play", "60", "--channel", "all", "--hold", "0")
         self.assertEqual(len(synth.sent), 32)
@@ -1125,11 +1328,11 @@ class Writes(unittest.TestCase):
         synth = FakeSynth()
         synth.settings[77] = 5
         run(synth, "play", "60", "--hold", "0")
-        self.assertEqual(synth.sent[1:], [bytes([0x94, 60, 100]), bytes([0x84, 60, 0])])
+        self.assertEqual(synth.sent[1:], [bytes([0x94, 60, 100]), bytes([0x84, 60, 64])])
         synth = FakeSynth()
         synth.silent = True  # stock: no 54, so the stock firmware's channel 6
         run(synth, "play", "60", "--hold", "0")
-        self.assertEqual(synth.sent[1:], [bytes([0x95, 60, 100]), bytes([0x85, 60, 0])])
+        self.assertEqual(synth.sent[1:], [bytes([0x95, 60, 100]), bytes([0x85, 60, 64])])
         synth = FakeSynth()
         run(synth, "cc", "1", "2")  # every channel: channel 1
         self.assertEqual(synth.sent[-1], bytes([0xB0, 1, 2]))
@@ -1741,6 +1944,61 @@ class Helpers(unittest.TestCase):
 
     def test_slots(self):
         self.assertEqual([pro800.slot_number(t) for t in ("0", "127", "p1", "P128", "128", "P0", "x")], [0, 127, 0, 127, None, None, None])
+
+
+class ModIds(unittest.TestCase):
+    """The mod sources and destinations of src/mod.h against every hand-kept table of them. Ids are append-only and a
+    new one has to reach all of these at once; C fills a short initializer with zeros, so main.c wouldn't notice."""
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(HERE)
+
+        def read(*path):
+            with open(os.path.join(root, *path), encoding="utf-8") as f:
+                return f.read()
+
+        cls.mod_h, cls.main_c = read("src", "mod.h"), read("src", "main.c")
+        cls.plan_py, cls.sound_plan, cls.index = read("presets", "lib", "plan.py"), read("tools", "web", "sound-plan.js"), read("tools", "web", "index.html")
+
+    def enum(self, prefix):
+        body = re.search(r"typedef enum \{\s*(" + prefix + r"_\w+.*?)" + prefix + r"_COUNT\b", self.mod_h, re.S).group(1)
+        body = re.sub(r"//[^\n]*", "", body)
+        return re.findall(r"\b(" + prefix + r"_\w+)", body)
+
+    def strings(self, pattern, text):
+        found = re.search(pattern + r"\s*\[(.*?)\]", text, re.S)
+        self.assertIsNotNone(found, pattern)
+        return re.findall(r'"([^"]*)"', found.group(1))
+
+    def test_the_enums_end_where_the_ids_say(self):
+        sources, dests = self.enum("SRC"), self.enum("DEST")
+        self.assertEqual((sources[0], sources[-1], len(sources)), ("SRC_NONE", "SRC_RELEASE_VELOCITY", 30))
+        self.assertEqual((dests[0], dests[-1], len(dests)), ("DEST_PITCH_A", "DEST_CC_OUT_B", 50))
+
+    def c_strings(self, name):
+        found = re.search(r"\b" + name + r"\[\w+\]\[\d+\] = \{(.*?)\};", self.main_c, re.S)
+        self.assertIsNotNone(found, name)
+        return re.findall(r'"([^"]*)"', found.group(1))
+
+    def test_the_firmwares_display_names(self):
+        self.assertEqual(len(self.c_strings("source_names")), len(self.enum("SRC")))
+        self.assertEqual(len(self.c_strings("dest_names")), len(self.enum("DEST")))
+
+    def test_the_tools_names(self):
+        self.assertEqual(len(pro800.SOURCE_NAMES), len(self.enum("SRC")))
+        self.assertEqual(pro800.SOURCE_NAMES[0], "")
+        self.assertEqual(len(pro800.DEST_NAMES), len(self.enum("DEST")))
+
+    def test_the_preset_plans_names(self):
+        self.assertEqual(self.strings(r"\nSOURCES =", self.plan_py), pro800.SOURCE_NAMES[1:])
+        self.assertEqual(self.strings(r"\nDESTS =", self.plan_py), pro800.DEST_NAMES)
+
+    def test_the_web_pages_names(self):
+        self.assertEqual(self.strings(r"\n  sources:", self.sound_plan), pro800.SOURCE_NAMES[1:])
+        self.assertEqual(self.strings(r"\n  dests:", self.sound_plan), pro800.DEST_NAMES)
+        self.assertEqual(len(self.strings(r"\nconst SOURCES =", self.index)), len(self.enum("SRC")))
+        self.assertEqual(len(self.strings(r"\nconst DESTS =", self.index)), len(self.enum("DEST")))
 
 
 if __name__ == "__main__":

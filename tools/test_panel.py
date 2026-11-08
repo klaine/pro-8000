@@ -24,14 +24,15 @@ import pro800  # noqa: E402
 
 BUILD = os.path.join(ROOT, "build", "sim")
 SIM = os.path.join(BUILD, "pro800sim.exe" if os.name == "nt" else "pro800sim")
-FIRMWARE = ["main.c", "synth.c", "lfo.c", "seq.c", "store.c", "fastmath.c", "display.c"]
+FIRMWARE = ["main.c", "synth.c", "lfo.c", "seq.c", "store.c", "fastmath.c", "display.c", "midiout.c"]
 VERSION = open(os.path.join(ROOT, "VERSION")).read().strip()
 
 
 def build():
     os.makedirs(BUILD, exist_ok=True)
     src = os.path.join(ROOT, "src")
-    inputs = [os.path.join(src, f) for f in os.listdir(src)] + [os.path.join(HERE, "sim", f) for f in os.listdir(os.path.join(HERE, "sim"))]
+    inputs = ([os.path.join(src, f) for f in os.listdir(src)] + [os.path.join(HERE, "sim", f) for f in os.listdir(os.path.join(HERE, "sim"))]
+              + [os.path.join(ROOT, "VERSION")])  # FW_VERSION_* come from it
     if os.path.exists(SIM) and os.path.getmtime(SIM) > max(os.path.getmtime(f) for f in inputs):
         return
     major, minor, patch = VERSION.split(".")
@@ -151,6 +152,12 @@ class Synth:
             self.hold(b)
             self.let_go(b)
 
+    def long_press(self, button, ms=650):
+        """Held past HOLD_MS (600 ms), then let go: Perf's init sound, Settings' system menu."""
+        self.hold(button)
+        self.ms(ms)
+        self.let_go(button)
+
     def pot(self, name, fraction):
         self.cmd(f"pot {POT[name]} {round(fraction * 4095)}")
         self.ms(40)
@@ -226,12 +233,16 @@ class Synth:
         self.assert_names = count == len(names)
         return {names[r]: b[1 + 2 * r] << 7 | b[2 + 2 * r] for r in range(count)}
 
-    def params(self, layer=0):
+    def params_raw(self, layer=0):
+        """Every parameter as the host reads it, 0-16383 (a tenth of 0-99 is about 16.5)."""
         self.ms(300)  # the knobs glide to a new reading
         reply = self.request(0x53, layer)
         start = reply.index(pro800.SYSEX_HEADER + bytes([0x53, layer]))
         b = reply[start + pro800.HEADER_SIZE + 2:]
-        return {pro800.PARAM_NAMES[i]: ((b[1 + 2 * i] << 7 | b[2 + 2 * i]) * 99 + 8191) // 16383 for i in range(b[0])}
+        return {pro800.PARAM_NAMES[i]: b[1 + 2 * i] << 7 | b[2 + 2 * i] for i in range(b[0])}
+
+    def params(self, layer=0):
+        return {name: (v * 99 + 8191) // 16383 for name, v in self.params_raw(layer).items()}
 
     def route_table(self, layer=0):
         """All 16 slots, as 57 sends them: source 0 is an empty one."""
@@ -273,8 +284,9 @@ class Synth:
         return out[start + pro800.HEADER_SIZE + 1:out.index(0xF7, start)]
 
     def setting(self, name, value):
+        """What came out meanwhile (the reply, and what the change sent)"""
         i = pro800.SETTING_NAMES.index(name)
-        self.request(0x7D, i, value >> 7, value & 0x7F) if value > 127 else self.request(0x7D, i, value)
+        return self.request(0x7D, i, value >> 7, value & 0x7F) if value > 127 else self.request(0x7D, i, value)
 
     def param(self, layer, name, value):
         """0-16383, as the host sets it"""
@@ -871,7 +883,7 @@ class InitAndUndo(PanelTest):
     def test_perf_shows_init_then_the_slot(self):
         self.s.press("3")
         self.s.ms(3100)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertShows("InIt")
         self.s.ms(1500)
         self.assertShows("P  3")
@@ -882,7 +894,7 @@ class InitAndUndo(PanelTest):
         self.store_patch(2)
         resonance = self.s.params()["resonance"]
         self.assertEqual(resonance, 74)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.s.ms(1600)
         self.assertEqual(self.s.params()["resonance"], 0)
         self.s.hold("SHIFT")
@@ -905,7 +917,7 @@ class InitAndUndo(PanelTest):
         self.store_patch(2)
         self.s.request(0x59, 0, 1, *b"Pad")
         self.s.request(0x5C, 0, 1)  # with its name
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertEqual(self.s.params()["resonance"], 0)
         self.assertEqual(self.undo_from_the_host(), (1, b"Pad"))
         self.assertEqual(self.s.params()["resonance"], 74)
@@ -963,6 +975,391 @@ class InitAndUndo(PanelTest):
         self.assertShows("P  1")
 
 
+class PerfHold(PanelTest):
+    """#34: Perf loads the init sound only when held (600 ms); a tap says HoLd and changes nothing."""
+
+    def test_a_tap_says_hold_and_changes_nothing(self):
+        self.s.param(0, "resonance", 12000)
+        before = self.s.params_raw()["resonance"]
+        self.s.press("PERF")
+        self.assertShows("HoLd")
+        self.assertEqual(self.s.params_raw()["resonance"], before)
+        self.s.ms(900)
+        self.assertShows("P  1")
+
+    def test_held_it_loads_the_init_sound_at_600_ms(self):
+        self.s.param(0, "resonance", 12000)
+        self.s.hold("PERF")
+        self.s.ms(200)
+        self.assertEqual(self.s.params_raw()["resonance"], 12000, "not yet at 500 ms (params_raw waits 300)")
+        self.s.ms(150)
+        self.assertShows("InIt")
+        self.s.let_go("PERF")
+        self.assertShows("InIt", "letting go after the hold adds nothing")
+        self.assertEqual(self.s.params_raw()["resonance"], 0)
+        self.assertEqual(self.s.routes(0), INIT_ROUTES)
+
+
+class InitPatch(PanelTest):
+    """#35: the user's own init patch, a stored slot that Perf loads as a template instead of the built-in sound."""
+
+    def template(self, slot=5):
+        """A sound unlike the init sound in `slot`: resonance, one route, a 5-step sequence at 97 BPM; left loaded."""
+        self.s.no_routes()
+        self.s.param(0, "resonance", 12000)
+        self.s.request(0x56, 0, VELOCITY, CUTOFF, (40 + 99) >> 7, (40 + 99) & 0x7F)
+        self.s.seq_set(5, bpm=97, flags=0)
+        self.store_patch(slot)
+        return self.s.params_raw()["resonance"], self.s.routes(0)
+
+    def test_the_setting_survives_a_power_cycle(self):
+        self.s.setting("init-patch", 5)
+        self.assertEqual(self.s.settings()["init-patch"], 5)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.assertEqual(self.s.settings()["init-patch"], 5)
+
+    def test_perf_loads_it_as_a_template(self):
+        resonance, routes = self.template(5)
+        self.s.setting("init-patch", 5)
+        self.s.press("3")
+        self.s.ms(3100)  # the empty P3: the built-in init sound there
+        self.assertEqual(self.s.params_raw()["resonance"], 0)
+        self.s.long_press("PERF")
+        self.assertShows("InIt.", "the user's init: a dot")
+        self.assertEqual((self.s.params_raw()["resonance"], self.s.routes(0)), (resonance, routes))
+        header = self.s.seq_header()
+        self.assertEqual((header["length"], header["bpm"]), (5, 97), "the template's sequence, not P3's")
+        self.assertEqual(self.s.settings()["patch"], 2, "still P3: Rec saves there, not over the template")
+        self.s.ms(1600)
+        self.assertShows("P  3")
+        self.s.press("REC", "REC")
+        self.s.ms(1100)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.press("3")
+        self.s.ms(3100)
+        self.assertEqual(self.s.params_raw()["resonance"], resonance, "P3 has it now")
+
+    def test_undo_brings_back_the_sound_before(self):
+        self.template(5)
+        self.s.setting("init-patch", 5)
+        self.s.press("3")
+        self.s.ms(3100)
+        self.s.long_press("PERF")
+        self.s.hold("SHIFT")
+        self.s.press("PERF")
+        self.s.let_go("SHIFT")
+        self.assertShows("Undo")
+        self.assertEqual(self.s.params_raw()["resonance"], 0)
+
+    def test_an_empty_slot_or_none_gives_the_built_in_sound(self):
+        self.s.param(0, "resonance", 12000)
+        self.s.setting("init-patch", 7)  # P7 is empty
+        self.s.long_press("PERF")
+        self.assertShows("InIt", "the built-in sound: no dot")
+        self.assertEqual((self.s.params_raw()["resonance"], self.s.routes(0)), (0, INIT_ROUTES))
+
+    def test_a_format_clears_it(self):
+        self.s.setting("init-patch", 5)
+        self.s.request(0x5B)
+        self.s.ms(100)
+        self.assertEqual(self.s.settings()["init-patch"], 0)
+
+    def test_the_host_5f_stays_built_in_and_5f_1_loads_what_perf_does(self):
+        resonance, _ = self.template(5)
+        self.s.setting("init-patch", 5)
+        self.s.request(0x5F)
+        self.assertEqual(self.s.params_raw()["resonance"], 0, "5F: the built-in sound, which presets build on")
+        self.assertEqual(self.s.reply(0x5F, 1)[:1], bytes([1]))
+        self.assertEqual(self.s.params_raw()["resonance"], resonance)
+        self.s.setting("init-patch", 0)
+        self.assertEqual(self.s.reply(0x5F, 1)[:1], bytes([0]))
+        self.assertEqual(self.s.params_raw()["resonance"], 0)
+
+    def test_past_p128_is_refused(self):
+        self.s.setting("init-patch", 5)
+        self.s.request(0x7D, 95, 1, 1)  # 129
+        self.assertEqual(self.s.settings()["init-patch"], 5)
+
+    def test_a_block_written_by_0_9_5_reads_as_none(self):
+        """0.9.5 writes the global block's first 20 bytes: its own, a downgrade's or leftovers fail the new checksum."""
+        self.s.setting("init-patch", 5)
+        self.s.setting("midi-channel", 3)
+        self.s.ms(1100)
+        self.s.close()
+        with open(self.path, "r+b") as f:
+            f.seek(0x1F400 + 28)
+            f.write(bytes(4))
+        self.s = Synth(self.path)
+        self.s.ms(1600)
+        settings = self.s.settings()
+        self.assertEqual((settings["init-patch"], settings["midi-channel"]), (0, 3), "the rest of the block as it was")
+
+    def test_rec_perf_with_no_digits_takes_the_current_slot(self):
+        self.s.press("REC", "PERF")
+        self.assertShows("InIt.")
+        self.assertEqual(self.s.settings()["init-patch"], 1)
+        self.assertTrue(self.s.slot_is_ours(1), "really saved")
+
+
+class SystemMenu(PanelTest):
+    """#2, #34: hold Settings (or Shift + Settings): the system-wide settings, on keys 1-7, the Settings LED blinking."""
+
+    def open(self):
+        self.s.long_press("SETTINGS")
+        self.assertShows("SYS")
+
+    def page(self, key, name):
+        self.s.press(key)
+        self.assertShows(name)
+        self.s.ms(800)
+
+    def test_a_tap_is_the_sound_menu_a_hold_the_system_menu(self):
+        self.s.press("SETTINGS")
+        self.assertShows("SEt")
+        self.s.press("SETTINGS")
+        self.assertShows("P  1")
+        self.open()
+        lit = set()
+        for _ in range(12):
+            self.s.ms(50)
+            lit.add(self.s.led("SETTINGS"))
+        self.assertEqual(lit, {True, False}, "it blinks")
+        self.s.press("SETTINGS")
+        self.assertShows("P  1")
+        self.s.ms(300)
+        self.assertFalse(self.s.led("SETTINGS"))
+
+    def test_shift_settings_opens_it(self):
+        self.s.hold("SHIFT")
+        self.s.press("SETTINGS")
+        self.s.let_go("SHIFT")
+        self.assertShows("SYS")
+
+    def test_the_midi_channel(self):
+        self.open()
+        self.page("1", "CHnL")
+        self.assertShows("ALL")
+        self.s.turn(1)
+        self.assertShows("   1")
+        self.assertEqual(self.s.settings()["midi-channel"], 1)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.assertEqual(self.s.settings()["midi-channel"], 1)
+
+    def test_pickup_the_ccs_the_clock(self):
+        self.open()
+        self.page("2", "P.UP")
+        self.assertShows("on")
+        self.s.turn(1)
+        self.assertShows("OFF")
+        self.page("3", "CC.A")
+        self.assertShows("  11")
+        self.s.turn(1)
+        self.page("4", "CC.b")
+        self.assertShows("   2")
+        self.page("5", "CLoC")
+        self.assertShows("nIdI")
+        self.s.turn(1)
+        self.assertShows("Int")
+        settings = self.s.settings()
+        self.assertEqual((settings["pickup"], settings["cc-a"], settings["clock"]), (0, 12, 1))
+
+    def test_the_tempo_and_shift_for_tens(self):
+        self.open()
+        self.page("6", "tEnP")
+        self.assertShows(" 120")
+        self.s.turn(1)
+        self.assertShows(" 121")
+        self.s.hold("SHIFT")
+        self.s.turn(1)
+        self.s.let_go("SHIFT")
+        self.assertShows(" 131")
+        self.assertEqual(self.s.settings()["bpm"], 131)
+
+    def test_the_init_patch(self):
+        self.open()
+        self.page("7", "InIt")
+        self.assertShows("nonE")
+        self.s.turn(1)
+        self.assertShows("P  1")
+        self.s.hold("SHIFT")
+        self.s.turn(1)
+        self.s.let_go("SHIFT")
+        self.assertShows("P 11")
+        self.assertEqual(self.s.settings()["init-patch"], 11)
+        self.s.turn(-2)
+        self.assertShows("P  9")
+        self.s.hold("SHIFT")
+        self.s.turn(-1)
+        self.s.let_go("SHIFT")
+        self.assertShows("P128", "round past none")
+        self.s.turn(1)
+        self.assertShows("nonE")
+        self.assertEqual(self.s.settings()["init-patch"], 0)
+
+    def test_keys_9_0_and_perf_and_rec_do_nothing(self):
+        self.open()  # (key 8 is MIDI out from 0.10.0: MidiOut)
+        for key in ("9", "0", "PERF", "REC"):
+            self.s.press(key)
+            self.assertShows("SYS", key)
+        self.assertEqual(self.s.settings()["init-patch"], 0)
+
+    def test_shift_settings_closes_an_open_menu(self):
+        """With Shift held (or latched), Settings still closes a menu: it opens the system menu only from none."""
+        self.s.press("SETTINGS")
+        self.s.hold("SHIFT")
+        self.s.press("SETTINGS")
+        self.s.let_go("SHIFT")
+        self.assertShows("P  1")
+
+    def test_shift_settings_from_mod_assign_ends_it(self):
+        self.s.press("ASSIGN")
+        self.assertShows("SrC")
+        self.s.hold("SHIFT")
+        self.s.press("SETTINGS")
+        self.s.let_go("SHIFT")
+        self.assertShows("SYS")
+        self.s.press("SETTINGS")
+        self.s.ms(600)
+        self.assertShows("P  1", "MOD ASSIGN didn't come back")
+        self.assertFalse(self.s.led("ARP_ASSIGN"))
+
+    def test_perf_in_a_save_with_a_menu_open_does_nothing(self):
+        self.s.press("REC", "5", "SETTINGS", "PERF")
+        self.assertEqual(self.s.settings()["init-patch"], 0, "as Rec does nothing there")
+
+    def test_shift_digit_goes_to_the_sound_menus_page(self):
+        self.open()
+        self.s.hold("SHIFT")
+        self.s.press("3")
+        self.s.let_go("SHIFT")
+        self.s.ms(300)
+        self.assertShows("OFF", "the layer page")
+        lit = set()
+        for _ in range(12):
+            self.s.ms(50)
+            lit.add(self.s.led("SETTINGS"))
+        self.assertEqual(lit, {True}, "steady: the sound menu")
+
+
+class ReleaseVelocity(PanelTest):
+    """#8: release velocity as source 29. A route from it does nothing while the voice's key is down, only after the key
+    is up, by its lift (rv x depth); 64 for releases no key made, and for a note-on at velocity 0."""
+
+    RVEL = None
+
+    def setUp(self):
+        super().setUp()
+        self.RVEL = pro800.SOURCE_NAMES.index("release-velocity")
+        self.s.no_routes()
+        self.s.setting("keytrack", 0)
+        self.s.param(0, "fil-env-amt", 8192)   # no envelope on the cutoff
+        self.s.param(0, "cutoff", 6000)
+        self.s.param(0, "amp-rel", 14000)      # a long tail to look at
+        self.s.param(0, "fil-rel", 14000)
+
+    def route(self, dest, depth, source=None):
+        d = depth + 99
+        self.s.request(0x56, 0, self.RVEL if source is None else source, dest, d >> 7, d & 0x7F)
+
+    def cutoff_after(self, release=None, note_on_zero=False):
+        """The cutoff CV of the voice a note took, while held and 20 ms after its release."""
+        self.s.note(60)
+        self.s.ms(20)
+        v = self.s.gated()[0]
+        held = self.s.cvs()[CV_FIL1 + v]
+        if note_on_zero:
+            self.s.midi(0x90, 60, 0)
+        else:
+            self.s.midi(0x80, 60, release)
+        self.s.ms(20)
+        after = self.s.cvs()[CV_FIL1 + v]
+        self.s.ms(3000)
+        return held, after
+
+    def test_nothing_while_held_the_lift_after(self):
+        plain_held, plain_after = self.cutoff_after(127)
+        self.route(CUTOFF, 40)
+        held, after = self.cutoff_after(127)
+        self.assertEqual(held, plain_held, "held: the route adds nothing")
+        self.assertGreater(after - plain_after, 3000, "after a lift at 127: up by 40 x 96/99 semitones' worth")
+        held0, after0 = self.cutoff_after(0)
+        self.assertLess(abs(after0 - plain_after), 200, "a lift at 0 adds nothing")
+        _, after64 = self.cutoff_after(64)
+        self.assertAlmostEqual(after64 - plain_after, (after - plain_after) * 64 / 127, delta=300)
+
+    def test_a_note_on_at_velocity_0_is_64(self):
+        self.route(CUTOFF, 40)
+        _, after64 = self.cutoff_after(64)
+        _, after_zero = self.cutoff_after(note_on_zero=True)
+        self.assertLess(abs(after_zero - after64), 100)
+
+    def test_a_route_into_the_vca_doesnt_silence_a_held_note(self):
+        self.s.note(60)
+        self.s.ms(50)
+        v = self.s.gated()[0]
+        plain = self.s.cvs()[CV_AMP1 + v]
+        self.route(VCA, 99)
+        self.s.ms(50)
+        self.assertEqual(self.s.cvs()[CV_AMP1 + v], plain, "held: full, as without the route")
+        self.s.midi(0x80, 60, 0)
+        self.s.ms(20)
+        self.assertLess(self.s.cvs()[CV_AMP1 + v], plain // 4, "a lift at 0: the tail's gone")
+
+    def pedal_lift(self, release):
+        """The cutoff's rise at pedal-up, after a key lifted at `release` while the pedal held it."""
+        self.s.midi(0xB0, 64, 127)
+        self.s.note(60)
+        self.s.ms(20)
+        v = self.s.gated()[0]
+        held = self.s.cvs()[CV_FIL1 + v]
+        self.s.midi(0x80, 60, release)
+        self.s.ms(20)
+        self.assertEqual(self.s.gated(), [v], "the pedal holds it")
+        self.assertEqual(self.s.cvs()[CV_FIL1 + v], held)
+        self.s.midi(0xB0, 64, 0)
+        self.s.ms(20)
+        rise = self.s.cvs()[CV_FIL1 + v] - held
+        self.s.ms(3000)
+        return rise
+
+    def test_the_pedal_keeps_the_lift_for_its_release(self):
+        self.route(CUTOFF, 40)
+        loud, soft = self.pedal_lift(127), self.pedal_lift(10)
+        self.assertGreater(loud, 8000, "pedal up: the key's lift at 127 (64 would give about 5000)")
+        self.assertLess(soft, 1500, "pedal up: the key's lift at 10")
+        self.assertAlmostEqual(soft, loud * 10 / 127, delta=300)
+
+    def test_as_a_via_it_is_x1_while_held(self):
+        fixed = pro800.SOURCE_NAMES.index("fixed")
+        plain_held, plain_after = self.cutoff_after(0)
+        self.route(CUTOFF, 40, source=fixed)
+        self.s.request(0x62, 0, fixed, CUTOFF, (1000 + self.RVEL) >> 7, (1000 + self.RVEL) & 0x7F)
+        held, after = self.cutoff_after(0)
+        self.assertGreater(held - plain_held, 3000, "held: fixed x 1")
+        self.assertLess(abs(after - plain_after), 200, "lifted at 0: fixed x 0")
+
+    def test_the_probe_shows_each_voices_release_velocity(self):
+        self.s.note(60)
+        self.s.ms(20)
+        v = self.s.gated()[0]
+        self.s.midi(0x80, 60, 90)
+        self.s.ms(20)
+        d = self.s.reply(0x55)
+        self.assertEqual(list(d[93 + 3 * v:96 + 3 * v]), [60, 60, 90], "key, note, release velocity")
+
+    def test_a_route_from_it_is_saved(self):
+        self.route(CUTOFF, 40)
+        self.store_patch(5)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.press("5")
+        self.s.ms(3100)
+        self.assertIn((self.RVEL, CUTOFF, 40), self.s.routes(0))
+
+
 class InitRoutes(PanelTest):
     """The init sound's two velocity routes, on both layers, wherever the init sound comes from (MANUAL, Init)."""
 
@@ -988,7 +1385,7 @@ class InitRoutes(PanelTest):
 
     def test_perf(self):
         self.s.no_routes()
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertShows("InIt")
         self.assertInit()
 
@@ -1124,7 +1521,7 @@ class InitRoutes(PanelTest):
         self.store_patch(5)
         self.s.request(0x56, 1, 1, 13, 0, 99 - 20)
         self.store_patch(6)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertInit()
         self.s.press("5")
         self.s.ms(3100)
@@ -1145,7 +1542,7 @@ class InitRoutes(PanelTest):
     def test_undo_brings_back_the_sound_before(self):
         self.s.no_routes()
         self.store_patch(5)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertInit()
         self.s.hold("SHIFT")
         self.s.press("PERF")
@@ -1228,7 +1625,7 @@ class NoInitRoutesOnStockMemory(PanelTest):
         self.s.press("PRESET")
         self.assertShows("nonE")
         self.assertEqual((self.s.routes(0), self.s.routes(1)), ([], []), "the slot is stock's: the sound stays")
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.assertEqual((self.s.routes(0), self.s.routes(1)), (INIT_ROUTES, INIT_ROUTES))
 
 
@@ -1410,6 +1807,258 @@ class Pickup(PanelTest):
         self.s.ms(5)
         self.s.pot("RESONANCE", 0.3)
         self.assertShows("  50.")
+
+
+class PickupNeedsATurn(PanelTest):
+    """0.10.0 (#39's first part): a waiting knob takes over only once it's been turned, however close it rests. On
+    0.9.5 one within 1.5 % of its value took over on the next pass, untouched."""
+
+    def test_a_value_from_the_host_next_to_a_resting_knob_stays(self):
+        self.manual()
+        self.s.pot("RESONANCE", 0.5)
+        self.s.ms(1100)
+        self.s.param(0, "resonance", 8355)  # 0.51: inside the window of the knob at 0.5
+        self.s.ms(2000)
+        self.assertEqual(self.s.params_raw()["resonance"], 8355, "not taken back by the knob")
+        self.s.pot("RESONANCE", 0.6)
+        self.assertShows("  59", "rested on it: the first turn takes it, with no dot")
+        self.assertEqual(self.s.params()["resonance"], 59)
+
+    def test_a_semitone_patch_loaded_one_step_off_keeps_its_tuning(self):
+        seven = round(43 / 72 * 16383)  # FREQ A at +7 semitones
+        self.s.param(0, "freq-a", seven)
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.pot("FREQ_A", 42 / 72)  # +6 on the empty P1
+        self.s.press("3")
+        self.s.ms(3100)
+        self.assertShows("P  3")
+        self.s.ms(2000)
+        self.assertEqual(self.s.params_raw()["freq-a"], seven, "a step is less than 1.5 %: 0.9.5 took the knob's +6")
+        self.s.pot("FREQ_A", 41 / 72)  # turned a step away, to +5: a step's window (half a step) doesn't take it
+        self.assertEqual(self.s.params_raw()["freq-a"], seven, "it waits until the knob reaches +7")
+        self.s.pot("FREQ_A", 43 / 72)
+        self.assertEqual(self.s.params_raw()["freq-a"], seven, "onto it: the knob has it, at +7")
+        self.s.pot("FREQ_A", 44 / 72)
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 72 / 16383), 44)
+
+    def test_a_semitone_knob_short_of_its_end_takes_a_value_stored_at_the_end(self):
+        """A pot that stops at 4070 can't reach +36's step, so it can't sweep past: turned to its end, it takes over."""
+        self.manual()
+        self.s.param(0, "freq-a", 16383)  # +36
+        self.s.pot("FREQ_A", 0.8)
+        self.s.pot("FREQ_A", 71 / 72)
+        self.s.pot("FREQ_A", 4070 / 4095)  # as far as it goes: still step 71 (the step's hysteresis)
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 72 / 16383), 71, "the knob has it")
+
+    def test_a_knob_whose_steps_change_while_it_waits_hasnt_been_turned(self):
+        self.manual()
+        self.s.pot("LFO_FREQ", 0.3)
+        self.s.ms(100)
+        near = round(0.305 * 16383)  # within the window of the knob
+        self.s.param(0, "lfo-freq", near)
+        self.s.ms(100)
+        self.s.setting("lfo-sync", 1)  # now 14 divisions: the knob reads as a step, which isn't a move
+        self.s.ms(500)
+        self.assertEqual(self.s.params_raw()["lfo-freq"], near)
+
+    def test_a_knob_resting_by_its_value_after_a_load_waits_to_be_turned(self):
+        self.manual()
+        self.s.pot("RESONANCE", 0.5)
+        self.s.ms(1100)
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        stored = self.s.params_raw()["resonance"]
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.pot("RESONANCE", 0.51)  # on P1, a hair from P3's value
+        self.s.press("3")
+        self.s.ms(3100)
+        self.s.ms(2000)
+        self.assertEqual(self.s.params_raw()["resonance"], stored, "untouched: the stored value")
+        self.s.pot("RESONANCE", 0.53)
+        self.assertShows("  52", "turned: it's the knob's at once, no dot")
+        self.assertEqual(self.s.params()["resonance"], 52)
+
+
+class ValueNudge(PanelTest):
+    """#39: while a knob's value is on the display, VALUE moves it a tenth a cycle (a stepped knob a step) and the knob
+    waits to be turned. 0-99 values show their tenth; the value is the patch's, so a save keeps it."""
+
+    def touch(self, pot, fraction):
+        """The knob turned to `fraction` (the simulator starts every pot at 2048, so from 0.5 it's moved there first)."""
+        if abs(fraction - 0.5) < 0.05:
+            self.s.pot(pot, 0.3)
+        self.s.pot(pot, fraction)
+        self.s.ms(100)  # the glide to the reading
+
+    def tenths(self, name, layer=0):
+        return round(self.s.params_raw(layer)[name] * 990 / 16383)
+
+    def test_two_cycles_two_tenths_and_it_stays(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)  # 29.7
+        self.s.turn(2)
+        self.assertShows(" 29.9", "from the nearest tenth, 29.7, two up")
+        self.assertEqual(self.tenths("resonance"), 299)
+        self.s.ms(2000)
+        self.assertEqual(self.tenths("resonance"), 299, "the knob, untouched, doesn't take it back")
+        self.assertShows("PAnL")
+        self.s.turn(1)
+        self.assertEqual(self.tenths("resonance"), 299, "the value's gone from the display: VALUE does nothing")
+        self.s.turn(-1)
+        self.assertShows("PAnL")
+
+    def test_a_save_keeps_the_tenth_through_a_load_and_a_power_cycle(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        self.s.turn(-3)
+        self.assertShows(" 29.4")
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        self.s.press("1")
+        self.s.ms(3100)
+        self.s.press("3")
+        self.s.ms(3100)
+        self.assertEqual(self.tenths("resonance"), 294)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.assertEqual(self.tenths("resonance"), 294)
+
+    def test_a_report_on_noise_doesnt_take_the_value_back(self):
+        """The panel reports a knob 24 counts from its last report, not from where it began waiting: a knob that crept
+        20 counts unreported, then 4 of noise after the nudge, sends a report, and that isn't a turn."""
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        x = round(0.3 * 4095)
+        self.s.cmd(f"pot {POT['RESONANCE']} {x + 20}")  # under the report threshold
+        self.s.ms(100)
+        self.s.turn(1)
+        nudged = self.s.params_raw()["resonance"]
+        self.s.cmd(f"pot {POT['RESONANCE']} {x + 24}")  # a report: 24 from the last one, 4 from where it rests
+        self.s.ms(500)
+        self.assertEqual(self.s.params_raw()["resonance"], nudged)
+
+    def test_turning_the_knob_afterwards_takes_over(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        self.s.turn(1)
+        self.touch("RESONANCE", 0.35)
+        self.assertShows("  35", "it rested on the value: the first turn takes it, no dot")
+        self.assertEqual(self.s.params()["resonance"], 35)
+
+    def test_in_preset_mode_the_window_takes_value_from_the_patches(self):
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        self.touch("RESONANCE", 0.3)  # P3 has the init sound's 0; the knob waits for it
+        self.assertShows("   0.")
+        self.s.turn(1)
+        self.assertShows("  0.1", "the value on the display: the stored one")
+        self.assertEqual(self.s.settings()["patch"], 2, "still P3")
+        self.s.ms(1600)
+        self.s.turn(1)
+        self.assertShows("P  4", "the window over: VALUE steps the patches again")
+
+    def test_shift_value_keeps_stepping_ten_patches(self):
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        self.touch("RESONANCE", 0.3)
+        before = self.s.params_raw()["resonance"]
+        self.s.hold("SHIFT")
+        self.s.turn(1)
+        self.assertShows("P 13")
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.params_raw()["resonance"], before)
+
+    def test_free_tuning_by_tenths_of_a_semitone(self):
+        self.manual()
+        self.s.setting("osc-tune 1 a", 2)
+        self.touch("FREQ_A", 0.5 + 12.3 / 72)
+        self.assertShows(" 12.3")
+        self.s.turn(3)
+        self.assertShows(" 12.6", "a tenth of a semitone a cycle (the 0-99 grid would make it 12.5)")
+        self.s.cmd(f"pot {POT['FREQ_A']} {round((0.5 + 12.3 / 72) * 4095) + 3}")  # the knob drifts a little
+        self.s.ms(40)
+        self.assertShows(" 12.6", "the follow doesn't redraw the knob over the value")
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 720 / 16383), 486)
+
+    def test_stepped_knobs_step(self):
+        self.manual()
+        self.touch("FREQ_A", 43 / 72)  # +7 semitones
+        self.s.turn(1)
+        self.s.ms(2000)
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 72 / 16383), 44, "+8, and it stays")
+        self.s.setting("osc-tune 1 a", 1)  # octaves
+        self.touch("FREQ_A", 0.5)
+        self.s.turn(-1)
+        self.assertEqual(round(self.s.params_raw()["freq-a"] * 6 / 16383), 2)
+        self.s.setting("lfo-sync", 1)
+        self.touch("LFO_FREQ", 0.5)
+        self.s.turn(1)
+        self.assertEqual(round(self.s.params_raw()["lfo-freq"] * 14 / 16383), 8, "one division")
+
+    def test_a_unit_knob_moves_a_tenth_of_a_0_99_unit(self):
+        self.manual()
+        self.touch("CUTOFF", 0.5)
+        self.s.turn(1)
+        self.assertEqual(self.tenths("cutoff"), 496)
+
+    def test_m_vol_isnt_adjusted(self):
+        self.manual()
+        self.touch("MASTER_VOL", 0.5)
+        shown = self.s.shows()
+        self.s.turn(2)
+        self.assertEqual(self.s.shows(), shown)
+        self.assertEqual(self.s.params()["master-vol"], 50)
+
+    def test_layer_2s_value_on_layer_2(self):
+        self.manual()
+        self.s.setting("layers", 2)
+        self.s.press("SEQ2")
+        self.s.ms(1100)
+        self.touch("CUTOFF", 0.3)  # per layer (resonance is one wire for both); layer 2's filter is the init sound's, open
+        self.s.turn(-1)
+        self.assertEqual(self.tenths("cutoff", 1), 989, "layer 2's stored value, a tenth down")
+        self.assertEqual(self.tenths("cutoff", 0), 495, "layer 1's stays")
+
+    def test_a_controller_takes_the_display_and_value(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        self.s.midi(0xB0, 71, 100)  # CC 71 is resonance
+        self.s.ms(100)
+        self.s.turn(1)
+        self.assertShows("  78", "the controller's value, and VALUE no longer adjusts it")
+        self.assertEqual(self.s.params()["resonance"], 78)
+
+    def test_a_knob_ends_the_lfo_shapes_window(self):
+        self.manual()
+        shape = self.s.settings()["shape 1 1"]
+        self.s.switch("LFO_SHAPE")
+        self.touch("RESONANCE", 0.3)
+        self.s.turn(1)
+        self.assertEqual(self.s.settings()["shape 1 1"], (shape + 1) % 9, "only the press stepped it")
+        self.assertEqual(self.tenths("resonance"), 298)
+
+    def test_after_shift_value_leaves_env_3_and_the_filter_envelope_alone(self):
+        """Under Shift FIL ATT is Env 3's attack; let go, it's the filter's again: VALUE mustn't adjust either."""
+        self.manual()
+        before = self.s.params_raw()
+        self.s.hold("SHIFT")
+        self.touch("FIL_ATT", 0.3)
+        self.s.let_go("SHIFT")
+        touched = self.s.params_raw()["env3-att"]
+        self.s.turn(2)
+        after = self.s.params_raw()
+        self.assertEqual((after["env3-att"], after["fil-att"]), (touched, before["fil-att"]))
+
+    def test_value_keeps_its_jobs_in_a_menu(self):
+        self.manual()
+        self.touch("RESONANCE", 0.3)
+        self.s.press("SETTINGS")
+        self.s.turn(1)
+        self.assertEqual(self.tenths("resonance"), round(round(0.3 * 4095) / 4095 * 990))
 
 
 class Shift(PanelTest):
@@ -1805,6 +2454,1570 @@ class KeyboardTracking(PanelTest):
         self.assertShows("P  1")
 
 
+class SwitchNames(PanelTest):
+    """A latching button shows what it now does for a second (#34): an oscillator's waves as a set in fixed places, the
+    others as two letters and on / oF. The init sound on P1 has osc A's saw on; the buttons are all up (off)."""
+
+    def test_a_wave_shows_its_oscillators_set_as_it_sounds(self):
+        self.s.switch("A_TRI")
+        self.assertShows("A.St_", "the saw is the patch's, its button still up")
+        self.s.switch("A_TRI")
+        self.assertShows("A.S__")
+        self.s.switch("A_SAW")
+        self.assertShows("A.S__", "the button now agrees with the patch")
+        self.s.switch("A_SAW")
+        self.assertShows("A.oFF")
+        self.s.switch("B_SQUARE")
+        self.assertShows("b.__Q")
+        self.s.switch("B_TRI")
+        self.assertShows("b._tQ")
+        self.s.ms(1100)
+        self.assertShows("P  1")
+
+    def test_the_other_buttons_say_on_or_off(self):
+        for button, name in (("SYNC", "SY"), ("PMOD_FREQ_A", "PA"), ("PMOD_FILTER", "PF"), ("LFO_FREQ", "Fr"),
+                             ("LFO_FILTER", "FL"), ("LFO_PW", "PU")):
+            self.s.switch(button)
+            self.assertShows(f"{name}.on", button)
+            self.s.switch(button)
+            self.assertShows(f"{name}.oF", button)
+        self.s.ms(1100)
+        self.assertShows("P  1")
+
+    def test_nothing_over_mod_assign_or_a_save(self):
+        self.s.press("ASSIGN")
+        self.assertShows("SrC")
+        self.s.switch("A_TRI")
+        self.assertShows("SrC", "MOD ASSIGN keeps the display")
+        self.s.press("ASSIGN")
+        self.s.ms(1100)
+        self.s.press("REC", "1", "2")
+        shown = self.s.shows()
+        self.s.switch("B_SAW")
+        self.s.switch("SYNC")
+        self.assertEqual(self.s.shows(), shown, "the slot being typed stays")
+
+    def test_lfo_2s_routing_shows_over_a_menu_as_it_always_did(self):
+        """The buttons show LFO 1's routing, so for LFO 2 the display is the only sign; a wave keeps the menu's text."""
+        self.s.press("ARP_UP")
+        self.s.ms(1100)
+        self.s.press("SETTINGS")
+        menu = self.s.shows()
+        self.s.switch("LFO_FREQ")
+        self.assertShows("Fr.on")
+        self.s.ms(1100)
+        self.assertEqual(self.s.shows(), menu)
+        self.s.switch("A_TRI")
+        self.assertEqual(self.s.shows(), menu, "a wave says nothing over the menu")
+
+    def test_after_an_lfo_2_toggle_lfo_1s_first_press_only_brings_the_button_back(self):
+        """As MANUAL.md says: LFO 2's press moves the latch but LFO 1 keeps its routing (held); with LFO 1 selected the
+        next press puts the button back in step and changes nothing, the one after switches LFO 1."""
+        self.s.press("ARP_UP")
+        self.s.ms(1100)
+        self.s.switch("LFO_FREQ")
+        self.assertShows("Fr.on", "LFO 2 → pitch")
+        self.s.press("ARP_UP")
+        self.s.ms(1100)
+        self.s.switch("LFO_FREQ")
+        self.assertShows("Fr.oF", "LFO 1 → pitch still off")
+        self.s.switch("LFO_FREQ")
+        self.assertShows("Fr.on", "now LFO 1")
+        self.assertEqual(self.s.settings()["lfo2-dests 1"], 1, "LFO 2 kept its pitch route")
+
+    def test_the_hosts_switches_say_nothing(self):
+        self.s.request(0x4B, SWITCH["SYNC"], 1)
+        self.s.ms(100)
+        self.assertShows("P  1")
+
+
+class HostShowsAParameter(PanelTest):
+    """#34: 6B shows a parameter's value on the display as its knob would; the editor sends it after its own edits."""
+
+    def show(self, rule, name):
+        self.s.request(0x6B, rule, pro800.PARAM_NAMES.index(name))
+        self.s.ms(100)
+
+    def test_set_then_shown_then_gone(self):
+        self.s.param(0, "resonance", 8192)
+        self.s.ms(100)
+        self.assertShows("P  1", "52 alone shows nothing")
+        self.show(1, "resonance")
+        self.assertShows("  50")
+        self.s.ms(1600)
+        self.assertShows("P  1")
+
+    def test_the_layer_rule(self):
+        self.s.setting("layers", 2)
+        self.s.param(1, "cutoff", 0)  # layer 2's cutoff, in Hz on the display
+        self.s.param(0, "cutoff", 16383)
+        self.show(2, "cutoff")
+        layer2 = self.s.shows()
+        self.show(1, "cutoff")
+        self.assertNotEqual(self.s.shows(), layer2)
+        self.s.press("SEQ2")
+        self.s.ms(1100)
+        self.show(0, "cutoff")
+        self.assertEqual(self.s.shows(), layer2, "rule 0: the edit layer")
+
+    def test_not_over_a_menu(self):
+        self.s.press("SETTINGS")
+        self.show(1, "resonance")
+        self.assertShows("SEt")
+
+    def knob_shows(self, pot, value):
+        """What the panel's own knob shows at `value` (0..1): the reference for a 6B of the parameter it edits."""
+        self.s.pot(pot, value)
+        self.s.pot(pot, value + 0.03)
+        self.s.pot(pot, value)
+        shown = self.s.shows().rstrip(".")
+        self.s.ms(1600)
+        return shown
+
+    def test_env_3_and_lfo_2_in_their_own_units(self):
+        self.s.param(0, "env3-att", 8192)
+        self.s.param(0, "lfo2-rate", 8192)
+        self.show(1, "env3-att")
+        env3 = self.s.shows()
+        self.assertNotEqual(env3, "  50", "a time, not 0-99")
+        self.show(1, "lfo2-rate")
+        lfo2 = self.s.shows()
+        self.assertNotEqual(lfo2, "  50", "Hz, not 0-99")
+        self.s.ms(1600)
+        self.s.hold("SHIFT")  # the filter knobs edit Env 3
+        self.assertEqual(self.knob_shows("FIL_ATT", 0.5), env3, "as the panel's knob on Env 3 shows it")
+        self.s.let_go("SHIFT")
+        self.s.setting("lfo", 1)  # the LFO knobs edit LFO 2
+        self.assertEqual(self.knob_shows("LFO_FREQ", 0.5), lfo2)
+
+    def test_by_the_parameter_not_the_panels_selection(self):
+        self.s.param(0, "fil-att", 8192)
+        self.s.param(0, "lfo-freq", 8192)
+        self.show(1, "fil-att")
+        filter_attack = self.s.shows()
+        self.show(1, "lfo-freq")
+        lfo1 = self.s.shows()
+        self.s.ms(1600)
+        self.s.setting("env-tempo 1", 4 | 8)  # Env 3 and 4's times in note values
+        self.s.hold("SHIFT")  # the panel's ADSR knobs on Env 3 and 4
+        self.s.setting("lfo", 1)
+        self.s.setting("lfo2-sync", 1)  # LFO 2 synced: divisions
+        self.show(1, "fil-att")
+        self.assertEqual(self.s.shows(), filter_attack, "the filter envelope's time, whatever the knob edits now")
+        self.show(1, "lfo-freq")
+        self.assertEqual(self.s.shows(), lfo1, "LFO 1's Hz, not LFO 2's division")
+        self.s.let_go("SHIFT")
+
+    def test_out_of_range_does_nothing(self):
+        self.s.request(0x6B, 3, 0)
+        self.s.request(0x6B, 1, 124)  # no such parameter (tools/params.json)
+        self.s.ms(100)
+        self.assertShows("P  1")
+
+
+class ChordMemory(PanelTest):
+    """#36: Unison turned on with 2 or more keys held takes them as the patch's chord (CHrd), and every key then plays
+    it in place of the unison stack; the pedal pressed over held keys in Unison does the same. Saved with the patch."""
+
+    def voices(self):
+        """(key, note) of each gated voice, low to high"""
+        d = self.s.reply(0x55)
+        return sorted((d[93 + 3 * v], d[94 + 3 * v]) for v in range(8) if d[10 + 3 * v])
+
+    def notes(self, key=None):
+        return [n for k, n in self.voices() if key is None or k == key]
+
+    def chord(self):
+        d = self.s.reply(0x68)
+        return list(d[0:8]), list(d[8:16])
+
+    def capture(self, *keys, shows="CHrd"):
+        for k in keys:
+            self.s.note(k)
+        self.s.switch("UNISON")
+        self.s.ms(20)
+        self.assertShows(shows)
+        for k in keys:
+            self.s.note_off(k)
+
+    def route(self, source, dest, depth):
+        d = depth + 99
+        self.s.request(0x56, 0, pro800.SOURCE_NAMES.index(source), pro800.DEST_NAMES.index(dest), d >> 7, d & 0x7F)
+
+    def test_unison_over_held_keys_takes_their_chord(self):
+        self.capture(60, 64, 67)
+        self.assertEqual(self.chord()[0], [4, 7, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(self.s.gated(), [], "the keys that made it are let go")
+        self.s.note(62)
+        self.assertEqual(self.voices(), [(62, 62), (62, 66), (62, 69)])
+        self.s.note_off(62)
+        self.assertEqual(self.s.gated(), [])
+        self.s.ms(1000)
+        self.s.switch("UNISON")
+        self.assertShows("Un.oF")
+
+    def test_chords_share_the_voices_and_never_steal_their_own(self):
+        self.capture(60, 64, 67)
+        for k in (50, 55):
+            self.s.note(k)
+        self.assertEqual(len(self.s.gated()), 6)
+        self.s.note(70)
+        self.assertEqual(len(self.s.gated()), 8)
+        self.assertEqual(self.notes(70), [70, 74, 77], "the newest chord is whole")
+        self.assertEqual(self.notes(55), [55, 59, 62])
+        self.assertEqual(len(self.notes(50)), 2, "the oldest gave up a voice")
+        self.s.note(55)
+        self.assertEqual(len(self.notes(55)), 3, "struck again: its own voices")
+        for k in (50, 55, 70):
+            self.s.note_off(k)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_one_key_or_none_is_plain_unison_and_clears_it(self):
+        self.capture(60, 64, 67)
+        self.s.switch("UNISON")
+        for keys in ((), (60,)):
+            with self.subTest(keys=keys):
+                self.s.request(0x69, 0, 4, 7, 0, 0, 0, 0, 0, 0)
+                self.s.ms(1100)
+                self.capture(*keys, shows="Un.on")
+                self.assertEqual(self.chord()[0], [0] * 8)
+                self.s.note(62)
+                self.assertEqual(len(self.s.gated()), 8)
+                self.s.note_off(62)
+                self.s.switch("UNISON")
+
+    def test_off_keeps_it_for_the_host_to_bring_back(self):
+        self.capture(60, 64, 67)
+        self.s.switch("UNISON")
+        self.s.note(62)
+        self.assertEqual(len(self.s.gated()), 1, "Unison off: poly")
+        self.s.note_off(62)
+        self.assertEqual(self.chord()[0][:2], [4, 7], "kept")
+        self.s.request(0x4B, SWITCH["UNISON"], 1)
+        self.s.ms(20)
+        self.s.note(62)
+        self.assertEqual(self.notes(), [62, 66, 69], "the host's Unison: the chord again, no capture")
+        self.s.note_off(62)
+
+    def test_mono_and_legato_play_their_line_as_chords(self):
+        for mode in (1, 2):
+            with self.subTest(mode=pro800.VOICE_MODES[mode]):
+                self.s.setting("voice 1", mode)
+                self.s.param(0, "amp-att", 8700)  # 0.2 s: past it by 400 ms, in it 2 ms after a retrigger
+                self.capture(60, 64, 67)
+                self.s.note(60)
+                self.s.ms(400)
+                self.s.note(65)
+                self.assertEqual(self.voices(), [(65, 65), (65, 69), (65, 72)])
+                self.s.ms(400)
+                self.s.note_off(65)
+                self.assertEqual(self.voices(), [(60, 60), (60, 64), (60, 67)], "back to the held key's chord")
+                amp = self.s.probe()["amp"]
+                self.assertEqual(all(amp[v] in (1, 6) for v in self.s.gated()), mode == 1, "mono retriggers, legato doesn't")
+                self.s.note_off(60)
+                self.assertEqual(self.s.gated(), [])
+                self.s.switch("UNISON")
+
+    def test_a_split_captures_where_the_keys_are(self):
+        self.s.setting("layers", 1)  # split at 60
+        self.capture(48, 52, 55)
+        a, b = self.chord()
+        self.assertEqual((a[:2], b[0]), ([4, 7], 0))
+        self.s.note(50)
+        self.s.note(72)
+        self.assertEqual(self.notes(50), [50, 54, 57])
+        self.assertEqual(self.notes(72), [72] * 4, "layer 2: plain unison on its four voices")
+
+    def test_not_in_the_per_channel_modes(self):
+        self.s.setting("layers", 4)  # 8ch
+        for c, k in enumerate((60, 64, 67)):
+            self.s.note(k, channel=c)
+        self.s.switch("UNISON")
+        self.s.ms(20)
+        self.assertShows("Un.on")
+        self.assertEqual(self.chord()[0], [0] * 8)
+
+    def test_keys_the_pedal_holds_count(self):
+        self.s.cc(64, 127)
+        for k in (60, 64, 67):
+            self.s.note(k)
+        for k in (60, 64, 67):
+            self.s.note_off(k)
+        self.capture(shows="CHrd")
+        self.assertEqual(self.chord()[0][:2], [4, 7])
+        self.s.cc(64, 0)
+
+    def test_the_pedal_over_held_keys_in_unison_latches_a_new_chord(self):
+        self.s.switch("UNISON")
+        for k in (60, 63, 67):
+            self.s.note(k)
+        self.s.cc(64, 127)
+        self.s.ms(20)
+        self.assertShows("CHrd")
+        self.assertEqual(self.chord()[0][:2], [3, 7])
+        self.s.cc(64, 0)
+        for k in (60, 63, 67):
+            self.s.note_off(k)
+        self.s.note(50)
+        self.assertEqual(self.notes(), [50, 53, 57])
+        self.s.note_off(50)
+        for k in (62, 66):  # and again, over the chord's own keys
+            self.s.note(k)
+        self.s.cc(64, 127)
+        self.s.ms(5)
+        self.s.cc(64, 0)
+        for k in (62, 66):
+            self.s.note_off(k)
+        self.assertEqual(self.chord()[0][:2], [4, 0])
+
+    def test_the_pedal_over_one_key_or_without_unison_only_sustains(self):
+        for k in (60, 64):
+            self.s.note(k)
+        self.s.cc(64, 127)
+        self.s.ms(5)
+        self.assertEqual(self.chord()[0], [0] * 8, "Unison off: a sustain")
+        self.s.cc(64, 0)
+        for k in (60, 64):
+            self.s.note_off(k)
+        self.s.switch("UNISON")
+        self.s.note(60)
+        self.s.cc(64, 127)
+        self.s.note_off(60)
+        self.assertEqual(len(self.s.gated()), 8, "one key: sustained in plain unison")
+        self.assertEqual(self.chord()[0], [0] * 8)
+        self.s.cc(64, 0)
+
+    def test_it_is_saved_with_the_patch(self):
+        self.capture(60, 64, 67)
+        self.store_patch(5)
+        self.assertEqual(list(self.s.memory()[4 * 768 + 455:4 * 768 + 471]), [4, 7] + [0] * 14, "store.c: chords at 455")
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(3000)
+        self.s.note(62)
+        self.assertEqual(self.notes(), [62, 66, 69], "loaded with Unison on: the chord")
+
+    def test_the_host_reads_sets_and_captures(self):
+        out = self.s.request(0x69, 1, 3, 7, 10, 0, 0, 0, 0, 0)
+        self.assertIn(b"\x7f\x69", out)
+        self.assertEqual(self.chord()[1][:4], [3, 7, 10, 0])
+        self.s.request(0x69, 0, 7, 4, 9, 0, 0, 0, 0, 0)
+        self.assertEqual(self.chord()[0], [7, 0, 0, 0, 0, 0, 0, 0], "as far as it's valid: up to the step back")
+        for k in (60, 65):
+            self.s.note(k)
+        self.assertEqual(list(self.s.reply(0x6A, 1)), [2, 127], "layer 2 not asked for: left alone")
+        self.assertEqual(self.chord()[0][:2], [5, 0])
+        for k in (60, 65):
+            self.s.note_off(k)
+        self.assertEqual(list(self.s.reply(0x6A, 1)), [0, 127], "nothing held: cleared")
+        self.assertEqual(self.chord()[0], [0] * 8)
+
+    def test_a_sequence_step_plays_the_chord(self):
+        self.capture(60, 64, 67)
+        self.s.seq_set(4)
+        self.s.seq_steps(0, [(0,), (2,), (4,), (5,)])
+        self.s.note(60)
+        self.s.ms(10)
+        self.assertEqual(self.notes(), [60, 64, 67])
+        self.s.ms(125)
+        self.assertEqual(self.notes(), [62, 66, 69], "the next step: its note's chord")
+        self.s.note_off(60)
+        self.s.ms(300)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_a_step_with_its_own_chord_plays_that_alone(self):
+        self.capture(60, 64, 67)
+        self.s.seq_set(1, lanes=1, flags=1 | 1 << 5)
+        self.s.seq_steps(0, [(0, 0, 50, 1, 0, (76, 64, 64, 64))])  # Note 2: +12
+        self.s.note(60)
+        self.s.ms(10)
+        self.assertEqual(self.notes(), [60, 72])
+        self.s.note_off(60)
+
+    def test_the_arp_walks_the_chord_of_one_key(self):
+        self.capture(60, 64, 67)
+        self.s.seq_set(1, arp=1)  # up
+        self.s.seq_steps(0, [(0,)])
+        self.s.note(60)
+        played = []
+        for _ in range(4):
+            self.s.ms(10)
+            played.append(self.notes())
+            self.s.ms(115)
+        self.assertEqual(played, [[60], [64], [67], [60]])
+        self.s.note_off(60)
+        self.s.ms(300)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_a_capture_while_the_arp_runs_takes_the_keys(self):
+        self.s.seq_set(1, arp=1)
+        self.s.seq_steps(0, [(0,)])
+        for k in (60, 63, 67):
+            self.s.note(k)
+        self.s.ms(50)
+        self.capture(shows="CHrd")
+        self.assertEqual(self.chord()[0][:2], [3, 7])
+        for k in (60, 63, 67):
+            self.s.note_off(k)
+
+    def test_the_voicing_ladder(self):
+        """Depth 99 reaches as many steps as the chord has notes: C E G +1 E G C, +2 E C G, +3 C G E; down mirrors it."""
+        self.capture(60, 64, 67)
+        for depth, notes in ((33, [64, 67, 72]), (66, [64, 72, 79]), (99, [72, 79, 88]), (-33, [55, 60, 64]),
+                             (-66, [48, 55, 64]), (-99, [40, 48, 55]), (0, [60, 64, 67])):
+            with self.subTest(depth=depth):
+                self.route("fixed", "chord-voicing", depth)
+                self.s.note(60)
+                self.assertEqual(self.notes(), notes)
+                self.s.note_off(60)
+
+    def test_velocity_voices_each_note_by_its_own(self):
+        self.capture(60, 64, 67)
+        self.route("velocity", "chord-voicing", 99)
+        for velocity, notes in ((127, [72, 79, 88]), (1, [60, 64, 67]), (127, [72, 79, 88])):
+            self.s.note(60, velocity)
+            self.assertEqual(self.notes(), notes, f"velocity {velocity}")
+            self.s.note_off(60)
+
+    def test_the_voicing_holds_its_step_near_a_boundary(self):
+        self.capture(60, 64, 67)
+        self.route("macro2", "chord-voicing", 99)
+        heard = []
+        for offset in (0, 20, 22, 18, 10):
+            self.s.setting("macro 1 2", offset + 99)
+            self.s.ms(20)
+            self.s.note(60)
+            heard.append(self.notes())
+            self.s.note_off(60)
+        c, up = [60, 64, 67], [64, 67, 72]
+        self.assertEqual(heard, [c, c, up, up, c])
+
+    def test_a_held_chord_follows_the_voicing(self):
+        self.s.param(0, "amp-att", 8700)  # 0.2 s: a retrigger would show as the attack again
+        self.capture(60, 64, 67)
+        self.route("macro2", "chord-voicing", 99)
+        self.s.note(60)
+        self.s.ms(400)
+        gated = self.s.gated()
+        self.s.setting("macro 1 2", 99 + 33)
+        self.s.ms(3)
+        amp = self.s.probe()["amp"]
+        self.assertTrue(all(amp[v] not in (1, 6) for v in gated), "no retrigger")
+        self.assertEqual(self.notes(), [64, 67, 72])
+        self.assertEqual(self.s.gated(), gated, "the same voices")
+        self.s.note_off(60)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_note_into_the_voicing_reads_the_key(self):
+        """The voicing moves the pitch: Note as its source is the chord's key, or a held chord would flip every pass."""
+        self.capture(60, 64, 67)
+        self.route("note", "chord-voicing", -99)
+        self.s.note(96)
+        heard = []
+        for gap in (6, 7, 6, 7, 6, 7):  # a reply takes 5 ms: 11 and 12 passes apart, both parities
+            heard.append(self.notes())
+            self.s.ms(gap)
+        self.assertEqual(heard, [heard[0]] * 6, "steady")
+        self.assertEqual(heard[0], [84, 91, 100], "key 96 at -99: x -1.8, step -2 (G and C below)")
+        self.s.note_off(96)
+
+    def test_a_restarted_lfo_voices_the_chord_from_its_start(self):
+        self.s.param(0, "lfo-freq", 5440)  # 0.5 Hz (0.05 x 2^(10 x 0.332))
+        self.s.setting("shape 1 1", 1)  # square: the other half of its cycle reads the other end of the ladder
+        self.s.setting("lfo-trigger", 2)  # every key
+        self.capture(60, 64, 67)
+        self.route("lfo", "chord-voicing", 99)
+        self.s.ms(1500)  # three quarters into the cycle the capture's keys restarted
+        # the note-on and the probe in one read: what the chord started as, before the first pass could re-voice it
+        self.s.cmd("out")
+        self.s.cmd("midi " + (bytes([0x90, 60, 100]) + pro800.SYSEX_HEADER + bytes([0x55]) + b"\xF7").hex())
+        self.s.ms(5)
+        out = bytes.fromhex(self.s.cmd("out"))
+        start = out.index(pro800.SYSEX_HEADER + bytes([0x55]))
+        d = out[start + pro800.HEADER_SIZE + 1:out.index(0xF7, start)]
+        first = sorted(d[94 + 3 * v] for v in range(8) if d[10 + 3 * v])
+        self.assertEqual(first, [72, 79, 88], "the restarted square's first half: the top of the ladder")
+        self.s.ms(30)
+        self.assertEqual(self.notes(), first, "and the passes after it agree")
+        self.s.note_off(60)
+
+    def test_without_its_route_the_voicing_goes_back(self):
+        self.capture(60, 64, 67)
+        self.route("fixed", "chord-voicing", 99)
+        self.s.note(60)
+        self.assertEqual(self.notes(), [72, 79, 88])
+        self.route("fixed", "chord-voicing", 0)
+        self.s.ms(20)
+        self.assertEqual(self.notes(), [60, 64, 67], "held: back to the stored chord")
+        self.s.note_off(60)
+        self.s.seq_set(1, arp=1)
+        self.s.seq_steps(0, [(0,)])
+        self.s.note(60)
+        played = []
+        for _ in range(3):
+            self.s.ms(10)
+            played.append(self.notes())
+            self.s.ms(115)
+        self.assertEqual(played, [[60], [64], [67]], "the arp joins the stored chord")
+        self.s.note_off(60)
+
+    def test_the_pedals_capture_plays_on(self):
+        self.s.switch("UNISON")
+        for k in (60, 63, 67):
+            self.s.note(k)
+        self.s.cc(64, 127)
+        self.s.ms(20)
+        self.assertShows("CHrd")
+        self.assertTrue(self.s.gated(), "the keys held play again, with the new chord")
+        self.assertEqual(self.notes(67), [67, 70, 74], "the newest key whole (three triads take nine voices)")
+        for k in (60, 63, 67):
+            self.s.note_off(k)
+        self.assertTrue(self.s.gated(), "the pedal holds them")
+        self.s.cc(64, 0)
+        self.s.ms(5)
+        self.assertEqual(self.s.gated(), [])
+
+    def test_stack_captures_on_both_layers(self):
+        self.s.setting("layers", 2)
+        self.capture(60, 64, 67)
+        a, b = self.chord()
+        self.assertEqual((a[:2], b[:2]), ([4, 7], [4, 7]))
+        self.assertEqual(list(self.s.reply(0x6A, 3)), [0, 0], "nothing held now: both cleared")
+        self.s.setting("layers", 0)
+        self.assertEqual(list(self.s.reply(0x6A, 3)), [0, 127], "layers off: layer 2 left alone")
+
+    def test_with_no_chord_the_voicing_does_nothing(self):
+        self.route("fixed", "chord-voicing", 99)
+        self.s.note(60)
+        self.assertEqual(self.notes(), [60])
+        self.s.note_off(60)
+        self.s.switch("UNISON")
+        self.s.note(60)
+        self.assertEqual(self.notes(), [60] * 8)
+
+
+def nrpn_ids():
+    with open(os.path.join(ROOT, "tools", "params.json"), encoding="utf-8") as f:
+        return {p["name"]: p["id"] for p in json.load(f)["params"]}
+
+
+class Nrpn(PanelTest):
+    """#37: NRPN reaches every parameter of tools/params.json: CC 99 the layer rule, 98 the id, 6 / 38 the value."""
+
+    ID = nrpn_ids()
+
+    def nrpn(self, name, msb=None, lsb=None, rule=0, channel=0):
+        self.s.cc(99, rule, channel)
+        self.s.cc(98, self.ID[name] if isinstance(name, str) else name, channel)
+        if msb is not None:
+            self.s.cc(6, msb, channel)
+        if lsb is not None:
+            self.s.cc(38, lsb, channel)
+        self.s.ms(20)
+
+    def param(self, layer, name):
+        d = self.s.reply(0x53, layer)
+        i = pro800.PARAM_NAMES.index(name)
+        return d[2 + 2 * i] << 7 | d[3 + 2 * i]
+
+    def test_a_knob_takes_coarse_then_fine(self):
+        self.nrpn("cutoff", 64, rule=1)
+        self.assertEqual(self.param(0, "cutoff"), 64 * 16383 // 127)
+        self.s.cc(38, 5)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), 64 << 7 | 5, "CC 38 with the MSB: 14 bits")
+        self.nrpn("cutoff", 127, rule=1)
+        self.assertEqual(self.param(0, "cutoff"), 16383, "the MSB alone reaches the top")
+
+    def test_a_knob_shows_as_its_knob(self):
+        self.nrpn("resonance", 127)
+        self.s.ms(60)
+        self.assertShows("  99")
+
+    def test_the_others_take_their_number_and_show_their_name_first(self):
+        self.nrpn("layers", 2)
+        self.assertEqual(self.s.settings()["layers"], 2)
+        self.s.ms(60)
+        self.assertShows("LAYr")
+        self.s.ms(500)
+        self.assertShows("   2")
+        self.nrpn("layers", 1)
+        self.s.ms(60)
+        self.assertShows("   1", "the same one again: its value at once")
+        self.nrpn("env-delay amp", 40)
+        self.nrpn("shape 1", 4)
+        self.nrpn("env-curve filter", 2)
+        st = self.s.settings()
+        self.assertEqual((st["env-delay 1 amp"], st["shape 1 1"], st["env-curve 1"] >> 2 & 3), (40, 4, 2))
+        self.nrpn("layers", 99)
+        self.assertEqual(self.s.settings()["layers"], 5, "clamped to its range")
+        self.nrpn("layers", 2)
+        self.s.cc(38, 1)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["layers"], 2, "CC 38 means nothing to a number (it would make 2 << 7 | 1)")
+
+    def test_a_button_and_its_display(self):
+        self.nrpn("button a-saw", 0)
+        self.assertEqual(self.s.reply(0x4C)[0], 0)
+        self.s.ms(600)
+        self.assertShows(" OFF")
+        self.nrpn("button a-saw", 1)
+        self.assertEqual(self.s.reply(0x4C)[0], 1)
+
+    def test_a_macro_offset_is_centred(self):
+        for msb, offset in ((64, 0), (127, 99), (0, -99)):
+            self.nrpn("macro 1", msb)
+            self.assertEqual(self.s.settings()["macro 1 1"] - 99, offset)
+        self.nrpn("macro 2", 64, 0)
+        self.assertEqual(self.s.settings()["macro 1 2"] - 99, 0)
+
+    def test_a_macro_offset_in_14_bits_comes_back(self):
+        """pro800 nrpn sends round(v x 8191 / 99) + 8192: the firmware rounds it back to v."""
+        for offset in (2, -2, 33, 50, -60, -98, 98):
+            v14 = max(0, min(16383, round(offset * 8191 / 99) + 8192))
+            with self.subTest(offset=offset):
+                self.nrpn("macro 1", v14 >> 7, v14 & 0x7F)
+                self.assertEqual(self.s.settings()["macro 1 1"] - 99, offset)
+
+    def test_a_field_leaves_the_rest_of_its_setting(self):
+        self.s.setting("link", 64)  # the filter
+        self.nrpn("link amp-env", 1)
+        self.assertEqual(self.s.settings()["link"], 65)
+        self.s.setting("voice 1", 1 | 2 << 2)  # mono, high note
+        self.nrpn("voice", 2, rule=1)
+        self.assertEqual(self.s.settings()["voice 1"], 2 | 2 << 2, "legato, the priority kept")
+        self.s.setting("env-curve 1", 0b10100110)  # swell, swell, linear, swell (env 4 to amp)
+        self.nrpn("env-curve filter", 0, rule=1)
+        self.assertEqual(self.s.settings()["env-curve 1"], 0b10100010, "the filter's two bits alone")
+
+    def test_a_linked_layer_2_reaches_layer_1s_envelope_and_lfo(self):
+        self.s.setting("layers", 2)
+        self.s.setting("link", 1 | 16)  # the amp envelope, LFO 1
+        self.s.setting("edit-layer", 1)
+        self.nrpn("env-delay amp", 30)
+        self.nrpn("shape 1", 4)
+        st = self.s.settings()
+        self.assertEqual((st["env-delay 1 amp"], st["env-delay 2 amp"]), (30, 0))
+        self.assertEqual((st["shape 1 1"], st["shape 2 1"]), (4, 0))
+        self.nrpn("env-mode amp", 0, rule=3)
+        self.s.cc(96, 0)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["dahdsr 1"] & 1, 1, "both layers, one linked value: one step (ADSR to DAHDSR)")
+        self.assertEqual(self.s.settings()["cycle 1"] & 1, 0, "not two (cycling)")
+
+    def test_an_envelope_mode(self):
+        self.nrpn("env-mode env3", 2 + 7, rule=2)  # synced cycling at the seventh division
+        st = self.s.settings()
+        self.assertEqual((st["cycle 2"] >> 2 & 1, st["cycle-sync 2 env3"]), (1, 7))
+        self.nrpn("env-mode env3", 1, rule=2)
+        st = self.s.settings()
+        self.assertEqual((st["cycle 2"] >> 2 & 1, st["dahdsr 2"] >> 2 & 1), (0, 1))
+
+    def test_the_layer_rules(self):
+        self.s.setting("layers", 2)
+        before = self.param(0, "cutoff")
+        self.nrpn("cutoff", 10, rule=2)
+        self.assertEqual((self.param(0, "cutoff"), self.param(1, "cutoff")), (before, 10 * 16383 // 127), "2: layer 2 alone")
+        self.nrpn("cutoff", 20, rule=3)
+        self.assertEqual((self.param(0, "cutoff"), self.param(1, "cutoff")), (20 * 16383 // 127,) * 2)
+        self.s.setting("edit-layer", 1)
+        self.nrpn("cutoff", 30)
+        self.assertEqual((self.param(0, "cutoff"), self.param(1, "cutoff")), (20 * 16383 // 127, 30 * 16383 // 127), "0: the edit layer")
+        self.s.setting("layers", 3)  # channel: channel 2 plays layer 2
+        self.s.setting("edit-layer", 0)
+        self.nrpn("cutoff", 40, channel=1)
+        self.assertEqual(self.param(1, "cutoff"), 40 * 16383 // 127)
+
+    def test_a_linked_layer_2_edits_layer_1_as_its_knob_does(self):
+        self.s.setting("layers", 2)
+        self.s.setting("link", 64)  # the filter
+        self.s.setting("edit-layer", 1)
+        self.nrpn("cutoff", 50)
+        self.assertEqual(self.param(0, "cutoff"), 50 * 16383 // 127)
+        self.s.cc(74, 100)
+        self.s.ms(20)
+        self.assertLessEqual(abs(self.param(0, "cutoff") - round(100 / 127 * 16383)), 1, "a CC too")
+
+    def test_an_rpn_or_nothing_selected_does_nothing(self):
+        before = self.s.settings()["layers"]
+        self.s.cc(6, 3)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["layers"], before, "nothing selected")
+        self.nrpn("layers")
+        self.s.cc(101, 0)
+        self.s.cc(100, 0)
+        self.s.cc(6, 3)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["layers"], before, "an RPN deselects it")
+        knobs = self.s.reply(0x53, 0)
+        self.nrpn(20, 50)  # master volume: the panel's alone
+        self.nrpn(124, 50)
+        self.assertEqual(self.s.reply(0x53, 0), knobs, "neither an id left out nor one past the list sets anything")
+
+    def test_increment_and_decrement(self):
+        self.nrpn("drift", 10)
+        self.s.cc(96, 0)
+        self.s.cc(96, 0)
+        self.s.cc(97, 0)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["drift"], 11)
+
+    def test_per_channel_and_din(self):
+        self.s.cc(99, 0, 0)
+        self.s.cc(98, self.ID["drift"], 0)
+        self.s.cc(98, self.ID["detune"], 1)
+        self.s.cc(6, 33, 0)
+        self.s.ms(20)
+        self.assertEqual((self.s.settings()["drift"], self.s.settings()["detune"]), (33, 14), "each channel its own")
+        self.s.din(0xB0, 99, 0, 98, self.ID["drift"], 6, 44)  # running status
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["drift"], 44)
+
+    def test_the_host_shows_any_parameter(self):
+        self.s.request(0x6B, 1, self.ID["split"])
+        self.s.ms(60)
+        self.assertShows("SPLt")
+        self.s.ms(500)
+        self.assertShows("  60")
+        self.s.ms(1600)
+        self.s.request(0x6B, 1, 124)
+        self.s.ms(60)
+        self.assertShows("P  1", "no such parameter")
+
+    def test_not_over_a_menu(self):
+        self.s.press("SETTINGS")
+        self.nrpn("drift", 5)
+        self.s.ms(600)
+        self.assertShows("SEt")
+
+
+class CcMap(PanelTest):
+    """#37: the user's CC map (65 / 43 / 42), stored at 0x1F420; by default the table the firmware always had."""
+
+    ID = nrpn_ids()
+    DEFAULT = {5: "glide", 14: "freq-a", 15: "freq-b", 16: "fine", 17: "a-pw", 18: "b-pw", 19: "a-level", 20: "b-level",
+               21: "noise", 74: "cutoff", 71: "resonance", 22: "fil-env-amt", 23: "fil-att", 24: "fil-dec", 25: "fil-sus",
+               26: "fil-rel", 73: "amp-att", 75: "amp-dec", 70: "amp-sus", 72: "amp-rel", 76: "lfo-freq", 77: "lfo-amount",
+               27: "lfo2-rate", 28: "lfo2-amount", 29: "pmod-fil-env", 30: "pmod-osc-b", 31: "macro1", 85: "env3-att",
+               86: "env3-dec", 87: "env3-sus", 88: "env3-rel", 89: "env4-att", 90: "env4-dec", 102: "env4-sus", 103: "env4-rel"}
+
+    def read(self):
+        ids, nibbles = [], []
+        for q in range(4):
+            d = self.s.reply(0x65, q)
+            ids += list(d[1:65:2])
+            nibbles += list(d[2:66:2])
+        return ids, nibbles
+
+    def set(self, cc, name, nibble=0):
+        out = self.s.request(0x43, cc, 127 if name is None else self.ID[name], nibble)
+        return pro800.SYSEX_HEADER + bytes([0x7F, 0x43]) in out
+
+    def param(self, layer, name):
+        d = self.s.reply(0x53, layer)
+        i = pro800.PARAM_NAMES.index(name)
+        return d[2 + 2 * i] << 7 | d[3 + 2 * i]
+
+    def test_the_default_is_the_old_table(self):
+        ids, nibbles = self.read()
+        self.assertEqual({cc: i for cc, i in enumerate(ids) if i != 127}, {cc: self.ID[n] for cc, n in self.DEFAULT.items()})
+        self.assertEqual(set(nibbles), {0})
+
+    def test_a_mapped_setting_steps_through_its_range(self):
+        self.assertTrue(self.set(9, "shape 2", 1))  # layer 1
+        shown = []
+        for v in (0, 15, 14 * 9, 127):
+            self.s.cc(9, v)
+            self.s.ms(20)
+            shown.append(self.s.settings()["shape 1 2"])
+        self.assertEqual(shown, [0, 1, 8, 8], "index = v x 9 / 128")
+        self.s.ms(60)
+        self.assertShows("SH.L2", "a setting's name first")
+
+    def test_a_button_on_from_64(self):
+        self.set(9, "button a-saw")
+        for v, on in ((63, 0), (64, 1), (0, 0)):
+            self.s.cc(9, v)
+            self.s.ms(20)
+            self.assertEqual(self.s.reply(0x4C)[0], on)
+
+    def test_rules_and_an_empty_slot(self):
+        self.s.setting("layers", 2)
+        self.set(9, "cutoff", 3)  # both
+        self.s.cc(9, 100)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), self.param(1, "cutoff"))
+        self.set(74, None)
+        before = self.param(0, "cutoff")
+        self.s.cc(74, 0)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), before, "CC 74 cleared: nothing")
+        self.s.setting("layers", 3)  # channel
+        self.set(9, "cutoff", 0)
+        self.s.cc(9, 20, channel=1)
+        self.s.ms(20)
+        self.assertEqual(self.param(1, "cutoff"), 20 * 16383 // 127, "rule edit, channel 2: layer 2")
+
+    def test_fine_makes_14_bits(self):
+        self.set(15, "cutoff")
+        self.set(87, "cutoff", 4)  # stock's pair
+        self.s.cc(15, 64)
+        self.s.cc(87, 5)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), 64 << 7 | 5)
+        self.assertFalse(self.set(88, "layers", 4), "fine is for a knob or a macro offset")
+
+    def test_a_fine_cc_alone_nudges_the_value(self):
+        """As on the stock synth: a fine CC is the low 7 of the parameter's 14 bits as they are, not under a coarse 0."""
+        self.set(87, "cutoff", 4)
+        self.s.param(0, "cutoff", 10000)
+        self.s.cc(87, 5)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), (10000 & ~0x7F) | 5)
+        self.set(88, "macro 1", 4)
+        self.s.setting("macro 1 1", 99 + 50)
+        v14 = round(50 * 8191 / 99) + 8192
+        self.s.cc(88, v14 & 0x7F)
+        self.s.ms(20)
+        self.assertEqual(self.s.settings()["macro 1 1"] - 99, 50, "a macro offset keeps its value under the same low bits")
+
+    def test_refused(self):
+        for cc in (0, 1, 6, 32, 38, 64, 96, 101, 120, 127):
+            with self.subTest(cc=cc):
+                self.assertFalse(self.set(cc, "cutoff"))
+        self.assertNotIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x43]), self.s.request(0x43, 9, 124, 0), "no such parameter")
+        self.assertNotIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x43]), self.s.request(0x43, 9, 24, 8), "no such nibble")
+
+    def test_cc_a_comes_first(self):
+        self.set(9, "cutoff")
+        self.s.setting("cc-a", 9)
+        before = self.param(0, "cutoff")
+        self.s.cc(9, 0)
+        self.s.ms(20)
+        self.assertEqual(self.param(0, "cutoff"), before)
+        self.s.setting("cc-a", 11)
+
+    def test_kept_after_a_power_cycle_and_a_format_once_written(self):
+        self.s.cmd("writes")
+        for v in range(20):
+            self.set(9, "cutoff" if v % 2 else "shape 2")  # the last one: cutoff
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.read()[0][9], self.ID["cutoff"])
+        self.s.request(0x5B)
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.read()[0][9], self.ID["cutoff"], "a format leaves it")
+        self.assertIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x42]), self.s.request(0x42))
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.read()[0][9], 127, "the default again, across a power cycle")
+
+    def test_a_damaged_block_is_the_default(self):
+        self.set(9, "cutoff")
+        self.s.ms(1100)
+        self.s.close()
+        with open(self.path, "r+b") as f:
+            f.seek(0x1F420 + 4 + 9)
+            f.write(bytes([self.ID["resonance"]]))  # the checksum no longer agrees
+        self.s = Synth(self.path)
+        self.s.ms(1600)
+        ids, _ = self.read()
+        self.assertEqual((ids[9], ids[74]), (127, self.ID["cutoff"]))
+
+    def test_one_write_after_a_burst(self):
+        def count():
+            return int(self.s.cmd("writes").split()[0])
+        self.s.ms(1100)
+        start = count()
+        for v in range(20):
+            self.set(9, "cutoff", v % 4)
+        self.s.ms(1100)
+        self.assertEqual(count() - start, 1, "the map once, a second after the last change")
+
+
+def channel_messages(data):
+    """The channel and realtime messages in a byte stream, as tuples; SysEx (the replies) left out."""
+    out, i = [], 0
+    while i < len(data):
+        b = data[i]
+        if b == 0xF0:
+            i = data.index(0xF7, i) + 1
+            continue
+        if b >= 0xF8:
+            out.append((b,))
+            i += 1
+            continue
+        n = 2 if (b & 0xE0) == 0xC0 else 3
+        out.append(tuple(data[i:i + n]))
+        i += n
+    return out
+
+
+class MidiOut(PanelTest):
+    """#38: what the synth sends besides its replies, on USB and the THRU socket (din.c, midiout.c)."""
+
+    def usb(self):
+        return channel_messages(bytes.fromhex(self.s.cmd("out")))
+
+    def din(self):
+        return bytes.fromhex(self.s.cmd("dinout"))
+
+    def socket(self):
+        return [int(x) for x in self.s.cmd("socket").split()]
+
+    def setUp(self):
+        super().setUp()
+        self.s.cmd("out")
+        self.s.cmd("dinout")
+
+    def test_quiet_by_default(self):
+        self.assertEqual(self.socket(), [0, 0], "THRU, MIDI_SEL at its THRU level")
+        self.s.note(60)
+        self.s.cc(74, 30)
+        self.s.ms(50)
+        self.s.note_off(60)
+        self.s.ms(50)
+        self.assertEqual((self.usb(), self.din()), ([], b""))
+
+    def test_the_socket_setting_is_kept(self):
+        self.s.setting("midi-socket", 1)
+        self.assertEqual(self.socket(), [1, 1], "OUT: MIDI_SEL holds U5A's copy off")
+        self.s.ms(1100)
+        self.power_cycle()
+        self.s.ms(1600)
+        self.assertEqual(self.socket(), [1, 1])
+        self.assertEqual(self.s.settings()["midi-socket"], 1)
+
+    def test_played_notes_once_each(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("midi-socket", 1)
+        self.s.cmd("out")
+        self.s.switch("UNISON")  # eight voices on one note: one note out
+        self.s.note(60, 90)
+        self.s.ms(10)
+        self.s.note_off(60)
+        self.s.ms(10)
+        self.assertEqual(self.usb(), [(0x90, 60, 90), (0x80, 60, 0)])
+        self.assertEqual(self.din(), bytes([0x90, 60, 90, 0x80, 60, 0]), "the socket too, in OUT")
+        self.s.switch("UNISON")
+
+    def test_played_follows_a_chord_and_the_out_channel(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("out-channel", 5)
+        self.s.cmd("out")
+        self.s.request(0x69, 0, 4, 7, 0, 0, 0, 0, 0, 0)
+        self.s.request(0x4B, 12, 1)  # Unison on: the chord plays
+        self.s.ms(20)
+        self.s.cmd("out")
+        self.s.note(60, 100)
+        self.s.ms(10)
+        ons = sorted(m for m in self.usb() if m[0] == 0x94)
+        self.assertEqual(ons, [(0x94, 60, 100), (0x94, 64, 100), (0x94, 67, 100)])
+        self.s.note_off(60)
+        self.s.ms(10)
+        self.assertEqual(sorted(m[1] for m in self.usb() if m[0] == 0x84), [60, 64, 67])
+
+    def test_keys_never_go_back_where_they_came_from(self):
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.s.cmd("out")
+        self.s.din(0x90, 62, 80)
+        self.s.ms(10)
+        self.assertEqual((self.usb(), self.din()), ([(0x90, 62, 80)], b""), "from the socket: out on USB only")
+        self.s.note(64, 70)
+        self.s.ms(10)
+        self.assertEqual((self.usb(), self.din()), ([], bytes([0x90, 64, 70])), "from USB: out on the socket only")
+
+    def test_channel_mode_sends_layer_2_one_higher(self):
+        self.s.setting("layers", 3)  # channel
+        self.s.setting("notes-out", 2)
+        self.s.cmd("out")
+        self.s.note(60, 100, channel=1)
+        self.s.ms(10)
+        self.assertIn((0x91, 60, 100), self.usb())
+
+    def test_a_patch_load_and_cc_123_end_what_went_out(self):
+        self.s.setting("notes-out", 2)  # played: a load silences the voices, and their notes end out too
+        self.s.cmd("out")
+        for n in (60, 64):
+            self.s.note(n)
+        self.s.ms(10)
+        self.usb()
+        out = channel_messages(self.s.request(0x5C, 0, 3))  # (a request reads what went out meanwhile)
+        self.s.ms(20)
+        out += self.usb()
+        self.assertEqual(sorted(m for m in out if m[0] == 0x80), [(0x80, 60, 64), (0x80, 64, 64)])
+        self.s.setting("notes-out", 1)  # keys: no voice says when they stop, a CC 123 does
+        self.s.din(0x90, 67, 100)  # from the socket: out on USB
+        self.s.ms(10)
+        self.usb()
+        self.s.cc(123, 0)
+        self.s.ms(20)
+        self.assertEqual([m for m in self.usb() if m[0] == 0x80], [(0x80, 67, 64)])
+        self.s.din(0x90, 69, 100)
+        self.s.ms(10)
+        self.usb()
+        self.s.hold("SHIFT")
+        self.s.press("0")  # the panic
+        self.s.let_go("SHIFT")
+        self.s.ms(20)
+        self.assertEqual([m for m in self.usb() if m[0] == 0x80], [(0x80, 69, 64)], "and the panel's panic")
+
+    def test_a_usb_host_that_stops_reading(self):
+        self.s.setting("notes-out", 2)
+        self.s.cmd("out")
+        self.s.note(60)
+        self.s.ms(10)
+        self.assertEqual(self.usb(), [(0x90, 60, 100)])
+        self.s.cmd("usbbusy 600")
+        for n in range(62, 80):
+            self.s.note(n)
+            self.s.ms(20)
+            self.s.note_off(n)
+        self.s.note_off(60)
+        self.s.ms(400)
+        out = self.usb()
+        self.assertEqual(out, [(0x80, 60, 64)], "the stall dropped what came meanwhile; the note left sounding gets its off")
+
+    def test_merge_forwards_whole_messages(self):
+        self.s.setting("midi-socket", 2)
+        self.s.setting("pc-out", 1)  # the synth's own message here: a program change as a patch loads
+        self.s.cmd("dinout")
+        sysex = bytes([0xF0, 0x7D] + list(range(1, 59)) + [0xF7])  # 20 ms at 31250 baud
+        self.s.din(*sysex)
+        self.s.request(0x5C, 0, 3)  # while the SysEx is still going out
+        self.s.din(0x90, 50, 40, 0xF8, 51, 41)  # a clock byte inside, then running status
+        self.s.ms(40)
+        out = self.din()
+        self.assertEqual(out.count(0xF8), 1, "the forwarded clock once (realtime: wherever it lands, even in a SysEx)")
+        self.assertEqual(out.replace(bytes([0xF8]), b""), sysex + bytes([0xC0, 3, 0x90, 50, 40, 51, 41]),
+                         "the SysEx whole, ours after its F7, the forwarded notes with their running status")
+
+    def test_merge_puts_the_status_back_after_ours(self):
+        self.s.setting("midi-socket", 2)
+        self.s.setting("pc-out", 1)
+        self.s.cmd("dinout")
+        self.s.din(0x90, 50, 40)
+        self.s.ms(5)
+        self.s.request(0x5C, 0, 3)
+        self.s.ms(5)
+        self.s.din(51, 41)  # running status on the IN socket, after the synth's own message went out between
+        self.s.ms(20)
+        self.assertEqual(self.din(), bytes([0x90, 50, 40, 0xC0, 3, 0x90, 51, 41]), "the forwarded note gets its status again")
+
+    def test_program_change_out(self):
+        self.s.setting("pc-out", 1)
+        self.s.setting("out-channel", 3)
+        self.s.cmd("out")
+        out = channel_messages(self.s.request(0x5C, 0, 9))
+        self.s.ms(10)
+        self.assertIn((0xC2, 9), out + self.usb())
+        self.s.midi(0xC0, 4)
+        self.s.ms(20)
+        self.assertNotIn((0xC2, 4), self.usb(), "one a program change loaded doesn't go back out")
+
+    def test_a_usb_stall_with_nothing_owed_ends_when_the_host_reads(self):
+        """The clock alone going out, then a host that takes nothing: once it reads again, the clock does too."""
+        self.s.setting("clock", 1)
+        self.s.setting("clock-out", 1)
+        self.s.ms(100)
+        self.usb()
+        self.s.cmd("usbbusy 400")
+        self.s.ms(450)
+        self.usb()
+        self.s.ms(200)
+        self.assertGreater(self.usb().count((0xF8,)), 5, "the clock again (no note was sounding, so nothing was owed)")
+
+    def test_out_then_thru_sends_the_offs_first(self):
+        self.s.setting("midi-socket", 1)
+        self.s.setting("notes-out", 2)
+        self.s.note(60)
+        self.s.ms(10)
+        self.din()
+        self.s.setting("midi-socket", 0)
+        self.s.ms(30)
+        self.assertEqual(self.din(), bytes([0x80, 60, 64]), "the note the socket sent ends before it gives the IN socket's")
+        self.assertEqual(self.socket(), [0, 0])
+        self.assertEqual(self.s.settings()["midi-socket"], 0)
+
+    def test_a_forwarded_sysex_left_unfinished_doesnt_block_the_synths_own(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("midi-socket", 2)
+        self.s.din(0xF0, 0x7D, 1, 2)  # no F7: the cable pulled mid-dump
+        self.s.ms(10)
+        self.s.setting("midi-socket", 1)
+        self.din()
+        self.s.note(60)
+        self.s.ms(10)
+        self.assertEqual(self.din(), bytes([0x90, 60, 100]), "OUT forwards nothing, so nothing of it holds ours")
+        self.s.note_off(60)
+        self.s.setting("midi-socket", 2)
+        self.s.din(0xF0, 0x7D, 1)  # and in MERGE: given up after 50 ms with nothing more
+        self.s.ms(10)
+        self.din()
+        self.s.note(62)
+        self.s.ms(100)
+        self.assertIn(bytes([0x90, 62, 100]), self.din())
+
+    def test_a_channel_change_ends_the_notes_on_the_old_one(self):
+        self.s.setting("notes-out", 2)
+        self.s.note(60)
+        self.s.ms(10)
+        self.usb()
+        out = channel_messages(self.s.setting("midi-channel", 3))  # the out channel follows it: 1 before, 3 after
+        self.s.ms(10)
+        self.assertIn((0x80, 60, 64), out + self.usb())
+
+    def test_a_layer_mode_change_ends_the_keys_sent(self):
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.s.din(0x90, 62, 80)
+        self.s.ms(10)
+        self.usb()
+        out = channel_messages(self.s.setting("layers", 3))  # channel mode: the key's off would go out on another channel
+        self.s.ms(10)
+        self.assertIn((0x80, 62, 64), out + self.usb())
+
+    def test_played_notes_in_8ch_and_mpe_go_out_on_each_voices_channel(self):
+        self.s.setting("notes-out", 2)
+        for mode, channel in ((4, 3), (5, 2)):  # 8CH: channel 4 plays voice 4; MPE: member 2 plays voice 2
+            with self.subTest(mode=mode):
+                self.s.setting("layers", mode)
+                self.s.ms(10)
+                self.usb()
+                self.s.note(60, 100, channel=channel)
+                self.s.ms(10)
+                self.assertIn((0x90 | channel, 60, 100), self.usb())
+                self.s.note_off(60, channel=channel)
+                self.s.ms(10)
+
+    def test_a_flood_of_keys_leaves_no_note_hanging_on_the_socket(self):
+        """60 keys down and up at once from USB, to a socket that takes a note a millisecond: what doesn't fit is dropped,
+        and every note that went out gets its off after its on (an off with no room takes its own queued on with it)."""
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.din()
+        self.s.midi(*[b for n in range(30, 90) for b in (0x90, n, 100)])
+        self.s.midi(*[b for n in range(30, 90) for b in (0x80, n, 0)])
+        self.s.ms(400)
+        out, last = self.din(), {}
+        for i in range(0, len(out), 3):
+            last[out[i + 1]] = out[i] & 0xF0
+        self.assertGreater(len(last), 20)
+        self.assertEqual([n for n, kind in last.items() if kind == 0x90], [], "notes left sounding")
+
+    def test_two_ons_of_a_note_in_the_flood_still_end(self):
+        """A source that sends a note on twice before its off: the off with no room takes both queued ons with it."""
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.din()
+        self.s.midi(*[b for n in range(30, 90) for b in (0x90, n, 100, 0x90, n, 90)])
+        self.s.midi(*[b for n in range(30, 90) for b in (0x80, n, 0)])
+        self.s.ms(500)
+        out, last = self.din(), {}
+        for i in range(0, len(out), 3):
+            last[out[i + 1]] = out[i] & 0xF0
+        self.assertEqual([n for n, kind in last.items() if kind == 0x90], [], "notes left sounding")
+
+    def test_the_sysex_tune_ends_the_keys_sent(self):
+        self.s.setting("notes-out", 1)
+        self.s.setting("midi-socket", 1)
+        self.s.note(64)  # from USB: out on the socket
+        self.s.ms(10)
+        self.din()
+        self.s.request(0x75)  # the web page's Autotune
+        self.s.ms(10)
+        self.assertIn(bytes([0x80, 64, 64]), self.din())
+
+    def test_a_slow_forwarded_sysex_goes_through_whole(self):
+        """Nothing of the synth's waits behind it: a SysEx with gaps longer than 50 ms isn't cut."""
+        self.s.setting("midi-socket", 2)
+        self.din()
+        self.s.din(0xF0, 0x7D, 1)
+        self.s.ms(100)
+        self.s.din(2, 3, 0xF7)
+        self.s.ms(10)
+        self.assertEqual(self.din(), bytes([0xF0, 0x7D, 1, 2, 3, 0xF7]))
+
+    def test_an_in_clock_doesnt_keep_an_unfinished_sysex_going(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("midi-socket", 2)
+        self.s.din(0xF0, 0x7D, 1)  # and the dump stops, while the device's clock goes on
+        self.s.ms(5)
+        self.s.note(62)
+        for _ in range(10):
+            self.s.din(0xF8)
+            self.s.ms(20)
+        self.assertIn(bytes([0x90, 62, 100]), self.din())
+
+    def test_a_full_forward_buffer_loses_whole_messages(self):
+        """In running status: a data byte lost to a full ring would pair the rest up wrongly, so the rest of that run goes
+        too, up to the next status."""
+        self.s.setting("midi-socket", 2)
+        self.din()
+        first = [0x90] + [b for n in range(63) for b in (30 + n % 60, 100)]  # 127 bytes: the ring full
+        self.s.din(*first)
+        self.s.din(0x30)  # no room: lost
+        self.s.ms(2)  # a few bytes go out: room again
+        self.s.din(0x31, 0x32, 0x33)  # the run goes on: these would pair up as 31 32, 33 ...
+        self.s.din(0x80, 0x10, 0)
+        self.s.ms(100)
+        self.assertEqual(self.din(), bytes(first + [0x80, 0x10, 0]))
+
+    def test_back_to_thru_gives_the_receiver_the_in_streams_status(self):
+        """OUT: the receiver's last status is the synth's; a keyboard on IN in running status goes on under its own."""
+        self.s.setting("notes-out", 2)
+        self.s.setting("midi-socket", 1)
+        self.s.din(0x91, 50, 40)  # the keyboard's status: 91 (OUT doesn't forward it, the synth plays it)
+        self.s.ms(10)
+        self.s.note_off(50, channel=1)
+        self.s.note(60)
+        self.s.ms(10)
+        self.din()
+        self.s.setting("midi-socket", 0)
+        self.s.ms(30)
+        out = self.din()
+        self.assertEqual(out[-1:], bytes([0x91]), out.hex())
+        self.assertEqual(self.socket(), [0, 0])
+
+    def test_out_channel_16_in_8ch_stays_on_16(self):
+        self.s.setting("notes-out", 2)
+        self.s.setting("out-channel", 16)
+        self.s.setting("layers", 4)
+        self.s.ms(10)
+        self.usb()
+        self.s.note(60, 100, channel=3)
+        self.s.ms(10)
+        self.assertIn((0x9F, 60, 100), self.usb())
+
+    def test_a_midi_channel_change_ends_the_keys_on_a_fixed_out_channel(self):
+        self.s.setting("notes-out", 1)
+        self.s.setting("out-channel", 1)
+        self.s.setting("midi-socket", 1)
+        self.s.din(0x92, 62, 80)  # all channels: the key on channel 3 goes out on 1
+        self.s.ms(10)
+        self.assertIn((0x90, 62, 80), self.usb())
+        out = channel_messages(self.s.setting("midi-channel", 1))  # its off on channel 3 won't be listened to now
+        self.s.ms(10)
+        self.assertIn((0x80, 62, 64), out + self.usb())
+
+    def test_program_change_out_on_a_stored_patch(self):
+        self.s.request(0x5D, 0, 6)  # the init sound, stored in P7
+        self.s.ms(20)
+        self.s.setting("pc-out", 1)
+        out = channel_messages(self.s.request(0x5C, 0, 6))
+        self.s.ms(10)
+        self.assertIn((0xC0, 6), out + self.usb())
+
+    def test_the_system_menus_key_8(self):
+        self.s.hold("SETTINGS")
+        self.s.ms(700)
+        self.s.let_go("SETTINGS")
+        self.s.press("8")
+        self.assertShows("dIn")
+        self.s.ms(800)
+        self.assertShows("tHru")
+        self.s.turn(1)
+        self.assertShows("Out")
+        self.assertEqual(self.socket()[0], 1)
+        self.s.press("ARP_UP")
+        self.assertShows("nOtE")
+        self.s.ms(800)
+        self.assertShows("OFF")
+        self.s.press("ARP_UP")
+        self.assertShows("CH.ou")
+        self.s.ms(800)
+        self.assertShows("FoL")
+        self.s.press("SETTINGS")
+
+
+class ClockAndControllersOut(PanelTest):
+    """#38: clock out (the generator's, or the followed MIDI clock forwarded), knob moves as CCs, CC A / B out."""
+
+    def usb(self):
+        return channel_messages(bytes.fromhex(self.s.cmd("out")))
+
+    def din(self):
+        return bytes.fromhex(self.s.cmd("dinout"))
+
+    def setUp(self):
+        super().setUp()
+        self.s.setting("clock", 1)  # internal
+        self.s.setting("bpm", 120)
+        self.s.cmd("out")
+        self.s.cmd("dinout")
+
+    def test_internal_clock_out(self):
+        self.s.ms(500)
+        self.assertEqual([m for m in self.usb() if m == (0xF8,)], [], "off: nothing")
+        out = channel_messages(self.s.setting("clock-out", 1))
+        self.s.ms(500)
+        out += self.usb()
+        self.assertEqual(out[0], (0xFA,), "on: it starts the receivers")
+        self.assertLessEqual(abs(out.count((0xF8,)) - 24), 1, "24 a quarter note at 120 BPM: 24 in 500 ms")
+        out = channel_messages(self.s.setting("clock", 0))  # MIDI: the synth isn't the clock any more
+        self.s.ms(100)
+        self.assertEqual(out + self.usb(), [(0xFC,)])
+
+    def test_the_socket_gets_it_in_out(self):
+        self.s.setting("midi-socket", 1)
+        self.s.setting("clock-out", 1)
+        self.s.ms(500)
+        din = self.din()
+        self.assertEqual(din[0], 0xFA)
+        self.assertLessEqual(abs(din.count(0xF8) - 24), 1)
+
+    def test_a_followed_clock_goes_on_to_the_other_port(self):
+        self.s.setting("clock", 0)
+        self.s.setting("midi-socket", 1)
+        self.s.setting("clock-out", 1)
+        self.s.cmd("out")
+        self.s.cmd("dinout")
+        self.s.midi(0xF8)
+        self.s.midi(0xF8)
+        self.s.ms(10)
+        self.assertEqual((self.din(), self.usb()), (bytes([0xF8, 0xF8]), []), "USB's to the socket, not back")
+        self.s.din(0xFA, 0xF8)
+        self.s.ms(10)
+        self.assertEqual((self.usb(), self.din()), ([(0xFA,), (0xF8,)], b""), "the socket's to USB")
+
+    def test_merge_leaves_out_the_input_clock_while_sending_its_own(self):
+        self.s.setting("midi-socket", 2)
+        self.s.setting("clock-out", 1)
+        self.s.ms(100)
+        self.din()
+        self.s.din(0xF8, 0xF8, 0xF8, 0x90, 60, 1)
+        self.s.ms(1)
+        self.assertNotIn(bytes([0xF8, 0xF8, 0xF8]), self.din(), "the IN socket's clock isn't merged into the synth's")
+
+    def test_knob_moves_out_after_pickup(self):
+        self.s.setting("knob-cc", 1)
+        self.s.request(0x5C, 0, 3)  # the init sound: CUTOFF waits at 99 for its knob
+        self.s.ms(20)
+        self.usb()
+        self.s.pot("CUTOFF", 0.5)
+        self.s.ms(100)
+        self.assertEqual([m for m in self.usb() if m[0] == 0xB0], [], "in pickup: nothing")
+        for v in (0.8, 1.0, 0.7):  # through 99: it takes over
+            self.s.pot("CUTOFF", v)
+            self.s.ms(200)
+        out = [m for m in self.usb() if m[0] == 0xB0]
+        self.assertTrue(out and all(m[1] == 74 for m in out), out)
+        self.assertEqual(out[-1][2], round(self.s.params_raw()["cutoff"] / 16383 * 127))
+
+    def test_a_knobs_own_cc_coming_back_changes_nothing(self):
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)  # takes over at the init sound's 99
+        self.s.ms(300)
+        self.usb()
+        for v in (0.8, 0.7, 0.6):
+            self.s.pot("CUTOFF", v)
+        sent = [m[2] for m in self.usb() if m[:2] == (0xB0, 74)]
+        self.assertGreater(len(sent), 2)
+        for value in (sent[-1], sent[0]):  # a DAW's thru: the last value, and a late one from earlier in the sweep
+            self.s.cc(74, value)
+        self.assertAlmostEqual(self.s.params_raw()["cutoff"] / 16383, 0.6, delta=0.01, msg="the knob keeps it")
+        self.s.pot("CUTOFF", 0.5)
+        self.s.ms(100)
+        self.assertTrue([m for m in self.usb() if m[:2] == (0xB0, 74)], "and goes on sending: no pickup")
+
+    def test_the_echo_is_the_knobs_layers_only(self):
+        """Channel mode: turning layer 1's cutoff leaves CC 74 on layer 2's channel working."""
+        self.s.setting("layers", 3)
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)
+        self.s.ms(300)
+        self.s.pot("CUTOFF", 0.7)
+        self.s.cc(74, 10, channel=1)  # within the knob's window, for layer 2
+        self.assertAlmostEqual(self.s.params_raw(1)["cutoff"] / 16383, 10 / 127, delta=0.01)
+
+    def test_a_knob_resting_on_a_steps_edge_sends_nothing(self):
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)
+        self.s.ms(300)
+        edge = round(63.5 / 127 * 4095)
+        self.s.cmd(f"pot {POT['CUTOFF']} {edge}")
+        self.s.ms(400)
+        self.usb()
+        for _ in range(10):  # its noise, a fifth of a step either way
+            for n in (edge - 6, edge + 6):
+                self.s.cmd(f"pot {POT['CUTOFF']} {n}")
+                self.s.ms(30)
+        self.assertLessEqual(len([m for m in self.usb() if m[:2] == (0xB0, 74)]), 1)
+
+    def test_cc_out_sends_its_value_again_when_the_host_reads_again(self):
+        """The value changed while USB was stalled (and dropped): it goes out once the host reads again."""
+        self.s.no_routes()
+        self.s.setting("notes-out", 2)
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        self.s.request(0x56, 0, fixed, out_a, (50 + 99) >> 7, (50 + 99) & 0x7F)
+        self.s.ms(50)
+        self.usb()
+        self.s.cmd("usbbusy 400")
+        self.s.note(60)  # waiting: the stall comes after 100 ms
+        self.s.ms(200)
+        self.s.cmd("midi " + (pro800.SYSEX_HEADER + bytes([0x56, 0, fixed, out_a, (99 + 99) >> 7, (99 + 99) & 0x7F, 0xF7])).hex())
+        self.s.ms(300)
+        self.assertIn((0xB0, 12, 127), self.usb())
+
+    def test_cc_out_follows_the_out_channel(self):
+        self.s.no_routes()
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        self.s.request(0x56, 0, fixed, out_a, (50 + 99) >> 7, (50 + 99) & 0x7F)
+        self.s.ms(50)
+        self.usb()
+        out = channel_messages(self.s.setting("out-channel", 5))
+        self.s.ms(50)
+        self.assertEqual([m for m in out + self.usb() if m[0] & 0xF0 == 0xB0], [(0xB4, 12, 64)])
+
+    def test_sync_in_stopping_runs_on_without_a_burst(self):
+        self.s.setting("clock", 2)
+        self.s.setting("clock-out", 1)
+        for _ in range(4):
+            self.s.cmd("sw 22 1")
+            self.s.ms(5)
+            self.s.cmd("sw 22 0")
+            self.s.ms(245)
+        self.usb()  # the last pulse was 250 ms ago: its 12 have gone
+        self.s.ms(740)  # a second after it, less a little: still waiting
+        self.assertEqual(self.usb().count((0xF8,)), 0)
+        self.s.ms(60)
+        self.assertLessEqual(self.usb().count((0xF8,)), 4, "no burst of the ticks the wait missed")
+        self.s.ms(500)
+        self.assertLessEqual(abs(self.usb().count((0xF8,)) - 24), 2, "on at the last tempo: 120 BPM")
+
+    def test_after_a_rest_a_cc_sets_the_knobs_parameter_again(self):
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)
+        self.s.ms(300)
+        self.s.pot("CUTOFF", 0.7)
+        self.s.ms(300)
+        sent = [m for m in self.usb() if m[:2] == (0xB0, 74)][-1][2]
+        knob = self.s.params_raw()["cutoff"]
+        self.s.ms(500)
+        self.s.cc(74, sent)  # the same value, from a controller or a DAW's automation, long after
+        raw = self.s.params_raw()["cutoff"]
+        self.assertGreater(abs(knob - round(sent / 127 * 16383)), 5, "(the CC's value isn't the knob's exactly)")
+        self.assertLessEqual(abs(raw - round(sent / 127 * 16383)), 2, "it takes the CC's value")
+
+    def test_knob_moves_on_layer_2_go_out_one_channel_higher_in_channel_mode(self):
+        self.s.setting("layers", 3)
+        self.s.setting("edit-layer", 1)
+        self.s.setting("knob-cc", 1)
+        self.s.pot("CUTOFF", 1.0)
+        self.s.ms(300)
+        self.usb()
+        self.s.pot("CUTOFF", 0.7)
+        self.s.ms(100)
+        out = [m for m in self.usb() if m[0] & 0xF0 == 0xB0]
+        self.assertTrue(out and all(m[:2] == (0xB1, 74) for m in out), out)
+
+    def test_clock_out_off_stops_the_receivers(self):
+        self.s.setting("clock-out", 1)
+        self.s.ms(100)
+        self.usb()
+        out = channel_messages(self.s.setting("clock-out", 0))
+        self.s.ms(100)
+        out += self.usb()
+        self.assertEqual([m for m in out if m != (0xF8,)], [(0xFC,)])
+        self.assertLessEqual(out.count((0xF8,)), 1, "and the clock ends")
+
+    def test_sync_in_sends_12_clocks_a_pulse(self):
+        """Two pulses a quarter note at the jack: 12 F8s each, never 13, as the tempo moves."""
+        self.s.setting("clock", 2)
+        self.s.setting("clock-out", 1)
+        at_pulse, after = [], []  # F8s as each pulse is taken (its own, and the last half beat's rest if it came early),
+        for gap in (250, 250, 250, 240, 230, 260, 250, 210, 270, 250, 250):  # and until the next; ms: 120 BPM, moving
+            self.usb()
+            self.s.cmd("sw 22 1")
+            self.s.ms(4)
+            at_pulse.append(self.usb().count((0xF8,)))
+            self.s.cmd("sw 22 0")
+            self.s.ms(gap - 4)
+            after.append(self.usb().count((0xF8,)))
+        per_half_beat = [1 + after[i] + at_pulse[i + 1] - 1 for i in range(2, len(after) - 1)]
+        self.assertEqual(per_half_beat, [12] * len(per_half_beat), (at_pulse, after))
+
+    def test_cc_a_out_on_both_layers_adds_up(self):
+        self.s.no_routes()
+        self.s.setting("layers", 2)  # stack
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        self.s.request(0x56, 0, fixed, out_a, (30 + 99) >> 7, (30 + 99) & 0x7F)
+        out = channel_messages(self.s.request(0x56, 1, fixed, out_a, (20 + 99) >> 7, (20 + 99) & 0x7F))
+        self.s.ms(50)
+        out += self.usb()
+        self.assertEqual([m for m in out if m[0] == 0xB0][-1], (0xB0, 12, round(50 / 99 * 127)))
+
+    def test_a_new_cc_out_number_gets_the_value_at_once(self):
+        self.s.no_routes()
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        self.s.request(0x56, 0, fixed, out_a, (50 + 99) >> 7, (50 + 99) & 0x7F)
+        self.s.ms(50)
+        self.usb()
+        out = channel_messages(self.s.setting("cc-out-a", 20))
+        self.s.ms(50)
+        self.assertEqual([m for m in out + self.usb() if m[0] == 0xB0], [(0xB0, 20, 64)])
+
+    def test_a_cc_with_its_own_meaning_cant_be_cc_out(self):
+        for cc in (1, 64, 123):
+            self.s.setting("cc-out-a", cc)
+            self.assertEqual(self.s.settings()["cc-out-a"], 0, cc)
+
+    def test_cc_out_goes_at_most_every_5_ms(self):
+        self.s.no_routes()
+        lfo, out_b = pro800.SOURCE_NAMES.index("lfo-uni"), pro800.DEST_NAMES.index("cc-out-b")
+        self.s.param(0, "lfo-freq", 16383)
+        self.s.request(0x56, 0, lfo, out_b, (99 + 99) >> 7, (99 + 99) & 0x7F)
+        self.s.ms(100)
+        self.usb()
+        self.s.ms(100)
+        n = len([m for m in self.usb() if m[:2] == (0xB0, 13)])
+        self.assertGreater(n, 10)
+        self.assertLessEqual(n, 21)
+
+    def test_a_cc_out_route_with_no_note_leaves_the_rest_alone(self):
+        """The routes of a layer with no note yet are worked out for CC A / B out only: a volume route waits for a note."""
+        self.s.no_routes()
+        fixed = pro800.SOURCE_NAMES.index("fixed")
+        self.s.request(0x56, 0, fixed, pro800.DEST_NAMES.index("volume"), (99 + 99) >> 7, (99 + 99) & 0x7F)
+        self.s.ms(50)
+        volume = self.s.cvs()[35]  # CV_MASTER_VOL
+        self.s.request(0x56, 0, fixed, pro800.DEST_NAMES.index("cc-out-a"), (50 + 99) >> 7, (50 + 99) & 0x7F)
+        self.s.ms(50)
+        self.assertEqual(self.s.cvs()[35], volume)
+
+    def test_cc_a_out_from_a_route(self):
+        self.s.no_routes()
+        fixed, out_a = pro800.SOURCE_NAMES.index("fixed"), pro800.DEST_NAMES.index("cc-out-a")
+        out = channel_messages(self.s.request(0x56, 0, fixed, out_a, (50 + 99) >> 7, (50 + 99) & 0x7F))
+        self.s.ms(100)
+        out += self.usb()
+        self.assertEqual([m for m in out if m[0] == 0xB0], [(0xB0, 12, 64)], "once, on CC 12, not every pass")
+        self.s.setting("cc-out-a", 20)
+        out = channel_messages(self.s.request(0x56, 0, fixed, out_a, (99 + 99) >> 7, (99 + 99) & 0x7F))
+        self.s.ms(50)
+        out += self.usb()
+        self.assertEqual([m for m in out if m[0] == 0xB0], [(0xB0, 20, 127)])
+
+    def test_an_lfo_streams_with_no_note_played(self):
+        self.s.no_routes()
+        lfo, out_b = pro800.SOURCE_NAMES.index("lfo-uni"), pro800.DEST_NAMES.index("cc-out-b")
+        self.s.param(0, "lfo-freq", 14000)
+        self.s.request(0x56, 0, lfo, out_b, (99 + 99) >> 7, (99 + 99) & 0x7F)
+        self.s.ms(500)
+        values = [m[2] for m in self.usb() if m[:2] == (0xB0, 13)]
+        self.assertGreater(len(set(values)), 10, "a changing stream from power-up")
+        self.s.request(0x56, 0, lfo, out_b, 0, 99)  # removed (5 s at 0)
+        self.s.ms(5500)
+        self.usb()
+        self.s.ms(200)
+        self.assertEqual([m for m in self.usb() if m[:2] == (0xB0, 13)], [], "no route: no stream")
+
+
 class Layers(PanelTest):
     def test_seq_buttons_choose_the_edit_layer(self):
         self.s.press("SEQ2")
@@ -1837,6 +4050,45 @@ class Layers(PanelTest):
         self.assertEqual(self.s.settings()["osc-tune 1 a"], 3)
         self.s.ms(1100)
         self.assertShows("P  1")
+
+    def test_the_knobs_quarter_picks_the_tuning_mode(self):
+        """#34: where the knob is, not how far it moved: SEnI, OCt, FrEE, FIHd from the bottom quarter up."""
+        self.s.hold("SEQ1")
+        self.s.pot("FREQ_A", 0.6)
+        self.assertShows("FrEE", "from the first move")
+        self.s.pot("FREQ_A", 0.9)
+        self.assertShows("FIHd")
+        self.s.pot("FREQ_A", 0.1)
+        self.assertShows("SEnI")
+        self.s.pot("FREQ_A", 0.3)
+        self.assertShows("OCt")
+        self.s.let_go("SEQ1")
+        self.assertEqual(self.s.settings()["osc-tune 1 a"], 1)
+
+    def test_a_knob_on_a_quarters_edge_doesnt_flicker(self):
+        self.s.hold("SEQ1")
+        self.s.pot("FREQ_A", 0.6)
+        self.assertShows("FrEE")
+        self.s.pot("FREQ_A", 2007 / 4095)  # 41 counts below FrEE's quarter: still FrEE
+        self.assertShows("FrEE")
+        self.s.pot("FREQ_A", 1966 / 4095)  # 82 below
+        self.assertShows("OCt")
+        self.s.pot("FREQ_A", 2088 / 4095)  # 40 into FrEE's quarter: still OCt
+        self.assertShows("OCt")
+        self.s.pot("FREQ_A", 2170 / 4095)
+        self.assertShows("FrEE")
+        self.s.let_go("SEQ1")
+        self.assertEqual(self.s.settings()["osc-tune 1 a"], 2)
+
+    def test_layer_2s_osc_b(self):
+        self.s.press("SEQ2")
+        self.s.ms(1100)
+        self.s.hold("SEQ2")
+        self.s.pot("FREQ_B", 0.95)
+        self.assertShows("FIHd")
+        self.s.let_go("SEQ2")
+        settings = self.s.settings()
+        self.assertEqual((settings["osc-tune 2 b"], settings["osc-tune 1 b"], settings["osc-tune 2 a"]), (3, 0, 0))
 
     def test_octave_mode_shows_octaves(self):
         self.manual()
@@ -1928,6 +4180,33 @@ class ModAssign(PanelTest):
                 self.s.press("ASSIGN")
                 self.assertShows("P  1")
 
+    def test_key_4_again_is_release_velocity(self):
+        self.begin()
+        self.s.press("4")
+        self.assertShows("VEL")
+        self.s.press("4")
+        self.assertShows("rVEL")
+        self.s.press("4")
+        self.assertShows("VEL")
+        self.s.press("ASSIGN")
+
+    def test_key_4_again_on_a_route_says_rvel_then_the_depth(self):
+        self.s.no_routes()
+        self.begin()
+        self.s.press("4")
+        self.s.pot("CUTOFF", 0.3)
+        self.s.pot("CUTOFF", 0.35)
+        self.s.turn(10)
+        self.s.press("4")
+        self.assertShows("rVEL", "the toggled source first")
+        self.s.ms(800)
+        self.assertRegex(self.s.shows(), r"\d", "then the depth: rVEL → cutoff's own, a new route")
+        self.s.turn(5)
+        self.s.press("ASSIGN")
+        sources = [r[0] for r in self.s.routes(0)]
+        self.assertIn(pro800.SOURCE_NAMES.index("release-velocity"), sources)
+        self.assertIn(pro800.SOURCE_NAMES.index("velocity"), sources, "the velocity route stays as it was")
+
     def test_key_1_again_is_the_other_lfo(self):
         self.begin()
         self.s.press("1")
@@ -1985,14 +4264,23 @@ class ModAssign(PanelTest):
                 self.assertSaw([name])
                 self.s.press("ASSIGN")
 
+    def test_the_unison_button_is_the_chord_voicing(self):
+        self.begin()
+        self.s.press("9")
+        self.s.history()
+        self.s.switch("UNISON")
+        self.assertSaw(["CH.Uo"])
+        self.assertEqual(self.s.reply(0x4C)[SWITCH["UNISON"]], 0, "selecting, not switching")
+        self.s.press("ASSIGN")
+
     def test_value_scrolls_sources_and_assign_takes_one(self):
         self.begin()
         names = []
-        for _ in range(28):
+        for _ in range(29):
             self.s.turn(1)
             names.append(self.s.shows())
         self.assertEqual(len(set(names)), len(names), f"every source reads differently: {names}")
-        for wanted in ("SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb", "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP"):
+        for wanted in ("SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb", "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP", "rVEL"):
             self.assertIn(readable(segments_of(wanted)), names)
         self.s.press("ASSIGN")
 
@@ -2502,12 +4790,20 @@ class MidiOnTheDisplay(PanelTest):
         self.s.ms(60)
         self.assertShows("  50")
 
-    def test_lfo_2_rate_shows_0_to_99(self):
-        self.s.cc(27, 127)
-        self.s.ms(60)
-        self.assertShows("  99")
+    def test_lfo_2_rate_and_env_3_times_show_their_knobs_units(self):
+        """As the knobs show them with LFO 2 or Env 3 selected: the units LFO 1's rate and the filter attack show."""
+        for theirs, ours in ((76, 27), (23, 85)):  # LFO 1 / 2 rate, filter / Env 3 attack
+            with self.subTest(cc=ours):
+                self.s.cc(theirs, 100)
+                self.s.ms(60)
+                shown = self.s.shows()
+                self.s.ms(1600)
+                self.s.cc(ours, 100)
+                self.s.ms(60)
+                self.assertShows(shown)
+                self.s.ms(1600)
 
-    def test_env_3_shows_0_to_99(self):
+    def test_env_3_sustain_shows_0_to_99(self):  # a level, as its knob shows it
         self.s.cc(87, 64)
         self.s.ms(60)
         self.assertShows("  50")
@@ -2641,13 +4937,20 @@ class TwoThingsAtOnce(PanelTest):
         self.s.ms(700)
         self.s.press("PERF")
         self.assertShows("   2")
+        self.s.long_press("PERF")
+        self.assertShows("   2", "held, too")
 
-    def test_perf_in_a_save_does_nothing(self):
+    def test_perf_in_a_save_saves_there_as_the_init_patch(self):
+        """0.10.0 (#35): Rec, the slot, Perf. Before, Perf dropped the number and did nothing."""
         self.s.press("REC", "5")
         self.s.press("PERF")
-        self.assertShows("P  1", "any other button drops a number being typed")
-        self.assertFalse(self.s.settings()["patch"])
-        self.s.press("PRESET")
+        self.assertShows("InIt.")
+        settings = self.s.settings()
+        self.assertEqual((settings["patch"], settings["init-patch"]), (4, 5), "saved to P5, which is the init now")
+        self.assertTrue(self.s.slot_is_ours(5), "really saved")
+        self.assertFalse(self.s.led("REC"))
+        self.power_cycle()  # at once: kept as InIt. shows, as a save is at donE
+        self.assertEqual(self.s.settings()["init-patch"], 5)
 
     def test_shift_digit_from_a_save_keeps_the_display_sensible(self):
         self.s.press("REC")
@@ -2692,6 +4995,7 @@ class TwoThingsAtOnce(PanelTest):
 
     def test_a_long_held_button_does_nothing_more(self):
         self.s.hold("PERF")
+        self.s.ms(650)
         self.assertShows("InIt")
         self.s.ms(3000)
         self.assertShows("P  1")
@@ -2953,13 +5257,24 @@ class ModAssignMore(PanelTest):
 
 
 class ButtonsOnTheFace(PanelTest):
-    def test_unison_and_the_waveforms_keep_the_display(self):
-        for name in ("A_SAW", "A_TRI", "A_SQUARE", "B_SAW", "B_TRI", "B_SQUARE", "UNISON", "SYNC", "PMOD_FREQ_A", "PMOD_FILTER"):
+    def test_the_waveforms_sync_and_pmod_name_themselves_for_a_second(self):
+        """Since 0.10.0 (#34) they say what now sounds (SwitchNames has the texts); before, they kept the display."""
+        for name in ("A_SAW", "A_TRI", "A_SQUARE", "B_SAW", "B_TRI", "B_SQUARE", "SYNC", "PMOD_FREQ_A", "PMOD_FILTER"):
             with self.subTest(button=name):
                 self.s.history()
                 self.s.switch(name)
-                self.assertEqual([t for _, t in self.s.history()], [], "these only change the sound")
+                self.assertEqual(len(self.s.history()), 1, "one text")
+                self.s.ms(1100)
                 self.assertShows("P  1")
+
+    def test_unison_says_on_and_off(self):
+        """Since chord memory (0.10.0), which names it CHrd when it takes a chord."""
+        self.s.switch("UNISON")
+        self.assertShows("Un.on")
+        self.s.ms(1100)
+        self.assertShows("P  1")
+        self.s.switch("UNISON")
+        self.assertShows("Un.oF")
 
     def test_a_button_takes_over_from_a_loaded_patch(self):
         self.s.switch("A_SAW")
@@ -2974,10 +5289,11 @@ class ButtonsOnTheFace(PanelTest):
         self.s.pot("MASTER_VOL", 0.25)
         self.assertShows("  25", "no dot: M VOL is always where its knob is")
 
-    def test_lfo_routing_on_lfo_1_keeps_the_display(self):
+    def test_lfo_routing_on_lfo_1_says_on_or_off_as_lfo_2s_does(self):
         self.s.history()
         self.s.switch("LFO_FREQ")
-        self.assertEqual([t for _, t in self.s.history()], [])
+        self.assertEqual([t for _, t in self.s.history()], [readable(segments_of("Fr.on"))])
+        self.assertFalse(self.s.led("ARP_UP"), "still LFO 1")
 
 
 class MoreNames(PanelTest):
@@ -4390,7 +6706,7 @@ class PatchStores(PanelTest):
         self.make()
         self.check()
         self.store_patch(9)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.s.ms(1600)
         self.assertEqual(self.s.params(0)["cutoff"], 99, "the init sound replaced it")
         self.assertEqual(self.s.routes(0), INIT_ROUTES)
@@ -4460,7 +6776,7 @@ class Names(PanelTest):
         self.assertEqual(self.s.patch_info(2), (1, "Lead"))
 
     def test_the_init_sound_is_named_init(self):
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.store_patch(2)
         self.assertEqual(self.s.patch_info(1), (1, "Init"))
 
@@ -4600,8 +6916,8 @@ RANGE_BLOCKS = ["const P = {", "const ENVS = [", "const ENV_KNOB = {};", "for (c
                 "const envIndex", "function cycleSync(", "const envOf", "function cycleShares(", "function cycleShare(", "const knobTime",
                 "function envTime(", "const envFlag", "const QUARTERS", "const envTempo", "const noteStep", "const noteName", "const noteSeconds",
                 "const DIVISIONS", "function seconds(", "function lfoHz(", "function format(", "const DEST_KNOBS", "const DEST_SCALE",
-                "const BIPOLAR_SOURCES", "const FIXED_SOURCE", "const VIA_SOURCE", "const viaName", "const SQUARED_DESTS", "const timeDest", "const rateDest", "const factor",
-                "function swingUnit(", "function routeSwing(", "function swingWhere(", "const SOURCES", "const DESTS", "function modRange(",
+                "const BIPOLAR_SOURCES", "const FIXED_SOURCE", "const isMacroSource", "const VIA_SOURCE", "const viaName", "const SQUARED_DESTS", "const timeDest", "const rateDest", "const factor",
+                "let chords = null;", "function chordSize(", "function swingUnit(", "function routeSwing(", "function swingWhere(", "const SOURCES", "const DESTS", "function modRange(",
                 "function hertz(", "function noteValue(", "function paintRange("]
 
 
@@ -4773,7 +7089,7 @@ class WebRanges(PanelTest):
         self.assertEqual(unit["41"], c["TIME_OCTAVES"])
         self.assertAlmostEqual(scale["41"], c["TIME_OCTAVES"] / c["GLIDE_OCTAVES"], 6)
         self.assertEqual(unit["42"], c["DETUNE_CENTS"])
-        self.assertEqual(self.page["dests"], 47)
+        self.assertEqual(self.page["dests"], len(pro800.DEST_NAMES))
 
     def test_pitch_a_is_squared(self):
         v = self.voice()
@@ -4951,7 +7267,9 @@ class WebRanges(PanelTest):
     def test_amp_attack_and_decay_times_multiply(self):
         self.s.param(0, "amp-att", 0x2000)
         base = self.attack_ms(self.gain)
-        self.assertAlmostEqual(base, 154, delta=4)
+        # knob_time(0x2000 / 16383) is 153.9 ms; counting the passes until the attack stops rising reads 149-150 (0.9.5's
+        # build and this one alike), at the edge of the old ±4
+        self.assertAlmostEqual(base, 154, delta=5)
         self.route(25, 25)
         with_route = self.attack_ms(self.gain)
         self.route(25, 0)
@@ -5059,6 +7377,18 @@ class WebRanges(PanelTest):
         self.assertEqual(spread(), 0)
         for depth in (99, 50):
             self.assertPage(42, depth, self.delta(42, depth, spread), "ct")
+
+    def test_a_cc_out_reaches_0_to_127(self):
+        """CC A out: the page's reach is the CC's value, and below 0 there's nothing (the firmware clamps the sum)."""
+        fixed, lfo, velocity = 25, 1, 4
+        self.assertEqual(self.swing(48, 50)["text"], "+64")
+        self.assertEqual(self.swing(48, -50)["text"], "none on its own")
+        self.assertEqual(self.swing(48, -50, source=velocity)["text"], "none on its own")
+        self.assertEqual((self.swing(48, 50, source=lfo)["lo"], self.swing(48, 50, source=lfo)["text"]), (0, "0 to +64"))
+        out = channel_messages(self.s.request(0x56, 0, fixed, 48, (50 + 99) >> 7, (50 + 99) & 0x7F))
+        self.s.ms(50)
+        out += channel_messages(bytes.fromhex(self.s.cmd("out")))
+        self.assertEqual([m for m in out if m[0] == 0xB0], [(0xB0, 12, 64)], "what the firmware sends for it")
 
     def test_volume_counts_down(self):
         self.voice()  # a single wire follows the layer's newest note: until one has played, the route does nothing
@@ -6165,7 +8495,7 @@ class LfoNoteTimes(PanelTest):
         self.s.setting("lfo2-delay", 7)
         self.s.setting("lfo2-fade", 90)
         self.store_patch(5)
-        self.s.press("PERF")
+        self.s.long_press("PERF")
         self.s.ms(1600)
         self.assertEqual(self.s.settings()["lfo-delay"], 0, "the init sound replaced it")
         self.s.press("5")
@@ -6231,6 +8561,10 @@ class UsbDriver(unittest.TestCase):
 
     def test_a_flush_opens_a_parked_endpoint(self):
         self.run_scenario("flush")
+
+    def test_ready_follows_the_in_endpoint(self):
+        """usb_midi_ready(), which ends midiout.c's stall: configured and the last transfer read."""
+        self.run_scenario("ready")
 
     def test_a_bus_reset_clears_parked(self):
         self.run_scenario("reset")
@@ -7423,51 +9757,92 @@ class WebSmallThings(unittest.TestCase):
                 self.assertIn("isn't a preset bank", case["shown"][0])
         self.assertEqual(out["looked"], 1, "a good one goes on")
 
-    def test_a_knob_that_keeps_moving_reaches_the_synth_all_along(self):
-        """A drag sends while it moves, at most every 25 ms, and its last value always goes. It used to wait for 25 ms
-        without a move, so a knob turned smoothly sent nothing until it stopped and the sound came in steps."""
+    def test_release_velocity_on_older_firmware_says_so(self):
+        """#8: source 29 is 0.10.0's. To older firmware the page says that, not that the layer's 16 routes are taken."""
         page = source("tools", "web", "index.html")
-        out = run_node(FAKE_CLOCK + """
-        Date.now = () => clock.now;
-        let params = new Array(40).fill(0), sent = [];
-        const offline = () => false, touch = () => {}, NAMES = [], label = i => "#" + i, format = (i, v) => String(v), paramLayer = i => 0;
-        const send = m => { sent.push({ at: clock.now, i: m[2], q: m[3] << 7 | m[4] }); return true; };
-        """ + js_block(page, "const SEND_EVERY") + "\n" + js_block(page, "function setParam(") + NODE_DRIVER % """
-        clock.now = 1000;
-        for (let k = 1; k <= 30; k++) { setParam(24, k / 100); await advance(10); } // 300 ms of turning, a move every 10 ms
+        blocks = ["const FEATURES", "const feature", "const SOURCES", "const VIA_SOURCE", "const ROUTES", "const routesFull",
+                  "const routesTaken", "const RELEASE_VELOCITY_SOURCE", "const sourceTooNew", "async function addRoute("]
+        out = run_node(NODE_DRIVER % ("""
+        let settings = {}, paramsLayer = 0, layerRoutes = [], sent = [], takes = false;
+        const setRoute = async (...a) => { sent.push(a); return takes; }, setRouteVia = async (...a) => { sent.push(a); return takes; };
+        """ + chr(10).join(js_block(page, b) for b in blocks) + """
+        const out = { old: await addRoute(29, 3, 40, 100), oldVia: await addRoute(25, 3, 40, VIA_SOURCE + 29), sentOld: sent.length };
+        out.refused = await addRoute(4, 3, 40, 100);
+        layerRoutes = Array(16).fill({ depth: 10 });
+        out.full = await addRoute(4, 3, 40, 100);
+        settings = { initPatch: 0 };
+        takes = true;
+        out.now = await addRoute(29, 3, 40, VIA_SOURCE + 29);
+        out.sent = sent.length;
+        report(out);
+        """))
+        self.assertEqual(out["old"], "Release velocity (key up) needs firmware 0.10.0 or later")
+        self.assertEqual(out["oldVia"], out["old"], "as a Via too")
+        self.assertEqual(out["sentOld"], 0, "nothing asked of the synth")
+        self.assertEqual(out["refused"], "The synth didn't take that route", "free slots: not 'all in use'")
+        self.assertIn("are in use", out["full"])
+        self.assertEqual(out["now"], "", "0.10.0 takes it")
+        self.assertEqual(out["sent"], 4, "the two refused, then the route and its Via")
+
+    def test_a_knob_edit_sends_52_then_6b_and_plans_never_6b(self):
+        page = source("tools", "web", "index.html")
+        out = run_node(NODE_DRIVER % ("""
+        let params = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], sent = [];
+        const offline = () => false, touch = () => {}, NAMES = [], format = () => "", label = i => `#${i}`;
+        const paramLayer = i => i === 8 ? 0 : 1;
+        const send = m => sent.push(m);
+        """ + js_block(page, "const editedAt") + js_block(page, "function setParam(") + """
+        setParam(8, 0.5); setParam(8, 0.6);
+        await new Promise(r => setTimeout(r, 60));
+        report(sent);
+        """))
+        q = round(0.6 * 16383)
+        self.assertEqual(out, [[0x52, 0, 8, q >> 7, q & 0x7F], [0x6B, 1, 8]], "the last value, then show it on layer 1's rule")
+        self.assertNotIn("0x6B", source("tools", "web", "sound-plan.js"), "a preset plan leaves the display alone")
+
+    def test_a_drag_goes_out_as_it_moves_and_ends_on_its_value(self):
+        """A pointer drag calls setParam once a frame (about 16 ms): a throttle sends every 25 ms meanwhile, a debounce
+        would wait for the drag to rest, and the synth's display (6B) would jump at the end."""
+        page = source("tools", "web", "index.html")
+        out = run_node(FAKE_CLOCK + NODE_DRIVER % ("""
+        let params = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], sent = [];
+        const offline = () => false, touch = () => {}, NAMES = [], format = () => "", label = i => `#${i}`;
+        const paramLayer = i => 0, send = m => { if (m[0] === 0x52) sent.push({ at: clock.now, q: m[3] << 7 | m[4] }); };
+        """ + js_block(page, "const editedAt") + js_block(page, "function setParam(") + """
+        for (let f = 0; f <= 30; f++) { setParam(8, f / 30); await advance(16); }
+        const during = sent.length;
         await advance(100);
-        const drag = sent.splice(0);
-        setParam(24, 0.9); setParam(9, 0.5); // a while later, and another knob: at once
-        const alone = sent.splice(0);
-        await advance(100);
-        report({ drag, alone, after: sent });
-        """)
-        drag = out["drag"]
-        self.assertEqual((drag[0]["at"], drag[0]["q"]), (1000, round(0.01 * 16383)), "the first move goes at once")
-        self.assertEqual(drag[-1]["q"], round(0.30 * 16383), "the last value goes")
-        self.assertLessEqual(drag[-1]["at"], 1000 + 300 + 25)
-        gaps = [b["at"] - a["at"] for a, b in zip(drag, drag[1:])]
-        self.assertTrue(all(g >= 25 for g in gaps), f"at most one send every 25 ms: {gaps}")
-        self.assertGreaterEqual(len(drag), 11, f"it sends while it moves: {[(s['at'], s['q']) for s in drag]}")
-        self.assertEqual([(s["i"], s["at"]) for s in out["alone"]], [(24, 1400), (9, 1400)])
-        self.assertEqual(out["after"], [], "nothing more once it's still")
+        report({ during, sent });
+        """))
+        self.assertGreaterEqual(out["during"], 15, "about every 25 ms of a 500 ms drag")
+        self.assertEqual(out["sent"][-1]["q"], 16383, "the last value goes out")
+        gaps = [b["at"] - a["at"] for a, b in zip(out["sent"], out["sent"][1:])]
+        self.assertGreaterEqual(min(gaps), 25, "never faster than the throttle")
 
     def test_the_init_buttons(self):
         page = source("tools", "web", "index.html")
         self.assertRegex(page[page.index("<header>"):page.index("</header>")], r'<button[^>]*id="init-top"[^>]*>Init</button>')
         out = run_node(NODE_DRIVER % ("""
-        let patchName = "Pad", seqFor = "1:70", calls = [], answer = true;
+        let patchName = "Pad", seqFor = "1:70", calls = [], answer = true, settings = null, theirs = 1;
+        const feature = name => !settings || settings[name] !== undefined;
         const ack = async (m, t) => { calls.push(m); return answer; };
+        const ask = async (m, prefix, t) => { calls.push(m); return answer ? [0x5F, theirs] : null; };
         const refreshSettings = async () => { calls.push(["settings", seqFor]); }, refreshParams = async () => { calls.push("params"); };
-        """ + js_block(page, "async function loadInitSound(") + """
+        """ + js_block(page, "let initWasTheirs") + js_block(page, "async function loadInitSound(") + """
         const out = { ok: await loadInitSound(), name: patchName, calls };
         answer = false; calls = []; patchName = "Pad"; seqFor = "1:70";
         out.failed = { ok: await loadInitSound(), name: patchName, seq: seqFor, calls };
+        answer = true; calls = []; settings = { initPatch: 5 };  // 0.10.0: what Perf loads
+        out.perf = { ok: await loadInitSound(), theirs: initWasTheirs, calls };
+        theirs = 0; calls = [];
+        out.builtIn = { ok: await loadInitSound(), theirs: initWasTheirs };
         report(out);
         """))
         self.assertEqual(out["calls"], [[0x5F], ["settings", None], "params"], "the page reads the sound back, and the sequence that's gone")
         self.assertEqual((out["ok"], out["name"]), (True, "Init"))
         self.assertEqual(out["failed"], {"ok": False, "name": "Pad", "seq": "1:70", "calls": [[0x5F]]}, "no answer: nothing changes")
+        self.assertEqual(out["perf"], {"ok": True, "theirs": True, "calls": [[0x5F, 1], ["settings", None], "params"]})
+        self.assertEqual(out["builtIn"], {"ok": True, "theirs": False}, "no init patch set: the reply says 0")
 
     def test_the_patch_arrows(self):
         page = source("tools", "web", "index.html")
@@ -7538,6 +9913,27 @@ class WebSmallThings(unittest.TestCase):
             self.assertIsNotNone(why)
         self.assertEqual(out["text"], ["0.25", "1", "mod-wheel", 1005])
 
+    def test_only_a_macro_into_a_macro_is_refused_as_via(self):
+        """The firmware's rule (via_allowed() in synth.c): a macro can't be the Via of a route into a macro. Arp note
+        into a macro, and a macro into Arp Chaos, are fine; the page and the preset format used to refuse those too."""
+        page = source("tools", "web", "index.html")
+        menu = run_node("\n".join(js_block(page, b) for b in ("const SOURCES", "const FIXED_SOURCE", "const isMacroSource", "const VIA_SOURCE", "const viaOptions"))
+                        + NODE_DRIVER % """
+        const offered = d => [...viaOptions(d).matchAll(/value="(\\d+)"/g)].map(m => +m[1]);
+        report({ macro1: offered(44), macro2: offered(45), chaos: offered(46), cutoff: offered(3) });
+        """)
+        every = [0] + [1000 + s for s in range(1, len(pro800.SOURCE_NAMES)) if s != 25]
+        self.assertEqual(menu["cutoff"], every)
+        self.assertEqual(menu["chaos"], every, "a macro may drive Arp Chaos's Via")
+        for dest in ("macro1", "macro2"):
+            self.assertEqual(menu[dest], [v for v in every if v not in (1026, 1027)], dest)
+        out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
+        const refused = r => { try { planSound({ routes: { 1: [r] } }, () => true); return null; } catch (e) { return e.message; } };
+        report([["lfo", "macro1", 5, "via:arp-note"], ["lfo", "arp-chaos", 5, "via:macro1"], ["lfo", "macro2", 5, "via:macro1"]].map(refused));
+        """)
+        self.assertEqual(out[:2], [None, None])
+        self.assertIn("a macro can't be the Via", out[2])
+
     def test_the_arp_in_the_preset_format(self):
         out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
         const plan = planSound({ settings: { "arp-range": 3, "arp-extend": "ninth", "arp-chaos": 40 },
@@ -7553,6 +9949,113 @@ class WebSmallThings(unittest.TestCase):
         self.assertEqual(out["route"][2], 28)
         for why in out["bad"]:
             self.assertIsNotNone(why)
+
+    def test_an_import_reads_the_map_first(self):
+        """The page's Import diffs against the map as the synth has it now, not one it read earlier."""
+        page = source("tools", "web", "index.html")
+        out = run_node(FAKE_DOM + source("tools", "web", "params.js") + source("tools", "web", "sound-plan.js") + NODE_DRIVER % ("""
+        let sent = [], now = { ids: Array(128).fill(127), nibbles: Array(128).fill(0) };
+        now.ids[20] = 24;
+        const offline = () => false, confirm = () => true, paintCcMap = () => {};
+        const ask = async (m) => [0x65, m[1], ...Array.from({ length: 32 }, (_, i) => [now.ids[32 * m[1] + i], now.nibbles[32 * m[1] + i]]).flat()];
+        const ack = async (m) => { sent.push(m); if (m[0] === 0x43) { now.ids[m[1]] = m[2]; now.nibbles[m[1]] = m[3]; } return true; };
+        """ + chr(10).join(js_block(page, b) for b in ["let ccMap", "const ccMapMsg", "async function readCcMap(", "async function refreshCcMap(", "async function applyCcMapFile("]) + """
+        ccMap = { ids: Array(128).fill(127), nibbles: Array(128).fill(0) }; // what the page read long ago: nothing on CC 20
+        await applyCcMapFile({ format: "pro8000-cc-map", version: 1, map: [{ cc: 74, param: "cutoff" }] }, "the file");
+        report({ sent, cc20: now.ids[20], cc74: now.ids[74] });
+        """))
+        self.assertIn([0x43, 20, 127, 0], out["sent"], "CC 20, mapped on the synth since, is cleared")
+        self.assertEqual((out["cc20"], out["cc74"]), (127, 24))
+
+    def test_the_cc_map_file(self):
+        """#37: the map's JSON, as the editor and the tools read and write it, and the stock map."""
+        out = run_node(source("tools", "web", "params.js") + source("tools", "web", "sound-plan.js") + NODE_DRIVER % ("""
+        const stock = """ + source("tools", "web", "stock-cc-map.json") + """;
+        const ids = Array(128).fill(127), nibbles = Array(128).fill(0);
+        ids[74] = 24; ids[87] = 24; nibbles[87] = 4; ids[20] = 84; nibbles[20] = 1;
+        const j = ccMapToJson(ids, nibbles, PARAMS), back = ccMapFromJson(JSON.parse(JSON.stringify(j)), PARAMS);
+        const refused = map => ccMapFromJson({ format: "pro8000-cc-map", version: 1, map }, PARAMS).problems;
+        const st = ccMapFromJson(stock, PARAMS);
+        report({ j, slots: [...back.slots], problems: back.problems, changes: ccMapChanges(ids, nibbles, back.slots).length,
+          clear: ccMapChanges(ids, nibbles, new Map()).length, stock: { n: st.slots.size, problems: st.problems, cc8: st.slots.get(8) },
+          bad: [[{ cc: 1, param: "cutoff" }], [{ cc: 9, param: "cutoff" }, { cc: 9, param: "noise" }], [{ cc: 9, param: "nope" }],
+                [{ cc: 9, param: "cutoff", layer: "3" }], [{ cc: 9, param: "layers", fine: true }], [{ cc: 128, param: "cutoff" }]].map(refused),
+          notAFile: ccMapFromJson({ map: [] }, PARAMS).problems.length });
+        """))
+        self.assertEqual(out["j"]["map"], [{"cc": 20, "param": "shape 2", "layer": "1", "fine": False, "nrpn": 84},
+                                           {"cc": 74, "param": "cutoff", "layer": "edit", "fine": False, "nrpn": 24},
+                                           {"cc": 87, "param": "cutoff", "layer": "edit", "fine": True, "nrpn": 24}])
+        self.assertEqual(out["slots"], [[20, [84, 1]], [74, [24, 0]], [87, [24, 4]]])
+        self.assertEqual((out["problems"], out["changes"], out["clear"]), ([], 0, 3), "the round trip changes nothing; an empty file clears three")
+        self.assertEqual((out["stock"]["problems"], out["stock"]["cc8"]), ([], [10, 0]), "the stock map is a good file: CC 8 is FREQ A")
+        self.assertGreater(out["stock"]["n"], 50)
+        for why in out["bad"]:
+            self.assertEqual(len(why), 1, why)
+        self.assertEqual(out["notAFile"], 1)
+
+    def test_cc_out_on_a_cc_that_comes_back(self):
+        """#38: the page warns when CC A / B out sends a CC that would set something coming back in."""
+        out = run_node(source("tools", "web", "params.js") + source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
+        const ids = Array(128).fill(127); ids[74] = 24;
+        const s = { ccA: 11, ccB: 2, ccOutA: 0, ccOutB: 0 };
+        report({ fine: ccOutClashes(s, { ids }, PARAMS), map: ccOutClashes({ ...s, ccOutA: 74 }, { ids }, PARAMS),
+          source: ccOutClashes({ ...s, ccOutB: 11 }, null, PARAMS), old: ccOutClashes({ ccA: 11, ccB: 2 }, { ids }, PARAMS),
+          reserved: ccOutClashes({ ...s, ccOutA: 123 }, null, PARAMS) });
+        """)
+        self.assertEqual((out["fine"], out["old"]), ([], []), "the defaults (12, 13) clash with nothing; a firmware before 0.10.0 has no CC out")
+        self.assertEqual(len(out["map"]), 1)
+        self.assertIn("CC 74", out["map"][0])
+        self.assertIn("Cutoff", out["map"][0])
+        self.assertIn("CC A's source", out["source"][0])
+        self.assertIn("its own meaning", out["reserved"][0])
+
+    def test_a_chord_in_the_preset_format(self):
+        """#36: "chord 1" / "chord 2" as 69, after the buttons; a firmware before 0.10.0 warns and gets nothing."""
+        out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
+        const plan = planSound({ buttons: ["unison"], settings: { "chord 1": "0 4 7", "chord 2": "off" } }, () => true);
+        const old = planSound({ settings: { "chord 1": "4,7" } }, name => name !== "initPatch");
+        const refused = c => { try { planSound({ settings: { "chord 1": c } }, () => true); return null; } catch (e) { return e.message; } };
+        const at = m => plan.messages.findIndex(x => x[0] === m);
+        report({ chords: plan.messages.filter(m => m[0] === 0x69), afterButtons: at(0x69) > plan.messages.map(m => m[0]).lastIndexOf(0x4B),
+          warned: plan.warnings, old: old.messages.filter(m => m[0] === 0x69).length, oldWarned: old.warnings.length,
+          parsed: ["0 4 7", "4,7", "0, 3, 7, 10", "", "none", " OFF "].map(chordFromText),
+          bad: ["0 7 4", "1 2 3 4 5 6 7 8", "0 128", "0 4 4", "C E G", 5.5].map(refused) });
+        """)
+        self.assertEqual(out["chords"], [[0x69, 0, 4, 7, 0, 0, 0, 0, 0, 0], [0x69, 1, 0, 0, 0, 0, 0, 0, 0, 0]])
+        self.assertTrue(out["afterButtons"])
+        self.assertEqual(out["warned"], [], "not an unknown setting")
+        self.assertEqual((out["old"], out["oldWarned"]), (0, 1))
+        self.assertEqual(out["parsed"], [[4, 7], [4, 7], [3, 7, 10], [], [], []])
+        for why in out["bad"]:
+            self.assertIsNotNone(why)
+
+    def test_the_chord_rows_names_and_the_voicings_range(self):
+        page = source("tools", "web", "index.html")
+        out = run_node(NODE_DRIVER % ("""
+        let paramsLayer = 0, settings = null;
+        """ + chr(10).join(js_block(page, b) for b in RANGE_BLOCKS + ["const NOTE_NAMES", "const chordIntervals", "const chordNames"]) + """
+        const range = d => routeSwing(25, 47, d).text;
+        const none = range(99);
+        chords = [[4, 7, 0, 0, 0, 0, 0, 0], [3, 7, 10, 14, 17, 21, 24, 0]];
+        const out = { none, full: range(99), third: range(33), down: range(-99), names: chordNames(chordIntervals(0)) };
+        paramsLayer = 1;
+        out.seven = range(99);
+        out.names2 = chordNames(chordIntervals(1));
+        out.via = routeSwing(25, 47, 99, 400).text;
+        settings = { layers: 1, layerVoices: 0 };
+        out.split = range(99);
+        paramsLayer = 0;
+        chords[0] = [2, 4, 5, 7, 9, 0, 0, 0];
+        out.split1 = range(99);
+        report(out);
+        """))
+        self.assertEqual(out["none"], "none: the layer has no chord")
+        self.assertEqual((out["full"], out["third"], out["down"]), ("+3 steps", "+1 step", "-3 steps"))
+        self.assertEqual(out["seven"], "+8 steps", "all seven intervals: eight notes")
+        self.assertEqual(out["via"], "+8 steps", "a Via of 4 doesn't take it past the chord's notes")
+        self.assertEqual((out["split"], out["split1"]), ("+4 steps", "+4 steps"), "split: four voices a layer")
+        self.assertEqual(out["names"], "C E G")
+        self.assertEqual(out["names2"], "C D♯ G A♯ D' F' A' C''")
 
     def test_tenths_in_the_preset_format(self):
         out = run_node(source("tools", "web", "sound-plan.js") + NODE_DRIVER % """
@@ -7838,10 +10341,11 @@ class WebLfoTimes(unittest.TestCase):
         out = self.texts("""
         const out = {};
         settings = { lfo1Sync: 1 };
-        for (const v of ["0.9.4", "0.9.5", "1.0.0"]) { firmwareVersion = v; out[v] = fadeText(1)(60 / 99); }
+        for (const v of ["0.9.4", "0.9.5", "0.10.0", "0.19.9", "1.0.0"]) { firmwareVersion = v; out[v] = fadeText(1)(60 / 99); }
         report(out);
         """)
         self.assertEqual(set(out.values()), {"1/4"}, out)
+        self.assertEqual(len(out), 5, out)
 
     def test_free_and_not_connected_read_in_time(self):
         out = self.texts("""
@@ -7989,7 +10493,7 @@ class PresetRoutes(PanelTest):
 
     def test_the_whole_bank_saved_and_loaded(self):
         bank = self.shipped()
-        self.assertEqual(len(bank), 70)
+        self.assertEqual(len(bank), 73)
         out = self.plan_on_the_firmware(bank, save=True)
         self.assertEqual(out["failed"], [])
         for preset in bank:  # no rest: what was saved holds no route at 0
@@ -8042,6 +10546,18 @@ class PresetRoutes(PanelTest):
             for source_, dest, _ in INIT_ROUTES:
                 self.assertIn(pro800.SYSEX_HEADER + bytes([0x7F, 0x56]), self.s.request(0x56, layer, source_, dest, 0, 99))
 
+    def test_plan_py_takes_a_chord(self):
+        plan = load_plan_py()
+        lines = plan.plan({"slot": 1, "name": "Chord", "buttons": ["unison"], "settings": {"chord 1": "0 4 7", "chord 2": ""}})
+        self.assertIn("chord 1 4,7", lines)
+        self.assertIn("chord 2 off", lines)
+        self.assertGreater(lines.index("chord 1 4,7"), max(i for i, l in enumerate(lines) if l.startswith("set button")))
+        for bad in ("0 7 4", "1 2 3 4 5 6 7 8", "0 128", "C E G"):
+            with self.subTest(chord=bad), self.assertRaises(plan.Bad):
+                plan.plan({"slot": 1, "name": "Chord", "settings": {"chord 1": bad}})
+        with self.assertRaises(plan.Bad):
+            plan.plan({"slot": 1, "name": "Chord", "settings": {"chord 3": "0 4 7"}})
+
     def test_install_sh_gets_exactly_what_each_preset_lists(self):
         plan = load_plan_py()
         for preset in self.shipped():
@@ -8068,8 +10584,10 @@ class PresetRoutes(PanelTest):
 
     def test_every_page_path_from_the_init_sound_goes_through_plansound(self):
         page, installer_page, shared = source("tools", "web", "index.html"), source("tools", "web", "install.html"), source("tools", "web", "sound-plan.js")
-        self.assertEqual(page.count("[0x5F]"), 1, "the Init buttons, which stay on it")
-        self.assertIn('ack([0x5F], 3000);', js_block(page, "async function loadInitSound("))
+        init = js_block(page, "async function loadInitSound(")
+        self.assertEqual(page.count("0x5F"), init.count("0x5F"), "only the Init buttons, which stay on it")
+        self.assertIn('ack([0x5F], 3000);', init)
+        self.assertIn('ask([0x5F, 1], [0x5F], 3000);', init, "0.10.0: what Perf loads")
         self.assertEqual(installer_page.count("0x5F"), 0)
         self.assertEqual(shared.count("[0x5F]"), 1)
         self.assertEqual((page.count("planSound("), installer_page.count("planSound(")), (2, 2), "Load JSON and the bank; the install and its check")
@@ -8170,7 +10688,7 @@ def velocity_page():
     blocks = RANGE_BLOCKS + ["const ROUTES", "const routesFull", "const routesTaken", "const ROUTE_HOLD_TEXT", "const routeBothMask", "const LINK_FILTER", "const twoLayers", "const linkOn", "const routesBothShown",
                              "const FEATURES", "const feature", "const missingFeatures", "function linkedView(", "function linkedWrites(", "const paramLink",
                              "const wholeDepth", "async function setRoute(", "async function setRouteVia(", "async function setRouteBoth(", "let viaAnswers", "async function readVias(", "let fineAnswers", "async function readFines(", "const exactDepth", "async function refreshLayerRoutes(", "async function setSetting(",
-                             "async function refreshSettings(", "async function refreshParams(", "const WIRE", "const options", "const viaOptions", "const viaOf", "function showVia(", "let routeRowHeld", "const ROUTE_ROW_HOLD",
+                             "async function refreshSettings(", "async function refreshChords(", "async function refreshParams(", "const WIRE", "const options", "const viaOptions", "const viaOf", "function showVia(", "let routeRowHeld", "const ROUTE_ROW_HOLD",
                              'for (const type of ["pointerup"', "const routeRowInUse", "const ROW_CONTROLS", "function renderRoutes(", "async function loadRoutes(",
                              "function adjustable(", "const RING_R", "function dial(", "const SRC_VELOCITY", "let velocitySaid", "const velocityStatus", "function velocityUnsay(", "function velocityKnob(",
                              "const LFO_SOURCE", "async function readParams(", "async function copyParams(", "const set7D", "async function copyLfo("]
@@ -10211,7 +12729,7 @@ class PresetBundle(unittest.TestCase):
         run, out = self.bundle(folder=os.path.join(ROOT, "presets"))
         self.assertEqual(run.returncode, 0, run.stderr)
         with open(out, encoding="utf-8") as f:
-            self.assertEqual(len(json.load(f)["presets"]), 70)
+            self.assertEqual(len(json.load(f)["presets"]), 73)
 
     def test_edges_pass(self):
         run, _ = self.bundle({"slot": 1, "name": "A"}, {"slot": 128, "name": "1234567890123456"}, {"slot": 2, "name": "a b~"})

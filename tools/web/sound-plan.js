@@ -20,6 +20,10 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   "routeBoth1Lo", "routeBoth1Hi", "routeBoth2Lo", "routeBoth2Hi", // per layer, a bit per route slot: plays on both layers
   "unisonVoices", // the voices a note takes in unison, 2-8
   "arpRange", "arpExtend", "arpChaos", // a sequence's arp: octaves above the first, the notes it adds, 0-99
+  "initPatch", // what Perf and Init load: the slot + 1, 0 the built-in sound (system-wide; 0.10.0)
+  // MIDI out (system-wide; 0.10.0): the THRU socket (thru, out, merge), notes out (off, keys, played), the out channel
+  // (0 follow, 1-16), clock out, knob moves as CCs, CC A / B out's numbers (0 the defaults, 12 and 13), program changes out
+  "midiSocket", "notesOut", "outChannel", "clockOut", "knobCc", "ccOutA", "ccOutB", "pcOut",
   "envSelect", "presetMode", "patch", "morph"];
 const SET_ID = Object.fromEntries(SETTINGS.map((n, i) => [n, i]));
 const READ_ONLY = 4; // envSelect, presetMode, patch, morph: the end of the 54 reply
@@ -75,12 +79,12 @@ const JN = {
     8: "pmod-freq-a", 10: "lfo-filter", 11: "pmod-filter", 12: "unison", 15: "sync" },
   sources: ["lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
     "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre", "bend", "pedal", "cc-a", "cc-b",
-    "voice", "fixed", "macro1", "macro2", "arp-note"], // source 1 on
+    "voice", "fixed", "macro1", "macro2", "arp-note", "release-velocity"], // source 1 on
   dests: ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
     "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
     "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph", "amp-att",
     "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel", "env3-att", "env3-dec", "env3-sus",
-    "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel", "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"],
+    "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel", "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing", "cc-out-a", "cc-out-b"],
   shapes: ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"],
   divisions: ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
     "1/16T", "1/32"],
@@ -129,6 +133,74 @@ const JSON_SETTINGS = [
   ...[1, 2].flatMap(n => [[`lfo-delay ${n}`, `lfoDelay${n}`, jInt(0, 99)], [`lfo-fade ${n}`, `lfoFade${n}`, jInt(0, 99)]]),
 ];
 
+// A chord (chord memory, 0.10.0) as the preset format's "chord 1" / "chord 2" and the editor's Chord box take it:
+// "0 4 7", "0,4,7" or "4 7", up to 7 notes above the key, ascending, 1-127; "", "off" or "none" for none. The
+// intervals above the key, or null if it isn't one.
+function chordFromText(text) {
+  const t = String(text).trim().toLowerCase();
+  if (!t || t === "off" || t === "none") return [];
+  const n = t.split(/[\s,]+/).map(Number), iv = n[0] === 0 ? n.slice(1) : n;
+  return iv.length <= 7 && iv.every((x, i) => Number.isInteger(x) && x >= 1 && x <= 127 && (!i || x > iv[i - 1])) ? iv : null;
+}
+
+// The CC map's file (0.10.0; also pro800 cc-map export / import): {"format": "pro8000-cc-map", "version": 1, "map":
+// [{"cc": 74, "param": "cutoff", "layer": "edit", "fine": false}]}, the parameters named as params.js's PARAMS (passed
+// in). A slot is [id, nibble]: the nibble's bits 0-1 the layer rule (edit, 1, 2, both), bit 2 fine.
+const CC_MAP_RESERVED = new Set([0, 1, 6, 32, 38, 64, 96, 97, 98, 99, 100, 101, 120, 121, 122, 123, 124, 125, 126, 127]);
+const CC_MAP_LAYERS = ["edit", "1", "2", "both"];
+// A file's slots by CC, and what's wrong with it: nothing is taken if anything is
+function ccMapFromJson(j, params) {
+  const byName = new Map(params.map(p => [p.name, p])), slots = new Map(), problems = [];
+  if (!j || j.format !== "pro8000-cc-map" || j.version !== 1 || !Array.isArray(j.map))
+    return { slots, problems: ['not a CC map file: {"format": "pro8000-cc-map", "version": 1, "map": [...]}'] };
+  for (const e of j.map) {
+    const cc = e && e.cc, p = e && byName.get(e.param), layer = e && e.layer !== undefined ? e.layer : "edit", fine = e && e.fine !== undefined ? e.fine : false;
+    if (!Number.isInteger(cc) || cc < 0 || cc > 127) problems.push(`${JSON.stringify(e)}: cc must be 0-127`);
+    else if (CC_MAP_RESERVED.has(cc)) problems.push(`CC ${cc} keeps its own meaning (0 1 6 32 38 64 96-101 120-127)`);
+    else if (slots.has(cc)) problems.push(`CC ${cc} is listed twice`);
+    else if (!p) problems.push(`CC ${cc}: no parameter ${JSON.stringify(e.param)}`);
+    else if (!CC_MAP_LAYERS.includes(layer)) problems.push(`CC ${cc}: layer must be edit, 1, 2 or both`);
+    else if (typeof fine !== "boolean" || (fine && p.kind !== "knob" && p.kind !== "signed"))
+      problems.push(`CC ${cc}: fine is true or false, and only for a knob or a macro offset`);
+    else slots.set(cc, [p.id, CC_MAP_LAYERS.indexOf(layer) | (fine ? 4 : 0)]);
+  }
+  return { slots, problems };
+}
+function ccMapToJson(ids, nibbles, params) {
+  const byId = new Map(params.map(p => [p.id, p])), map = [];
+  for (let cc = 0; cc < 128; cc++)
+    if (ids[cc] !== 127)
+      map.push({ cc, param: byId.has(ids[cc]) ? byId.get(ids[cc]).name : String(ids[cc]), layer: CC_MAP_LAYERS[nibbles[cc] & 3], fine: !!(nibbles[cc] & 4), nrpn: ids[cc] });
+  return { format: "pro8000-cc-map", version: 1, map };
+}
+// The 43 messages that turn a map into a file's: every CC whose slot differs (the file's unlisted ones cleared)
+function ccMapChanges(ids, nibbles, slots) {
+  const out = [];
+  for (let cc = 0; cc < 128; cc++) {
+    if (CC_MAP_RESERVED.has(cc)) continue;
+    const [id, nibble] = slots.get(cc) || [127, 0];
+    if (ids[cc] !== id || (id !== 127 && nibbles[cc] !== nibble)) out.push([0x43, cc, id, nibble]);
+  }
+  return out;
+}
+// CC A / B out on a CC that means something coming back in (#38): through a DAW's MIDI thru, or a loop through another
+// device, the synth's own output would set a mapped parameter or feed CC A / B's source. The settings as 54 reads them
+// (ccOutA / B 0: the default 12 / 13), the map as 65 reads it (or null, not read yet).
+function ccOutClashes(s, map, params) {
+  const out = [];
+  if (!s || s.ccOutA === undefined) return out;
+  for (const [w, cc] of [["A", s.ccOutA || 12], ["B", s.ccOutB || 13]]) {
+    const why = [];
+    if (CC_MAP_RESERVED.has(cc)) why.push("a CC with its own meaning (the synth refuses it)");
+    if (s.ccA === cc) why.push("CC A's source");
+    if (s.ccB === cc) why.push("CC B's source");
+    const id = map ? map.ids[cc] : 127, p = params.find(x => x.id === id);
+    if (id !== 127) why.push(`in the CC map (${p ? p.label : "parameter " + id})`);
+    if (why.length) out.push(`CC ${w} out sends CC ${cc}, also ${why.join(" and ")}: sent back to the synth it would set that`);
+  }
+  return out;
+}
+
 // The routes the init sound comes with (main.c, init_patch; also presets/lib/plan.py): a preset has exactly the routes it
 // lists, so they go first, on both layers. A firmware whose init sound hasn't got them acknowledges the removals all the same.
 const INIT_ROUTES = [["velocity", "vca"], ["velocity", "cutoff"]];
@@ -156,6 +228,15 @@ function planSound(j, has) {
   if (!Array.isArray(on)) bad("buttons: a list of names");
   for (const name of on) if (!Object.values(JN.buttons).includes(name)) bad(`button: ${JSON.stringify(name)}`);
   for (const [i, name] of Object.entries(JN.buttons)) messages.push([0x4B, +i, on.includes(name) ? 1 : 0]);
+  for (const l of [1, 2]) { // after the buttons, so the chord doesn't depend on how a firmware takes a Unison change
+    const key = `chord ${l}`;
+    if (st[key] === undefined) continue;
+    const iv = chordFromText(st[key]);
+    if (iv === null) bad(`${key}: up to 7 notes above the key, ascending, 1-127, as "0 4 7"; not ${JSON.stringify(st[key])}`);
+    delete st[key];
+    if (has("initPatch")) messages.push([0x69, l - 1, ...iv, ...Array(8 - iv.length).fill(0)]);
+    else warnings.push(`"${key}": this firmware hasn't got it`);
+  }
   for (const [group, layer] of [["shared", 0], ["1", 0], ["2", 1]])
     for (const [name, v] of Object.entries((j.params || {})[group] || {})) {
       const i = JN.params.indexOf(name);
@@ -203,7 +284,7 @@ function planSound(j, has) {
       if (via && r[2]) { // a listed depth 0 lands nowhere
         const v = viaFromText(via.slice(4));
         if (v === null) bad(`route via: a number 0.01-8 or a source but fixed, not ${JSON.stringify(via)}`);
-        if (v >= 1000 && v - 1000 >= 26 && r[1].startsWith("macro")) bad(`route ${r[0]} → ${r[1]}: a macro can't be the Via of a route into a macro`);
+        if ((v === 1026 || v === 1027) && r[1].startsWith("macro")) bad(`route ${r[0]} → ${r[1]}: a macro can't be the Via of a route into a macro`);
         if (has("unisonVoices")) messages.push([0x62, layer - 1, s, d, v >> 7, v & 0x7F]);
         else warnings.push(`routes ${layer}: "via": this firmware hasn't got it`);
       }

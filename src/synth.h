@@ -36,7 +36,9 @@ void synth_note_on(uint8_t note, uint8_t velocity, int channel); // channel 0-15
 int synth_channel_voice(int channel);
 int synth_channel_plays(int channel); // 0 for a channel the mode gives nothing to play (8CH: channels 9-16)
 void synth_voice_note_on(int voice, uint8_t note, uint8_t velocity);
-void synth_voice_note_off(int voice, uint8_t note);
+// A release with no key's velocity of its own: a sequence step ending, all notes off, a note-on at velocity 0 (MIDI's rule)
+#define RELEASE_VELOCITY_NONE 64
+void synth_voice_note_off(int voice, uint8_t note, uint8_t release_velocity);
 void synth_voice_bend(int voice, int value); // 14-bit, centre 8192
 void synth_voice_pressure(int voice, uint8_t value);
 void synth_voice_timbre(int voice, uint8_t value); // CC 74
@@ -69,7 +71,7 @@ void synth_set_lfo_restart_keys(int on);
 void synth_lfos_key(int layers, int busy); // seq.c: a key went down on `layers`, `busy` already had one
 // A note-off on given layers, and the layers a note-off on `channel` releases: the channel's layer in channel mode,
 // else both (a key's voices stay on the layer they started on, wherever the split is now).
-void synth_note_off_layers(uint8_t note, int layers);
+void synth_note_off_layers(uint8_t note, uint8_t release_velocity, int layers);
 int synth_channel_layers(int channel);
 void synth_all_off(void);
 // Controllers, for the layers a channel plays (synth_channel_layers(): both, but in channel mode the channel's)
@@ -105,6 +107,9 @@ int synth_split_note(void);
 int synth_layer_link(void);
 void synth_set_layer_link(int bits);
 int synth_env_edit_layer(int env); // the layer the panel edits this envelope, LFO or pot on
+int synth_env_layer(int layer, int env); // the layer whose envelope `layer` uses: 0 for a linked one on layer 2
+int synth_lfo_layer(int layer, int which); // the same for an LFO
+int synth_param_layer(int layer, int param); // the layer whose value of a knob's parameter `layer` plays (its knob's)
 int synth_lfo_edit_layer(int which);
 int synth_pot_linked(int pot);     // this knob, on layer 2, is editing layer 1
 int synth_layer_voices(void);
@@ -177,9 +182,9 @@ float synth_env_extra_time(int value);   // a delay or hold (0-99) in seconds
 // tempo, instead of seconds. Synced cycling keeps its shares of the cycle instead.
 int synth_env_tempo(int layer);
 void synth_set_env_tempo(int layer, int bits);
-// For the display: the step an envelope knob (stage 0-3) at `knob` sets on the edit layer; -1 if that stage isn't a
-// note value (seconds, or the sustain level)
-int synth_env_tempo_step(int env, int stage, float knob);
+// For the display: the step an envelope knob (stage 0-3) at `knob` sets on `layer` (the edit layer for the panel; a
+// linked envelope is layer 1's); -1 if that stage isn't a note value (seconds, or the sustain level)
+int synth_env_tempo_step(int layer, int env, int stage, float knob);
 // Envelope curves per layer, 2 bits per envelope (envelope e at bits 2e): analog (an RC attack, exponential decay
 // and release, the default), linear (straight lines, each stage full scale in its time) or swell (an attack that
 // starts slowly and rises faster, the analog decay and release).
@@ -192,8 +197,10 @@ void synth_set_env_curve(int layer, int bits);
 int synth_env_sync(int layer, int env);
 void synth_set_env_sync(int layer, int env, int sync);
 // For the display: the share (0..1) of a synced cycle that a knob (stage 0 attack, 1 decay = fall, 2 sustain =
-// hold, 3 release = rest) at `knob` gets on the edit layer; -1 if that envelope isn't synced.
-float synth_env_share(int env, int stage, float knob);
+// hold, 3 release = rest) at `knob` gets on `layer`; -1 if that envelope isn't synced.
+float synth_env_share(int layer, int env, int stage, float knob);
+// The envelope (0 amp, 1 filter, 2 Env 3, 3 Env 4) and stage (0-3) a parameter is; 0 if it isn't an envelope's
+int synth_param_env(int param, int *env, int *stage);
 // An envelope time knob in seconds: stage 0 attack, 1 decay, 2 sustain (a time only when cycling: hold, else -1),
 // 3 release (rest when cycling).
 float synth_env_time(int stage, float knob, int cycling);
@@ -281,7 +288,43 @@ void synth_set_arp_position(float position);
 int synth_in_scale(int note); // 0 with the scale off
 int synth_unison_voices(void);
 void synth_set_unison_voices(int n);
+// Chord memory (#36). Per layer up to 7 intervals above the key (1-127, ascending; 0 ends them), then a flags byte (0;
+// bit 0 kept for unison stacks on each chord note). With Unison on, a layer with a chord plays it from every key in
+// place of the unison stack (not in the per-channel modes); Unison off keeps it for the next time it comes on.
+#define CHORD_NOTES 8 // the key and up to 7 more (CHORD_BYTES: store.h)
+void synth_chord(int layer, uint8_t *out); // its CHORD_BYTES
+// Sets it as far as it's valid (ascending, up to the first 0 or a step back); a change on a layer that plays its chord
+// silences the voices. Returns the chord's notes, 1 for none.
+int synth_set_chord(int layer, const uint8_t *bytes);
+// From the keys held now on each layer in `layers` (the sequence's when it takes the layer): 2 or more notes set its
+// chord, fewer clear it; counts[layer] gets the notes (0 cleared, CHORD_UNTOUCHED for a layer it left alone: not
+// asked for, layer 2 with layers off, the per-channel modes). Returns the layers that got one.
+#define CHORD_UNTOUCHED 127
+int synth_capture_chord(int layers, uint8_t *counts);
+void synth_unison_pressed(void); // the panel's Unison button: if it turns Unison on, what's held is the chord (stock)
+int synth_pedal_down(int layers); // the pedal went down: with Unison on, 2 or more keys held are the new chord (stock)
+int synth_take_chord_captured(void); // the layers the panel's button or the pedal gave a chord since the last call
+void synth_chord_plain(int on); // the notes started meanwhile play without the chord (a sequence's own chord, the arp)
+// The notes the voices play, for MIDI out (0.10.0): fn(layer, voice, note, on, velocity) as a voice's note starts, stops
+// or moves (legato, a chord re-voiced: an off, then an on). A unison stack calls it for each of its voices.
+void synth_set_note_out(void (*fn)(int layer, int voice, uint8_t note, int on, uint8_t velocity));
+// The parameters (bits, PARAM_* order) whose knobs moved a 7-bit step since the last call, latched (after pickup) on
+// the edit layer: knob moves out as CCs
+uint64_t synth_take_panel_moves(void);
+// CC A / B out (DEST_CC_OUT_A + which): 1 and the routes' sum over both layers (0..1) if any route reaches it
+int synth_cc_out(int which, float *value);
+int synth_chord_notes(int layer, uint8_t key, uint8_t *out); // what `key` plays on `layer` now (voiced); 1 without a chord
 int synth_pot_pending(int pot);
+// VALUE's fine adjustment of a knob's value (on the edit layer, as the knob edits it): `steps` of the knob's grid, a
+// tenth of the 0-99 the display shows (990), a tenth of a semitone in free tuning (720), or a stepped knob's steps,
+// starting from the nearest point of it. The knob then waits until it's turned. The new value, or -1 (M VOL).
+float synth_nudge_pot(int pot, int steps);
+// The parameter a knob edits now (Env 3 / 4 under Shift or the keytrack switch's page, LFO 2 while it's selected)
+int synth_pot_param(int pot);
+// The panel reported the knob at `reading` (0-4095): if that's 24 counts from where it began waiting, it's been turned,
+// for pickup (a waiting knob takes over only once it has been), and one that rested on its value takes it over now.
+// Call it before asking synth_pot_pending() for the display, so the first value shown is already the knob's.
+void synth_pot_touched(int pot, int reading);
 // Pickup (on, the default): a knob in pickup takes over once it reaches or sweeps past the stored value. Off (jump):
 // it takes over as soon as it moves from where it was when it started waiting, jumping the value to its position.
 // Either way a knob only starts waiting once it's free: one frozen by a gesture (Shift, MOD ASSIGN, the envelope

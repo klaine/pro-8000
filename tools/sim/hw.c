@@ -11,6 +11,9 @@
 //   pot <index> <0-4095>    a knob's voltage          sw <index> <0|1>   a switch's pin level
 //   btn <index> <0|1>       a button held or let go   enc <steps> <ms>   that many encoder transitions (signed), one per ms
 //   midi <hex> / din <hex>  bytes into USB / DIN      out                what the firmware sent to USB, as hex
+//   dinout                  what the socket sent (0.10.0): its bytes, as hex, at 31250 baud (3 a millisecond)
+//   socket                  the socket's mode (din.c: 0 THRU, 1 OUT, 2 MERGE) and MIDI_SEL's level
+//   usbbusy <ms>            the USB endpoint takes nothing for that long, as with a host that doesn't read
 //   disp                    <ms> and the display RAM  hist               display changes since last asked: <ms>:<ram> ...
 //   cv                      every CV                  gates              every gate
 //   held                    every CV as the S&Hs hold it, as last written
@@ -244,12 +247,19 @@ int usb_midi_read(uint8_t packet[4])
     usb_in_tail = (usb_in_tail + 1) % RING;
     return 1;
 }
+static uint32_t usb_busy_until; // in ms: usbbusy
+static uint32_t now_ms(void) { return cycles / CYCLES_PER_MS; }
+int usb_midi_ready(void) { return usb_started && (int32_t)(usb_busy_until - now_ms()) <= 0; }
 int usb_midi_write(const uint8_t *packets, int count)
 {
     static const uint8_t lengths[16] = {0, 0, 2, 3, 3, 1, 2, 3, 3, 3, 3, 3, 2, 2, 3, 1};
     if (!usb_started) {
         advance_cycles(CYCLES_PER_MS);
         return 0;
+    }
+    if ((int32_t)(usb_busy_until - now_ms()) > 0) {
+        advance_cycles(CYCLES_PER_MS / 10); // (time goes on meanwhile, as SysTick's does: a reply's 20 ms wait ends)
+        return 0; // a transfer still in flight, as usb.c answers then
     }
     for (int i = 0; i < count; i++)
         for (int k = 0; k < lengths[packets[4 * i] & 15] && out_count < (int)sizeof out_bytes; k++)
@@ -487,8 +497,24 @@ static void start_firmware(void)
 }
 #endif
 
+// The socket's transmitter: while the firmware wants the TXE interrupt, one byte goes each 320 us, so 3 a pass
+static uint8_t din_out[1u << 16];
+static int din_out_count;
+static void din_transmit(int bytes)
+{
+    while (bytes-- > 0 && (UART_CR1 & CR1_TXEIE)) {
+        UART_SR = SR_TXE;
+        UART_DR = 0x100; // nothing written yet
+        UART4_IRQHandler();
+        if (UART_DR != 0x100 && din_out_count < (int)sizeof din_out)
+            din_out[din_out_count++] = (uint8_t)UART_DR;
+    }
+    UART_SR = 0;
+}
+
 static void run_pass(void)
 {
+    din_transmit(3);
     if (encoder_left) {
         if (encoder_wait > 0)
             encoder_wait--;
@@ -590,6 +616,16 @@ int main(int argc, char **argv)
                 printf("%02x", out_bytes[i]);
             out_count = 0;
             printf("\n");
+        } else if (!strncmp(line, "dinout", 6)) {
+            for (int i = 0; i < din_out_count; i++)
+                printf("%02x", din_out[i]);
+            din_out_count = 0;
+            printf("\n");
+        } else if (!strncmp(line, "socket", 6)) {
+            printf("%d %d\n", socket, socket == DIN_THRU ? MIDI_SEL_THRU : !MIDI_SEL_THRU);
+        } else if (sscanf(line, "usbbusy %d", &a) == 1) {
+            usb_busy_until = now_ms() + (uint32_t)a;
+            printf("ok\n");
         } else if (!strncmp(line, "disp", 4)) {
             printf("%u ", cycles / CYCLES_PER_MS);
             print_ram(panel_ram);

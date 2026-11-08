@@ -1,4 +1,4 @@
-# Preset bank: 70 sounds for the custom firmware
+# Preset bank: 73 sounds for the custom firmware
 
 Sixty-four patches for firmware 0.8.1 and later, in slots P1-P64 (program change 0-63): 8 basses, 8 leads, 8 polys,
 8 pads, 8 plucks, 8 arps and sequences, 8 effects and 8 curiosities that show the engine off. They're built for the
@@ -12,6 +12,10 @@ describe.
 
 P75-P78 (group `arp`, firmware 0.9.5) show off the generative arp: a pad on layer 1 and an arp on layer 2, in a stack. They
 skip P67-P74 so as not to land on the author's own patches. On older firmware the steps transpose from the key instead.
+
+P79-P81 (firmware 0.10.0) show chord memory and release velocity: a stored chord on one key, walked through its
+inversions by the Chord voicing destination (the mod wheel on P79, LFO 2 on P81), and a release that a quick lift cuts
+short (P80). On older firmware P79 and P81 are plain unison sounds and P80 keeps its long tail.
 
 Nothing here touches the master volume. The mod wheel adds LFO 1 depth on every patch, so any patch with the
 LFO → Freq button on (most leads) has wheel vibrato on top of what the notes say. Clock-synced patches run at 120 BPM
@@ -35,7 +39,7 @@ The installer runs one `build/pro800` command per step and prints it: `patch ini
 each layer (`route 1 velocity vca 0` and so on: a preset has exactly the routes it lists), the 13 latching buttons, every
 knob, every setting, the mod routes, then `patch save P<n>` and `patch rename`. Each patch starts from the init
 sound, so a rerun gives the same result, and the order (P25 before P59) means the morph target exists before the patch
-that points at it. Options: `--tool <path>`, `--port <name>`, `PYTHON=`. About 6,200 commands in all; each one opens
+that points at it. Options: `--tool <path>`, `--port <name>`, `PYTHON=`. About 6,700 commands in all; each one opens
 MIDI and waits for the synth's acknowledgement, so the whole bank takes a while (`--only` for a group at a time).
 
 The sounds then load with a program change, with the number keys in preset mode, or from the web page's Patches
@@ -51,12 +55,12 @@ One JSON file per patch, `<slot>-<name>.json`:
 
 | Key | Contents |
 |---|---|
-| `slot`, `name`, `group` | Slot 1-128 (the bank uses 1-66 and 75-78), a name of up to 16 characters, one of bass / lead / poly / pad / pluck / arp / fx / other / user |
+| `slot`, `name`, `group` | Slot 1-128 (the bank uses 1-66 and 75-81), a name of up to 16 characters, one of bass / lead / poly / pad / pluck / arp / fx / other / user |
 | `notes.sound`, `notes.shows` | What it sounds like, and which engine features it demonstrates |
 | `buttons` | The latching buttons that are on (`a-saw` … `sync`, the tool's `set button` names); every other one is off |
 | `params.shared` | The pots the layers share (mixer levels, noise, resonance, PW A / B, poly-mod osc B), 0-99 |
 | `params.1`, `params.2` | Each layer's knobs, Env 3 / 4 and LFO 2, 0-99, by the tool's `param` names; layer 2 only when the patch uses it |
-| `settings` | `set` commands as `"<setting> [args]": value`, e.g. `"shape 1 2": "sh"`, `"cycle-sync 1 env3": "1/4"`, `"voice 1": "legato last"`; every setting is listed, defaults included. From 0.9.0 also `"env-up 1"`, `"dahdsr 1"`, `"env-tempo 1"` (a list of envelopes, as `cycle`), `"env-curve 1 amp"` (`analog` / `linear` / `swell`), `"env-delay 1 amp"`, `"env-hold 1 amp"` (0-99), `"env-count 1 amp"` (`loop` or 1-99), `"layer-voices"` (`auto` or 1-7), and the `noise` shape; from 0.9.2 `"osc-tune 1 a"` (FREQ A / B per layer: `semitones`, `octave`, `free` or `fixed`); from 0.9.3 `"link"` (what layer 2 takes from layer 1: `none`, or a list of `amp-env`, `filter-env`, `env3`, `env4`, `lfo1`, `lfo2`, `filter`; layer 2's own values are still listed), `"lfo-trigger"` / `"lfo2-trigger"` also `one-shot` and `one-shot-voice`, and `"lfo-cycles"` / `"lfo2-cycles"` (1-99, how many cycles a one shot runs; left out, 1), and `"lfo-restart"` (`steps` or `keys`, what restarts the LFOs with a sequence on; left out, `steps`); from 0.9.5 `"arp-range"` (1-3 octaves), `"arp-extend"` (`none`, `octave`, `fifth`, `seventh`, `ninth`) and `"arp-chaos"` (0-99) |
+| `settings` | `set` commands as `"<setting> [args]": value`, e.g. `"shape 1 2": "sh"`, `"cycle-sync 1 env3": "1/4"`, `"voice 1": "legato last"`; every setting is listed, defaults included. From 0.9.0 also `"env-up 1"`, `"dahdsr 1"`, `"env-tempo 1"` (a list of envelopes, as `cycle`), `"env-curve 1 amp"` (`analog` / `linear` / `swell`), `"env-delay 1 amp"`, `"env-hold 1 amp"` (0-99), `"env-count 1 amp"` (`loop` or 1-99), `"layer-voices"` (`auto` or 1-7), and the `noise` shape; from 0.9.2 `"osc-tune 1 a"` (FREQ A / B per layer: `semitones`, `octave`, `free` or `fixed`); from 0.9.3 `"link"` (what layer 2 takes from layer 1: `none`, or a list of `amp-env`, `filter-env`, `env3`, `env4`, `lfo1`, `lfo2`, `filter`; layer 2's own values are still listed), `"lfo-trigger"` / `"lfo2-trigger"` also `one-shot` and `one-shot-voice`, and `"lfo-cycles"` / `"lfo2-cycles"` (1-99, how many cycles a one shot runs; left out, 1), and `"lfo-restart"` (`steps` or `keys`, what restarts the LFOs with a sequence on; left out, `steps`); from 0.9.5 `"arp-range"` (1-3 octaves), `"arp-extend"` (`none`, `octave`, `fifth`, `seventh`, `ninth`) and `"arp-chaos"` (0-99); from 0.10.0 `"chord 1"` / `"chord 2"` (chord memory: the notes above the key, ascending, as `"0 4 7"`, up to 7 besides the 0; `""` or left out for none; it plays with the `unison` button on, and older firmware warns and leaves it) |
 | `routes.1`, `routes.2` | Mod routes as `[source, destination, depth]`, the tool's `route` names, up to 16 per layer. The depth is -99 to 99, in steps of 0.1 from 0.9.5 (older firmware gets the nearest whole number). From 0.9.3 a further element `"both"` plays the route on the other layer's voices too, and from 0.9.5 `"via:0.25"` or `"via:mod-wheel"` multiplies it by a number (0.01-8) or a source (any but `fixed`; no macro on a route into a macro) |
 | `sequence` | The step sequence (arp group and P48): `on`, `step` (a clock division), `clock`, `bpm`, `swing`, `once`, `keys` (both / 1 / 2), `arp` (`off`, `up`, `down`, `up-down`, `random`, `played`, from 0.9.5 `walk`), `lanes`, `chord` (0-2 extra notes per step, 0.9.3; `lanes` + `chord` at most 4), `smooth` (lanes that glide, e.g. `"A"`) and `steps`, each `{note, gate, vel, prob, ratchets, a-d, n2, n3}` (`n2`, `n3`: chord notes, ±36 semitones from the step's note; `hold`: the notes that hold past the gate, 1 own + 2 `n2` + 4 `n3`) with defaults left out (`note` 0, `gate` 50, the key's velocity, always, one hit); `{"rest": true}` is a rest, `gate` 100 a tie |
 | `morph` | The morph target's slot (P59 only) |
@@ -211,7 +215,7 @@ SysEx, so the additions are small (`tools/pro800.swift`, next to `showSequence()
 lines should contain those words.
 
 Optional, for speed: a `pro800 batch` (or `-`) mode that reads commands from stdin over one MIDI connection would
-turn the bank's 5,600 process launches into one; `install.sh` would then pipe the plan instead of looping.
+turn the bank's 6,700 process launches into one; `install.sh` would then pipe the plan instead of looping.
 
 **The generative arp (P75-P78)**
 
@@ -221,3 +225,11 @@ turn the bank's 5,600 process launches into one; `install.sh` would then pipe th
 | P76 | Ninth Bloom | A plain triad on the pad; the arp reaches for the seventh and ninth, orderly for four bars and wild for four. Adds up to the ninth, a synced square LFO 2 into Arp Chaos, position into the decays. |
 | P77 | Touch Of Chaos | Soft chords give a neat line, hard ones leap. Velocity into Arp Chaos, a Fixed route holding the soft end at nothing, position via velocity into cutoff. |
 | P78 | Wheel Of Stars | A dark pad and tiny bright notes over three octaves; the higher it climbs the less stable it gets, and the mod wheel scatters it. Position and the wheel into Arp Chaos, ratchets and probability. |
+
+**Chord memory and release velocity (P79-P81)**
+
+| Slot | Name | Sound and what it shows |
+|---|---|---|
+| P79 | Wheel Voicings | One finger plays a minor ninth chord of two saws a few cents apart; push the mod wheel and it climbs through its inversions, each note gliding to its place, up to the same chord an octave up. Chord memory (five notes a key), the mod wheel into Chord voicing at 99, glide between voicings. |
+| P80 | Lift Tail | A soft square-and-saw keys sound with a long tail when you let go slowly; a quick lift cuts it short and darker. Without release velocity from the keyboard it's a medium tail. Release velocity into the amp and filter release with negative depths. |
+| P81 | Drifting Chord | A slow pad on one key: an open add-nine chord whose voicing wanders up through its inversions and back, so a held note keeps changing shape without a new attack. Chord memory, a slow free LFO 2 (0 to 1) into Chord voicing, glide. |

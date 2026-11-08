@@ -489,6 +489,8 @@ void usb_midi_discard(int on)
 
 void usb_midi_realtime(void (*handler)(uint8_t status, uint16_t data, uint32_t cycles)) { realtime = handler; }
 
+int usb_midi_ready(void) { return configured && !tx_busy; }
+
 int usb_midi_write(const uint8_t *packets, int count)
 {
     if (!configured || tx_busy || count <= 0 || count > MIDI_SIZE / 4)

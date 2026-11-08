@@ -3,6 +3,7 @@
 #include "fault.h"
 #include "regs.h"
 #include "sh.h"
+#include "din.h"
 
 extern uint32_t _sram, _estack, _sidata, _sdata, _edata, _sbss, _ebss;
 extern void Reset_Handler(void);
@@ -122,6 +123,7 @@ static void reset_body(void)
     clock_to_hsi();
     reset_peripherals();
     sh_safe();
+    din_safe(); // PA0 high, so the THRU socket's AND gate doesn't follow a floating pin through the boot
 
     SCB_CPACR |= 0xFu << 20; // FPU on (CP10, CP11)
     __asm volatile("dsb\n isb");

@@ -28,10 +28,10 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   - Panel: `panel` (live control events), `state` (every pot and switch now), `leds` (raw display RAM).
   - Patches: `patches`, `patch load|save|clear <slot>`, `format --yes` (wipe every slot), `eeprom <file>` (read),
     `eeprom-write <image> --yes` (write and verify, e.g. back to stock).
-  - Engine: `set lfo-sync|lfo2-sync free|clock`, `set lfo-trigger|lfo2-trigger free|first|every|voice|one-shot|one-shot-voice`, `set lfo-cycles|lfo2-cycles <1-99>` (a one shot's cycles, 0.9.3), `set lfo-restart steps|keys` (with a sequence on, what restarts the LFOs, 0.9.3), `route-both <layer> <source> <dest> on|off` (a route on both layers' voices, 0.9.3), `route-move <layer> <source> <dest> <new source> <new dest> <depth>` (a route becomes another at once, in its slot, 0.9.5), `route-via <layer> <source> <dest> <number 0.01-8|source>` (source × via × depth, 0.9.5), `set layers
+  - Engine: `set lfo-sync|lfo2-sync free|clock`, `set lfo-trigger|lfo2-trigger free|first|every|voice|one-shot|one-shot-voice`, `set lfo-cycles|lfo2-cycles <1-99>` (a one shot's cycles, 0.9.3), `set lfo-restart steps|keys` (with a sequence on, what restarts the LFOs, 0.9.3), `route-both <layer> <source> <dest> on|off` (a route on both layers' voices, 0.9.3), `route-move <layer> <source> <dest> <new source> <new dest> <depth>` (a route becomes another at once, in its slot, 0.9.5), `route-via <layer> <source> <dest> <number 0.01-8|source>` (source × via × depth, 0.9.5), `chord [<layer> off|0,4,7]` / `chord capture [1|2|both] --yes` (chord memory, 0.10.0), `nrpn <name|id> <value> [--layer edit|1|2|both]` / `nrpn list [--csv]` (a parameter by NRPN, 0.10.0), `cc-map [set <cc> <param|none> [--layer …] [--fine] | reset --yes | export <file> | import <file> --yes]` (the user's CC map, 0.10.0; `tools/web/stock-cc-map.json` is the stock PRO-800's), `set layers
     off|split|stack|channel`, `set split <note>`, `set layer-voices auto|1-7`, `set keytrack`, `set lfo 1|2`, `set shape <layer> <lfo> <shape>`,
     `set lfo2-dests <layer> …`, `set env-up|dahdsr <layer> …`, `set env-curve <layer> <env> analog|linear|swell`,
-    `set osc-tune <layer> <a|b> semitones|octave|free|fixed`, `set arp-range 1-3`, `set arp-extend none|octave|fifth|seventh|ninth`, `set arp-chaos 0-99` (a sequence's arp, 0.9.5; `seq set arp=walk`), `set link none|amp-env,filter-env,env3,env4,lfo1,lfo2,filter` (what layer 2 takes from layer 1; `param` and the other `set`s write each layer's own stored values),
+    `set osc-tune <layer> <a|b> semitones|octave|free|fixed`, `set arp-range 1-3`, `set arp-extend none|octave|fifth|seventh|ninth`, `set arp-chaos 0-99` (a sequence's arp, 0.9.5; `seq set arp=walk`), MIDI out (0.10.0, system-wide): `set midi-socket thru|out|merge` (the THRU socket), `set notes-out off|keys|played`, `set out-channel follow|1-16`, `set clock-out|knob-cc|pc-out on|off`, `set cc-out-a|cc-out-b default|1-127` (the CCs the CC A / B out destinations send), `set link none|amp-env,filter-env,env3,env4,lfo1,lfo2,filter` (what layer 2 takes from layer 1; `param` and the other `set`s write each layer's own stored values),
     `set env-delay|env-hold <layer> <env> <0-99>` (0.9.0), `set env-count <layer> <env> loop|1-99` (cycles), `set env-tempo <layer> none|amp,…` (stage times in note values), `settings`, `params`, `param <layer> <name> <0-99>`
     (M TUNE is `macro1` from 0.9.0), `layer 1|2`, `route`, `routes`,
     `clock <bpm> [seconds]`, `timing`.
@@ -45,7 +45,8 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
     `tune`, `tuning` (print the tables), `check` (cents error of every oscillator and, from 0.8.4, every filter through the tables),
     `dac-test` (sweeps the DAC80501 bus and the S&H waits, 0.7.4+; RAM-only probe, silent), `dac-heal` (sets the
     DAC80501's gain wrong and checks the firmware's setup re-send puts it right, 0.8.5+; silent). `engine` (held keys, voice gates and envelope
-    stages, keytrack and switch overrides, from 0.9.3 the LFOs' phases; read-only).
+    stages, keytrack and switch overrides, from 0.9.3 the LFOs' phases, from 0.10.0 each voice's key, note and release
+    velocity; read-only).
 - `tools/pro800.py` is the same tool for Windows, with the same commands: nothing to build, `python tools/pro800.py help`
   (Python 3.8+, WinMM through ctypes). Read `python tools/pro800.py` for `build/pro800` in these notes. Left out: `record`
   and `play --record`. On macOS and Linux it needs `pip install python-rtmidi`; on macOS the Swift tool stays the tested one.
@@ -63,7 +64,7 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
   test here. A power cycle is a new process on the same EEPROM file; system-wide settings are stored after a second's rest, so a
   test that power-cycles after one waits 1100 ms first. Simulator options: `--untuned`, `--no-crystal`, `--fault`, `--fault-old`,
   `--fault-bad`; commands only the tests use: `midistat` (USB events and DIN bytes waiting, discard state, autotunes with discard
-  on and off), `writes` (EEPROM writes, and the count as the last autotune began), `eepromfail <0|1>`, `faultstore`, `held` (the CVs as the S&Hs hold them, which the refreshes write as `sh.c` does), `vcaahead` (VCAs opened on a cutoff far from the voice's own), `later <n> <hex>` (bytes at the firmware's nth USB read, to land between two ticks). The simulator's
+  on and off), `writes` (EEPROM writes, and the count as the last autotune began), `eepromfail <0|1>`, `faultstore`, `held` (the CVs as the S&Hs hold them, which the refreshes write as `sh.c` does), `vcaahead` (VCAs opened on a cutoff far from the voice's own), `later <n> <hex>` (bytes at the firmware's nth USB read, to land between two ticks), `dinout` (what the THRU socket sent, as the UART's TX interrupt sends it at 31250 baud), `socket` (the socket mode and MIDI_SEL's level), `usbbusy <ms>` (USB takes nothing for that long, a host that stopped reading). The simulator's
   update mode saves the EEPROM file. `UsbDriver` runs `tools/sim/usb_harness.c`, the real `src/usb.c` against a model of the OTG
   registers, built as `build/sim/usbharness` (USB itself stays stubbed in the simulator): a change to `usb.c` gets a test
   there. It checks the driver's register writes against the model, not the chip. `WebRanges` runs the editor's mod-range code in
@@ -86,7 +87,10 @@ and the plan are in `NOTES.md`; read it before changing hardware code.
 - `scripts/pages.sh` builds the GitHub Pages site (`docs/` → `build/pages/`, with the editor and installer from `tools/web/` as
   `editor/`) and writes the `pages` branch as one parentless commit; `--push` force-pushes it. The site is
   https://klaine.github.io/pro-8000/ (repository `klaine/pro-8000`).
-- `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, because the bootloader takes it as XYZ.
+- `tools/params.json` is the parameter list with the NRPN ids (0.10.0; append only, the numbers are permanent once
+  released). After changing it run `python tools/gen_params.py`: it writes `src/params.h`, `tools/web/params.js`, the
+  PARAMS blocks in both tools and the table in MANUAL.md; `test_pro800.py` fails while any is stale.
+- `VERSION` is the only version string; `scripts/build.sh` passes it in as `FW_VERSION_*` defines. It's x.y.z with single digits, or x.1y.z: the display has four digits, and the packer takes three characters, each the number + '0' (0.10.0 packs as `0:0`, header bytes 00 0A 00; `build.sh` reads them back). The bootloader takes a minor of 10: 0.10.0 installed and answered on 2026-11-04 (NOTES, the 0.10.0 plan's step 1).
 - `MANUAL.md` is the user manual (panel operation, the web page, recovery); keep it in step with panel changes.
 
 ## Layout

@@ -24,7 +24,8 @@
 //   345 stage times in note values[2] (a bit per envelope; 0.9.1)
 //   347 layer links (LINK_* bits: what layer 2 takes from layer 1; 0.9.3), 348 one shot cycles[2] (per LFO, 0 = 1; 0.9.3),
 //   350 1 if a sequence's keys restart the LFOs, 0 its steps (0.9.3), 351 both-layers routes[2] (u16, bit r: route r plays
-//       on the other layer too; 0.9.3), 355 unison voices (2-8, 0 = 8; 0.9.5), 356 route Vias[2][16] (u16, mod.h; 0.9.5), 420 route depths' tenths[2][16] (int8, mod.h; 0.9.5), 452 arp range, 453 arp extension, 454 arp chaos (seq.h; 0.9.5), 455 reserved to 508
+//       on the other layer too; 0.9.3), 355 unison voices (2-8, 0 = 8; 0.9.5), 356 route Vias[2][16] (u16, mod.h; 0.9.5), 420 route depths' tenths[2][16] (int8, mod.h; 0.9.5), 452 arp range, 453 arp extension, 454 arp chaos (seq.h; 0.9.5), 455 chords[2][8] (per layer
+//       up to 7 intervals, 0 ending them, and a flags byte; synth.h; 0.10.0), 471 reserved to 508
 //   508 checksum (u32) over 0-507
 //   512 "P8S2", 516 length, lanes, division, bpm, flags (bits 5-6: chord lanes, 0.9.3), swing, smooth, arp, then from 524 each step's note,
 //       velocity, gate, extra (length × 4 bytes) and each lane's values (length bytes each); 764 checksum over
@@ -94,6 +95,8 @@
 #define OFF_ARP_CHAOS 454
 #define OFF_ROUTE_VIA 356 // 356-419
 #define OFF_ROUTE_FINE 420 // 420-451
+#define OFF_CHORD 455      // 455-470
+#define OFF_RESERVED 471   // 471-507: free (37 B), written 0; a new field takes its bytes from here (NOTES: 0.10.0 plan)
 #define OFF_CHECKSUM 508
 #define SEQ_OFF 512
 #define SEQ_HEADER 4
@@ -106,6 +109,8 @@ static struct {
     uint16_t last_patch;
     uint8_t format, cc[2], clock_source, midi_channel, no_pickup;
     uint16_t bpm; // ×10
+    uint8_t init_slot; // 0.10.0: Perf's init patch, slot + 1 (0 the built-in sound)
+    uint8_t midi_out[STORE_MIDI_OUT_FIELDS]; // bytes 20-25 (0.10.0)
 } global;
 
 static uint32_t get32(const uint8_t *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24; }
@@ -133,15 +138,34 @@ static int is_stock(const uint8_t *b) { return b[0] == 0xA5 && b[1] == 0x16 && b
 static int global_dirty, global_changed, global_failures;
 static uint32_t global_changed_at;
 
+// The CC map's block (store.h), in the global page after the block: written on its own, after the same rest
+#define MAP_ADDRESS 0x1F420u
+#define MAP_MAGIC 0x50384D31u // "P8M1"
+#define MAP_SIZE (4 + 128 + 64 + 4)
+_Static_assert(MAP_ADDRESS + MAP_SIZE <= STORE_TUNING_ADDRESS && MAP_ADDRESS >= 0x1F400u + 32, "the CC map's block");
+static uint8_t map_ids[128], map_nibbles[128];
+static int map_stored, map_dirty, map_changed, map_failures;
+static uint32_t map_changed_at;
+
 static void global_mark(void)
 {
     global_dirty = global_changed = 1;
     global_failures = 0;
 }
 
+// The global block's bytes. 0-15 from 0.7 (checksum at 12 over 0-11), 16-18 the clock (0.9.0, outside it, range-checked).
+// From 0.10.0 (NOTES: the 0.10.0 plan's allocation table): 19 the init patch (slot + 1), 20-27 for MIDI out (20 the socket,
+// 21 notes out, 22 out channel, 23 flags, 24-25 CC out numbers, 26-27 spare), 28-31 a checksum over 16-27. Bytes 20-27
+// are written 0 until they're used, under a valid checksum, so a 0 there must always mean that field's default (CC out
+// 0: its default number, as CC A / B's 0 does). 0.9.5 writes only 0-19, so a block it wrote (any setting changed, a
+// format, another last patch) and older leftovers fail the checksum and read as the defaults; a downgrade that never
+// wrote the block leaves 0.10.0's bytes as they were, which is harmless: they still mean the same patches.
+#define GLOBAL_SIZE 32
+#define GLOBAL_EXT 16 // the second checksum's start
+
 static int write_global(void)
 {
-    uint8_t b[20] = {0};
+    uint8_t b[GLOBAL_SIZE] = {0};
     put32(b, GLOBAL_MAGIC);
     put16(b + 4, global.last_patch);
     b[6] = 1; // preset mode until 0.9.3, whose boot read it; 0.9.4 always boots on the last patch
@@ -153,6 +177,10 @@ static int write_global(void)
     put32(b + 12, checksum(b, 12));
     put16(b + 16, global.bpm); // the clock, outside the checksum (older blocks have anything here: range-checked)
     b[18] = global.clock_source;
+    b[19] = global.init_slot;
+    for (int i = 0; i < STORE_MIDI_OUT_FIELDS; i++)
+        b[20 + i] = global.midi_out[i];
+    put32(b + 28, checksum(b + GLOBAL_EXT, 28 - GLOBAL_EXT));
     if (!eeprom_write(GLOBAL_ADDRESS, b, sizeof b)) {
         global_failures++;
         return 0;
@@ -164,8 +192,75 @@ static int write_global(void)
     return 1;
 }
 
+static int write_map(void)
+{
+    uint8_t b[MAP_SIZE] = {0};
+    if (map_stored) {
+        put32(b, MAP_MAGIC);
+        for (int i = 0; i < 128; i++) {
+            b[4 + i] = map_ids[i];
+            b[4 + 128 + i / 2] |= (uint8_t)((map_nibbles[i] & 15) << 4 * (i & 1));
+        }
+        put32(b + MAP_SIZE - 4, checksum(b, MAP_SIZE - 4));
+    } // else all 0: no map (the magic's gone)
+    if (!eeprom_write(MAP_ADDRESS, b, sizeof b)) {
+        map_failures++;
+        return 0;
+    }
+    map_dirty = 0;
+    map_failures = 0;
+    return 1;
+}
+
+static void map_mark(void)
+{
+    map_dirty = map_changed = 1;
+    map_failures = 0;
+}
+
+void store_set_cc_map(const uint8_t *ids, const uint8_t *nibbles)
+{
+    for (int i = 0; i < 128; i++) {
+        map_ids[i] = ids[i];
+        map_nibbles[i] = nibbles[i] & 15;
+    }
+    map_stored = 1;
+    map_mark();
+}
+
+void store_clear_cc_map(void)
+{
+    map_stored = 0;
+    map_mark();
+}
+
+int store_cc_map(uint8_t *ids, uint8_t *nibbles)
+{
+    if (!map_stored)
+        return 0;
+    for (int i = 0; i < 128; i++) {
+        ids[i] = map_ids[i];
+        nibbles[i] = map_nibbles[i];
+    }
+    return 1;
+}
+
+static void map_poll(uint32_t now)
+{
+    if (!map_dirty || map_failures >= GLOBAL_TRIES)
+        return;
+    if (map_changed) {
+        map_changed = 0;
+        map_changed_at = now;
+    } else if (now - map_changed_at >= GLOBAL_REST_MS) {
+        map_changed_at = now;
+        write_map();
+    }
+}
+
 void store_poll(uint32_t now)
 {
+    map_poll(now);
     if (!global_dirty || global_failures >= GLOBAL_TRIES)
         return;
     if (global_changed) { // the setters don't know the time
@@ -181,6 +276,8 @@ void store_flush(void)
 {
     if (global_dirty && global_failures < GLOBAL_TRIES)
         write_global();
+    if (map_dirty && map_failures < GLOBAL_TRIES)
+        write_map();
 }
 
 // Wipes the patch area (every record all zero: empty) and writes the global block for this format
@@ -191,6 +288,7 @@ static int format_patches(void)
         if (!eeprom_write(a, zeros, sizeof zeros))
             return 0;
     global.last_patch = 0;
+    global.init_slot = 0; // every slot is empty: a later save there mustn't become the init by surprise
     return write_global();
 }
 
@@ -198,9 +296,14 @@ static int formatted;
 
 void store_init(void)
 {
-    uint8_t b[20];
+    uint8_t b[GLOBAL_SIZE];
     eeprom_read(GLOBAL_ADDRESS, b, sizeof b);
     global.valid = get32(b) == GLOBAL_MAGIC && get32(b + 12) == checksum(b, 12);
+    int ext = global.valid && get32(b + 28) == checksum(b + GLOBAL_EXT, 28 - GLOBAL_EXT); // 0.10.0's bytes 19-27
+    global.init_slot = ext && b[19] <= PATCH_COUNT ? b[19] : 0;
+    static const uint8_t out_max[STORE_MIDI_OUT_FIELDS] = {2, 2, 16, 0x13, 127, 127}; // the flags: bits 0, 1 and 4
+    for (int i = 0; i < STORE_MIDI_OUT_FIELDS; i++)
+        global.midi_out[i] = ext && (i == STORE_OUT_FLAGS ? !(b[20 + i] & ~out_max[i]) : b[20 + i] <= out_max[i]) ? b[20 + i] : 0;
     global.last_patch = global.valid ? get16(b + 4) : 0;
     global.format = global.valid ? b[7] : 0;
     global.cc[0] = global.valid ? b[8] : 0;
@@ -217,6 +320,13 @@ void store_init(void)
         global.last_patch = 0;
     if (global.valid && global.format != FORMAT) // our older layout: the patches can't be read, so start clean
         formatted = format_patches();
+    uint8_t m[MAP_SIZE]; // the CC map: a stored one only under its magic and checksum (stock's leftovers aren't)
+    eeprom_read(MAP_ADDRESS, m, sizeof m);
+    map_stored = get32(m) == MAP_MAGIC && get32(m + MAP_SIZE - 4) == checksum(m, MAP_SIZE - 4);
+    for (int i = 0; i < 128 && map_stored; i++) {
+        map_ids[i] = m[4 + i] & 0x7F;
+        map_nibbles[i] = m[4 + 128 + i / 2] >> 4 * (i & 1) & 15;
+    }
 }
 
 int store_ready(void) { return global.valid; }
@@ -258,6 +368,16 @@ void store_set_clock(int source, int bpm_tenths)
         return;
     global.clock_source = (uint8_t)source;
     global.bpm = (uint16_t)bpm_tenths;
+    global_mark();
+}
+
+int store_init_patch(void) { return global.init_slot; }
+
+void store_set_init_patch(int slot_plus_1)
+{
+    if (slot_plus_1 < 0 || slot_plus_1 > PATCH_COUNT || slot_plus_1 == global.init_slot)
+        return;
+    global.init_slot = (uint8_t)slot_plus_1;
     global_mark();
 }
 
@@ -326,6 +446,9 @@ int store_load_patch(int n, patch_t *patch)
     patch->arp_range = b[OFF_ARP_RANGE];
     patch->arp_extend = b[OFF_ARP_EXTEND];
     patch->arp_chaos = b[OFF_ARP_CHAOS];
+    for (int l = 0; l < 2; l++)
+        for (int i = 0; i < CHORD_BYTES; i++)
+            patch->chord[l][i] = b[OFF_CHORD + CHORD_BYTES * l + i];
     for (int l = 0; l < 2; l++)
         for (int r = 0; r < ROUTES; r++)
             patch->route_via[l][r] = get16(b + OFF_ROUTE_VIA + 2 * (l * ROUTES + r));
@@ -404,6 +527,9 @@ int store_save_patch(int n, const patch_t *patch)
     b[OFF_ARP_EXTEND] = patch->arp_extend;
     b[OFF_ARP_CHAOS] = patch->arp_chaos;
     for (int l = 0; l < 2; l++)
+        for (int i = 0; i < CHORD_BYTES; i++)
+            b[OFF_CHORD + CHORD_BYTES * l + i] = patch->chord[l][i];
+    for (int l = 0; l < 2; l++)
         for (int r = 0; r < ROUTES; r++)
             put16(b + OFF_ROUTE_VIA + 2 * (l * ROUTES + r), patch->route_via[l][r]);
     for (int l = 0; l < 2; l++)
@@ -446,7 +572,21 @@ int store_save_patch(int n, const patch_t *patch)
     _Static_assert(OFF_ENV_HOLD + 2 * 4 <= OFF_POTS, "envelope settings overflow");
     _Static_assert(OFF_POTS + 2 * 2 * POT_COUNT <= OFF_EXTRA, "pots overflow");
     _Static_assert(OFF_EXTRA + 2 * 2 * EXTRA_PARAMS <= OFF_ROUTES, "extra params overflow");
-    _Static_assert(OFF_ROUTES + 3 * 2 * ROUTES <= OFF_CHECKSUM, "routes overflow");
+    _Static_assert(OFF_ROUTES + 3 * 2 * ROUTES <= OFF_ENV_COUNT, "routes overflow");
+    // the fields from 336 on, in offset order: each ends where the next begins, the last before the reserved bytes
+    _Static_assert(OFF_ENV_COUNT + 2 * 4 <= OFF_UP_CYCLES, "envelope counts overflow");
+    _Static_assert(OFF_UP_CYCLES + 1 <= OFF_ENV_TEMPO, "up-cycles flag overflow");
+    _Static_assert(OFF_ENV_TEMPO + 2 <= OFF_LINK, "envelope tempo overflow");
+    _Static_assert(OFF_LINK + 1 <= OFF_LFO_CYCLES, "link overflow");
+    _Static_assert(OFF_LFO_CYCLES + 2 <= OFF_LFO_RESTART, "LFO cycles overflow");
+    _Static_assert(OFF_LFO_RESTART + 1 <= OFF_ROUTE_BOTH, "LFO restart overflow");
+    _Static_assert(OFF_ROUTE_BOTH + 2 * 2 <= OFF_UNISON_VOICES, "route Both overflow");
+    _Static_assert(OFF_UNISON_VOICES + 1 <= OFF_ROUTE_VIA, "unison voices overflow");
+    _Static_assert(OFF_ROUTE_VIA + 2 * 2 * ROUTES <= OFF_ROUTE_FINE, "route Via overflow");
+    _Static_assert(OFF_ROUTE_FINE + 2 * ROUTES <= OFF_ARP_RANGE, "route tenths overflow");
+    _Static_assert(OFF_ARP_RANGE + 1 <= OFF_ARP_EXTEND && OFF_ARP_EXTEND + 1 <= OFF_ARP_CHAOS, "arp overflow");
+    _Static_assert(OFF_ARP_CHAOS + 1 <= OFF_CHORD && OFF_CHORD + 2 * CHORD_BYTES <= OFF_RESERVED, "chords overflow");
+    _Static_assert(OFF_RESERVED <= OFF_CHECKSUM, "reserved bytes overlap");
     _Static_assert(SEQ_OFF + SEQ_SIZE == RECORD_SIZE && SEQ_DATA + SEQ_BYTES <= SEQ_CHECKSUM, "record size");
     put32(b + OFF_CHECKSUM, checksum(b, OFF_CHECKSUM));
     if (!eeprom_write(record_address(n), b, sizeof b))
@@ -627,4 +767,14 @@ void store_set_last(int patch)
     global.last_patch = (uint16_t)patch;
     if (global.valid) // on memory never formatted, this alone doesn't make it ours: the next block written carries it
         write_global();
+}
+
+int store_midi_out(int field) { return field >= 0 && field < STORE_MIDI_OUT_FIELDS ? global.midi_out[field] : 0; }
+
+void store_set_midi_out(int field, int value)
+{
+    if (field < 0 || field >= STORE_MIDI_OUT_FIELDS || global.midi_out[field] == (uint8_t)value)
+        return;
+    global.midi_out[field] = (uint8_t)value;
+    global_mark();
 }

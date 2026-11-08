@@ -34,20 +34,21 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | Control | What it does now |
 |---|---|
 | Knobs | As printed, with a few changes. LFO FREQ / LFO AMOUNT edit LFO 1 or LFO 2. With Shift (Sync Source) held, the filter ADSR knobs edit Env 3, the amp ADSR knobs Env 4, and the other knobs secondary values (see Shift). |
-| FREQ A / FREQ B | Their tuning mode is per oscillator and layer; hold Seq 1 or Seq 2 while turning a FREQ knob to cycle its mode (`SEnI` semitones, `OCt` octave, `FrEE` free, `FIHd` fixed; a quarter turn a step). |
+| FREQ A / FREQ B | Their tuning mode is per oscillator and layer; hold Seq 1 or Seq 2 while turning a FREQ knob, and the knob's quarter picks its mode, bottom to top: `SEnI` semitones, `OCt` octave, `FrEE` free, `FIHd` fixed. |
+| Waveform, Sync, PMOD and LFO routing buttons | As printed. Each press shows what the button now does for a second: an oscillator's three waves in fixed places, saw, tri, square (`A.St_` is A's saw and tri, `b.__q` B's square alone, `A.oFF` none); the others `SY` sync, `PA` / `PF` poly-mod to Freq A / Filter, `Fr` / `FL` / `PU` LFO routing, with `.on` or `.oF`. It shows what sounds: a loaded patch's setting until that button is pressed. Not over a menu, a save or MOD ASSIGN. |
 | FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
 | Keyboard-tracking switch | Keyboard tracking, as printed: off, half, full. A loaded patch's setting holds until you move the switch. |
 | Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |
 | Sync Clock | The clock: tap the tempo (its LED blinks on the beat of whichever clock is in use), hold it to restart the bar, Shift + press to cycle the clock source. |
 | LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`, `nOIS`. |
-| VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, or the shape just after pressing LFO Shape. |
+| VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, the shape just after pressing LFO Shape, or a knob's value while it shows (a tenth at a time, see Fine adjustment). |
 | Seq 1 / Seq 2 | Choose the layer the knobs edit (LED); hold one while turning FREQ A or B to change that oscillator's tuning mode. |
 | Arp Up-Dn | Choose LFO 1 or LFO 2 for the LFO knobs, the shape button and the LFO routing buttons (LED lit = LFO 2). |
 | Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning). |
 | Preset | Preset mode (a patch loaded) ↔ manual mode (the panel is live). |
 | Rec | Save (blinks, choose the slot, Rec again). Hold Rec and press Seq 1: record sequence steps from MIDI (`rSEq`, see Sequencer). |
-| Perf | Load the init sound: one sawtooth, filter open, velocity on the volume and the cutoff. |
-| Settings | Opens the settings menu (keys 0-9). |
+| Perf | Hold it (0.6 s) to load the init sound: one sawtooth, filter open, velocity on the volume and the cutoff, or your own init patch (see Settings menu → System menu). A tap only shows `HoLd`. |
+| Settings | Opens the settings menu (keys 0-9). Held (0.6 s), or Shift + Settings: the system menu (`SYS`, the LED blinking). |
 | Tune | Autotune (about 25 s, silent). |
 
 The display shows a knob's value while you turn it, in real units where it has one:
@@ -73,7 +74,9 @@ and **Fixed** (continuous C1-C8, independent of played notes). Fixed mode still 
 modulation. Its display shows the equivalent frequency in Hz or kHz. Mode changes are saved with the patch.
 
 A digit display can't show a plus sign, so positive values have none. A dot after the value means the knob hasn't
-**picked up** the stored value yet. Turn it past the stored value (or onto it) and it takes over. This happens:
+**picked up** the stored value yet. Turn it past the stored value (or onto it) and it takes over. A knob that isn't
+turned never takes over, however close it rests, so a value set finer than the knob (with VALUE, from the web page or a
+controller) stays until you touch it; one resting on its value takes over at the first turn. This happens:
 
 - after loading a patch;
 - after switching layer, LFO or envelope;
@@ -85,6 +88,15 @@ firmware. The dot still shows until you move it. It's a system setting that surv
 is the default.
 Either way, a knob that was busy with something else (under Shift, in MOD ASSIGN, on the envelope page, during Seq +
 FREQ) waits from where it is when that ends, so letting go moves nothing; move it after and it takes over.
+
+**Fine adjustment:** while a knob's value is on the display (1.5 s after the last touch), turn VALUE: each click
+cycle moves that value a tenth (` 53.4`), and the value stays on the display while you turn. A knob in Free tuning
+moves a tenth of a semitone; a stepped one (FREQ in Semitones or Octave, a synced LFO FREQ, an envelope time in note
+values) a step; a value in other units (Hz, times, semitones) the same tenth of a 0-99 unit (1/990 of the knob's
+travel), so its text may not change at every click. It works on the value the display shows, the stored one if the knob is waiting with a dot, and on the
+edit layer. The knob then waits until you turn it. A save keeps the tenth. In preset mode this takes VALUE from the
+patches while the value shows; Shift + VALUE still steps ten patches. Not in a menu, a save or MOD ASSIGN, and not
+for M VOL (it isn't stored). The display goes back to whole numbers when you next touch the knob.
 
 ## Playing
 
@@ -112,7 +124,9 @@ web page's MIDI router).
 - **Program change** 0-127 picks patch 1-128 (an empty one: the init sound). Bank select is ignored. During a save it's
   ignored, so the sound you're storing stays.
 - **Controllers** set knobs on the layer the channel plays (layer 2 for channel 2 in channel mode), else the layer
-  you're editing; the knob then picks up as after loading a patch:
+  you're editing (from 0.10.0 a knob layer 2 takes from layer 1, as linked, sets layer 1's, as its knob does); the
+  knob then picks up as after loading a patch. This is the default **CC map**; from 0.10.0 you can make your own
+  (below):
 
 | CC | Knob | CC | Knob | CC | Knob |
 |---|---|---|---|---|---|
@@ -125,6 +139,211 @@ web page's MIDI router).
 
 The display shows a controller's value as it shows its knob's, except while Settings, a save or MOD ASSIGN is using it.
 CC 74 also feeds the `Timbre` mod source, for routes. In the `8CH` and `nPE` modes it's Timbre only, per voice, and leaves the Cutoff knob alone: an MPE keyboard sends it for each note. Up to 0.9.3 CC 74 never reached cutoff, though this table said it did. If CC A or B is set to 74, it's that source and Timbre, and not the knob.
+
+**NRPN** (0.10.0) reaches every parameter in the table below, the buttons and settings included: CC 99 (the NRPN's
+MSB) says which layer, CC 98 (its LSB) which parameter, then CC 6 sends the value (and CC 38 its fine part). The layer:
+0 the layer the channel plays in channel mode, else the one you're editing; 1 layer 1, 2 layer 2, 3 both. A
+parameter of the patch or both layers ignores it, and one layer 2 takes from layer 1 (linked) sets layer 1's, as its
+knob does. A knob takes CC 6 as a share of its travel (0-127, the top its end) and CC 6 with CC 38 as 14 bits (0-16383);
+a macro offset is centred at 64 (8192); the rest take CC 6 as their number, as listed, kept to their range, and ignore
+CC 38. CC 96 / 97 step the value up / down. An RPN (CC 101 / 100) deselects the NRPN, so an MPE keyboard's setup or a
+bend-range message changes nothing (the RPNs themselves aren't read). The CCs these use (6, 38, 96-101) are NRPN's even
+if CC A or B is set to one of them. The display shows a knob's value as the knob would, and the others' name for half
+a second, then their value (on / OFF for a button). The numbers are fixed from 0.10.0 on; `pro800 nrpn list` prints
+them, and `pro800 nrpn cutoff 8000 --layer 2` sends one. System-wide settings (MIDI channel, clock, CC A / B, pickup,
+the init patch) aren't reachable: they'd cut the controller off or write the memory on every message.
+
+**Your own CC map** (0.10.0): any CC can set any parameter in the table below, on the edit layer (in channel mode the
+channel's), layer 1, layer 2 or both: the web page's System tab (Controllers), `pro800 cc-map set 20 "shape 2" --layer
+1`, or a file. A knob takes the CC as a share of its travel, a macro offset centred at 64, a button is on from 64, and
+a setting with a list of values spreads them over the CC's range (layer mode: 0-21 off, 22-42 split...). A CC marked
+fine sets the low 7 of the parameter's 14 bits and keeps the rest as they are (a knob or a macro offset), as stock's
+80 + i: after the coarse CC it's that CC's fine part, and alone it nudges the value. CC 0 1 6 32 38 64 96-101 120-127 keep their meaning and can't be mapped; CC A and B take their CCs first. The
+map is system-wide (a format leaves it), stored a second after a change; `pro800 cc-map reset --yes` or the page's
+Default map brings the table above back. A map travels as JSON: Export and Import on the page, `pro800 cc-map export
+<file>` and `import <file> --yes` (an import replaces the whole map; a file with any mistake is refused whole). The
+page's **Stock map** loads the stock PRO-800's numbers (a parameter on CC 8 + i, its fine part on 80 + i, the buttons
+from 48), for controller templates made for it; set CC A off 11 to have its Freq B there. Parameter list (or
+`pro800 nrpn list --csv`) gives every NRPN number for a controller editor.
+
+<!-- BEGIN PARAMS (tools/gen_params.py) -->
+
+| Id | Name | What | Values | Display |
+|---|---|---|---|---|
+| 0 | `amp-rel` | Amp release (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 1 | `amp-sus` | Amp sustain (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 2 | `amp-dec` | Amp decay (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 3 | `amp-att` | Amp attack (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 4 | `fil-rel` | Filter release (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 5 | `fil-sus` | Filter sustain (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 6 | `fil-dec` | Filter decay (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 7 | `fil-att` | Filter attack (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 8 | `resonance` | Resonance (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 9 | `fil-env-amt` | Filter env amount (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 10 | `freq-a` | Freq A (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 11 | `freq-b` | Freq B (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 12 | `fine` | Fine (B) (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 13 | `a-pw` | PW A (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 14 | `b-pw` | PW B (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 15 | `a-level` | Level A (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 16 | `glide` | Glide (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 17 | `lfo-freq` | LFO 1 rate (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 18 | `lfo-amount` | LFO 1 amount (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 19 | `macro1` | Macro 1 (M TUNE) (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 21 | `b-level` | Level B (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 22 | `pmod-osc-b` | Poly-mod osc B (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 23 | `pmod-fil-env` | Poly-mod filter env (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 24 | `cutoff` | Cutoff (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 25 | `noise` | Noise (both layers) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 26 | `env3-att` | Env 3 attack (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 27 | `env3-dec` | Env 3 decay (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 28 | `env3-sus` | Env 3 sustain (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 29 | `env3-rel` | Env 3 release (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 30 | `env4-att` | Env 4 attack (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 31 | `env4-dec` | Env 4 decay (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 32 | `env4-sus` | Env 4 sustain (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 33 | `env4-rel` | Env 4 release (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 34 | `lfo2-rate` | LFO 2 rate (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 35 | `lfo2-amount` | LFO 2 amount (per layer) | 0-16383 (CC 6 alone: 0-127) | as its knob |
+| 36 | `button a-saw` | Osc A saw (both layers) | 0 off, 1 on | `A.SA` |
+| 37 | `button a-tri` | Osc A triangle (both layers) | 0 off, 1 on | `A.tr` |
+| 38 | `button a-square` | Osc A square (both layers) | 0 off, 1 on | `A.SQ` |
+| 39 | `button b-saw` | Osc B saw (both layers) | 0 off, 1 on | `b.SA` |
+| 40 | `button b-tri` | Osc B triangle (both layers) | 0 off, 1 on | `b.tr` |
+| 41 | `button b-square` | Osc B square (both layers) | 0 off, 1 on | `b.SQ` |
+| 42 | `button lfo-pw` | LFO 1 to PW (both layers) | 0 off, 1 on | `L.PU` |
+| 43 | `button lfo-freq` | LFO 1 to pitch (both layers) | 0 off, 1 on | `L.Fr` |
+| 44 | `button pmod-freq-a` | Poly-mod to freq A (both layers) | 0 off, 1 on | `P.FA` |
+| 46 | `button lfo-filter` | LFO 1 to filter (both layers) | 0 off, 1 on | `L.FL` |
+| 47 | `button pmod-filter` | Poly-mod to filter (both layers) | 0 off, 1 on | `P.FL` |
+| 48 | `button unison` | Unison (both layers) | 0 off, 1 on | `UnI` |
+| 51 | `button sync` | Sync (both layers) | 0 off, 1 on | `SYnC` |
+| 52 | `layers` | Layer mode (the patch) | 0 off, 1 split, 2 stack, 3 channel, 4 8ch, 5 mpe | `LAYr` |
+| 53 | `split` | Split note (the patch) | 0 to 127 | `SPLt` |
+| 54 | `layer-voices` | Layer 1's voices (the patch) | 0 to 7 | `Lr.Uo` |
+| 55 | `keytrack` | Filter keytracking (the patch) | 0 off, 1 half, 2 full | `trAC` |
+| 56 | `lfo-sync` | LFO 1 sync (the patch) | 0 free, 1 clock | `L1.SY` |
+| 57 | `lfo-trigger` | LFO 1 retrigger (the patch) | 0 free, 1 first, 2 every, 3 voice, 4 one-shot, 5 one-shot-voice | `L1.tr` |
+| 58 | `lfo-delay 1` | LFO 1 delay (the patch) | 0 to 99 | `L1.dL` |
+| 59 | `lfo-fade 1` | LFO 1 fade (the patch) | 0 to 99 | `L1.FA` |
+| 60 | `lfo-cycles` | LFO 1 one shot's cycles (the patch) | 1 to 99 | `L1.Cn` |
+| 61 | `lfo2-sync` | LFO 2 sync (the patch) | 0 free, 1 clock | `L2.SY` |
+| 62 | `lfo2-trigger` | LFO 2 retrigger (the patch) | 0 free, 1 first, 2 every, 3 voice, 4 one-shot, 5 one-shot-voice | `L2.tr` |
+| 63 | `lfo-delay 2` | LFO 2 delay (the patch) | 0 to 99 | `L2.dL` |
+| 64 | `lfo-fade 2` | LFO 2 fade (the patch) | 0 to 99 | `L2.FA` |
+| 65 | `lfo2-cycles` | LFO 2 one shot's cycles (the patch) | 1 to 99 | `L2.Cn` |
+| 66 | `lfo-restart` | A sequence's LFO restarts (the patch) | 0 steps, 1 keys | `L.rS` |
+| 67 | `bend` | Bend range (the patch) | 1 to 12 | `bEnd` |
+| 68 | `detune` | Unison detune (the patch) | 0 to 100 | `dEtU` |
+| 69 | `unison-voices` | Unison voices (the patch) | 2 to 8 | `Un.Uo` |
+| 70 | `drift` | Drift (the patch) | 0 to 99 | `drFt` |
+| 71 | `scale` | Scale (the patch) | 0 off, 1 major, 2 minor, 3 dorian, 4 phrygian, 5 lydian, 6 mixolydian, 7 harmonic-minor, 8 pentatonic-major, 9 pentatonic-minor, 10 blues, 11 whole-tone, 12 chromatic | `SCAL` |
+| 72 | `root` | Scale root (the patch) | 0 C, 1 C#, 2 D, 3 D#, 4 E, 5 F, 6 F#, 7 G, 8 G#, 9 A, 10 A#, 11 B | `root` |
+| 73 | `link amp-env` | Layer 2 takes the amp envelope from layer 1 (the patch) | 0 off, 1 on | `Ln.EA` |
+| 74 | `link filter-env` | Layer 2 takes the filter envelope from layer 1 (the patch) | 0 off, 1 on | `Ln.EF` |
+| 75 | `link env3` | Layer 2 takes Env 3 from layer 1 (the patch) | 0 off, 1 on | `Ln.E3` |
+| 76 | `link env4` | Layer 2 takes Env 4 from layer 1 (the patch) | 0 off, 1 on | `Ln.E4` |
+| 77 | `link lfo1` | Layer 2 takes LFO 1 from layer 1 (the patch) | 0 off, 1 on | `Ln.L1` |
+| 78 | `link lfo2` | Layer 2 takes LFO 2 from layer 1 (the patch) | 0 off, 1 on | `Ln.L2` |
+| 79 | `link filter` | Layer 2 takes the filter from layer 1 (the patch) | 0 off, 1 on | `Ln.FL` |
+| 80 | `arp-range` | Arp range (octaves above) (the patch) | 0 1, 1 2, 2 3 | `Ar.rA` |
+| 81 | `arp-extend` | Arp added notes (the patch) | 0 none, 1 octave, 2 fifth, 3 seventh, 4 ninth | `Ar.Ad` |
+| 82 | `arp-chaos` | Arp Chaos (the patch) | 0 to 99 | `CHAo` |
+| 83 | `shape 1` | LFO 1 shape (per layer) | 0 tri, 1 square, 2 ramp-up, 3 ramp-down, 4 sine, 5 sh, 6 drift, 7 steps, 8 noise | `SH.L1` |
+| 84 | `shape 2` | LFO 2 shape (per layer) | 0 tri, 1 square, 2 ramp-up, 3 ramp-down, 4 sine, 5 sh, 6 drift, 7 steps, 8 noise | `SH.L2` |
+| 85 | `lfo2-dests pitch` | LFO 2 to pitch (per layer) | 0 off, 1 on | `L2.Fr` |
+| 86 | `lfo2-dests filter` | LFO 2 to filter (per layer) | 0 off, 1 on | `L2.FL` |
+| 87 | `lfo2-dests pw` | LFO 2 to PW (per layer) | 0 off, 1 on | `L2.PU` |
+| 88 | `voice` | Voice mode (per layer) | 0 poly, 1 mono, 2 legato | `UOIC` |
+| 89 | `priority` | Note priority (per layer) | 0 last, 1 low, 2 high | `PrIO` |
+| 90 | `macro 1` | Macro 1 offset (per layer) | -99 to 99 | `nAC1` |
+| 91 | `macro 2` | Macro 2 offset (per layer) | -99 to 99 | `nAC2` |
+| 92 | `osc-tune a` | Freq A's tuning (per layer) | 0 semitones, 1 octave, 2 free, 3 fixed | `tU.A` |
+| 93 | `osc-tune b` | Freq B's tuning (per layer) | 0 semitones, 1 octave, 2 free, 3 fixed | `tU.b` |
+| 94 | `env-mode amp` | Amp envelope mode (per layer) | 0 adsr, 1 dahdsr, 2 cycle, 3 cycle 8bar, 4 cycle 4bar, 5 cycle 2bar, 6 cycle 1bar, 7 cycle 1/2, 8 cycle 1/4., 9 cycle 1/4, 10 cycle 1/4T, 11 cycle 1/8., 12 cycle 1/8, 13 cycle 1/8T, 14 cycle 1/16., 15 cycle 1/16, 16 cycle 1/16T, 17 cycle 1/32 | `En.A` |
+| 95 | `env-up amp` | Amp envelope key-up trigger (per layer) | 0 off, 1 on | `tr.A` |
+| 96 | `env-tempo amp` | Amp envelope times in note values (per layer) | 0 off, 1 on | `tI.A` |
+| 97 | `env-curve amp` | Amp envelope curve (per layer) | 0 analog, 1 linear, 2 swell | `CU.A` |
+| 98 | `env-count amp` | Amp envelope cycles (0 endless) (per layer) | 0 to 99 | `Cn.A` |
+| 99 | `env-delay amp` | Amp envelope delay (per layer) | 0 to 99 | `dL.A` |
+| 100 | `env-hold amp` | Amp envelope hold (per layer) | 0 to 99 | `Ho.A` |
+| 101 | `env-mode filter` | Filter envelope mode (per layer) | 0 adsr, 1 dahdsr, 2 cycle, 3 cycle 8bar, 4 cycle 4bar, 5 cycle 2bar, 6 cycle 1bar, 7 cycle 1/2, 8 cycle 1/4., 9 cycle 1/4, 10 cycle 1/4T, 11 cycle 1/8., 12 cycle 1/8, 13 cycle 1/8T, 14 cycle 1/16., 15 cycle 1/16, 16 cycle 1/16T, 17 cycle 1/32 | `En.F` |
+| 102 | `env-up filter` | Filter envelope key-up trigger (per layer) | 0 off, 1 on | `tr.F` |
+| 103 | `env-tempo filter` | Filter envelope times in note values (per layer) | 0 off, 1 on | `tI.F` |
+| 104 | `env-curve filter` | Filter envelope curve (per layer) | 0 analog, 1 linear, 2 swell | `CU.F` |
+| 105 | `env-count filter` | Filter envelope cycles (0 endless) (per layer) | 0 to 99 | `Cn.F` |
+| 106 | `env-delay filter` | Filter envelope delay (per layer) | 0 to 99 | `dL.F` |
+| 107 | `env-hold filter` | Filter envelope hold (per layer) | 0 to 99 | `Ho.F` |
+| 108 | `env-mode env3` | Env 3 mode (per layer) | 0 adsr, 1 dahdsr, 2 cycle, 3 cycle 8bar, 4 cycle 4bar, 5 cycle 2bar, 6 cycle 1bar, 7 cycle 1/2, 8 cycle 1/4., 9 cycle 1/4, 10 cycle 1/4T, 11 cycle 1/8., 12 cycle 1/8, 13 cycle 1/8T, 14 cycle 1/16., 15 cycle 1/16, 16 cycle 1/16T, 17 cycle 1/32 | `En.3` |
+| 109 | `env-up env3` | Env 3 key-up trigger (per layer) | 0 off, 1 on | `tr.3` |
+| 110 | `env-tempo env3` | Env 3 times in note values (per layer) | 0 off, 1 on | `tI.3` |
+| 111 | `env-curve env3` | Env 3 curve (per layer) | 0 analog, 1 linear, 2 swell | `CU.3` |
+| 112 | `env-count env3` | Env 3 cycles (0 endless) (per layer) | 0 to 99 | `Cn.3` |
+| 113 | `env-delay env3` | Env 3 delay (per layer) | 0 to 99 | `dL.3` |
+| 114 | `env-hold env3` | Env 3 hold (per layer) | 0 to 99 | `Ho.3` |
+| 115 | `env-mode env4` | Env 4 mode (per layer) | 0 adsr, 1 dahdsr, 2 cycle, 3 cycle 8bar, 4 cycle 4bar, 5 cycle 2bar, 6 cycle 1bar, 7 cycle 1/2, 8 cycle 1/4., 9 cycle 1/4, 10 cycle 1/4T, 11 cycle 1/8., 12 cycle 1/8, 13 cycle 1/8T, 14 cycle 1/16., 15 cycle 1/16, 16 cycle 1/16T, 17 cycle 1/32 | `En.4` |
+| 116 | `env-up env4` | Env 4 key-up trigger (per layer) | 0 off, 1 on | `tr.4` |
+| 117 | `env-tempo env4` | Env 4 times in note values (per layer) | 0 off, 1 on | `tI.4` |
+| 118 | `env-curve env4` | Env 4 curve (per layer) | 0 analog, 1 linear, 2 swell | `CU.4` |
+| 119 | `env-count env4` | Env 4 cycles (0 endless) (per layer) | 0 to 99 | `Cn.4` |
+| 120 | `env-delay env4` | Env 4 delay (per layer) | 0 to 99 | `dL.4` |
+| 121 | `env-hold env4` | Env 4 hold (per layer) | 0 to 99 | `Ho.4` |
+| 122 | `edit-layer` | The layer the panel edits (the panel) | 0 1, 1 2 | `Ed.Lr` |
+| 123 | `lfo-select` | The LFO the panel edits (the panel) | 0 1, 1 2 | `L.SEL` |
+
+<!-- END PARAMS -->
+
+### MIDI out (0.10.0)
+
+The synth sends MIDI on USB and, when you ask, on the rear THRU socket. Everything is off by default, and the THRU
+socket passes the IN socket through as before. These are system-wide settings (stored a second after a change): the
+system menu's key 8 (Arp Up-Dn steps through its six pages), the web page's System tab (MIDI out), or `pro800 set`.
+
+| Page | Setting | Values | `pro800 set` |
+|---|---|---|---|
+| `dIn` | the THRU socket | `tHru` (the IN socket's messages, the default), `Out` (the synth's own), `nErG` (both merged) | `midi-socket thru\|out\|merge` |
+| `nOtE` | notes out | `OFF`, `In` (the keys as they come in), `PLAY` (what the voices play) | `notes-out off\|keys\|played` |
+| `CH.ou` | the out channel | `FoL` (follow the MIDI channel; 1 with `ALL`), 1-16 | `out-channel follow\|1-16` |
+| `CL.ou` | clock out | `OFF`, `on` | `clock-out on\|off` |
+| `Pt.CC` | knob moves out | `OFF`, `on` | `knob-cc on\|off` |
+| `PC.ou` | program changes out | `OFF`, `on` | `pc-out on\|off` |
+
+- **The THRU socket**: in `Out` the socket sends only the synth's messages; in `nErG` (merge) it passes on what comes in
+  at IN, whole messages at a time, with the synth's own between them (a SysEx going through keeps the synth's waiting
+  until its end; one IN leaves unfinished, a cable pulled mid-dump, is given up after 50 ms with nothing more).
+  `Out` and `nErG` switch the hardware's own copy of IN off. Going back to `tHru`, the notes the socket sent get
+  their offs first.
+- **Notes out**: `In` sends the notes that come in (after the channel filter) on the out channel, never back to the
+  port they came from: a keyboard on the IN socket goes to USB, a DAW's notes to the socket. `PLAY` sends what the voices
+  play: the sequence's steps, the arp and chords, each note once however many voices play it (unison sends one). In
+  channel mode layer 2 goes one channel higher; in the `8CH` and `nPE` modes each voice on its own channel, from the
+  out channel. In `PLAY` a note out ends with the voices that play it (a patch load silences them); the panic
+  (Shift + 0), CC 120 / 123, Tune, an update, a change of these settings, of the MIDI channel the out channel follows
+  and of the layer mode end every note that went out, the keys' too, on the channel it went out on.
+- **Clock out**: with the clock on Internal or SYNC IN, the synth's clock goes out, 24 a quarter note, with Start as
+  clock out turns on and as a held Sync Clock restarts the bar, and Stop when the clock goes back to MIDI or clock out
+  turns off. From SYNC IN each pulse is exactly 12 clocks as the tempo moves (a pulse that comes early sends the half
+  beat's rest at once; with no pulse for a second the clock runs on at the last tempo). Following MIDI clock, it passes the clock (Start, Stop, Continue) on to the other port: USB's to the socket
+  (`Out` or `nErG`), the socket's to USB. In `nErG` with the synth as the clock, the IN socket's clock is left out, so
+  the receivers don't get two.
+- **Knob moves out**: a knob that holds its value sends its CC from the CC map (its first, on the out channel;
+  layer 2's one higher in channel mode) as it moves. A knob in pickup sends nothing until it takes over, so a DAW
+  records only real moves. While a knob is moving (it sent in the last 0.3 s), a CC for its parameter coming in is its
+  echo (a DAW's MIDI thru, its own values or late ones) and changes nothing: the knob keeps it and stays live. After
+  that a CC sets the parameter as ever.
+- **Program changes out**: a patch load sends its program change on the out channel; one a program change in loaded
+  doesn't go back out.
+- **CC A out / CC B out** are mod destinations (`CCo.A`, `CCo.b` in MOD ASSIGN): the sum of their routes, 0-127, goes
+  out as a CC (12 and 13 by default; `pro800 set cc-out-a 20`, or the web page) when it changes, at most every 5 ms, and
+  again on a new number. A CC with its own meaning (1, 6, 32, 38, 64, 96-101, 120-127) can't be one; the page warns
+  when the number is in the CC map or is CC A / B's, as the synth would take it back in if a DAW echoes it. A free LFO
+  streams from power-up with no note played (a layer with no note works out its routes for CC A / B out alone); an
+  envelope moves with the most recent note. Use them to send the synth's LFOs, envelopes or the mod wheel to another
+  synth.
+
+A USB host that stops reading (Windows with no program on the port) doesn't hold anything up: after 100 ms the waiting
+messages are dropped, and when it reads again the note offs it still owes go first, then everything as before. Nothing
+sent while no host listened (the Start at power-up among it) is sent later: hold Sync Clock to start the receivers.
 
 ### Voice modes, drift, scale, morph
 
@@ -141,6 +360,32 @@ CC 74 also feeds the `Timbre` mod source, for routes. In the `8CH` and `nPE` mod
   3 voices, two voices stay silent. In mono or legato it's one line on that many voices. In the two-layer modes the
   notes fit in the layer's own voices, so with four each, 2 voices play 2 notes per layer and 3 or more play one line.
   Unison detune (Settings key 8 `dEtU`, Shift + M TUNE, or the web page's knob; 0-100 cents) spreads each note's voices.
+  The Unison button shows `Un.on` / `Un.oF` (0.10.0).
+- **Chord memory** (per layer, 0.10.0, as on the stock synth): hold 2 or more keys and turn Unison on: they're the
+  patch's chord (`CHrd`), and from then on every key plays it, transposed, in place of the unison stack (no unison
+  detune). One key or none held: plain unison, and the chord is gone. With Unison already on, the sustain pedal
+  pressed over 2 or more keys takes them as a new chord too (a pedal over one key, or with Unison off, only
+  sustains; it plays the held keys again with the new chord, for the pedal to hold). The keys held count with the
+  pedal's, and the lowest is the root: in poly the keys sounding (the most recent ones when there are more keys than
+  voices), in mono and legato the lowest 8 held. A chord plays at most as many notes as the layer has voices (8, or 4
+  each in split and stack unless Layer 1's voices says otherwise): the top ones are left out.
+  In poly each key takes a voice per chord note (a chord never steals its own; another key's voices are taken as
+  ever, the oldest first), and a key struck again takes back its own voices; in mono and legato the line plays the
+  chord on as many voices, legato moving it without a retrigger. In split each layer takes the keys held on it; in
+  the per-channel modes (`8CH`, `nPE`) there's no chord. A sequence's step plays the chord from its note, unless the
+  step has a Note 2 / Note 3 of its own (then those, plain); the arp walks the chord's notes from one key. Turning
+  Unison off keeps the chord (a host's Unison on brings it back; the next press over held keys replaces it). It's
+  saved with the patch; 0.9.5 and older play such a patch as plain unison. A scale snaps each chord note. The web
+  page's Voice section shows the edit layer's chord as numbers and note names from C (type `0 4 7` to set one),
+  with Capture (the keys held now) and Clear; `pro800 chord` does the same.
+- **Chord voicing** (a mod destination, `CH.Uo`; in MOD ASSIGN the Unison button picks it without switching): moves
+  each chord along a ladder of inversions. Each step up takes the lowest note, then the second lowest, to its first
+  octave above the highest; down mirrors it (the highest, then the second highest, below the lowest). C E G: +1 E G
+  C, +2 E C G, +3 C G E, each an octave up the way; −1 G C E, −2 C G E, −3 E C G. Depth 99 reaches as many steps as
+  the chord has notes, so depth 25 on a triad only inverts it. It's read as a chord starts, for that note (velocity →
+  voicing: harder notes spread wider), and a held chord follows it as it moves (the mod wheel, an LFO): each note
+  glides with GLIDE to its new place, without a retrigger. Near a step's edge it keeps the step it's on until the
+  value is clearly past (a slow LFO doesn't flutter there). Notes past the MIDI range fold back by octaves.
 - **Drift** (Settings key 0 `drFt`, 0-99): each voice's pitch (up to 15 cents) and cutoff (up to a semitone) wander
   slowly at random, so stacked notes and unison breathe like an old poly.
 - **Scale** (web page: scale and root): the pitch of each voice, with its common pitch modulation (LFO → Freq, LFO
@@ -171,7 +416,10 @@ keep them).
   stay as the sound had them (memory that starts on the panel, stock or never formatted, starts with none).
 - **Save:** press Rec (it blinks), choose a slot by number or with VALUE, then press Rec again (`donE`). You don't
   have to wait after typing: `5`, Rec saves to P5 at once. Preset cancels. The patch's name follows the sound into an empty slot.
-- **Init:** Perf loads a plain sound: one sawtooth, the filter open, and on each layer two ordinary mod routes,
+  Perf instead of the second Rec saves there and makes that patch your init patch (`InIt.`).
+- **Init:** hold Perf (0.6 s; a tap only shows `HoLd`, so a stray press can't replace the sound). With an init
+  patch of your own set (Settings menu → System menu), that's what it loads; otherwise a plain sound: one sawtooth,
+  the filter open, and on each layer two ordinary mod routes,
   velocity → VCA at 70 (full level at velocity 127, about 0.65 at 64) and velocity → cutoff at 20 (about 19 semitones
   above the knob at 127). The cutoff knob starts at its maximum, but full keyboard tracking takes a low note's cutoff well
   under that, so velocity changes how bright a low note is straight away (note 36: about 4 kHz at the softest, about
@@ -189,7 +437,7 @@ keep them).
   the stock firmware's data show `nonE`. Saving a patch or installing a bank is enough for the synth to start on your
 last patch from then on; the other slots stay as they are. On the web page's Patches tab: **Format the patch memory** (every slot
   empty), then **Copy the whole factory bank** (the 100 stock sounds into the empty slots, converted) and/or
-  **Install the preset bank** (70 sounds into P1-P66 and P75-P78; or **Install a bank file…** with the release's
+  **Install the preset bank** (73 sounds into P1-P66 and P75-P81; or **Install a bank file…** with the release's
   `pro8000-presets-<version>.json`). Each asks first.
 
 A patch stores:
@@ -269,7 +517,7 @@ LFO 2). The selection applies to:
 - the Sync and Retrigger settings pages.
 
 **Shapes:** press LFO Shape to step to the next one. For 2 seconds afterwards, VALUE steps through them both
-ways. The button's up/down position no longer means anything.
+ways, unless you touch a knob meanwhile (VALUE then fine-adjusts that knob). The button's up/down position no longer means anything.
 
 **Delay and fade-in** (web page, LFO sections, or `pro800 set lfo-delay|lfo-fade 1|2 <0-99>`): each LFO can wait
 after a note starts and then fade in, per voice, from 20 ms to about 5 s (0 = off). It applies to the LFO's
@@ -319,9 +567,11 @@ the filter, or to pitch for octave jumps (LFO → Freq at full depth is ±12 sem
 adds to LFO 1's depth.
 
 **Routing:** for LFO 1, the LFO → Freq / Filter / PW buttons work as printed. For LFO 2, select it and press the
-same buttons. The display shows the result, e.g. `Fr.on` or `FL.oF`. LFO 1's routing stays as it was, and the
-buttons' positions keep showing LFO 1's routing. LFO → PW is one wire, so it takes layer 1's LFOs. Pitch ±12
-semitones and filter ±48 at full depth.
+same buttons. Either way the display shows the result, e.g. `Fr.on` or `FL.oF`. With LFO 2 selected, LFO 1's
+routing stays as it was, but the button moves, so it no longer shows LFO 1's routing: with LFO 1 selected again, the
+next press of it brings it back in step and changes nothing (the display says what LFO 1 does), and the press after
+that switches LFO 1. LFO → PW is one wire, so it takes layer 1's LFOs. Pitch ±12 semitones and filter ±48 at full
+depth.
 
 **Sync** (Settings → key 1, `SYnC`, or `SYn2` for LFO 2): `FrEE` or `CLoC`. With the clock, LFO FREQ chooses a
 division (shown while turning): `8bAr`, `4bAr`, `2bAr`, `1bAr`, `1-2`, `1-4d`, `1-4`, `1-4t`, `1-8d`, `1-8`,
@@ -563,8 +813,8 @@ only plays it.
 - **On the web page also:** Euclid fills the steps with k hits spread evenly over the length; Record writes notes
   you play (the on-screen keys or the routed MIDI input, e.g. the Move) into the steps one by one, relative to the
   first; Reset steps.
-- **Saving:** the sequence is saved with the patch (REC, or Save in Patches) and loaded with it. PERF's init sound
-  has none.
+- **Saving:** the sequence is saved with the patch (REC, or Save in Patches) and loaded with it. The built-in init
+  sound has none; your init patch brings its own.
 
 ## Mod matrix (MOD ASSIGN)
 
@@ -613,7 +863,7 @@ so for a fast LFO straight into the cutoff route the LFO directly.
 | 1 | The selected LFO; press 1 again for the other one | `LFO1` / `LFO2` |
 | 2 | Filter envelope | `FEnV` |
 | 3 | Amp envelope | `AEnV` |
-| 4 | Velocity | `VEL` |
+| 4 | Velocity; press 4 again for release velocity, and again back | `VEL` / `rVEL` |
 | 5 | Mod wheel | `nod` |
 | 6 | Aftertouch | `PrES` |
 | 7 | Env 3 | `EnV3` |
@@ -631,6 +881,20 @@ so for a fast LFO straight into the cutoff route the LFO directly.
 | VALUE / web | Fixed, always 1: the route is a plain offset | `FIX` |
 | VALUE / web | Macro 1, Macro 2 | `nAC1` `nAC2` |
 | VALUE / web | Arp note position, 0 lowest to 1 highest of the arp's notes (see Sequencer) | `ArP` |
+| 4 again / VALUE / web | Release velocity, 0 to 1: how fast the key came up (0.10.0) | `rVEL` |
+
+**Release velocity** (`rVEL`) is how fast a key was let go, from keyboards that send it. A route from it does
+nothing while the key is down (so `rVEL` → VCA at 99 doesn't silence a held note; as a Via it's ×1 meanwhile) and
+acts from the moment the key comes up, as `rVEL` × the depth: into the amp or filter release (a quick lift, a
+shorter tail, with a negative depth), the cutoff or the VCA (a step at key-up, as Gate makes), or a key-up Env 3 /
+Env 4's depth via `rVEL` (play that note again while its key-up envelope still runs and the Via is ×1 again: the
+envelope's fading part jumps to its full depth). Under the sustain pedal the key's lift is kept and acts when the pedal lets go. A release
+no key made gives 64, the middle: a sequence's or the arp's step ending, all notes off, and a note-on at velocity 0
+(MIDI's note-off); when you let go of a sequence's or the arp's last key, a step still sounding then releases at
+that key's lift (one whose gate already ended has released at 64). A keyboard without
+release velocity sends one value every time (most send 64, some 0), so the route does the same each time.
+`pro800 play --release V` sends one; `pro800 engine` shows each voice's last. The single-wire destinations
+(levels, noise, resonance, detune, volume) follow the newest voice, usually still held, so a route there seldom acts.
 
 The Morph destination (web page only) fades toward the morph target patch (see Voice modes, drift, scale, morph).
 
@@ -661,6 +925,8 @@ The Morph destination (web page only) fades toward the morph target patch (see V
 | VALUE / web | Master volume * (a 0-to-1 source counts down from full, as the VCA) | `VOL` | closed to full |
 | VALUE / web | Macro 1, Macro 2 | `nAC1` `nAC2` | −1 to 1 |
 | VALUE / web | Arp Chaos, added to the patch's (see Sequencer) * | `CHAo` | ±99 |
+| Unison button / VALUE / web | Chord voicing, read as each chord starts; held chords follow the layer's newest note (see Voice modes; 0.10.0) | `CH.Uo` | ± the chord's notes, in steps |
+| VALUE / web | CC A out, CC B out: the routes' sum out as a MIDI CC (see MIDI out; 0.10.0) * | `CCo.A` `CCo.b` | 0-127 |
 
 \* Single wires for all voices: they follow the most recently played note of the layer. Everything else acts per
 voice.
@@ -736,6 +1002,7 @@ far you turn it, so nothing jumps and nothing needs picking up; the display show
 | Preset | Save to the current slot (`donE`), without Rec, slot, Rec |
 | Seq 1 / Seq 2 | Copy the edit layer onto that layer (`CoPY`) |
 | 1-9 | Open that Settings page directly |
+| Settings | Open the system menu (`SYS`); with a menu open, it closes it as Settings alone does |
 | 0 | Panic: every note off, the pedal cleared, the sequence stopped (`PAnC`) |
 
 `VE.A` and `VE.F` are ordinary routes, the ones MOD ASSIGN lists and the web page's Velocity knobs turn, on the layer
@@ -773,7 +1040,8 @@ The Sync Clock LED blinks on the beat of whichever clock is in use, so a missing
 
 ## Settings menu
 
-Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the value, and Settings closes it.
+Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the value (with Shift held, ten at a
+time on a page with more than 20 values), and Settings closes it.
 
 | Key | Page | Values |
 |---|---|---|
@@ -790,7 +1058,34 @@ Settings opens it (LED on, `SEt`). A number key picks a page, VALUE changes the 
 
 Settings live in the patch, so save the patch to keep them.
 
-**System-wide settings** need no save: the MIDI channel, CC A / B, knob pickup, the clock source and the tempo. They take
+### System menu
+
+Hold Settings (0.6 s: `SEt` first, then `SYS`), or press Shift + Settings. The Settings LED blinks while it's open.
+The same keys pick its pages, VALUE changes them (Shift: ten at a time on the long ones), Settings closes it, and
+Shift + 1-9 goes to a page of the settings menu instead.
+
+| Key | Page | Values |
+|---|---|---|
+| 1 | `CHnL`: the MIDI channel it listens on (also Shift + NOISE) | `ALL`, 1-16 |
+| 2 | `P.UP`: knob pickup (also Shift + PMOD FIL ENV) | `on`, `OFF` |
+| 3 | `CC.A`: CC A's controller (also Shift + A LEVEL) | 1-127 (default 11) |
+| 4 | `CC.b`: CC B's controller (also Shift + B LEVEL) | 1-127 (default 2) |
+| 5 | `CLoC`: the clock source (also Shift + Sync Clock) | `nIdI`, `Int`, `SYnC` |
+| 6 | `tEnP`: the internal clock's tempo (also tapping Sync Clock) | 30-300 BPM |
+| 7 | `InIt`: your init patch, what a held Perf loads | `nonE` (the built-in sound), `P  1` … `P128` |
+| 8 | `dIn`: MIDI out (Arp Up-Dn: `nOtE`, `CH.ou`, `CL.ou`, `Pt.CC`, `PC.ou`; see MIDI out) | `tHru`, `Out`, `nErG`; `OFF`, `In`, `PLAY`; `FoL`, 1-16; `OFF`, `on` |
+
+Keys 9 and 0 are free. Perf and Rec do nothing while it's open.
+
+**Your init patch:** with a slot chosen here (or by Rec, the slot, Perf), a held Perf loads that patch as a
+template: its sound, routes, layer settings and step sequence, but not its slot: the slot number stays where you
+were, and Rec, Rec saves there. That's the template's own slot if you were on it (as straight after Rec, the slot,
+Perf), so choose another slot to keep the template as it is. The display says `InIt.` with a dot (the built-in sound has
+none), and Shift + Perf undoes it as any load. If the slot is empty, Perf gives the built-in sound. A format sets it
+back to none.
+
+**System-wide settings** need no save: the MIDI channel, CC A / B, knob pickup, the clock source, the tempo, your
+init patch, the CC map and MIDI out. They take
 effect and read back at once, and the synth stores them about a second after the last change, so a knob sweep or a run
 of taps costs one write to the memory. Turning the power off inside that second loses the change. An update, an
 autotune, loading another patch, a save on memory never formatted or a format stores them straight away.
@@ -821,15 +1116,19 @@ envelope cycles), the Device cheat sheet describes that build's panel, and the s
 
 The arrows beside the patch name in the top bar load the previous or next patch, as VALUE does on the panel: an empty slot gives the init sound, and the ends go round. A run of clicks loads where it stops. What wasn't saved goes with the load, and Undo brings it back.
 
-**Init** in the top bar, beside the layer buttons, loads the init sound, as Perf does on the panel. It isn't saved anywhere. **Undo** beside it brings back the sound before the last patch load or Init, and again redoes, as Shift + Perf does on the panel.
+**Init** in the top bar, beside the layer buttons, loads what a held Perf loads on the panel: your init patch if one
+is set (the System tab's Init sound, from 0.10.0), else the built-in init sound. It isn't saved anywhere. **Undo** beside it brings back the sound before the last patch load or Init, and again redoes, as Shift + Perf does on the panel.
+
+A knob turned on the page shows its value on the synth's display too, as the knob itself would (from 0.10.0); the
+page's other changes (settings, buttons, presets loading) leave the display as it is.
 
 | Tab | What it does |
 |---|---|
 | **Sound** | On top, the synth's own faceplate: oscillators, poly-mod, LFO-MOD (with a rotary for LFO 1's nine shapes), noise, glide, filter (its Env select switch is the keyboard-tracking switch, as on the synth: down, middle and up make the four ADSR knobs edit the filter envelope, Env 3 or Env 4; it follows the synth's switch, and a click holds until you move that), amplifier, Macro 1 (M TUNE) and volume, with knurled knobs and bat-lever switches laid out as on the synth. Values show under the pointer, or always with the Values switch. The filter and the amplifier each have a **Velocity** knob, first in their envelope row: the depth of the edit layer's route Velocity → Cutoff (−99 to +99; negative closes the filter on harder notes) and Velocity → VCA (0 to 99). That's the same route the mod matrix lists and MOD ASSIGN edits, kept nowhere else, so all three agree and the ring on the Cutoff knob follows. At 0 it reads `off` and plays nothing, and the route stays in the mod matrix at 0 for 5 s, keeping its slot and any Both mark if you turn back; then it's removed. Turning creates it; a double-click takes it off the same way (0, not the init sound's depth). With all 16 of the layer's routes in use, none at 0 and no route to turn, the status line says so and the knob stays where it was. A negative Velocity → VCA route (the mod matrix can make one) does nothing on its own, only taking back some of what another route into the VCA takes away, so the knob rests at 0 with the number in red and leaves the route as it is until you turn the knob up, which replaces it; the matrix's Range reads "none on its own". A route marked Both reads `both` beside its depth: it's one route, so turning it changes both layers' voices. Through 0 it stays as it is; 5 s at 0 removes it and its mark, and the status line says so, and turning up after that brings it back as this layer's alone. The other layer's Both route on the same destination reads `+L1` or `+L2`: it plays here too and this knob doesn't touch it. Links don't take routes: linked or not, layer 2's Velocity knobs are layer 2's own routes. A red arc around a knob is its modulation range: how far the edit layer's mod routes can move it from where it stands (both ways for sources that swing either side of the middle, one way for 0-to-1 sources); when two or more sources move one knob, each gets a thinner arc of its own under the scale, outer to inner in the routes' order, with the combined arc outside the scale; hover for the routes and what each adds in real units. Each oscillator section shows its waveform (as measured at the output: the enabled waves added at their own levels and pulse width, the saw falling), the filter section its response curve (above its knobs) and the envelope its ADSR knobs are editing, and the amplifier its envelope; under each envelope picture are its Mode menu (ADSR / DAHDSR / cycle / synced cycle), Trigger menu (key down / key up), Timing menu (seconds / note values), Curve menu, Delay and Hold knobs (DAHDSR), Cycles knob (cycling) and ⇆ to copy it from the other layer (in the filter section they follow the Env select switch). Below it, "Beyond the panel": Env 3 and Env 4 (picture, Mode, knobs, ⇆), LFO 1 and LFO 2 (shape, rate, amount, delay and fade, sync, retrigger, Cycles knob for a one shot, routing, depth bars to VCA / cutoff / pitch A and B / PWM, the step grid for the Steps shape; LFO 1's rate, amount, shape and routing are also on the faceplate), voice settings (layers, filter keytracking, voice mode and note priority, drift, scale and root, morph, Mutate, bend, detune), the mod matrix (the titles of Voice, Mod matrix and Sequencer fold their sections away, open by default, and the browser remembers; Via multiplies a route: source × via × depth, by a number from 0.01 to 8, 1 being plain, or by any source but Fixed, so depth 99 via 0.25 into an LFO rate is exactly one octave and via 2 into a pitch is ±48 semitones, and the mod wheel as Via brings a route in as you push it; a source that swings both ways flips the route's direction, and a macro can't be the Via of a route into a macro. Past their ends levels simply stop, pitch stops being in tune and then stops, and rates and times stop at 256× either way. Changing a route's source or destination swaps it at once, in its row; Remove sets a route to 0; a row at 0 plays nothing, its Range says so, and it goes after 5 s, or its slot goes to a new route if the table's otherwise full; the slider moves a depth in whole steps, and the number beside it takes steps of 0.1, typed or with the arrow keys, so depth 53.5 is there for a pitch that falls between 53 and 54 (the panel shows the tenths and sets whole numbers: VALUE takes 53.5 to 54 or to 53, and a whole number set there, or with the slider, replaces the tenths); each route's Range in the destination's own units: semitones or cents of pitch, semitones of cutoff, a × factor on a time, per cent of a level, and for a cutoff or a time where that takes the knob from where it stands; an LFO rate's Range is the rates it reaches, in Hz or, when the LFO is synced, in note values such as 1/4 – 1/64, with the octaves under them; with a knob for each macro's offset: its ring is what the routes into the macro can add, the text beside it what feeds and what it drives) and the sequencer. Drag a knob up and down (shift: fine), scroll over it or use the arrow keys; double-click resets it. The red screen shows the last control you touched and the patch; click the patch's name there to rename it (Enter or clicking away saves it to the slot, Escape leaves it). Layer 1 / Layer 2 are in the header; knobs, depth bars and the mod matrix edit that layer. It follows the synth about once a second; moving a control puts that knob in pickup on the panel. Amber knobs are shared by both layers (mixer levels, noise, resonance, PW A / B, poly-mod osc B, volume). |
 | **Device cheat sheet** | How to reach everything this firmware adds from the synth's own panel: the remapped buttons, the display, patches, layers, LFOs, envelopes, mod assign with its source keys and destinations, the settings menu, MIDI and recovery, and what's web-only. |
-| **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 128 as a `.bin` and restore that file over every slot. Kind and the scan say "stock or unreadable" for anything neither empty nor ours (a stock patch and a damaged record read the same). Restore everything on memory holding stock or unreadable data and no patches asks for a format first; on empty, never-formatted memory it works and marks the memory as PRO-8000's. Save here, Import and the JSON box's save check the slot on the synth first, and ask if it holds something or doesn't answer. **In one go:** format the patch memory, copy the whole factory bank into the empty slots, or install the preset bank (66 sounds into P1-P66, from the page's own copy, or a bank file such as the release's `pro8000-presets-<version>.json`; a bank pasted or opened in the JSON box installs too), each after a confirmation. Empty slots are hidden unless "show empty slots" is ticked. **Sound as JSON:** the current sound as JSON in the preset files' format (`presets/README.md`: knobs 0-99, buttons, settings, routes, LFO step patterns, the sequence, the morph target, by the `pro800` tool's names): show it in the text box, copy it, or download it as a `.json` file. Paste JSON into the box (or open a `.json` file, such as one of `presets/`) to load it into the sound: it starts from the init sound and sets what the JSON names, after checking every name and range, and settings the connected firmware hasn't got are left out with a note. Then save it into a slot with its name. A file from here installs with `presets/install.sh` too. Copy factory sounds into empty slots. |
+| **Patches** | Load, save the current sound to any slot, rename, clear, export one patch as a `.p8p` file and import it into any slot, back up all 128 as a `.bin` and restore that file over every slot. Kind and the scan say "stock or unreadable" for anything neither empty nor ours (a stock patch and a damaged record read the same). Restore everything on memory holding stock or unreadable data and no patches asks for a format first; on empty, never-formatted memory it works and marks the memory as PRO-8000's. Save here, Import and the JSON box's save check the slot on the synth first, and ask if it holds something or doesn't answer. **In one go:** format the patch memory, copy the whole factory bank into the empty slots, or install the preset bank (73 sounds into P1-P66 and P75-P81, from the page's own copy, or a bank file such as the release's `pro8000-presets-<version>.json`; a bank pasted or opened in the JSON box installs too), each after a confirmation. Empty slots are hidden unless "show empty slots" is ticked. **Sound as JSON:** the current sound as JSON in the preset files' format (`presets/README.md`: knobs 0-99, buttons, settings, routes, LFO step patterns, the sequence, the morph target, by the `pro800` tool's names): show it in the text box, copy it, or download it as a `.json` file. Paste JSON into the box (or open a `.json` file, such as one of `presets/`) to load it into the sound: it starts from the init sound and sets what the JSON names, after checking every name and range, and settings the connected firmware hasn't got are left out with a note. Then save it into a slot with its name. A file from here installs with `presets/install.sh` too. Copy factory sounds into empty slots. |
 | **Play** | An on-screen keyboard (also playable from the computer keyboard), and a MIDI router that forwards another MIDI input, such as the Ableton Move, to the synth. The browser remembers the router's input and its clock box, and routes again whenever that input is there (after a reload, or when it's plugged back in); choose (off) to forget it. |
-| **System** | Firmware version, timing, autotune and the tuning tables, and knob pickup on or off (0.9.3). |
+| **System** | Firmware version, timing, autotune and the tuning tables, knob pickup on or off (0.9.3), and the Init sound: the built-in one or your init patch (0.10.0). |
 | **Panel mapping** | The developer tools used to map the panel. |
 
 ## The command-line tool
@@ -1000,9 +1299,16 @@ flash a PRO-8000 `.syx` from the [releases](https://github.com/klaine/pro-8000/r
   FREQ A or FILTER on): then a thin pulse of it can still be heard. Its square has no on/off line, so it's switched
   off by pushing the pulse width to an end, and the silent end would detune oscillator A and the filter through
   poly-mod.
-- MIDI OUT / THRU isn't implemented, and SysEx works over USB only. The sequencer, scale, morph and note priority
-  are set on the web page only.
+- SysEx works over USB only, and goes out on USB only. The sequencer, scale, morph and note priority are set on the
+  web page only.
+- The THRU socket's switch between the hardware's copy of IN and the synth's own (`MIDI_SEL`) was found on the
+  schematic, not measured: if `Out` sends the IN socket's messages and `tHru` sends nothing, the level is the other
+  way round (see NOTES).
+- `nErG` has the socket's 31250 baud for both streams: IN sending at full rate (a long SysEx dump) while the synth adds
+  its own clock or notes fills the forward buffer (128 bytes, a few seconds of it) and bytes are lost. Merge a dump
+  with clock out off and the synth quiet.
 - 128 patches, each with its sequence; the 0.7.x patches are not carried over (the EEPROM backups keep them).
-- The LFO routing buttons always show LFO 1's routing. LFO 2's shows on the display when toggled, and on the web
-  page.
+- The LFO routing buttons are latches with no LEDs: LFO 2's routing shows only on the display when toggled, and on
+  the web page, and after an LFO 2 toggle a button no longer shows LFO 1's routing until it's pressed once with LFO 1
+  selected (that press changes nothing).
 - Going to manual mode (Preset) makes every button live, so LFO 1's routing jumps to what the buttons show.

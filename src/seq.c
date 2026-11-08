@@ -14,6 +14,7 @@ sequence_t sequence;
 
 static struct {
     uint8_t note, velocity, layers; // layers: where the key would have played (synth_key_layers())
+    uint8_t key;                    // the key it came with: itself, or for the arp a chord's note the key brought
 } held[HELD_MAX]; // keys the sequence took, the latest last
 static int held_count;
 static int playing, step, layers, ratchet, skipped, arp_index;
@@ -75,16 +76,16 @@ void seq_clear(void)
     }
 }
 
-static void release(void)
+static void release(uint8_t release_velocity)
 {
     for (int i = 0; i < sounding_count; i++)
-        synth_note_off_layers(sounding[i], layers);
+        synth_note_off_layers(sounding[i], release_velocity, layers);
     sounding_count = 0;
 }
 
 void seq_stop(void)
 {
-    release();
+    release(RELEASE_VELOCITY_NONE);
     playing = 0;
     held_count = 0;
 }
@@ -297,7 +298,7 @@ static void release_unheld(void)
             sounding[kept] = sounding[i];
             sounding_held[kept++] = 1;
         } else
-            synth_note_off_layers(sounding[i], layers);
+            synth_note_off_layers(sounding[i], RELEASE_VELOCITY_NONE, layers);
     }
     sounding_count = kept;
 }
@@ -329,13 +330,15 @@ static void play_note(int retrigger)
     }
     uint8_t velocity = sequence.velocity[step] ? sequence.velocity[step] : base_velocity;
     synth_set_arp_position(sequence.arp ? arp_position : 0);
+    synth_chord_plain(count > 1 || sequence.arp); // a step of one note plays the patch's chord; its own chord, or the arp, plain
     for (int i = 0; i < count; i++) // a held note into the same note just carries on
         if (retrigger || !was_held(notes[i]))
             synth_note_on_layers(notes[i], velocity, layers);
+    synth_chord_plain(0);
     synth_set_arp_position(0);
     for (int i = 0; i < sounding_count; i++)
         if (!has_note(notes, count, sounding[i]))
-            synth_note_off_layers(sounding[i], layers); // after the new notes: legato when held
+            synth_note_off_layers(sounding[i], RELEASE_VELOCITY_NONE, layers); // after the new notes: legato when held
     for (int i = 0; i < count; i++) {
         sounding[i] = notes[i];
         sounding_held[i] = held[i];
@@ -350,7 +353,7 @@ static void play_step(void)
     // a rest, or a step its probability skips this time
     skipped = !(gate & 0x80) || (int)(random32() % 8) >= SEQ_PROBABILITY(sequence.extra[step]);
     if (skipped) {
-        release();
+        release(RELEASE_VELOCITY_NONE);
         return;
     }
     play_note(0);
@@ -375,10 +378,18 @@ int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
     for (int i = 0; i < held_count; i++)
         busy |= held[i].layers;
     synth_lfos_key(taken, busy);
-    held[held_count].note = note;
-    held[held_count].velocity = velocity;
-    held[held_count].layers = (uint8_t)taken;
-    held_count++;
+    // the arp walks a chord the patch remembers (chord memory) from its one key: its notes join the held ones
+    uint8_t notes[CHORD_NOTES];
+    int first = taken & 1 ? 0 : 1, n = sequence.arp ? synth_chord_notes(first, note, notes) : 1;
+    if (n == 1)
+        notes[0] = note;
+    for (int i = 0; i < n && held_count < HELD_MAX; i++) {
+        held[held_count].note = notes[i];
+        held[held_count].key = note;
+        held[held_count].velocity = velocity;
+        held[held_count].layers = (uint8_t)taken;
+        held_count++;
+    }
     base_note = note;
     base_velocity = velocity;
     if (!playing || (sequence.arp && step == 0 && in_step < CHORD_WINDOW_S)) {
@@ -397,24 +408,39 @@ int seq_key_on(uint8_t note, uint8_t velocity, int key_layers)
     return taken;
 }
 
-int seq_key_off(uint8_t note, int key_layers)
+int seq_key_off(uint8_t note, int key_layers, uint8_t release_velocity)
 {
-    for (int i = 0; i < held_count; i++)
-        if (held[i].note == note && held[i].layers & key_layers) {
-            int taken = held[i].layers;
-            for (int j = i; j < held_count - 1; j++)
-                held[j] = held[j + 1];
-            held_count--;
-            if (held_count) { // back to the latest key still held, from the next step
-                base_note = held[held_count - 1].note;
-                base_velocity = held[held_count - 1].velocity;
-            } else {
-                release();
-                playing = 0;
-            }
-            return taken;
-        }
-    return 0;
+    int taken = 0, kept = 0;
+    for (int i = 0; i < held_count; i++) { // the key, with the chord notes it brought
+        if (held[i].key == note && held[i].layers & key_layers && (!taken || held[i].layers == taken))
+            taken = held[i].layers;
+        else
+            held[kept++] = held[i];
+    }
+    if (!taken)
+        return 0;
+    held_count = kept;
+    if (held_count) { // back to the latest key still held, from the next step
+        base_note = held[held_count - 1].key;
+        base_velocity = held[held_count - 1].velocity;
+    } else {
+        release(release_velocity); // the last key's lift: the sequence's tail answers it, as a played note's does
+        playing = 0;
+    }
+    return taken;
+}
+
+int seq_held_keys(int layers, uint8_t *out, int max)
+{
+    int n = 0;
+    for (int i = 0; i < held_count; i++) {
+        int known = 0;
+        for (int j = 0; j < n; j++)
+            known |= out[j] == held[i].key;
+        if (held[i].layers & layers && !known && n < max)
+            out[n++] = held[i].key;
+    }
+    return n;
 }
 
 void seq_update(float dt)
@@ -429,7 +455,7 @@ void seq_update(float dt)
         int now = (int)(in_step / part);
         if (now > ratchet && now < ratchets) {
             ratchet = now;
-            release();
+            release(RELEASE_VELOCITY_NONE);
             play_note(1);
         }
     }
@@ -440,7 +466,7 @@ void seq_update(float dt)
         if (++step >= sequence.length) {
             step = 0;
             if (sequence.flags & SEQ_ONE_SHOT) {
-                release();
+                release(RELEASE_VELOCITY_NONE);
                 playing = 0; // until every key is let go and one is pressed again
                 return;
             }

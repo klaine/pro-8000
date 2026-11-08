@@ -11,6 +11,7 @@
 # processes, so that each finds the ports afresh while the synth re-enumerates.
 import atexit
 import datetime
+import json
 import math
 import os
 import re
@@ -30,6 +31,7 @@ Read-only:
   pro800 backup <dir> [first] [last]    dump system settings and patches as .syx (stock firmware only)
   pro800 play <note> [options]          play a note
       --channel N (1-16 or "all"; default the synth's MIDI channel, else 6)  --hold S (default 2)  --velocity V (default 100)
+      --release V (the key-up's velocity, default 64; 0.10.0)
 
 Probe (our firmware 0.0.9+):
   pro800 direct on|off                  stop/start the voice engine so CVs and gates stay as set
@@ -66,6 +68,7 @@ Probe (our firmware 0.0.9+):
                                         button a-saw|…|sync on|off (the panel's latching buttons),
                                         midi-channel all|1-16 (the channel it listens on; 0.9.1),
                                         pickup on|off (off: a knob that moves takes over at once; 0.9.3)
+                                        init-patch none|<slot 0-127 or P1-P128> (what PERF loads; 0.10.0)
   pro800 settings                       print every setting
   pro800 params [layer]                 print a layer's parameters (0-99), Env 3 / 4 and LFO 2 included
   pro800 param <layer> <name> <0-99>    set one (its knob then picks it up)
@@ -74,6 +77,13 @@ Probe (our firmware 0.0.9+):
   pro800 route-both <layer> <src> <dest> on|off  the route plays on the other layer's voices too, in the two-layer modes
   pro800 route-move <layer> <src> <dest> <new src> <new dest> <depth>  a route becomes another at once, in its slot (0.9.5)
   pro800 route-via <layer> <src> <dest> <number 0.01-8|source>  what the route is multiplied by (0.9.5; 1 is plain)
+  pro800 chord [<layer> off|<notes>]    chord memory (0.10.0): print both layers' chords, or set one, e.g. 0,4,7
+  pro800 chord capture [1|2|both] --yes take the keys held now as the chord, as Unison pressed over them does
+  pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N]
+                                        set a parameter by NRPN (0.10.0): a knob 0-16383, a macro offset -99..99,
+                                        the others their number or name; pro800 nrpn list [--csv] prints every id
+  pro800 cc-map [set <cc> <param|none> [--layer edit|1|2|both] [--fine] | reset --yes | export <file> | import <file> --yes]
+                                        the CC map (0.10.0): which controller sets which parameter; a file replaces it
   pro800 timing                         engine, CV refresh and main-loop pass times
   pro800 sysex                          for scripts: SysEx requests from stdin ("<hex> [; <reply prefix hex>]" per line),
                                         replies on stdout as hex; over one MIDI connection
@@ -92,7 +102,8 @@ Probe (our firmware 0.0.9+):
                                         lanes, chord (0-2 extra notes per step), smooth (e.g. seq set on=1 length=16 step=1/16 clock=1 lanes=1 smooth=A)
   pro800 seq step <n> <note|.> <gate|tie> [v<vel>] [p<prob>] [x<ratchets>] [a<v>]… [n2<v>] [n3<v>] [h<v>]  one step (a-d: lanes, -99..99; n2, n3: chord notes, semitones from the step's note; h: notes held past the gate, 1 own + 2 Note 2 + 4 Note 3)
   pro800 set morph <slot|none>          the morph target patch
-  pro800 patch init                     load the basic sound (osc A saw), as PERF does
+  pro800 patch init                     load the basic sound (osc A saw)
+  pro800 patch perf                     load what PERF (held) loads: your init patch, else the basic sound (0.10.0)
   pro800 patch undo                     undo the last load or init, again redoes, as Shift + PERF does (0.9.5)
   pro800 patch rename <slot> <name>     rename a patch (up to 16 characters)
   pro800 factory                        list the stock factory bank (100 patches, kept in the EEPROM)
@@ -685,9 +696,11 @@ def play():
         fail("--hold can't be negative")
     velocity = int_in(option("--velocity"), 0, 127)
     velocity = 100 if velocity is None else velocity
+    release = int_in(option("--release"), 0, 127)  # the note-off's velocity (release velocity, 0.10.0); 64 as MIDI's default
+    release = 64 if release is None else release
     note = int_in(args[0], 0, 127) if args else None
     if note is None:
-        fail("usage: pro800 play <note 0-127> [--channel N|all] [--hold S] [--velocity V]")
+        fail("usage: pro800 play <note 0-127> [--channel N|all] [--hold S] [--velocity V] [--release V]")
     if channel_arg is None:
         channel_arg = str(synth_channel() or 6)
     if channel_arg == "all":
@@ -701,7 +714,7 @@ def play():
         m.send([0x90 | c, note, velocity])
     time.sleep(hold)
     for c in channels:
-        m.send([0x80 | c, note, 0])
+        m.send([0x80 | c, note, release])
 
 
 # MARK: - Probe (our firmware only)
@@ -1203,9 +1216,12 @@ SETTING_NAMES = (["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo
                  + ["env-tempo 1", "env-tempo 2", "midi-channel",
                     "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles",
                     "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)", "route-both 2 (0-7)", "route-both 2 (8-15)",
-                    "unison-voices", "arp-range", "arp-extend", "arp-chaos",
+                    "unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
+                    "midi-socket", "notes-out", "out-channel", "clock-out", "knob-cc", "cc-out-a", "cc-out-b", "pc-out",
                     "env-select", "preset-mode", "patch", "morph"])
 LINK_NAMES = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
+SOCKET_NAMES = ["thru", "out", "merge"]  # the THRU socket (0.10.0)
+NOTES_OUT_NAMES = ["off", "keys", "played"]
 ARP_EXTEND_NAMES = ["none", "octave", "fifth", "seventh", "ninth"]
 CURVE_NAMES = ["analog", "linear", "swell"]
 SCALE_NAMES = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
@@ -1244,7 +1260,9 @@ def set_setting():
     usage = (f"usage: pro800 set lfo-sync|lfo2-sync free|clock | lfo-trigger|lfo2-trigger {'|'.join(TRIGGER_MODES)} | lfo-cycles|lfo2-cycles <1-99> | lfo-restart steps|keys | "
              "layers off|split|stack|channel|8ch|mpe | split <note 0-127> | layer-voices auto|<layer 1's voices 1-7> | keytrack off|half|full | lfo 1|2 | "
              "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | "
-             "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | "
+             "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | init-patch none|<slot> | "
+             "midi-socket thru|out|merge | notes-out off|keys|played | out-channel follow|<1-16> | clock-out|knob-cc|pc-out on|off | "
+             "cc-out-a|cc-out-b default|<1-127, not 1 6 32 38 64 96-101 120-127> | "
              f"shape <layer 1|2> <lfo 1|2> {'|'.join(SHAPE_NAMES)} | lfo2-dests <layer 1|2> none|pitch,filter,pw | "
              "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | "
              f"cycle-sync <layer 1|2> amp|filter|env3|env4 free|{'|'.join(DIVISION_NAMES)} | "
@@ -1279,6 +1297,19 @@ def set_setting():
         setting = (91, v)
     elif n == 2 and name == "arp-chaos" and (v := int_in(args[1], 0, 99)) is not None:
         setting = (94, v)
+    elif n == 2 and name == "init-patch" and (v := 0 if args[1] == "none" else slot_plus_1(args[1])) is not None:
+        setting = (95, v)
+    elif n == 2 and name == "midi-socket" and args[1] in SOCKET_NAMES:  # MIDI out (0.10.0), system-wide
+        setting = (96, SOCKET_NAMES.index(args[1]))
+    elif n == 2 and name == "notes-out" and args[1] in NOTES_OUT_NAMES:
+        setting = (97, NOTES_OUT_NAMES.index(args[1]))
+    elif n == 2 and name == "out-channel" and (v := 0 if args[1] == "follow" else int_in(args[1], 1, 16)) is not None:
+        setting = (98, v)
+    elif n == 2 and name in ("clock-out", "knob-cc", "pc-out") and args[1] in ("on", "off"):
+        setting = ({"clock-out": 99, "knob-cc": 100, "pc-out": 103}[name], int(args[1] == "on"))
+    elif (n == 2 and name in ("cc-out-a", "cc-out-b") and (v := 0 if args[1] == "default" else int_in(args[1], 1, 127)) is not None
+          and (v == 0 or v not in CC_RESERVED)):  # (the firmware refuses a CC with its own meaning too)
+        setting = (101 if name == "cc-out-a" else 102, v)
     elif n == 2 and name == "drift" and (v := int_in(args[1], 0, 99)) is not None:
         setting = (29, v)
     elif n == 2 and name == "scale" and args[1] in SCALE_NAMES:
@@ -1437,11 +1468,23 @@ def setting_text(i, v):
         return "1 octave" if v == 0 else f"{v + 1} octaves"
     if i == 93:
         return at(ARP_EXTEND_NAMES, v)
-    if i == 95:
+    if i == SETTING_NAMES.index("init-patch"):
+        return "none (the built-in sound)" if v == 0 else slot_name(v - 1)
+    if i == SETTING_NAMES.index("midi-socket"):
+        return at(SOCKET_NAMES, v)
+    if i == SETTING_NAMES.index("notes-out"):
+        return at(NOTES_OUT_NAMES, v)
+    if i == SETTING_NAMES.index("out-channel"):
+        return "follow (the MIDI channel, 1 with all)" if v == 0 else str(v)
+    if i in (SETTING_NAMES.index("clock-out"), SETTING_NAMES.index("knob-cc"), SETTING_NAMES.index("pc-out")):
+        return "on" if v else "off"
+    if i in (SETTING_NAMES.index("cc-out-a"), SETTING_NAMES.index("cc-out-b")):
+        return f"CC {v}" if v else f"CC {12 if i == SETTING_NAMES.index('cc-out-a') else 13} (default)"
+    if i == SETTING_NAMES.index("env-select"):
         return at(["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"], v)
-    if i == 97:
+    if i == SETTING_NAMES.index("patch"):
         return slot_name(v)
-    if i == 98:
+    if i == SETTING_NAMES.index("morph"):
         return "none" if v == 0 else slot_name(v - 1)
     return None
 
@@ -1836,6 +1879,11 @@ def slot_name(n):
     return patch_label(n)
 
 
+def slot_plus_1(text):
+    n = slot_number(text)
+    return None if n is None else n + 1
+
+
 EEPROM_HALF_WRITTEN = ("\nThe memory is now half old, half new, so don't trust its patches. Run eeprom-write again, "
                        "or pro800 format --yes to start empty.")
 
@@ -1910,6 +1958,13 @@ def patch_command():
             fail("no reply")
         show("loaded the init sound")
         return
+    if args == ["perf"]:  # what PERF (held) loads: the init patch set with set init-patch, else the basic sound
+        reply = midi().request([0x5F, 1], expect=[0x5F], timeout=3)
+        if reply is None:
+            fail("no reply (firmware 0.10.0 or later?)")
+        theirs = reply_data(reply, 1, 1)[0]
+        show("loaded your init patch" if theirs else "loaded the init sound (no init patch set, or its slot is empty)")
+        return
     if args == ["undo"]:  # the last load or init, as Shift + PERF
         reply = midi().request([0x60], expect=[0x60], timeout=3)
         if reply is None:
@@ -1921,7 +1976,7 @@ def patch_command():
         return
     n = slot_number(args[1]) if len(args) == 2 and args[0] in ("load", "save", "clear") else None
     if n is None:
-        fail("usage: pro800 patch load|save|clear <slot 0-127 or P1-P128>  or  pro800 patch init")
+        fail("usage: pro800 patch load|save|clear <slot 0-127 or P1-P128>  or  pro800 patch init|perf|undo")
     if args[0] == "clear":  # an empty slot is 256 zero bytes
         probe_ack([0x4F, n >> 7, n & 0x7F])
         show(f"cleared {slot_name(n)}")
@@ -1951,13 +2006,13 @@ def patches():
 
 SOURCE_NAMES = ["", "lfo", "filter-env", "amp-env", "velocity", "mod-wheel", "aftertouch", "env3", "env4", "random", "note",
                 "lfo2", "seq-a", "seq-b", "seq-c", "seq-d", "lfo-uni", "lfo2-uni", "gate", "timbre",
-                "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2", "arp-note"]
+                "bend", "pedal", "cc-a", "cc-b", "voice", "fixed", "macro1", "macro2", "arp-note", "release-velocity"]
 DEST_NAMES = ["pitch-a", "pitch-b", "pitch", "cutoff", "filter-env-amount", "pmod-env", "lfo-amount", "lfo-to-pitch",
               "lfo-to-filter", "vca", "a-level", "b-level", "noise", "resonance", "a-pw", "b-pw", "pmod-osc-b", "lfo-to-pw",
               "lfo-rate", "lfo2-amount", "lfo2-rate", "lfo2-to-pitch", "lfo2-to-filter", "lfo2-to-pw", "morph",
               "amp-att", "amp-dec", "amp-sus", "amp-rel", "fil-att", "fil-dec", "fil-sus", "fil-rel",
               "env3-att", "env3-dec", "env3-sus", "env3-rel", "env4-att", "env4-dec", "env4-sus", "env4-rel",
-              "glide", "detune", "volume", "macro1", "macro2", "arp-chaos"]
+              "glide", "detune", "volume", "macro1", "macro2", "arp-chaos", "chord-voicing", "cc-out-a", "cc-out-b"]
 
 
 def source_and_dest():  # None unless args[1] and args[2] name a source and a destination
@@ -2032,6 +2087,59 @@ def route_via():
     if not acked([0x62, layer - 1, SOURCE_NAMES.index(args[1]), DEST_NAMES.index(args[2]), via >> 7, via & 0x7F]):
         fail("not set: no such route, a macro on a route into a macro, or firmware before 0.9.5")
     show(f"layer {layer}: {args[1]} → {args[2]} via {via_text(via)}")
+
+
+# Chord memory (0.10.0): pro800 chord prints both layers' (68); pro800 chord <layer> off|0,4,7 sets one (69, the
+# leading 0 optional); pro800 chord capture [1|2|both] --yes takes the keys held now (6A)
+def chord_text(intervals):
+    notes = [60] + [60 + i for i in intervals]
+    return " ".join(str(n - 60) for n in notes) + " (from C4: " + " ".join(
+        f"{ROOT_NAMES[n % 12]}{n // 12 - 1}" for n in notes) + ")"
+
+
+def chord():
+    if args and args[0] == "capture":
+        yes = flag("--yes")
+        bits = {"1": 1, "2": 2, "both": 3}.get(args[1] if len(args) == 2 else "both" if len(args) == 1 else "")
+        if bits is None or not yes:
+            fail("usage: pro800 chord capture [1|2|both] --yes (it changes the sound)")
+        reply = midi().request([0x6A, bits], expect=[0x6A], timeout=2)
+        if reply is None:
+            fail("no reply: firmware before 0.10.0?")
+        b = reply_data(reply, 1, 2)
+        for layer in (1, 2):
+            if bits >> (layer - 1) & 1:
+                show(f"layer {layer}: " + ("not captured (layer 2 with layers off, or a per-channel mode)" if b[layer - 1] == 127
+                                           else f"{b[layer - 1]} notes" if b[layer - 1] else "fewer than 2 keys held: its chord is cleared"))
+        return
+    if len(args) == 2:
+        layer = int_in(args[0], 1, 2)
+        try:
+            notes = [] if args[1] == "off" else [int(x) for x in args[1].split(",")]
+        except ValueError:
+            notes = None
+        if notes and notes[0] == 0:
+            notes = notes[1:]
+        ok = notes is not None and len(notes) <= 7 and all(1 <= n <= 127 for n in notes) and notes == sorted(set(notes))
+        if layer is None or not ok:
+            fail("usage: pro800 chord <layer 1|2> off|<notes above the key, ascending: 0,4,7 or 4,7; up to 7 besides 0>")
+        if not acked([0x69, layer - 1] + notes + [0] * (8 - len(notes))):
+            fail("not set: firmware before 0.10.0?")
+        show(f"layer {layer}: " + (chord_text(notes) if notes else "no chord"))
+        return
+    if args:
+        fail("usage: pro800 chord [<layer 1|2> off|0,4,7] | pro800 chord capture [1|2|both] --yes")
+    reply = midi().request([0x68], expect=[0x68], timeout=2)
+    if reply is None:
+        fail("no reply: firmware before 0.10.0?")
+    b = reply_data(reply, 1, 16)
+    switches = midi().request([0x4C], expect=[0x4C], timeout=2)
+    unison = switches is not None and reply_data(switches, 1, 16)[12]
+    for layer in (1, 2):
+        intervals = [x for x in b[8 * (layer - 1):8 * (layer - 1) + 7] if x]
+        show(f"layer {layer}: " + (chord_text(intervals) if intervals else "no chord"))
+    show("Unison is on: a layer with a chord plays it from every key" if unison
+         else "Unison is off: the chords are kept for when it's on")
 
 
 # pro800 route-both <layer 1|2> <source> <dest> on|off: the route plays on the other layer too (settings 87-90: a bit per slot)
@@ -2145,6 +2253,11 @@ def engine():
         start = 53 + 10 * l
         show(f"LFO {l // 2 + 1} layer {l % 2 + 1}: shared {phase(b[start])}, cycles done {b[start + 1]}; voices "
              + " ".join(phase(p) for p in b[start + 2:start + 10]))
+    if len(b) < 117:  # per voice its key, note and last release velocity: 0.10.0
+        return
+    for v in range(8):
+        key, note, rv = b[93 + 3 * v:96 + 3 * v]
+        show(f"voice {v + 1}: key {key}, note {note}, release velocity {rv}")
 
 
 # The record src/fault.h keeps across a reset
@@ -2255,6 +2368,283 @@ def channel_option(default):
     if not 1 <= channel <= 16:
         fail("--channel must be 1-16")
     return channel - 1
+
+
+# BEGIN PARAMS (tools/gen_params.py): id, name, kind, scope, min, max, value names
+PARAMS = [
+    (0, "amp-rel", "knob", "layer", 0, 16383, []),
+    (1, "amp-sus", "knob", "layer", 0, 16383, []),
+    (2, "amp-dec", "knob", "layer", 0, 16383, []),
+    (3, "amp-att", "knob", "layer", 0, 16383, []),
+    (4, "fil-rel", "knob", "layer", 0, 16383, []),
+    (5, "fil-sus", "knob", "layer", 0, 16383, []),
+    (6, "fil-dec", "knob", "layer", 0, 16383, []),
+    (7, "fil-att", "knob", "layer", 0, 16383, []),
+    (8, "resonance", "knob", "shared", 0, 16383, []),
+    (9, "fil-env-amt", "knob", "layer", 0, 16383, []),
+    (10, "freq-a", "knob", "layer", 0, 16383, []),
+    (11, "freq-b", "knob", "layer", 0, 16383, []),
+    (12, "fine", "knob", "layer", 0, 16383, []),
+    (13, "a-pw", "knob", "shared", 0, 16383, []),
+    (14, "b-pw", "knob", "shared", 0, 16383, []),
+    (15, "a-level", "knob", "shared", 0, 16383, []),
+    (16, "glide", "knob", "layer", 0, 16383, []),
+    (17, "lfo-freq", "knob", "layer", 0, 16383, []),
+    (18, "lfo-amount", "knob", "layer", 0, 16383, []),
+    (19, "macro1", "knob", "layer", 0, 16383, []),
+    (21, "b-level", "knob", "shared", 0, 16383, []),
+    (22, "pmod-osc-b", "knob", "shared", 0, 16383, []),
+    (23, "pmod-fil-env", "knob", "layer", 0, 16383, []),
+    (24, "cutoff", "knob", "layer", 0, 16383, []),
+    (25, "noise", "knob", "shared", 0, 16383, []),
+    (26, "env3-att", "knob", "layer", 0, 16383, []),
+    (27, "env3-dec", "knob", "layer", 0, 16383, []),
+    (28, "env3-sus", "knob", "layer", 0, 16383, []),
+    (29, "env3-rel", "knob", "layer", 0, 16383, []),
+    (30, "env4-att", "knob", "layer", 0, 16383, []),
+    (31, "env4-dec", "knob", "layer", 0, 16383, []),
+    (32, "env4-sus", "knob", "layer", 0, 16383, []),
+    (33, "env4-rel", "knob", "layer", 0, 16383, []),
+    (34, "lfo2-rate", "knob", "layer", 0, 16383, []),
+    (35, "lfo2-amount", "knob", "layer", 0, 16383, []),
+    (36, "button a-saw", "bool", "shared", 0, 1, []),
+    (37, "button a-tri", "bool", "shared", 0, 1, []),
+    (38, "button a-square", "bool", "shared", 0, 1, []),
+    (39, "button b-saw", "bool", "shared", 0, 1, []),
+    (40, "button b-tri", "bool", "shared", 0, 1, []),
+    (41, "button b-square", "bool", "shared", 0, 1, []),
+    (42, "button lfo-pw", "bool", "shared", 0, 1, []),
+    (43, "button lfo-freq", "bool", "shared", 0, 1, []),
+    (44, "button pmod-freq-a", "bool", "shared", 0, 1, []),
+    (46, "button lfo-filter", "bool", "shared", 0, 1, []),
+    (47, "button pmod-filter", "bool", "shared", 0, 1, []),
+    (48, "button unison", "bool", "shared", 0, 1, []),
+    (51, "button sync", "bool", "shared", 0, 1, []),
+    (52, "layers", "raw", "patch", 0, 5, ["off", "split", "stack", "channel", "8ch", "mpe"]),
+    (53, "split", "raw", "patch", 0, 127, []),
+    (54, "layer-voices", "raw", "patch", 0, 7, []),
+    (55, "keytrack", "raw", "patch", 0, 2, ["off", "half", "full"]),
+    (56, "lfo-sync", "raw", "patch", 0, 1, ["free", "clock"]),
+    (57, "lfo-trigger", "raw", "patch", 0, 5, ["free", "first", "every", "voice", "one-shot", "one-shot-voice"]),
+    (58, "lfo-delay 1", "raw", "patch", 0, 99, []),
+    (59, "lfo-fade 1", "raw", "patch", 0, 99, []),
+    (60, "lfo-cycles", "raw", "patch", 1, 99, []),
+    (61, "lfo2-sync", "raw", "patch", 0, 1, ["free", "clock"]),
+    (62, "lfo2-trigger", "raw", "patch", 0, 5, ["free", "first", "every", "voice", "one-shot", "one-shot-voice"]),
+    (63, "lfo-delay 2", "raw", "patch", 0, 99, []),
+    (64, "lfo-fade 2", "raw", "patch", 0, 99, []),
+    (65, "lfo2-cycles", "raw", "patch", 1, 99, []),
+    (66, "lfo-restart", "raw", "patch", 0, 1, ["steps", "keys"]),
+    (67, "bend", "raw", "patch", 1, 12, []),
+    (68, "detune", "raw", "patch", 0, 100, []),
+    (69, "unison-voices", "raw", "patch", 2, 8, []),
+    (70, "drift", "raw", "patch", 0, 99, []),
+    (71, "scale", "raw", "patch", 0, 12, ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major", "pentatonic-minor", "blues", "whole-tone", "chromatic"]),
+    (72, "root", "raw", "patch", 0, 11, ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]),
+    (73, "link amp-env", "bool", "patch", 0, 1, []),
+    (74, "link filter-env", "bool", "patch", 0, 1, []),
+    (75, "link env3", "bool", "patch", 0, 1, []),
+    (76, "link env4", "bool", "patch", 0, 1, []),
+    (77, "link lfo1", "bool", "patch", 0, 1, []),
+    (78, "link lfo2", "bool", "patch", 0, 1, []),
+    (79, "link filter", "bool", "patch", 0, 1, []),
+    (80, "arp-range", "raw", "patch", 0, 2, ["1", "2", "3"]),
+    (81, "arp-extend", "raw", "patch", 0, 4, ["none", "octave", "fifth", "seventh", "ninth"]),
+    (82, "arp-chaos", "raw", "patch", 0, 99, []),
+    (83, "shape 1", "raw", "layer", 0, 8, ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]),
+    (84, "shape 2", "raw", "layer", 0, 8, ["tri", "square", "ramp-up", "ramp-down", "sine", "sh", "drift", "steps", "noise"]),
+    (85, "lfo2-dests pitch", "bool", "layer", 0, 1, []),
+    (86, "lfo2-dests filter", "bool", "layer", 0, 1, []),
+    (87, "lfo2-dests pw", "bool", "layer", 0, 1, []),
+    (88, "voice", "raw", "layer", 0, 2, ["poly", "mono", "legato"]),
+    (89, "priority", "raw", "layer", 0, 2, ["last", "low", "high"]),
+    (90, "macro 1", "signed", "layer", -99, 99, []),
+    (91, "macro 2", "signed", "layer", -99, 99, []),
+    (92, "osc-tune a", "raw", "layer", 0, 3, ["semitones", "octave", "free", "fixed"]),
+    (93, "osc-tune b", "raw", "layer", 0, 3, ["semitones", "octave", "free", "fixed"]),
+    (94, "env-mode amp", "raw", "layer", 0, 17, ["adsr", "dahdsr", "cycle", "cycle 8bar", "cycle 4bar", "cycle 2bar", "cycle 1bar", "cycle 1/2", "cycle 1/4.", "cycle 1/4", "cycle 1/4T", "cycle 1/8.", "cycle 1/8", "cycle 1/8T", "cycle 1/16.", "cycle 1/16", "cycle 1/16T", "cycle 1/32"]),
+    (95, "env-up amp", "bool", "layer", 0, 1, []),
+    (96, "env-tempo amp", "bool", "layer", 0, 1, []),
+    (97, "env-curve amp", "raw", "layer", 0, 2, ["analog", "linear", "swell"]),
+    (98, "env-count amp", "raw", "layer", 0, 99, []),
+    (99, "env-delay amp", "raw", "layer", 0, 99, []),
+    (100, "env-hold amp", "raw", "layer", 0, 99, []),
+    (101, "env-mode filter", "raw", "layer", 0, 17, ["adsr", "dahdsr", "cycle", "cycle 8bar", "cycle 4bar", "cycle 2bar", "cycle 1bar", "cycle 1/2", "cycle 1/4.", "cycle 1/4", "cycle 1/4T", "cycle 1/8.", "cycle 1/8", "cycle 1/8T", "cycle 1/16.", "cycle 1/16", "cycle 1/16T", "cycle 1/32"]),
+    (102, "env-up filter", "bool", "layer", 0, 1, []),
+    (103, "env-tempo filter", "bool", "layer", 0, 1, []),
+    (104, "env-curve filter", "raw", "layer", 0, 2, ["analog", "linear", "swell"]),
+    (105, "env-count filter", "raw", "layer", 0, 99, []),
+    (106, "env-delay filter", "raw", "layer", 0, 99, []),
+    (107, "env-hold filter", "raw", "layer", 0, 99, []),
+    (108, "env-mode env3", "raw", "layer", 0, 17, ["adsr", "dahdsr", "cycle", "cycle 8bar", "cycle 4bar", "cycle 2bar", "cycle 1bar", "cycle 1/2", "cycle 1/4.", "cycle 1/4", "cycle 1/4T", "cycle 1/8.", "cycle 1/8", "cycle 1/8T", "cycle 1/16.", "cycle 1/16", "cycle 1/16T", "cycle 1/32"]),
+    (109, "env-up env3", "bool", "layer", 0, 1, []),
+    (110, "env-tempo env3", "bool", "layer", 0, 1, []),
+    (111, "env-curve env3", "raw", "layer", 0, 2, ["analog", "linear", "swell"]),
+    (112, "env-count env3", "raw", "layer", 0, 99, []),
+    (113, "env-delay env3", "raw", "layer", 0, 99, []),
+    (114, "env-hold env3", "raw", "layer", 0, 99, []),
+    (115, "env-mode env4", "raw", "layer", 0, 17, ["adsr", "dahdsr", "cycle", "cycle 8bar", "cycle 4bar", "cycle 2bar", "cycle 1bar", "cycle 1/2", "cycle 1/4.", "cycle 1/4", "cycle 1/4T", "cycle 1/8.", "cycle 1/8", "cycle 1/8T", "cycle 1/16.", "cycle 1/16", "cycle 1/16T", "cycle 1/32"]),
+    (116, "env-up env4", "bool", "layer", 0, 1, []),
+    (117, "env-tempo env4", "bool", "layer", 0, 1, []),
+    (118, "env-curve env4", "raw", "layer", 0, 2, ["analog", "linear", "swell"]),
+    (119, "env-count env4", "raw", "layer", 0, 99, []),
+    (120, "env-delay env4", "raw", "layer", 0, 99, []),
+    (121, "env-hold env4", "raw", "layer", 0, 99, []),
+    (122, "edit-layer", "raw", "ui", 0, 1, ["1", "2"]),
+    (123, "lfo-select", "raw", "ui", 0, 1, ["1", "2"]),
+]
+# END PARAMS
+
+
+# pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N]: a parameter by NRPN (0.10.0): CC 99 the layer
+# rule, 98 the id, then 6 (and 38 for a knob's or a macro offset's 14 bits); pro800 nrpn list prints the table
+def nrpn():
+    if args and args[0] == "list":
+        csv = flag("--csv")  # for a controller editor's template: one line a parameter
+        if csv:
+            show("id,name,kind,scope,min,max,values")
+        for pid, name, kind, scope, lo, hi, values in PARAMS:
+            show(f"{pid},{name},{kind},{scope},{lo},{hi},{' '.join(values)}" if csv
+                 else f"{pid:3d}  {name:24s} {kind:6s} {scope:6s} {lo}..{hi}" + (f"  {' '.join(values)}" if values else ""))
+        return
+    layer = option("--layer")  # "" when its value is missing: refused, as in the Swift tool
+    rule = {"edit": 0, "1": 1, "2": 2, "both": 3}.get("edit" if layer is None else layer)
+    given = option("--channel")  # read after the arguments are checked: nothing goes out for a refused one
+    entry = next((p for p in PARAMS if len(args) == 2 and args[0] in (p[1], str(p[0]))), None)
+    value = None
+    if entry is not None:
+        pid, name, kind, scope, lo, hi, values = entry
+        value = values.index(args[1]) if args[1] in values else int_in(args[1], lo, hi)
+    if rule is None or value is None:
+        fail("usage: pro800 nrpn <name|id> <value> [--layer edit|1|2|both] [--channel N] (pro800 nrpn list: the names and ranges)")
+    if given is not None:
+        args.extend(["--channel", given])
+    channel = channel_option(1)
+    messages = [[0xB0 | channel, 99, rule], [0xB0 | channel, 98, pid]]
+    if kind in ("knob", "signed"):
+        v14 = value if kind == "knob" else max(0, min(16383, round(value * 8191 / 99) + 8192))
+        messages += [[0xB0 | channel, 6, v14 >> 7], [0xB0 | channel, 38, v14 & 0x7F]]
+    else:
+        messages.append([0xB0 | channel, 6, value])
+    for m in messages:
+        midi().send(m)
+    show(f"{name} = {args[1]}" + ("" if scope in ("patch", "shared", "ui") else f" ({['the edit layer', 'layer 1', 'layer 2', 'both layers'][rule]})"))
+
+
+# The CC map (0.10.0): pro800 cc-map prints it (65, a quarter at a time); cc-map set <cc> <param|none> [--layer
+# edit|1|2|both] [--fine] maps one (43); cc-map reset --yes brings the default back (42); cc-map export <file> writes it
+# as JSON and cc-map import <file> --yes replaces the map with a file's (every CC it doesn't list is cleared). The file:
+# {"format": "pro8000-cc-map", "version": 1, "map": [{"cc": 74, "param": "cutoff", "layer": "edit", "fine": false}]}
+CC_RESERVED = {0, 1, 6, 32, 38, 64, 96, 97, 98, 99, 100, 101, *range(120, 128)}
+LAYER_RULES = ["edit", "1", "2", "both"]
+
+
+def read_cc_map():
+    ids, nibbles = [], []
+    for q in range(4):
+        reply = midi().request([0x65, q], expect=[0x65, q], timeout=2)
+        if reply is None:
+            fail("no reply: firmware before 0.10.0?")
+        b = reply_data(reply, 2, 64)
+        ids += list(b[0:64:2])
+        nibbles += list(b[1:64:2])
+    return ids, nibbles
+
+
+def cc_map_entries(ids, nibbles):
+    by_id = {p[0]: p for p in PARAMS}
+    return [{"cc": cc, "param": by_id[ids[cc]][1] if ids[cc] in by_id else str(ids[cc]), "layer": LAYER_RULES[nibbles[cc] & 3],
+             "fine": bool(nibbles[cc] & 4), "nrpn": ids[cc]} for cc in range(128) if ids[cc] != 127]
+
+
+def cc_map_from_file(j):
+    """A map file's slots as {cc: (id, nibble)}, and what's wrong with it (nothing taken if anything is)."""
+    by_name = {p[1]: p for p in PARAMS}
+    problems, slots = [], {}
+    if not isinstance(j, dict) or j.get("format") != "pro8000-cc-map" or j.get("version") != 1 or not isinstance(j.get("map"), list):
+        return {}, ['not a CC map file: {"format": "pro8000-cc-map", "version": 1, "map": [...]}']
+    for e in j["map"]:
+        cc, name, layer, fine = (e.get("cc"), e.get("param"), e.get("layer", "edit"), e.get("fine", False)) if isinstance(e, dict) else (None,) * 4
+        if isinstance(cc, float) and cc.is_integer():
+            cc = int(cc)  # 74.0 is 74, as JSON has one kind of number
+        p = by_name.get(name) if isinstance(name, str) else None
+        if not isinstance(cc, int) or isinstance(cc, bool) or not 0 <= cc <= 127:
+            problems.append(f"{e!r}: cc must be 0-127")
+        elif cc in CC_RESERVED:
+            problems.append(f"CC {cc} keeps its own meaning (0 1 6 32 38 64 96-101 120-127)")
+        elif cc in slots:
+            problems.append(f"CC {cc} is listed twice")
+        elif p is None:
+            problems.append(f"CC {cc}: no parameter {name!r} (pro800 nrpn list)")
+        elif layer not in LAYER_RULES:
+            problems.append(f"CC {cc}: layer must be edit, 1, 2 or both")
+        elif not isinstance(fine, bool) or (fine and p[2] not in ("knob", "signed")):
+            problems.append(f"CC {cc}: fine is true or false, and only for a knob or a macro offset")
+        else:
+            slots[cc] = (p[0], LAYER_RULES.index(layer) | (4 if fine else 0))
+    return slots, problems
+
+
+def cc_map_command():
+    yes, fine = flag("--yes"), flag("--fine")
+    layer = option("--layer")
+    words = list(args)
+    if not words or words == ["list"]:
+        entries = cc_map_entries(*read_cc_map())
+        for e in entries:
+            show(f"CC {e['cc']:3d}  {e['param']}" + (f" (layer {e['layer']})" if e["layer"] != "edit" else "") + (" fine" if e["fine"] else ""))
+        if not entries:
+            show("no CC is mapped")
+        return
+    if words[0] == "set":
+        cc = int_in(words[1], 0, 127) if len(words) == 3 else None
+        p = next((p for p in PARAMS if len(words) == 3 and words[2] in (p[1], str(p[0]))), None)
+        rule = LAYER_RULES.index("edit" if layer is None else layer) if ("edit" if layer is None else layer) in LAYER_RULES else None
+        none = len(words) == 3 and words[2] == "none"
+        if cc is None or (p is None and not none) or rule is None or (fine and (none or p[2] not in ("knob", "signed"))):
+            fail("usage: pro800 cc-map set <cc 0-127> <param|none> [--layer edit|1|2|both] [--fine (a knob or a macro offset)]")
+        if cc in CC_RESERVED:
+            fail(f"CC {cc} keeps its own meaning (0 1 6 32 38 64 96-101 120-127)")
+        if not acked([0x43, cc, 127 if none else p[0], 0 if none else rule | (4 if fine else 0)]):
+            fail("not set: firmware before 0.10.0?")
+        show(f"CC {cc}: " + ("none" if none else p[1] + (f" (layer {LAYER_RULES[rule]})" if rule else "") + (" fine" if fine else "")))
+        return
+    if words == ["reset"]:
+        if not yes:
+            fail("usage: pro800 cc-map reset --yes (the default map again; your own is gone)")
+        if not acked([0x42]):
+            fail("not reset: firmware before 0.10.0?")
+        show("the default CC map")
+        return
+    if len(words) == 2 and words[0] == "export":
+        entries = [{k: e[k] for k in ("cc", "param", "layer", "fine", "nrpn")} for e in cc_map_entries(*read_cc_map())]
+        with open(words[1], "w", encoding="utf-8") as f:
+            json.dump({"format": "pro8000-cc-map", "version": 1, "map": entries}, f, indent=1)
+            f.write("\n")
+        show(f"{len(entries)} CCs written to {words[1]}")
+        return
+    if len(words) == 2 and words[0] == "import":
+        try:
+            with open(words[1], encoding="utf-8-sig") as f:
+                j = json.load(f)
+        except (OSError, ValueError) as e:
+            fail(f"can't read {words[1]}: {e}")
+        slots, problems = cc_map_from_file(j)
+        if problems:
+            fail("refused, nothing changed:\n  " + "\n  ".join(problems))
+        if not yes:
+            fail(f"usage: pro800 cc-map import <file> --yes ({len(slots)} CCs; it replaces the whole map)")
+        ids, nibbles = read_cc_map()
+        sent = 0
+        for cc in range(128):
+            want = slots.get(cc, (127, 0))
+            if cc not in CC_RESERVED and (ids[cc], nibbles[cc] if ids[cc] != 127 else 0) != want:
+                if not acked([0x43, cc, *want]):
+                    fail(f"CC {cc} wasn't taken; the map is partly the file's (pro800 cc-map shows it)")
+                sent += 1
+        show(f"the map is the file's: {len(slots)} CCs ({sent} changed)")
+        return
+    fail("usage: pro800 cc-map [list | set <cc> <param|none> [--layer edit|1|2|both] [--fine] | reset --yes | export <file> | import <file> --yes]")
 
 
 # pro800 cc <controller> <value> [--channel N]
@@ -2569,7 +2959,7 @@ COMMANDS = {
     "direct": direct, "cv": cv, "gate": gate, "measure": measure, "tune": tune, "tuning": tuning, "check": check,
     "dac-test": dac_test, "sh-waits": sh_waits, "dac-heal": dac_heal, "panel": panel, "state": state, "set": set_setting,
     "settings": settings, "params": params, "param": param, "factory": factory, "seq": seq, "layer": layer_command,
-    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "route-move": route_move, "route-via": route_via, "timing": timing, "engine": engine,
+    "eeprom": eeprom, "route": route, "routes": routes, "route-both": route_both, "route-move": route_move, "route-via": route_via, "chord": chord, "nrpn": nrpn, "cc-map": cc_map_command, "timing": timing, "engine": engine,
     "sysex": sysex_pipe, "cc": cc, "bend": bend, "eeprom-write": eeprom_write, "format": format_patches,
     "patch": patch_command, "patches": patches, "clock": clock_out, "leds": leds, "update-mode": update_mode,
     "flash": flash, "install": install, "port-present": port_present, "fault": fault, "fault-test": fault_test,

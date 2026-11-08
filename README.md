@@ -46,27 +46,37 @@ The user manual is [MANUAL.md](MANUAL.md).
   - Stage times in seconds, or in note values (1/32 to 8 bars) at the clock's tempo.
 - **Shift:** a second layer on the knobs (LFO delay and fade, drift, detune, bend range, macro offsets, CC
   numbers, the MIDI channel, knob pickup on or off) and buttons (compare, undo, quick save, layer copy, settings pages, panic).
+  Hold Settings for the system menu (MIDI channel, pickup, CC A / B, clock, your init patch, MIDI out); hold Perf
+  for the init sound or your own init patch. VALUE fine-adjusts the knob on the display, a tenth at a time.
 - **Mod matrix:** 16 routes per layer, assigned from the panel in three steps (source, destination, depth: MOD
   ASSIGN on Arp Assign) and browsed by number, with two macros that are destinations and sources at once.
-  - 27 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity, mod wheel, aftertouch, pitch
-    bend, pedal, two assignable CCs, CC 74 (timbre), gate, random, note, voice number, a fixed 1, the sequencer's
-    four lanes and the macros.
-  - 46 destinations: pitch, cutoff, the VCA, mixer and pulse widths, every envelope stage, glide, detune, volume,
-    the LFOs' amounts, rates and routings, morph and the macros.
+  - 29 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity and release velocity, mod wheel,
+    aftertouch, pitch bend, pedal, two assignable CCs, CC 74 (timbre), gate, random, note, voice number, a fixed 1,
+    the sequencer's four lanes, the arp note's position and the macros.
+  - 50 destinations: pitch, cutoff, the VCA, mixer and pulse widths, every envelope stage, glide, detune, volume,
+    the LFOs' amounts, rates and routings, morph, the macros, Arp Chaos, the chord's voicing and two CCs out.
 - **Autotune:** within about a cent across C1-C8. The tables are stored in the EEPROM.
 - **Oscillator tuning modes:** each oscillator on each layer can use semitone steps, octave steps, continuous tuning,
-  or a fixed C1-C8 pitch that still responds to pitch bend and modulation.
+  or a fixed C1-C8 pitch that still responds to pitch bend and modulation (hold Seq 1 or Seq 2 and turn the FREQ
+  knob: its quarter picks the mode).
 - **Sequencer:** a step sequence per patch, played from a key and transposed by it (up to 64 steps, gate, ties,
   swing, clock sync), with up to four automation lanes as mod sources; edited on the web page, with a piano roll.
   Steps can play chords of up to three notes, and each note can hold on its own, so a long bass runs under short notes.
 - **Expression and play:** per-voice poly aftertouch, mono / legato / poly per layer with note priority, a sustain
   pedal, a MIDI CC for every knob, program change, analog-style drift, scale quantize, and patch morph (any mod
   source fades every knob towards another patch). The sequencer has probability, ratchets and an arpeggiator.
+  - Chord memory, per layer: hold a chord and turn Unison on, and every key plays it; the Chord voicing destination
+    walks it through its inversions.
 - **Patches:** 128 with names, each with its own sequence, and the stock factory bank kept and importable. An empty
-  slot starts from the init sound. A 66-sound bank for slots 1-66 is in `presets/`, built to show the engine off,
+  slot starts from the init sound. A 73-sound bank for slots 1-66 and 75-81 is in `presets/`, built to show the engine off,
   installed in one click from the editor (or `presets/install.sh`); the editor loads and saves the same JSON.
 - **MIDI:** USB MIDI (also firmware updates without touching the panel) and the 5-pin MIDI IN socket for notes,
   controllers and clock, on every channel or one. Or an internal clock with tap tempo, or the SYNC IN jack; the Sync Clock LED shows the beat.
+  - Every parameter by NRPN, with fixed numbers, and your own CC map (any CC to any parameter; the stock PRO-800's
+    map can be loaded).
+  - MIDI out on USB and the rear THRU socket (THRU, OUT or MERGE): notes (the keys, or what the voices play), program
+    changes, clock out from the internal clock or SYNC IN, knob moves as CCs, and CC A out / CC B out as mod
+    destinations.
 - **A browser editor (WebMIDI):** sound, mod matrix, patches, factory bank, backup, tuning, plus a keyboard and a
   MIDI router.
 
@@ -217,7 +227,7 @@ before the master volume, so tuning is silent.
 - **LFOs that follow a clock.** MIDI clock ticks jitter, so the interrupts timestamp each tick, the firmware averages
   the interval for the tempo, and between ticks it interpolates the phase: smooth, and still landing on the beat. In
   per-voice mode every voice keeps its own phase from its own note-on; each LFO has a delay and a fade-in per voice.
-- **The mod matrix.** 16 routes per layer, each a source (of 27), a destination (of 46) and a depth from -99 to +99.
+- **The mod matrix.** 16 routes per layer, each a source (of 29), a destination (of 50) and a depth from -99 to +99.
   For every voice the engine adds source × depth to the destination, in every tick for the envelope and LFO sources
   and once a pass for the rest. Pitch depths are squared (10 is a quarter semitone, 99 two octaves), VCA routes
   multiply the amp envelope so nothing opens a silent voice, routes into envelope stages and glide scale the time up
@@ -230,7 +240,7 @@ before the master volume, so tuning is silent.
 after a change of address. The scan steps to the next address every 4 ms between passes and reads all three
 multiplexers at once, so every knob is read every 32 ms, with a small dead band against jitter. Because two layers,
 two LFOs and four envelopes share the same knobs, a knob whose job changes goes into pickup: the sound keeps the stored
-value until the knob reaches it (a dot after the number on the display until then), or, with pickup turned off
+value until the knob is turned past it (a dot after the number on the display until then), or, with pickup turned off
 (Shift + PMOD FIL ENV), until it moves, when the value jumps to it. Shift is the Sync Source button, held or
 double-pressed to latch; under it the ADSR knobs edit Env 3 and Env 4, every other knob nudges a secondary value by
 how far it moves, and the buttons get second jobs. The display shows real units: 737 Hz of cutoff, 1.25 s of
@@ -241,20 +251,22 @@ attack, -12 semitones, or a clock division.
 | Memory | Holds |
 |---|---|
 | Flash, sectors 0-3 | The bootloader, write-protected and never touched |
-| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 89 kB in 0.9.5; the bootloader erases sectors 4 and 5 on every update |
-| EEPROM `0x00000`-`0x17FFF` | 128 patches, 768 bytes each: both layers' knobs and settings, 32 mod routes, a name and the step sequence with its own checksum |
-| EEPROM, after the patches | The stock factory bank, exactly where the stock firmware left it (importable); the global block (CC numbers, clock source and tempo); the tuning tables |
+| Flash from `0x08010000`, 128 kB (sector 4 and half of 5) | The firmware, about 107 kB in 0.10.0; the bootloader erases sectors 4 and 5 on every update |
+| EEPROM `0x00000`-`0x17FFF` | 128 patches, 768 bytes each: both layers' knobs and settings, 32 mod routes, a name, the two layers' chords and the step sequence with its own checksum |
+| EEPROM, after the patches | The stock factory bank, exactly where the stock firmware left it (importable); the global block (CC numbers, clock source and tempo, your init patch, MIDI out); your CC map; the tuning tables |
 
 A full image of the EEPROM was saved before this firmware first wrote to it: writing it back is the way home to stock.
 
-### MIDI in: USB, SysEx and the 5-pin socket
+### MIDI: USB, SysEx and the 5-pin sockets
 
 The USB driver is written for the chip's USB hardware and appears as a class-compliant MIDI device with Behringer's
 IDs and name, so a computer treats it as the device it knows. Everything beyond notes and controllers travels as SysEx
 after Behringer's header `F0 00 20 32 00 01 24 00`: read or set any parameter, list, load, save and rename patches,
 dump and restore the EEPROM, tune, probe. The 5-pin socket's opto-isolator feeds UART4 at 31,250 baud, interrupting
 on every byte: clock ticks go straight to the clock, timestamped like USB's, and everything else becomes the same
-packets USB delivers. The USB socket is a device port; the synth can't host a USB keyboard.
+packets USB delivers. The USB socket is a device port; the synth can't host a USB keyboard. Going out, the rear
+THRU socket is UART4's transmit pin too: it passes IN through (the default), sends only the synth's own messages, or
+merges the two a whole message at a time.
 
 ### Updating safely
 
@@ -327,13 +339,13 @@ release, initialises the patch memory and installs the preset bank if you want, 
 file you provide. From the command line:
 
 ```bash
-build/pro800 install build/pro800-0.9.5.syx --yes
+build/pro800 install build/pro800-0.10.0.syx --yes
 ```
 
 On Windows (Python 3.8 or later, nothing to install; quit SynthTribe and close any editor page first):
 
 ```bash
-python tools/pro800.py install pro800-0.9.5.syx --yes
+python tools/pro800.py install pro800-0.10.0.syx --yes
 ```
 
 `python tools/pro800.py help` lists the commands, the same as `build/pro800`'s without the audio recording ones.
@@ -346,7 +358,7 @@ has stalled on a Mac (3.2.4) but seems to work on Windows (2.6.7).
 
 | Path | Contents |
 |---|---|
-| `src/` | The firmware: drivers (DAC, S&H, panel, controls, EEPROM, USB MIDI, 5-pin MIDI in, tuning comparator), the engine (`synth.c`, `lfo.c`, `mod.h`), patch storage (`store.c`) and `main.c` (panel UI, SysEx). |
+| `src/` | The firmware: drivers (DAC, S&H, panel, controls, EEPROM, USB MIDI, 5-pin MIDI in and out, tuning comparator), the engine (`synth.c`, `lfo.c`, `mod.h`), patch storage (`store.c`) and `main.c` (panel UI, SysEx). |
 | `tools/pro800.swift` | The command-line tool (macOS, CoreMIDI). |
 | `tools/pro800.py` | The same tool for Windows (Python, no build); `tools/test_pro800.py` tests it against a simulated synth. |
 | `tools/test_panel.py`, `tools/sim/` | The firmware itself on a computer with simulated hardware; tests what the display and LEDs show as the panel and MIDI are used. |
