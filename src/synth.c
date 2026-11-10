@@ -94,8 +94,8 @@
 #define ATTACK_MAX_S          10.0f // also hold and rest, all from 0
 #define DECAY_MIN_S           0.003f
 #define DECAY_MAX_S           20.0f // decay and release, to -60 dB
+#define SUSTAIN_FOLLOW_S      0.02f // a sustain that moves is followed this fast (to -60 dB), so a step from the host doesn't click
 #define ATTACK_OVERSHOOT      1.5f
-#define SUSTAIN_FOLLOW_S      0.02f // once a decay's time is up, the level follows the sustain this fast
 #define RETRIGGER_FADE_S      0.008f // a retrigger fades out first, full scale in this long, so the attack is the whole attack
 #define RETRIGGER_FADE_ATTACK_S 0.03f // not below this attack: it's over before it could be heard, and needs no gap
 #define SWELL_OCTAVES         5.0f  // the swell curve's attack: 2^5 from SWELL_OFFSET below 0 to 1 above it
@@ -123,6 +123,9 @@ typedef struct {
     float start; // synced cycling: the level the current attack started from
     uint8_t cycles; // cycles finished since it was triggered (it stops at the count)
     uint8_t fading; // ENV_DELAY: retriggered, and may fade out before anything else
+    float fall, from; // ENV_DECAY (not cycling): the way left from `from` to the sustain, 1 to 0, so a sustain that moves
+                      // moves the level with it and leaves nothing to catch up at the decay's end (issue 40)
+    float sustain;    // ENV_DECAY: the sustain it heads for, following the setting at SUSTAIN_FOLLOW_S
 } env_t;
 
 // One envelope's settings, worked out once per layer and pass; the envelopes advance by any dt from them (the amp
@@ -130,7 +133,7 @@ typedef struct {
 typedef struct {
     float attack, decay, release; // how fast the distance left to go shrinks: log2 per second (< 0: at once); on
                                   // the linear curve full scale per second, and the swell attack's growth
-    float sustain, follow;        // the level, and the rate it's followed at once the decay's time is up
+    float sustain, follow;        // the level the decay heads for, and how fast a change of it is followed
     int retrigger_fade;           // the attack is long enough to fade out for on a retrigger
     float hold, rest;             // seconds (cycling; hold also DAHDSR's)
     float delay, decay_s;         // seconds: DAHDSR's delay, and a key-up envelope's decay before it releases
@@ -2130,7 +2133,7 @@ static void env_rates(env_rates_t *r, const float *p, int layer, int e)
     r->decay = stage_rate(r->decay_s, fall);
     r->release = cycle ? r->decay : stage_rate(STAGE_TIME(3, p[rel], 0), fall);
     r->sustain = p[sus];
-    r->follow = stage_rate(SUSTAIN_FOLLOW_S, fall);
+    r->follow = stage_rate(SUSTAIN_FOLLOW_S, 9.966f); // log2(1000)
     r->retrigger_fade = STAGE_TIME(0, p[att], cycle) >= RETRIGGER_FADE_ATTACK_S;
     r->hold = cycle ? STAGE_TIME(2, p[sus], 1) : dahdsr ? EXTRA_TIME(env_hold[layer][e]) : 0;
     r->rest = cycle ? STAGE_TIME(3, p[rel], 1) : 0;
@@ -2172,6 +2175,14 @@ static int cycles_done(env_t *e, const env_rates_t *r)
     return 1;
 }
 
+// A decay begins at the level the envelope has
+static void decay_from(env_t *e, const env_rates_t *r)
+{
+    e->from = e->level;
+    e->fall = 1.0f;
+    e->sustain = r->sustain;
+}
+
 // Synced cycling: the level is a function of the phase through the cycle
 static void env_synced(env_t *e, float dt, const env_rates_t *r)
 {
@@ -2196,6 +2207,7 @@ static void env_synced(env_t *e, float dt, const env_rates_t *r)
     } else if ((x -= r->h) < r->f) {
         e->stage = ENV_DECAY;
         e->level = fall_shape(r->curve, x / r->f);
+        decay_from(e, r); // sync switched off from here: the decay goes on from the level
     } else {
         e->stage = ENV_REST;
         e->level = 0;
@@ -2275,6 +2287,7 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
             e->level = 1.0f;
             e->stage = r->cycle || r->hold > 0 ? ENV_HOLD : ENV_DECAY;
             e->timer = 0;
+            decay_from(e, r);
         }
         break;
     case ENV_HOLD:
@@ -2282,17 +2295,31 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
         if (e->timer >= r->hold) {
             e->stage = ENV_DECAY;
             e->timer = 0;
+            decay_from(e, r);
         }
         break;
     case ENV_DECAY:
         if (!r->cycle) { // then follows the sustain knob while held; a key-up envelope releases after its decay
-            e->level = fall_to(e->level, r->sustain, e->timer >= r->decay_s ? r->follow : r->decay, dt, linear);
+            // The way left shrinks at the decay's rate: exponential, or on the linear curve full scale per second of
+            // level. With the sustain still, that's the curve from the level the decay began at to the sustain;
+            // moved, the level moves by the share of the way already gone, nothing at the start and all of it once
+            // the decay's done (the knob's own smoothing keeps that from stepping), so nothing is left for the end
+            e->sustain = fall_to(e->sustain, r->sustain, r->follow, dt, 0);
+            float way = e->from - e->sustain, size = way < 0 ? -way : way;
+            if (r->decay < 0)
+                e->fall = 0;
+            else if (!linear)
+                e->fall *= step(r->decay, dt);
+            else
+                e->fall = size * e->fall > r->decay * dt ? e->fall - r->decay * dt / size : 0;
+            e->level = e->sustain + way * e->fall;
             e->timer += dt;
             if (r->key_up && e->timer >= r->decay_s)
                 e->stage = ENV_RELEASE;
             break;
         }
         e->level = fall_to(e->level, 0, r->decay, dt, linear);
+        decay_from(e, r); // cycling switched off from here: the decay goes on from the level
         if (e->level < CYCLE_FLOOR) {
             e->level = 0;
             e->stage = ENV_REST;
@@ -2305,7 +2332,10 @@ static void env_update(env_t *e, float dt, const env_rates_t *r)
     case ENV_REST:
         e->timer += dt;
         if (!r->cycle)
+        {
             e->stage = ENV_DECAY; // cycling switched off: settle on the sustain level
+            decay_from(e, r);
+        }
         else if (!cycles_done(e, r) && e->timer >= r->rest)
             e->stage = ENV_ATTACK;
         break;

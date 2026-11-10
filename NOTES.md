@@ -2882,3 +2882,123 @@ for tool commands, the node tests for the pages; MANUAL.md and the cheat sheet i
   `timing` probe 58).
 - `timing` at 0, 1 and 8 voices against the 2026-11-04 table; `fault` empty; `check`.
 - Back to stock with the new global-page bytes, which needs `eeprom-stock.bin` found first.
+
+## Bugs reported after 0.10.0, on the simulator (2026-11-09; fixed the same day, simulated only: see the end)
+
+From #34's notepad and its issues (#40, #41, #42, #57). Each was driven through `tools/test_panel.py`'s `Synth` from
+throwaway scripts; none is a test yet. Issues closed the same day as shipped in 0.10.0: #8, #12, #28, #35-#39, #46, #49,
+#50; #1, #2, #48 and #34 got a status comment and stay open.
+
+- **The simulator didn't build on macOS 26** (SDK 26.5): `ucontext.h` now refuses without `_XOPEN_SOURCE`, so zig cc
+  left an empty `build/sim/pro800sim` and all 825 runs failed with "Exec format error". `tools/sim/hw.c` defines
+  `_XOPEN_SOURCE 700` and `_DARWIN_C_SOURCE` on `__APPLE__` before its includes; 919 tests pass.
+- **#40, the sustain's jump at the end of a long decay: reproduced, and 0.9.5's fix for #33 is the cause.** `ENV_DECAY`
+  heads for the sustain at the decay's rate until `timer >= decay_s`, then at `SUSTAIN_FOLLOW_S` (20 ms). A sustain
+  moved early in the decay has closed nearly all the gap by then; moved late, it hasn't, and the rest goes in 20 ms.
+  Amp envelope, host-set sustain 20 → 80, VCA CV of the gated voice, largest 10 ms step after the change:
+
+  | Decay (time) | moved at 50 % | 80 % | 90 % | 97 % |
+  |---|---|---|---|---|
+  | 85 (6.2 s) | 732 | 6037 | 12121 | 19642 |
+  | 92 (11.1 s) | 1084 | 8920 | 17834 | 28995 |
+
+  All at exactly `decay_s`; 80 → 20 at 90 % is the same size downwards. Untouched, there's no step. Fix candidate:
+  keep the decay's progress as its own state, `g` from 1 to 0 at the decay's rate (and its route multiplier), with the
+  level `sustain + (1 - sustain) · g` (linear curve: `g` falls linearly). A sustain change then moves the level by
+  `(1 - g)` of the change at once (nothing at the decay's start, all of it at its end), no gap is left, and the
+  20 ms follow and its switch go. Retriggers, `key_up` and cycling keep using `timer`. The same change answers the
+  notepad's "update latency of the sustain during decay".
+- **#41, Drift beside Glide: reproduced as a limit of the relative Shift knobs, not a fault in the code.** Shift +
+  GLIDE adds the knob's movement to Drift (1.15 × 99 per sweep) and clamps at 0 and 99, so knob and value drift
+  apart: Drift 50, half a sweep up and back, ends at 43 (it hit 99 on the way). And GLIDE at the bottom, where glide is
+  off, leaves Drift no room downwards; turning GLIDE up to make room changes the glide (to 30 in the test), with
+  pickup on and off alike. Fix candidate: the 0-99 secondaries (Drift, the LFO's delay and fade, detune, the macro
+  offsets) absolute with pickup, as Shift's Env 3 / Env 4 knobs already are; the CC numbers, the channel, `P.UP` and
+  the Velocity routes stay relative.
+- **#42, knobs that don't reach their ends: two causes, one reproduced.**
+  1. *The display lags the knob by up to 23 counts.* `controls.c` reports a pot after 24 counts of movement, the
+     display shows the reported reading, and only FREQ in Free tuning follows the raw reading while it shows
+     (`free_shown_pot`, `FREE_FOLLOW_STEPS`). The engine reads the raw value, so the sound reaches the end. With the
+     last report 23 counts short of a stop: FIL ENV AMT shows 70 at the top (value 72) and -70 at the bottom, a 0-99 knob
+     98 and 1, while the host reads 16383 and 0. A slow turn hits it by chance, hence "sometimes". Fix candidate: the
+     `free_shown_pot` follow for every knob while its value shows.
+  2. *The pots may fall short of 0 and 4095* (issue 11's channel 16 says the full travel is under about 97 %). The
+     knobs map raw / 4095 with no margin, so a pot stopping at 4060 gives 98 (FIL ENV AMT 70), at 4000 97 (65), at
+     3970 96 (63), in the sound too. Not measured: `pro800 state` with each knob at both stops would size it. If they
+     fall short, a small dead band at each end (about 1 %) gives the ends back; the Shift knobs' 1.15 would then
+     want another look.
+- **The LFO shape left on VALUE: reproduced.** After the shape button, VALUE steps the shape for 2 s (`shape_until`).
+  Only a knob move clears it, so a waveform, Sync, PMOD or LFO routing press in that time shows its name (`A.5__`,
+  `5Y.ON`, `FL.ON`) and VALUE still steps the shape: two clicks went from `PUL5` to `5A.DN`. Fix candidate: as the
+  VALUE nudge does, keep `display_serial()` at the shape's show and require it unchanged.
+- **#57, the editor's header jumping: reproduced in the built-in browser.** `#scr-sub` is empty unless a knob was
+  touched in the last 2.5 s or Shift is on, and an empty div has no height; the screen's `min-height: 58px` is short of
+  three lines, so it grows to 71.6 px and everything under it moves 13.6 px, and back. Fix: a fixed height for the
+  line (`#scr-sub { min-height: 1.3em }`, or the screen's minimum at three lines).
+- **The thin pulse with PMOD FREQ A or FILTER on and osc B's waves off (#7's leftover): as designed in 0.9.3.** B's
+  square has no off line; off is PW B at 0xFFFF, but with poly-mod from B reaching A or the filter it goes to 0, as
+  held high it's a DC offset that detunes them. On the simulator PW B goes from 65535 to 0 the moment either button
+  goes on. The reporter remembers stock without the pulse. Fix candidate, for a measurement first: with all three of
+  B's waves off, also close B's mixer level (`CV_VOL_B` 0). That silences the pulse and leaves poly-mod as it is,
+  *if* the poly-mod source is taken before the mixer, as on the Prophet-600. On P128: osc A's saw, B's waves off,
+  poly-mod from B at 50 into FREQ A, `measure` osc A with B LEVEL at 50 and at 0; the same pitch means it holds.
+
+**The fixes (2026-11-09; simulated, not tried on the synth; VERSION stays 0.10.0 until the owner names the release).**
+
+- **#40:** `env_t` keeps the decay's progress (`fall`, 1 to 0, at the decay's rate and its route multiplier), the level it
+  began at (`from`) and the sustain it heads for (`sustain`, following the setting at `SUSTAIN_FOLLOW_S`, so a host or CC step
+  doesn't click). The level is `sustain + (from - sustain) · fall`; untouched that's the old curve on both shapes (the linear
+  one keeps its slope of full scale per decay time). `decay_from()` starts it wherever a decay begins: after the attack or the
+  hold, a cycling envelope or a synced one switched off mid-fall, and rest with cycling off. The 10 ms steps at the decay's
+  end went from up to 28995 to 4. `Sustain.test_a_sustain_moved_late_in_the_decay_doesnt_jump_at_its_end` fails on the old code.
+- **#41:** Drift, the LFO's delay and fade, detune and the macro offsets go where the knob points under Shift
+  (`shift_absolute()`), each picking up once the knob crosses or reaches the value, or at its first move with pickup off;
+  the value shows with a dot meanwhile. A pickup belongs to the LFO or layer it was made on. The others stay relative. The
+  tapped tempo drops a dot left over from a waiting knob (a test caught it). `LfoNoteTimes`' turn now crosses the value
+  (0.55 to 0.61) where it nudged; four new `Shift` tests fail on the old code.
+- **#42:** `controls.c` reports a knob once more where it comes to rest (within `POT_REST_NOISE`, 4 counts, for
+  `POT_REST_MS`, 120 ms) if it was turned in the last `POT_TURN_MS` (1.5 s) and rests more than 4 counts from its report. That
+  report doesn't extend the turn, so creeping can't chain reports. Knob moves sent as CCs end at the knob's real position
+  too. A report of the knob already shown keeps a VALUE turn that has begun (`ValueNudge`'s creep test found that the
+  settle report swallowed a detent). The pots' own shortfall is still unmeasured. `KnobRest` fails on the old driver.
+- **The shape window:** `shape_serial` is `display_serial()` after the shape shows, and VALUE steps it only while that
+  holds. `test_another_button_shown_ends_the_shapes_window` fails on the old code.
+- **#57:** `#scr-sub:empty::before` holds a no-break space, and the edit row's bottom margin gives the name field's
+  underline its pixel. Measured in the built-in browser: 71.6 px with the line empty, filled, showing the Shift hint, or renaming.
+- MANUAL (Shift, sustain, shapes), README, `how-it-works.html` and the editor's cheat sheet say so. Flash 108,384 B.
+  Counts: test_panel 927 OK. test_pro800 has 26 failures, all `UpdateFiles.test_real_files_pass` on the 65 old `.syx` files
+  in `build/`, the same without these changes.
+
+## Small panel requests from the issues (2026-11-09; simulated only, nothing tried on the synth)
+
+Asked for: the cheap ones of the open list. VERSION stays 0.10.0.
+
+- **#51, #52: patch browsing.** VALUE's patch loads once the turn has rested `TURNED_REST_MS`, now 500 ms (was 80), and shows
+  with a dot until then (`show_turned()`, and `idle_display()` while one waits). A save's slot choice loads nothing and has no dot.
+  A button, a key or a program change still acts on the patch turned to at once (`turned_load()`). Tests: `ValueThroughThePatches`
+  (two new; the rest wait `LOAD_MS`), and the dots in three others.
+- **#55: route depths.** VALUE moved a depth one per half click at any speed. Now 3 under `DEPTH_FAST_MS` (40 ms between
+  half clicks), 2 under `DEPTH_MEDIUM_MS` (80), else 1, clamped at ±99; a tenth goes to the next whole number first, as before.
+  Test: `test_a_slow_turn_sets_the_depth_one_at_a_time_and_a_fast_one_faster`.
+- **#54: the tempo by VALUE.** For 2 s after a tap on Sync Clock, while `tAP` or the tempo it shows next is still what's on the
+  display (`tempo_serial`), VALUE moves the tempo a BPM a click, ten with Shift, and each click keeps it 1.5 s more. `TapTempo` (4).
+- **#56: the scroll order.** `source_order[]` and `dest_order[]` (main.c) order VALUE's scroll in MOD ASSIGN only: the LFOs with
+  their 0-to-1 forms, the envelopes, the player's controls, the generated sources; destinations by section. Ids, patches,
+  SysEx and the tools are untouched; a static assert counts both. `test_value_scrolls_alike_ones_together`.
+- **#58: which page.** The Arp Assign LED blinks every 250 ms waiting for a source, as before, and every 100 ms once one is
+  taken. `test_the_led_blinks_faster_once_the_source_is_taken`.
+- **#48 was already done:** the keyboard-tracking switch has shown `OFF` / `HALF` / `FULL` since before 0.9.0 (`KeyboardTracking`).
+  My earlier comments on #48 and #34 said otherwise; corrected, and #48 closed.
+- **#61, #53: two system settings,** in the global block's spare bytes 26 and 27 (under its second checksum, written 0 until now,
+  so a 0.10.0 block reads as the defaults): `STORE_DISPLAY_HOLD` (0 as ever, 1 stay, 2-20 s) and `STORE_PANEL_FLAGS` bit 0
+  (the beat LED off). Host settings 104 `display-hold` and 105 `beat-led`; the read-only four move to 106-109 and the reply to
+  110 settings (`SYSEX_MAX` 231). Both tools take the reply's last four as read-only whatever its length, so older firmware
+  still reads right; the editor too (`READ_ONLY`), and its System tab gets a Panel section behind the `displayHold` feature.
+  System menu keys 9 `diSP` and 0 `bEAt`. The hold: every panel edit shown (a knob, a button's name, the keytrack switch, a
+  Shift value, VALUE's tenth, FREQ's free follow) calls `mark_edit()`; when its `display_until` passes and nothing else has been
+  drawn since, `StAY` leaves it with `display_until` 0, and seconds stretch `display_until` to that long from when it showed.
+  Messages and menus are never held. `DisplayHold` (7), `test_the_display_hold_and_the_beat_led` in test_pro800.
+- **#43 left out:** "VALUE controls a switch's value" doesn't say what VALUE should do for an on/off button (the
+  waveforms, Sync, PMOD and LFO routing are latches; keyboard tracking is a three-way switch VALUE can't move). A question for
+  the reporter.
+- Flash 109,668 B before docs. Counts: test_panel 943 OK; test_pro800 only the 26 `UpdateFiles` failures on the old `.syx` files.

@@ -16,6 +16,13 @@
 #define MUX_SETTLE_MS 4
 #define KEY_SCAN_MS   40
 #define POT_HYSTERESIS 24 // of 4095: reports changes beyond the noise
+// A turn ends where the knob rests, not at its last report up to 23 counts back (issue 42: a knob at its stop showed
+// 98 or FIL ENV AMT 70, and a knob's CC out stopped short too): a knob reported in the last POT_TURN_MS that has stayed
+// within POT_REST_NOISE for POT_REST_MS, away from its report by more than that, is reported once more. An untouched
+// knob creeping by a few counts isn't, and one noisier than POT_REST_NOISE never rests, which is how it was.
+#define POT_TURN_MS 1500
+#define POT_REST_MS 120
+#define POT_REST_NOISE 4
 #define SWITCH_DEBOUNCE_MS 15 // a panel switch's new level counts once it has held this long
 
 typedef struct {
@@ -67,6 +74,8 @@ static const struct { uint8_t byte, bit; } button_keys[BUTTON_COUNT] = {
 #define ENC_B_PIN 11
 
 static uint16_t pots[POT_COUNT], reported_pots[POT_COUNT];
+static uint16_t rest_pots[POT_COUNT];                // where each knob is resting, give or take POT_REST_NOISE
+static uint32_t turned_at[POT_COUNT], rest_since[POT_COUNT]; // its last report beyond the hysteresis; resting since
 static uint8_t switches[SWITCH_COUNT], switch_candidate[SWITCH_COUNT];
 static uint32_t switch_since[SWITCH_COUNT]; // when switch_candidate last changed
 static uint8_t keys[KEY_BYTES];
@@ -118,12 +127,21 @@ void controls_init(void)
     encoder_state = (uint8_t)(((GPIO_IDR(GPIOE_BASE) >> ENC_A_PIN) & 1) << 1 | ((GPIO_IDR(GPIOE_BASE) >> ENC_B_PIN) & 1));
 }
 
-static void pot_changed(int i, uint16_t value, control_event_t event)
+static void pot_changed(int i, uint16_t value, uint32_t now_ms, control_event_t event)
 {
     pots[i] = value;
-    int delta = (int)value - (int)reported_pots[i];
-    if (first_poll || delta >= POT_HYSTERESIS || delta <= -POT_HYSTERESIS) {
+    int delta = (int)value - (int)reported_pots[i], rest = (int)value - (int)rest_pots[i];
+    if (first_poll || rest > POT_REST_NOISE || rest < -POT_REST_NOISE) {
+        rest_pots[i] = value;
+        rest_since[i] = now_ms;
+    }
+    int turn = first_poll || delta >= POT_HYSTERESIS || delta <= -POT_HYSTERESIS;
+    int settled = (delta > POT_REST_NOISE || delta < -POT_REST_NOISE) && now_ms - turned_at[i] < POT_TURN_MS
+                  && now_ms - rest_since[i] >= POT_REST_MS;
+    if (turn || settled) {
         reported_pots[i] = value;
+        if (turn)
+            turned_at[i] = now_ms; // a settled report doesn't stretch the turn, so creeping can't chain reports on
         if (event && !first_poll)
             event(CONTROL_POT, i, value);
     }
@@ -142,12 +160,12 @@ void controls_poll(uint32_t now_ms, control_event_t event)
     }
 
     // pots: the direct ones every poll, those behind the muxes one address per MUX_SETTLE_MS
-    pot_changed(POT_CUTOFF, adc_read(13), event);
-    pot_changed(POT_NOISE, adc_read(2), event);
+    pot_changed(POT_CUTOFF, adc_read(13), now_ms, event);
+    pot_changed(POT_NOISE, adc_read(2), now_ms, event);
     if (now_ms - address_set_ms >= MUX_SETTLE_MS) {
-        pot_changed(0 * 8 + (int)address, adc_read(10), event);
-        pot_changed(1 * 8 + (int)address, adc_read(11), event);
-        pot_changed(2 * 8 + (int)address, adc_read(12), event);
+        pot_changed(0 * 8 + (int)address, adc_read(10), now_ms, event);
+        pot_changed(1 * 8 + (int)address, adc_read(11), now_ms, event);
+        pot_changed(2 * 8 + (int)address, adc_read(12), now_ms, event);
         address = (address + 1) % 8;
         GPIO_BSRR(GPIOD_BASE) = (address & 7) | (~address & 7) << 16;
         address_set_ms = now_ms;

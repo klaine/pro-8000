@@ -39,12 +39,12 @@ The stock sequencer and arpeggiator are gone; their buttons do other jobs now.
 | FINE | Oscillator B, ±100 cents, centre = in tune; the display shows cents. |
 | Keyboard-tracking switch | Keyboard tracking, as printed: off, half, full. A loaded patch's setting holds until you move the switch. |
 | Sync Source | **Shift**: hold it, or press it twice quickly to latch it (LED on; twice again to release). |
-| Sync Clock | The clock: tap the tempo (its LED blinks on the beat of whichever clock is in use), hold it to restart the bar, Shift + press to cycle the clock source. |
+| Sync Clock | The clock: tap the tempo (its LED blinks on the beat of whichever clock is in use, unless turned off in the system menu), hold it to restart the bar, Shift + press to cycle the clock source. Right after a tap, while `tAP` or the tempo shows, VALUE sets the tempo a BPM at a time (Shift: ten). |
 | LFO Shape button | Steps to the next shape at every press: `trI`, `PULS`, `SA.UP`, `SA.dn`, `SInE`, `S-H`, `drFt`, `StEP`, `nOIS`. |
-| VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, the shape just after pressing LFO Shape, or a knob's value while it shows (a tenth at a time, see Fine adjustment). |
+| VALUE knob | Changes the setting on the display: patch number, menu value, mod depth, the shape just after pressing LFO Shape, the tempo just after a tap on Sync Clock, or a knob's value while it shows (a tenth at a time, see Fine adjustment). |
 | Seq 1 / Seq 2 | Choose the layer the knobs edit (LED); hold one while turning FREQ A or B to change that oscillator's tuning mode. |
 | Arp Up-Dn | Choose LFO 1 or LFO 2 for the LFO knobs, the shape button and the LFO routing buttons (LED lit = LFO 2). |
-| Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning). |
+| Arp Assign | MOD ASSIGN: the mod matrix (LED blinks while assigning: slowly while it waits for a source, fast once it has one). |
 | Preset | Preset mode (a patch loaded) ↔ manual mode (the panel is live). |
 | Rec | Save (blinks, choose the slot, Rec again). Hold Rec and press Seq 1: record sequence steps from MIDI (`rSEq`, see Sequencer). |
 | Perf | Hold it (0.6 s) to load the init sound: one sawtooth, filter open, velocity on the volume and the cutoff, or your own init patch (see Settings menu → System menu). A tap only shows `HoLd`. |
@@ -406,7 +406,8 @@ keep them).
 - **Load:** in preset mode (Preset LED on), type the number: a third digit, or a pause of 3 seconds, or a number
   that no further digit could keep within 1-128 ends it (`7` then `2` loads P72 at once; `1`, `2` waits for a third
   digit). Or turn VALUE to step through them: the faster it turns, the further it goes (up to 8 slots a step), and the
-  patch loads when the turn rests; with Shift held it goes ten at a time, round the ends (P125 + 10 is P7). An empty slot loads the init sound (the display keeps the slot number), ready to
+  patch loads once the turn has rested half a second, so a slow search doesn't load every patch on the way; until then
+  the number shows with a dot (`P  7.`). With Shift held it goes ten at a time, round the ends (P125 + 10 is P7). An empty slot loads the init sound (the display keeps the slot number), ready to
   build and save there with Rec, Rec (Shift + Perf brings back the sound before). Boot loads the last patch, whichever
   mode you left it in (P1 on a freshly formatted memory).
 - **Edit:** a loaded patch's knobs are in pickup (with pickup off: until you move them) and its buttons keep their
@@ -517,7 +518,7 @@ LFO 2). The selection applies to:
 - the Sync and Retrigger settings pages.
 
 **Shapes:** press LFO Shape to step to the next one. For 2 seconds afterwards, VALUE steps through them both
-ways, unless you touch a knob meanwhile (VALUE then fine-adjusts that knob). The button's up/down position no longer means anything.
+ways, until something else shows on the display: a knob (VALUE then fine-adjusts it) or another button's name. The button's up/down position no longer means anything.
 
 **Delay and fade-in** (web page, LFO sections, or `pro800 set lfo-delay|lfo-fade 1|2 <0-99>`): each LFO can wait
 after a note starts and then fade in, per voice, from 20 ms to about 5 s (0 = off). It applies to the LFO's
@@ -627,8 +628,9 @@ point (` 1.25`, ` 12.5`).
 
 Decay and release times are how long the fall takes to reach −60 dB, so a release showing 2 s is gone at 2 s.
 The attack has the concave shape of an analog envelope: it shoots up first and eases into the top. Decay and
-release fall exponentially. Sustain is a level, 0-99: once the decay's time is up, the level follows the knob and
-what's routed to it within about 20 ms, whatever the decay (0.9.5). Before that it's on its way there at the decay's rate.
+release fall exponentially. Sustain is a level, 0-99, that the decay heads for. Moved during the decay, it takes the
+level along by the part of the decay already done: hardly at all at its start, all of it near its end, so nothing jumps
+when the decay's time is up. Once it is, the level follows the knob and what's routed to it within about 20 ms.
 
 A note that retriggers a sounding envelope (a note in its release, a stolen voice, each new note in mono) has its whole
 attack: an attack of 30 ms or more first fades the level to 0 in up to 8 ms (0.9.5). A shorter attack rises from
@@ -823,11 +825,13 @@ on each layer (velocity → VCA 70, velocity → cutoff 20; see Patches); any ot
 the web page those two destinations also have a Velocity knob each on the faceplate, and on the panel Shift + M VOL and
 Shift + FIL ENV AMT turn them (see Shift): the same routes as here.
 
-1. Press **Arp Assign** (LED blinks, display `SrC`). The knobs go into pickup and stay there until you leave MOD
+1. Press **Arp Assign** (LED blinks slowly, display `SrC`; once a source is taken it blinks fast, so you can tell the
+   pages apart). The knobs go into pickup and stay there until you leave MOD
    ASSIGN, so touching one won't change the sound.
 2. **Pick the source:** a number key (table below), or touch a knob that stands for one: LFO FREQ or LFO AMOUNT
    for the selected LFO, a filter ADSR knob for the filter envelope, an amp ADSR knob for the amp envelope (with
-   Shift held: Env 3 and Env 4). Or turn **VALUE** to scroll through every source, the web-only ones included
+   Shift held: Env 3 and Env 4). Or turn **VALUE** to scroll through every source, the web-only ones included, alike ones together
+   (LFO 1 and LFO 2 with their 0-to-1 forms, the envelopes, the player's controllers, then the rest)
    (one per click cycle, as patches scroll), and press **Arp Assign** to take the one shown (touching a destination
    takes it too). VALUE keeps scrolling sources until one is taken. A knob that picks the source keeps picking it
    while you turn it; it can be the destination too (an envelope into its own stage) once it has rested a second.
@@ -836,7 +840,8 @@ Shift + FIL ENV AMT turn them (see Shift): the same routes as here.
    reached by touching the ADSR knobs (with Shift held: Env 3 on the filter knobs, Env 4 on the amp knobs); AMP SUS
    stays the VCA unless Shift is held. A knob you touched in the 5 seconds before pressing Arp Assign is already
    the destination: tweak a knob, press Arp Assign, pick the source and you're at the depth.
-4. Turn **VALUE** to set the depth for the edit layer. At 0 the route plays nothing and keeps its slot; after 5 s at 0 it's
+4. Turn **VALUE** to set the depth for the edit layer: a step per half click turned slowly, two or three turned faster,
+   so about a turn goes from 0 to 99. At 0 the route plays nothing and keeps its slot; after 5 s at 0 it's
    removed, so you can sweep through 0, or stop to hear it, and lose nothing. `FULL` means all 16 are in use with none at
    0: a new route takes the slot of one waiting at 0.
 5. Press **Arp Assign** again to finish. The display goes back to the patch number.
@@ -975,8 +980,11 @@ a level of 0.8 becomes 0.6). For one shared response, take the other layer's cop
 ## Shift (Sync Source)
 
 Hold **Sync Source**, or press it twice quickly to latch it (LED on; twice again, or hold and release, to leave).
-While Shift is on, the knobs don't edit their printed parameters. A knob you turn nudges a secondary value by how
-far you turn it, so nothing jumps and nothing needs picking up; the display shows the name, then the value.
+While Shift is on, the knobs don't edit their printed parameters but a secondary value; the display shows the name,
+then the value. Drift, the LFO's delay and fade, unison detune and the macro offsets go where the knob points, and
+pick up as a loaded patch's knobs do: the value shows with a dot, and stays, until the knob is turned onto it or past
+it (with pickup off, until the knob moves). The others (bend range, the CC A / B numbers, the MIDI channel, pickup and
+the Velocity routes) move by how far you turn, so nothing jumps and nothing needs picking up.
 
 | Shift + knob | Secondary value |
 |---|---|
@@ -1036,7 +1044,8 @@ a second after the last change, see Settings menu):
 - **SYNC IN**: the rear jack's pulses set the tempo and the phase, two pulses per quarter note (Korg-style). Not
   yet tried with a real clock source.
 
-The Sync Clock LED blinks on the beat of whichever clock is in use, so a missing MIDI clock shows at once.
+The Sync Clock LED blinks on the beat of whichever clock is in use, so a missing MIDI clock shows at once. For a quiet
+panel, the system menu's key 0 (`bEAt`) turns that off.
 
 ## Settings menu
 
@@ -1074,8 +1083,15 @@ Shift + 1-9 goes to a page of the settings menu instead.
 | 6 | `tEnP`: the internal clock's tempo (also tapping Sync Clock) | 30-300 BPM |
 | 7 | `InIt`: your init patch, what a held Perf loads | `nonE` (the built-in sound), `P  1` … `P128` |
 | 8 | `dIn`: MIDI out (Arp Up-Dn: `nOtE`, `CH.ou`, `CL.ou`, `Pt.CC`, `PC.ou`; see MIDI out) | `tHru`, `Out`, `nErG`; `OFF`, `In`, `PLAY`; `FoL`, 1-16; `OFF`, `on` |
+| 9 | `diSP`: how long a knob's or a button's value stays on the display | `Auto` (as ever, a second or so), `StAY` (until something else shows), 2-20 s |
+| 0 | `bEAt`: the Sync Clock LED on the beat | `on`, `OFF` |
 
-Keys 9 and 0 are free. Perf and Rec do nothing while it's open.
+Perf and Rec do nothing while it's open.
+
+**The display's hold** (key 9) keeps an edit on the display: a knob's value, a button's name, a Shift value, VALUE's
+tenth. With `StAY` it stays until something else shows, and with seconds it stays that long from when it showed.
+Messages (`donE`, `PAnC`, `HoLd`) and menus go as ever. VALUE still fine-adjusts a knob's value only for its first
+second and a half (with seconds: for as long as it shows); after that it steps the patches again.
 
 **Your init patch:** with a slot chosen here (or by Rec, the slot, Perf), a held Perf loads that patch as a
 template: its sound, routes, layer settings and step sequence, but not its slot: the slot number stays where you
@@ -1085,7 +1101,7 @@ none), and Shift + Perf undoes it as any load. If the slot is empty, Perf gives 
 back to none.
 
 **System-wide settings** need no save: the MIDI channel, CC A / B, knob pickup, the clock source, the tempo, your
-init patch, the CC map and MIDI out. They take
+init patch, the CC map, MIDI out, the display's hold and the beat LED. They take
 effect and read back at once, and the synth stores them about a second after the last change, so a knob sweep or a run
 of taps costs one write to the memory. Turning the power off inside that second loses the change. An update, an
 autotune, loading another patch, a save on memory never formatted or a format stores them straight away.

@@ -106,6 +106,7 @@ VELOCITY, VCA, CUTOFF = pro800.SOURCE_NAMES.index("velocity"), pro800.DEST_NAMES
 INIT_ROUTES = [(VELOCITY, VCA, 70), (VELOCITY, CUTOFF, 20)]  # src/main.c, init_patch(); MANUAL, the mod matrix
 KNOB_START = [(VELOCITY, VCA, 40), (VELOCITY, CUTOFF, 20)]  # where the knob tests begin: their setUp sets it, whatever init holds
 ROUTE_HOLD_MS = 5000  # src/synth.h
+LOAD_MS = 550  # VALUE's patch loads once the turn has rested TURNED_REST_MS (500, src/main.c)
 
 
 class Synth:
@@ -728,36 +729,37 @@ class TypingASlot(PanelTest):
 class ValueThroughThePatches(PanelTest):
     def test_slow_steps_one_at_a_time_and_loads_at_rest(self):
         self.s.turn(1)
+        self.assertShows("P  2.", "the dot: not loaded yet (#52)")
+        self.s.ms(LOAD_MS)
         self.assertShows("P  2")
-        self.s.ms(100)
         self.assertEqual(self.s.settings()["patch"], 1)
         self.s.turn(1)
-        self.s.ms(100)
+        self.s.ms(LOAD_MS)
         self.assertShows("P  3")
         self.assertEqual(self.s.settings()["patch"], 2)
 
     def test_back_from_the_first_wraps_to_the_last(self):
         self.s.turn(-1)
-        self.s.ms(100)
+        self.s.ms(LOAD_MS)
         self.assertShows("P128")
         self.assertEqual(self.s.settings()["patch"], 127)
 
     def test_forward_from_the_last_wraps_to_the_first(self):
         self.s.press("1", "2", "8")
         self.s.turn(1)
-        self.s.ms(100)
+        self.s.ms(LOAD_MS)
         self.assertShows("P  1")
 
     def test_a_fast_turn_jumps(self):
         self.s.turn(10, every=3)  # 12 ms a cycle
-        self.s.ms(100)
+        self.s.ms(LOAD_MS)
         patch = self.s.settings()["patch"]
         self.assertGreater(patch, 30, "10 fast cycles should travel well past 10 slots")
         self.assertEqual(self.s.shows(), f"P{patch + 1:3d}")
 
     def test_medium_speeds_travel_between(self):
         self.s.turn(10, every=10)  # 40 ms a cycle: 4 slots each, after the first
-        self.s.ms(100)
+        self.s.ms(LOAD_MS)
         patch = self.s.settings()["patch"]
         self.assertGreater(patch, 25)
         self.assertLess(patch, 60)
@@ -771,31 +773,49 @@ class ValueThroughThePatches(PanelTest):
         self.s.cmd("enc 40 3")
         self.s.ms(100)
         self.assertEqual(self.s.settings()["patch"], before, "still turning: nothing loads")
-        self.s.ms(120)
-        self.s.ms(100)
+        self.s.ms(LOAD_MS)
         self.assertNotEqual(self.s.settings()["patch"], before)
+
+    def test_a_slow_search_doesnt_load_the_patches_on_the_way(self):  # #51
+        for _ in range(4):
+            self.s.turn(1)  # a click cycle every 300 ms or so
+            self.s.ms(150)
+            self.assertEqual(self.s.settings()["patch"], 0, "still searching")
+        self.assertShows("P  5.")
+        self.s.ms(LOAD_MS)
+        self.assertEqual(self.s.settings()["patch"], 4)
+        self.assertShows("P  5")
 
     def test_shift_and_value_step_ten_slots_and_go_round_the_ends(self):
         self.s.hold("SHIFT")
         self.s.turn(1)
-        self.assertShows("P 11")
+        self.assertShows("P 11.")
         self.s.turn(1, every=5)
-        self.assertShows("P 21", "tens, however fast it turns")
+        self.assertShows("P 21.", "tens, however fast it turns")
         self.s.turn(-3)
-        self.assertShows("P119", "P1 - 10 goes round to P119")
+        self.assertShows("P119.", "P1 - 10 goes round to P119")
         self.s.turn(1)
-        self.assertShows("P  1")
+        self.assertShows("P  1.")
         self.s.let_go("SHIFT")
-        self.s.ms(100)
+        self.s.ms(LOAD_MS)
         self.assertEqual(self.s.settings()["patch"], 0)
 
-    def test_value_loads_after_it_rests_80_ms(self):
+    def test_value_loads_after_it_rests_500_ms(self):
         self.s.cmd("enc 4 15")
         self.s.ms(61)
-        self.assertShows("P  2")
+        self.assertShows("P  2.")
         self.assertEqual(self.s.settings()["patch"], 0)
-        self.s.ms(90)
+        self.s.ms(400)
+        self.assertEqual(self.s.settings()["patch"], 0, "not yet")
+        self.s.ms(150)
         self.assertEqual(self.s.settings()["patch"], 1)
+        self.assertShows("P  2")
+
+    def test_saving_picks_a_slot_without_a_dot(self):
+        self.s.press("REC")
+        self.s.turn(1)
+        self.assertShows("P  2", "a save's slot isn't loaded: nothing to wait for")
+        self.s.press("REC")
 
     def test_a_button_acts_on_the_patch_turned_to(self):
         self.s.cmd("enc 4 15")
@@ -819,6 +839,139 @@ class ValueThroughThePatches(PanelTest):
         self.s.cmd("enc 3 15")
         self.s.ms(100)
         self.assertShows("P  1")
+
+
+class TapTempo(PanelTest):
+    """For a moment after a tap on Sync Clock, VALUE sets the tempo (#54)"""
+
+    def test_value_after_a_tap_moves_the_tempo(self):
+        self.s.setting("bpm", 120)
+        self.s.press("CLOCK")
+        self.assertShows("tAP")
+        self.s.turn(2)
+        self.assertShows(" 122")
+        self.assertEqual(self.s.settings()["bpm"], 122)
+        self.s.ms(800)
+        self.s.turn(-1)
+        self.assertShows(" 121", "each turn keeps the window open")
+        self.s.hold("SHIFT")
+        self.s.turn(1)
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.settings()["bpm"], 131, "Shift: ten at a time")
+
+    def test_the_tempo_shown_after_the_name_takes_value_too(self):
+        self.s.setting("bpm", 120)
+        self.s.press("CLOCK")
+        self.s.ms(700)
+        self.assertShows(" 120")
+        self.s.turn(1)
+        self.assertEqual(self.s.settings()["bpm"], 121)
+
+    def test_value_browses_the_patches_again_once_the_tempo_has_gone(self):
+        self.s.setting("bpm", 120)
+        self.s.press("CLOCK")
+        self.s.ms(2100)
+        self.s.turn(1)
+        self.assertShows("P  2.")
+        self.assertEqual(self.s.settings()["bpm"], 120)
+
+    def test_the_tempo_stops_at_its_ends(self):
+        self.s.setting("bpm", 298)
+        self.s.press("CLOCK")
+        self.s.turn(5)
+        self.assertEqual(self.s.settings()["bpm"], 300)
+
+
+class DisplayHold(PanelTest):
+    """How long an edit stays on the display (#61) and the beat LED (#53): the system menu's keys 9 and 0"""
+
+    def knob(self):
+        self.s.pot("RESONANCE", 0.3)
+        self.s.pot("RESONANCE", 0.5)
+        return self.s.shows()
+
+    def test_as_ever_a_knobs_value_gives_way(self):
+        shown = self.knob()
+        self.s.ms(1600)
+        self.assertShows("P  1")
+        self.assertNotEqual(shown, "P  1")
+
+    def test_stay_keeps_it_until_something_else_shows(self):
+        self.s.setting("display-hold", 1)
+        shown = self.knob()
+        self.s.ms(10000)
+        self.assertEqual(self.s.shows(), shown, "still the knob's value")
+        self.s.switch("SYNC")
+        self.assertShows("SY.on", "a button's name in its place")
+        self.s.ms(5000)
+        self.assertShows("SY.on", "an edit too: it stays")
+        self.s.turn(1)
+        self.assertShows("P  2.", "VALUE goes back to the patches")
+
+    def test_seconds_keep_it_that_long_from_when_it_showed(self):
+        self.s.setting("display-hold", 5)
+        shown = self.knob()
+        self.s.ms(4700)
+        self.assertEqual(self.s.shows(), shown)
+        self.s.ms(500)
+        self.assertShows("P  1")
+
+    def test_only_edits_stay(self):
+        self.s.setting("display-hold", 1)
+        self.s.hold("SHIFT")
+        self.s.press("0")  # the panic: a message, not an edit
+        self.s.let_go("SHIFT")
+        self.assertShows("PAnC")
+        self.s.ms(1200)
+        self.assertShows("P  1")
+
+    def test_the_system_menu_sets_both(self):
+        self.s.long_press("SETTINGS")
+        self.s.press("9")
+        self.assertShows("diSP")
+        self.s.ms(800)
+        self.assertShows("Auto")
+        self.s.turn(1)
+        self.assertShows("StAY")
+        self.s.turn(1)
+        self.assertShows("   2")
+        self.assertEqual(self.s.settings()["display-hold"], 2)
+        self.s.press("0")
+        self.assertShows("bEAt")
+        self.s.ms(800)
+        self.assertShows("on")
+        self.s.turn(1)
+        self.assertShows("OFF")
+        self.assertEqual(self.s.settings()["beat-led"], 1)
+        self.s.press("SETTINGS")
+
+    def lit(self, ms=1000):
+        seen = set()
+        for _ in range(ms // 10):
+            self.s.ms(10)
+            seen.add(self.s.led("SYNC_CLOCK"))
+        return seen
+
+    def test_the_beat_led_can_be_quiet(self):
+        self.s.setting("clock", 1)  # internal, 120 BPM
+        self.assertEqual(self.lit(), {True, False}, "it blinks on the beat")
+        self.s.setting("beat-led", 1)
+        self.assertEqual(self.lit(), {False}, "quiet")
+        self.s.press("CLOCK")
+        self.s.ms(400)
+        self.s.press("CLOCK")
+        self.assertEqual(self.lit(), {False}, "taps change the tempo, the LED stays dark")
+        self.s.setting("beat-led", 0)
+        self.assertEqual(self.lit(), {True, False})
+
+    def test_they_survive_a_power_cycle(self):
+        self.s.setting("display-hold", 7)
+        self.s.setting("beat-led", 1)
+        self.s.ms(1100)  # stored after a second's rest
+        self.power_cycle()
+        self.s.ms(1600)
+        settings = self.s.settings()
+        self.assertEqual((settings["display-hold"], settings["beat-led"]), (7, 1))
 
 
 class Saving(PanelTest):
@@ -1199,9 +1352,9 @@ class SystemMenu(PanelTest):
         self.assertShows("nonE")
         self.assertEqual(self.s.settings()["init-patch"], 0)
 
-    def test_keys_9_0_and_perf_and_rec_do_nothing(self):
-        self.open()  # (key 8 is MIDI out from 0.10.0: MidiOut)
-        for key in ("9", "0", "PERF", "REC"):
+    def test_perf_and_rec_do_nothing(self):
+        self.open()  # (key 8 is MIDI out from 0.10.0: MidiOut; 9 and 0 the panel's: DisplayHold)
+        for key in ("PERF", "REC"):
             self.s.press(key)
             self.assertShows("SYS", key)
         self.assertEqual(self.s.settings()["init-patch"], 0)
@@ -1959,7 +2112,7 @@ class ValueNudge(PanelTest):
         self.assertEqual(self.s.settings()["patch"], 2, "still P3")
         self.s.ms(1600)
         self.s.turn(1)
-        self.assertShows("P  4", "the window over: VALUE steps the patches again")
+        self.assertShows("P  4.", "the window over: VALUE steps the patches again")
 
     def test_shift_value_keeps_stepping_ten_patches(self):
         self.s.press("REC", "3", "REC")
@@ -1968,7 +2121,7 @@ class ValueNudge(PanelTest):
         before = self.s.params_raw()["resonance"]
         self.s.hold("SHIFT")
         self.s.turn(1)
-        self.assertShows("P 13")
+        self.assertShows("P 13.")
         self.s.let_go("SHIFT")
         self.assertEqual(self.s.params_raw()["resonance"], before)
 
@@ -2145,6 +2298,53 @@ class Shift(PanelTest):
                 self.s.let_go("SHIFT")
                 self.s.ms(520)
                 self.assertShows(word)
+                self.s.ms(1600)
+
+    def drift_under_shift(self, *positions):
+        """GLIDE's knob through `positions` with Shift held: Drift after each"""
+        self.s.hold("SHIFT")
+        seen = []
+        for f in positions:
+            self.s.pot("GLIDE", f)
+            seen.append(self.s.settings()["drift"])
+        return seen
+
+    def test_drift_goes_where_the_knob_points_once_it_has_picked_it_up(self):  # issue 41
+        self.s.pot("GLIDE", 0.0)
+        self.s.ms(300)
+        glide = self.s.params()["glide"]
+        self.s.setting("drift", 50)
+        self.assertEqual(self.drift_under_shift(0.2, 0.4, 0.6, 0.3, 0.0), [50, 50, 59, 30, 0], "waits, then follows to the bottom")
+        self.s.let_go("SHIFT")
+        self.assertEqual(self.s.params()["glide"], glide, "glide itself stays")
+
+    def test_drift_waiting_for_the_knob_shows_its_value_with_a_dot(self):
+        self.s.setting("drift", 50)
+        self.drift_under_shift(0.1, 0.3)
+        self.s.ms(520)
+        self.assertShows("  50.")
+        self.s.let_go("SHIFT")
+
+    def test_with_pickup_off_drift_jumps_to_the_knob_as_it_moves(self):
+        self.s.setting("pickup", 0)
+        self.s.setting("drift", 50)
+        self.assertEqual(self.drift_under_shift(0.1, 0.2), [10, 20])
+        self.s.let_go("SHIFT")
+
+    def test_the_absolute_ones_keep_to_the_knob(self):
+        """Turned by how far, Drift 50 up half a sweep and back came to 43: clamped at 99 on the way"""
+        self.s.setting("drift", 50)
+        self.assertEqual(self.drift_under_shift(0.4, 0.6, 1.0, 0.6)[-1], 59)
+        self.s.let_go("SHIFT")
+        for pot, setting, low, high in (("LFO_FREQ", "lfo-delay", 0, 99), ("LFO_AMOUNT", "lfo-fade", 0, 99), ("MASTER_TUNE", "detune", 0, 100),
+                                        ("CUTOFF", "macro 1 1", -99, 99), ("RESONANCE", "macro 1 2", -99, 99)):  # layer, macro
+            with self.subTest(pot=pot):
+                self.s.hold("SHIFT")
+                for f in (0.0, 1.0, 0.25):
+                    self.s.pot(pot, f)
+                value = self.s.settings()[setting] - (99 if low < 0 else 0)
+                self.assertEqual(value, low + round(0.25 * (high - low)))
+                self.s.let_go("SHIFT")
                 self.s.ms(1600)
 
     def test_detune_stays_0_to_100(self):
@@ -2392,12 +2592,26 @@ class LfoControls(PanelTest):
         self.assertShows("trI")
         self.assertEqual(self.s.settings()["patch"], 0)
 
+    def test_another_button_shown_ends_the_shapes_window(self):  # #34: the shape changed under a button's name
+        for button in ("A_SAW", "SYNC", "LFO_FILTER"):
+            with self.subTest(button=button):
+                self.s.switch("LFO_SHAPE")
+                shape = self.s.settings()["shape 1 1"]
+                self.s.ms(200)
+                self.s.switch(button)
+                shown = self.s.shows()
+                self.s.turn(2, every=20)
+                self.assertEqual(self.s.settings()["shape 1 1"], shape, "VALUE left the shape alone")
+                self.assertNotEqual(self.s.shows(), shown, "VALUE did its own job")
+                self.s.switch(button)
+                self.s.ms(2100)
+
     def test_value_browses_patches_again_after_2_s(self):
         self.s.switch("LFO_SHAPE")
         self.s.ms(2100)
         self.s.turn(1)
         self.s.ms(100)
-        self.assertShows("P  2")
+        self.assertShows("P  2.")
 
     def test_arp_up_picks_lfo_2(self):
         self.s.press("ARP_UP")
@@ -4231,6 +4445,21 @@ class ModAssign(PanelTest):
         self.assertEqual(routes[0][:2], (4, 3), "velocity to cutoff")
         self.assertGreater(routes[0][2], 0)
 
+    def depth_after(self, cycles, every):
+        self.s.no_routes()
+        self.begin()
+        self.s.press("4")
+        self.s.pot("CUTOFF", 0.3)
+        self.s.pot("CUTOFF", 0.35)
+        self.s.turn(cycles, every=every)
+        self.s.press("ASSIGN")
+        return [r[2] for r in self.s.routes() if r[:2] == (4, 3)][0]
+
+    def test_a_slow_turn_sets_the_depth_one_at_a_time_and_a_fast_one_faster(self):  # #55
+        self.assertEqual(self.depth_after(5, 60), 10, "half cycles 120 ms apart: one each")
+        self.assertGreaterEqual(self.depth_after(5, 10), 25, "20 ms apart: three each")
+        self.assertEqual(self.depth_after(40, 10), 99, "and it stops at 99")
+
     def test_knobs_dont_change_the_sound_while_assigning(self):
         before = self.s.params()["resonance"]
         self.begin()
@@ -4293,6 +4522,51 @@ class ModAssign(PanelTest):
             names.append(self.s.shows())
         for wanted in ("PIt", "CUt", "norP", "dEtU", "VOL", "EA-S"):
             self.assertIn(readable(segments_of(wanted)), names)
+        self.s.press("ASSIGN")
+
+    def test_value_scrolls_alike_ones_together(self):  # #56
+        r = lambda name: readable(segments_of(name))
+        self.begin()
+        sources = []
+        for _ in range(29):
+            self.s.turn(1)
+            sources.append(self.s.shows())
+        self.assertEqual(sources[:4], [r("LFO1"), r("L1.U"), r("LFO2"), r("L2.U")], "the LFOs first, LFO 2 next to LFO 1")
+        self.assertEqual(sources[4:8], [r("FEnV"), r("AEnV"), r("EnV3"), r("EnV4")])
+        self.assertEqual(len(set(sources)), 29, "each once")
+        self.s.press("ASSIGN")
+        self.s.press("ASSIGN")
+        self.s.ms(1100)
+        self.begin()
+        self.s.press("4")
+        dests = []
+        for _ in range(50):
+            self.s.turn(1)
+            dests.append(self.s.shows())
+        self.assertEqual(len(set(dests)), 50, "each destination once in a round")
+        lfo = [r(n) for n in ("L.rt", "L.An", "L.Fr", "L.FL", "L.PU")]
+        i = dests.index(lfo[0])
+        self.assertEqual(dests[i:i + 5], lfo, "LFO 1's destinations side by side")
+        self.assertEqual(dests[:3], [r("P.A"), r("P.b"), r("PIt")])
+        self.s.press("ASSIGN")
+
+    def blinks(self, ms=1000):
+        seen, flips = None, 0
+        for _ in range(ms // 10):
+            self.s.ms(10)
+            on = self.s.led("ARP_ASSIGN")
+            flips += seen is not None and on != seen
+            seen = on
+        return flips
+
+    def test_the_led_blinks_faster_once_the_source_is_taken(self):  # #58
+        self.begin()
+        self.assertIn(self.blinks(), (3, 4, 5), "the source page: 250 ms on, 250 off")
+        self.s.press("4")
+        self.assertIn(self.blinks(), (9, 10, 11), "the destination page: 100 ms")
+        self.s.pot("CUTOFF", 0.3)
+        self.s.pot("CUTOFF", 0.35)
+        self.assertIn(self.blinks(), (9, 10, 11), "and the depth")
         self.s.press("ASSIGN")
 
     def test_a_recent_knob_is_already_the_destination(self):
@@ -5036,6 +5310,37 @@ class TwoThingsAtOnce(PanelTest):
         self.assertShows("    ", "nor a controller")
         self.s.request(0x7A, 0)
         self.assertShows("P  1")
+
+
+class KnobRest(PanelTest):
+    """A turn ends where the knob rests, not at its last report up to 23 counts back (issue 42; src/controls.c)"""
+
+    def raw(self, pot, *readings):
+        for r in readings:
+            self.s.cmd(f"pot {POT[pot]} {r}")
+            self.s.ms(60)
+
+    def test_a_knob_at_its_stop_shows_its_end(self):
+        self.s.setting("pickup", 0)
+        for pot, param, top, bottom in (("FIL_ENV_AMT", "fil-env-amt", "  72", " -72"), ("AMP_SUS", "amp-sus", "  99", "   0")):
+            with self.subTest(pot=pot):
+                self.raw(pot, 2048, 3000, 4072, 4095)  # the last report 23 short of the top
+                self.s.ms(200)
+                self.assertShows(top)
+                self.assertEqual(self.s.params_raw()[param], 16383)
+                self.raw(pot, 1000, 23, 0)
+                self.s.ms(200)
+                self.assertShows(bottom)
+                self.assertEqual(self.s.params_raw()[param], 0)
+                self.s.ms(1600)
+
+    def test_a_knob_nobody_turned_doesnt_show_for_creeping(self):
+        self.raw("RESONANCE", 2000)
+        self.s.ms(2000)  # its turn is long over
+        before = self.s.shows()
+        self.raw("RESONANCE", 2010, 2016)
+        self.s.ms(500)
+        self.assertShows(before)
 
 
 class EnvelopePage(PanelTest):
@@ -6246,6 +6551,33 @@ class Sustain(PanelTest):
         self.s.param(0, "fil-sus", 0)
         self.s.ms(200)
         self.assertGreater(self.cutoff(), top - 0.5 * top, "still on its way")
+
+    def sustain_moved_late(self, low, high):
+        """Decay 92 (11.1 s), the sustain moved from low to high at 90 % of it: the cutoff every millisecond from the move
+        to 400 ms past the decay's end, and where it was just before the move"""
+        self.s.param(0, "fil-dec", 92 * 16383 // 99)
+        self.s.param(0, "fil-sus", low * 16383 // 99)
+        self.s.note(60)
+        self.s.ms(10000 - 2)
+        before = self.cutoff()
+        self.s.param(0, "fil-sus", high * 16383 // 99)
+        trace = []
+        for _ in range(1600):
+            self.s.ms(1)
+            trace.append(self.cutoff())
+        return before, trace
+
+    def test_a_sustain_moved_late_in_the_decay_doesnt_jump_at_its_end(self):  # issue 40
+        for low, high in ((20, 80), (80, 20)):
+            before, trace = self.sustain_moved_late(low, high)
+            whole = trace[-1] - before
+            steps = [b - a for a, b in zip([before] + trace, trace)]
+            self.assertLess(max(abs(d) for d in steps[50:]), 0.01 * abs(whole), f"{low} to {high}: a step after the move had settled")
+            # the request itself runs 5 ms: the first reading is 6 ms into SUSTAIN_FOLLOW_S's 20, short of the end
+            self.assertLess((trace[0] - before) / whole, 0.97, f"{low} to {high}: the move in one step")
+            self.assertGreater((trace[20] - before) / whole, 0.99, f"{low} to {high}: still on its way 20 ms on")
+            self.s.note_off(60)
+            self.s.ms(3000)
 
     def test_the_panel_setting_page_changes_the_mode(self):
         self.s.press("SETTINGS", "9")
@@ -7991,7 +8323,7 @@ class LfoNoteTimes(PanelTest):
     """A synced LFO's delay and fade are note values (MANUAL, Delay and fade-in), measured on the voice's pitch CV: LFO 1 is
     a square into pitch, so the pitch sits still until the delay ends and then swings by the fade's gain either side."""
     QUARTER = 60  # a value on the note scale's step for 1/4 (57-62)
-    NEAR_QUARTER = 58  # where a nudge up stays on it
+    NEAR_QUARTER = 58  # where a turn up across it stays on the step
     SHOTS = ("one-shot", "one-shot-voice")
     RATE_16TH = 12 / 14  # the rate knob
     RAMP_UP, SQUARE = pro800.SHAPE_NAMES.index("ramp-up"), pro800.SHAPE_NAMES.index("square")
@@ -8384,11 +8716,12 @@ class LfoNoteTimes(PanelTest):
     # --- the panel ---
 
     def turn(self, pot):
-        """A nudge under Shift: leaves the value's display up, with Shift held"""
+        """A small turn under Shift across NEAR_QUARTER, so the knob picks the value up (issue 41): leaves the value's
+        display up, with Shift held"""
         self.s.hold("SHIFT")
-        self.s.pot(pot, 0.4)
-        self.s.ms(150)  # the panel has read it: where the nudge starts from
-        self.s.pot(pot, 0.43)
+        self.s.pot(pot, 0.55)
+        self.s.ms(150)  # the panel has read it: where the turn starts from
+        self.s.pot(pot, 0.61)
         self.s.ms(520)
 
     def assertNudged(self, pot, setting, text):
@@ -8442,10 +8775,14 @@ class LfoNoteTimes(PanelTest):
 
     def test_a_value_on_the_way_to_the_first_note_value(self):
         self.s.setting("lfo-fade", 3)
-        self.turn("LFO_AMOUNT")
+        self.s.hold("SHIFT")
+        self.s.pot("LFO_AMOUNT", 0.0)
+        self.s.ms(150)
+        self.s.pot("LFO_AMOUNT", 0.06)  # across 3: picked up
+        self.s.ms(520)
         self.assertIn(self.s.settings()["lfo-fade"], (5, 6, 7), "1/32 from 4")
         self.assertShows("1-32")
-        self.s.pot("LFO_AMOUNT", 0.4)
+        self.s.pot("LFO_AMOUNT", 0.02)
         self.s.ms(100)
         self.assertIn(self.s.settings()["lfo-fade"], (1, 2, 3))
         self.assertShows("0")
@@ -8453,9 +8790,9 @@ class LfoNoteTimes(PanelTest):
     def test_letting_go_of_shift_at_once_still_shows_the_note_value(self):
         self.s.setting("lfo-delay", self.NEAR_QUARTER)
         self.s.hold("SHIFT")
-        self.s.pot("LFO_FREQ", 0.4)
+        self.s.pot("LFO_FREQ", 0.55)
         self.s.ms(150)
-        self.s.pot("LFO_FREQ", 0.43)
+        self.s.pot("LFO_FREQ", 0.61)
         self.s.ms(100)
         self.assertShows("dLY")
         self.s.let_go("SHIFT")

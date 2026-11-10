@@ -150,7 +150,7 @@
 
 // PRO-800 SysEx: F0 00 20 32 00 01 24 00 <data> F7
 static const uint8_t sysex_header[] = {0xF0, 0x00, 0x20, 0x32, 0x00, 0x01, 0x24, 0x00};
-#define SYSEX_MAX 227 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
+#define SYSEX_MAX 231 // the longest reply: every setting (54), 8 + 2 + 2 × SET_COUNT + 1
 
 static volatile uint32_t ms_ticks;
 static int direct_mode;
@@ -227,6 +227,14 @@ static void show_version(void)
 }
 
 static uint32_t display_until; // ms_ticks when a pot value on the display gives way; 0 = nothing shown
+// An edit on the display (a knob, a button, Shift's value, VALUE's tenth): the system setting can keep it there past its
+// display_until, until something else shows or for its seconds (#61). edit_serial is display_serial() after it was drawn.
+static uint32_t edit_serial = (uint32_t)-1, edit_at;
+static void mark_edit(void)
+{
+    edit_serial = display_serial();
+    edit_at = ms_ticks;
+}
 static int tune_requested;
 
 // What a start shows for 1.5 s: the version, or that the last run crashed
@@ -246,9 +254,10 @@ static void show_boot(int crashed)
 static int current_patch, preset_mode, saving, typed_digits, typed_value, encoder_patch_steps;
 static uint32_t encoder_patch_at; // when VALUE last moved a patch: the shorter the gap, the further it moves
 // VALUE's patch, loaded once the turn rests: a load blocks the loop about 25 ms, and the encoder is polled there, so
-// loading every step of a fast turn would lose its transitions.
+// loading every step of a fast turn would lose its transitions. Half a second, so a slow search through the patches
+// doesn't load each one on the way (#51); meanwhile the number shows with a dot: not loaded yet (#52).
 static int turned_patch = -1;
-#define TURNED_REST_MS 80
+#define TURNED_REST_MS 500
 static patch_t compare_copy; // Shift + Rec: the edit while the stored patch sounds
 static int comparing, undo_valid;
 // The sustain pedal, per layer (bits: in channel mode each channel's pedal holds its own layer), and the keys let go
@@ -305,6 +314,16 @@ static void show_patch(int n)
 {
     char text[6];
     patch_label(n, text);
+    display_text(text);
+}
+
+// VALUE's patch before it loads: its number with a dot
+static void show_turned(int n)
+{
+    char text[7];
+    patch_label(n, text);
+    text[4] = '.';
+    text[5] = 0;
     display_text(text);
 }
 
@@ -644,11 +663,13 @@ static int save_patch(int n)
 // (layer 1 + layer 2, or automatic).
 enum { PAGE_LFO_SYNC, PAGE_LFO_TRIGGER, PAGE_LAYERS, PAGE_SPLIT, PAGE_KEYTRACK, PAGE_CYCLE, PAGE_BEND, PAGE_DETUNE,
        PAGE_VOICE, PAGE_DRIFT, PAGE_COUNT, // keys 1-9, then 0
-       // the system menu (hold Settings, or Shift + Settings; #2, #34): keys 1-8 (8 MIDI out, 0.10.0), 9 and 0 free
+       // the system menu (hold Settings, or Shift + Settings; #2, #34): keys 1-8 (8 MIDI out, 0.10.0), 9 how long an
+       // edit stays on the display (#61), 0 the Sync Clock LED's beat (#53)
        PAGE_SYS_CHANNEL = PAGE_COUNT, PAGE_SYS_PICKUP, PAGE_SYS_CC_A, PAGE_SYS_CC_B, PAGE_SYS_CLOCK, PAGE_SYS_TEMPO,
-       PAGE_SYS_INIT, PAGE_SYS_OUT, PAGE_ALL };
+       PAGE_SYS_INIT, PAGE_SYS_OUT, PAGE_SYS_HOLD, PAGE_SYS_BEAT, PAGE_ALL };
 static int menu_system; // the menu open is the system menu: keys pick its pages, the Settings LED blinks
-static const char sys_page_names[PAGE_ALL - PAGE_COUNT][5] = {"CHnL", "P.UP", "CC.A", "CC.b", "CLoC", "tEnP", "InIt", "Out"};
+static const char sys_page_names[PAGE_ALL - PAGE_COUNT][5] = {"CHnL", "P.UP", "CC.A", "CC.b", "CLoC", "tEnP", "InIt", "Out",
+                                                              "diSP", "bEAt"};
 // Key 8's pages (Arp Up-Dn steps them): MIDI out (0.10.0), each a host setting
 enum { OUT_PAGES = 6 };
 #define SET_OUT_FIRST 96 // SET_MIDI_SOCKET; the enum further down asserts it
@@ -889,6 +910,7 @@ static void show_edit_layer(void)
 // LFO shape: every toggle of the shape button steps to the next shape of the selected LFO (on the edit layer), and
 // for a moment after it VALUE steps through them both ways.
 static uint32_t shape_until; // ms_ticks until which VALUE picks the shape; 0 = not
+static uint32_t shape_serial; // display_serial() after the shape was drawn: anything shown since (a button's name) ends it
 static int shape_steps;
 
 static void step_lfo_shape(int step)
@@ -899,6 +921,7 @@ static void step_lfo_shape(int step)
     display_text(lfo_shape_name((lfo_shape_t)shape));
     display_until = ms_ticks + 2000;
     shape_until = display_until;
+    shape_serial = display_serial();
     shape_steps = 0;
 }
 
@@ -944,6 +967,34 @@ static const char dest_names[DEST_COUNT][6] = {
     "GLId", "dEtU", "VOL", "nAC1", "nAC2", "CHAo", "CH.Uo", "CCo.A", "CCo.b",
 };
 _Static_assert(DEST_CC_OUT_B == 49, "a destination's name goes in dest_names, in order"); // (a missing one is just empty)
+
+// The order VALUE scrolls them in (#56): alike next to each other, the LFOs, the envelopes, the player's hands, the panel's
+// sections. Only the scroll: the ids, which patches store, stay as they are. A new one goes in here too.
+static const uint8_t source_order[] = {
+    SRC_LFO, SRC_LFO_UNI, SRC_LFO2, SRC_LFO2_UNI, SRC_FILTER_ENV, SRC_AMP_ENV, SRC_ENV3, SRC_ENV4,
+    SRC_VELOCITY, SRC_RELEASE_VELOCITY, SRC_MOD_WHEEL, SRC_AFTERTOUCH, SRC_BEND, SRC_PEDAL, SRC_TIMBRE, SRC_CC_A, SRC_CC_B,
+    SRC_NOTE, SRC_GATE, SRC_VOICE, SRC_ARP_NOTE, SRC_RANDOM, SRC_FIXED,
+    SRC_SEQ_A, SRC_SEQ_B, SRC_SEQ_C, SRC_SEQ_D, SRC_MACRO1, SRC_MACRO2,
+};
+static const uint8_t dest_order[] = {
+    DEST_PITCH_A, DEST_PITCH_B, DEST_PITCH, DEST_DETUNE, DEST_GLIDE, DEST_A_PW, DEST_B_PW, DEST_A_LEVEL, DEST_B_LEVEL,
+    DEST_NOISE, DEST_PMOD_OSC_B, DEST_PMOD_ENV, DEST_CUTOFF, DEST_RESONANCE, DEST_FIL_ENV_AMT, DEST_VCA, DEST_VOLUME,
+    DEST_LFO_RATE, DEST_LFO_AMOUNT, DEST_LFO_TO_PITCH, DEST_LFO_TO_FILTER, DEST_LFO_TO_PW,
+    DEST_LFO2_RATE, DEST_LFO2_AMOUNT, DEST_LFO2_TO_PITCH, DEST_LFO2_TO_FILTER, DEST_LFO2_TO_PW,
+    DEST_AMP_ATT, DEST_AMP_DEC, DEST_AMP_SUS, DEST_AMP_REL, DEST_FIL_ATT, DEST_FIL_DEC, DEST_FIL_SUS, DEST_FIL_REL,
+    DEST_ENV3_ATT, DEST_ENV3_DEC, DEST_ENV3_SUS, DEST_ENV3_REL, DEST_ENV4_ATT, DEST_ENV4_DEC, DEST_ENV4_SUS, DEST_ENV4_REL,
+    DEST_MACRO1, DEST_MACRO2, DEST_MORPH, DEST_ARP_CHAOS, DEST_CHORD_VOICING, DEST_CC_OUT_A, DEST_CC_OUT_B,
+};
+_Static_assert(sizeof source_order == SRC_COUNT - 1 && sizeof dest_order == DEST_COUNT, "every source and destination in the scroll");
+
+// The one after `current` in `order` (n long), `step` (+1 / -1) that way; from one not in it, the first or the last
+static int scroll_next(const uint8_t *order, int n, int current, int step)
+{
+    for (int i = 0; i < n; i++)
+        if (order[i] == current)
+            return order[(i + step + n) % n];
+    return order[step > 0 ? 0 : n - 1];
+}
 
 // A depth in tenths: a whole number as ever, the rest with its point, on the display's last digits: 53.5, -53.5, -5.5
 static void show_depth(int tenths)
@@ -1107,6 +1158,10 @@ static void assign_hold(void)
         browse_begin();
 }
 
+// VALUE on a route's depth: half cycles closer than these move it 3 or 2 at a time, slower ones 1
+#define DEPTH_FAST_MS 40
+#define DEPTH_MEDIUM_MS 80
+
 // Handles a control event while assigning or browsing. Returns 1 if it was used.
 static int assign_event(control_kind_t kind, int index, int32_t value)
 {
@@ -1194,23 +1249,25 @@ static int assign_event(control_kind_t kind, int index, int32_t value)
         int step = assign_steps > 0 ? 1 : -1;
         assign_steps = 0;
         if (!assign_source_taken) { // scroll the sources, until one is taken
-            assign_source = (assign_source + step + SRC_COUNT) % SRC_COUNT;
-            if (!assign_source)
-                assign_source = step > 0 ? 1 : SRC_COUNT - 1;
+            assign_source = scroll_next(source_order, (int)sizeof source_order, assign_source, step);
             display_text(source_names[assign_source]);
             display_until = 0;
         } else if (!depth_stage) { // scroll the destinations (names only), until one is taken
-            assign_dest = assign_dest == DEST_NONE ? (step > 0 ? 0 : DEST_COUNT - 1)
-                                                    : (assign_dest + step + DEST_COUNT) % DEST_COUNT;
+            assign_dest = scroll_next(dest_order, (int)sizeof dest_order, assign_dest, step);
             assign_confirmed = 0;
             display_text(dest_names[assign_dest]);
             display_until = 0;
             show_value_at = 0;
-        } else { // the depth: a step per half cycle, -99..99 takes a few turns
+        } else { // the depth: a step per half cycle, more the faster it turns (#55): 0 to 99 in about a turn
+            static uint32_t depth_at; // the last step's time
+            uint32_t gap = ms_ticks - depth_at;
+            int by = gap < DEPTH_FAST_MS ? 3 : gap < DEPTH_MEDIUM_MS ? 2 : 1;
+            depth_at = ms_ticks;
             int layer = synth_edit_layer();
             int tenths = synth_route_tenths(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest);
-            // between two whole numbers, the next one that way: 53.5 goes to 54 or to 53
-            int depth = tenths % 10 ? tenths / 10 + (step * tenths > 0 ? step : 0) : tenths / 10 + step;
+            // between two whole numbers, the next one that way first: 53.5 goes to 54 or to 53
+            int depth = (tenths % 10 ? tenths / 10 + (step * tenths > 0 ? step : 0) : tenths / 10 + step) + (by - 1) * step;
+            depth = depth > 99 ? 99 : depth < -99 ? -99 : depth;
             if (!synth_set_route(layer, (mod_source_t)assign_source, (mod_dest_t)assign_dest, depth))
                 display_text("FULL");
             else
@@ -1237,14 +1294,32 @@ static int shift_pot_last[POT_COUNT];
 static float shift_acc[POT_COUNT];
 static uint32_t shift_value_at; // when to show the secondary's value (after its name)
 static int shift_value, shift_pot = -1;
+// For a moment after a tap, VALUE sets the tempo: while `tAP` or the tempo after it is what shows (#54)
+static uint32_t tempo_until, tempo_serial;
+static int tempo_steps;
 static int shift_value_pot = -1, shift_value_lfo; // whose it is (-1: the tapped tempo), which outlives letting go of Shift
+// Drift, the LFO's delay and fade, unison detune and the macro offsets go where their knob points under Shift, and pick
+// up as a loaded patch's knobs do (issue 41: turned by how far, they clamped at the ends and drifted off the knob, and
+// GLIDE at the bottom left Drift no way down). The rest stay relative: a step, a number, a route or on / off.
+static int shift_from[POT_COUNT];      // the reading at the last look: Shift going on, then each move
+static uint32_t shift_taken;           // a bit per knob that has picked its value up since Shift went on
+static uint8_t shift_taken_key[POT_COUNT]; // what it picked up: the LFO or the layer (another one waits again)
+static int shift_value_waiting;        // the value shows with a dot: the knob hasn't picked it up
+static int shift_absolute(int pot)
+{
+    return pot == POT_GLIDE || pot == POT_LFO_FREQ || pot == POT_LFO_AMOUNT || pot == POT_MASTER_TUNE || pot == POT_CUTOFF
+        || pot == POT_RESONANCE;
+}
 
 static void shift_set(int on)
 {
     synth_set_shift(on);
     display_led(LED_SYNC_SOURCE, on);
-    for (int i = 0; i < POT_COUNT; i++)
+    for (int i = 0; i < POT_COUNT; i++) {
         shift_pot_last[i] = -1;
+        shift_from[i] = controls_pot(i);
+    }
+    shift_taken = 0;
     shift_acc[POT_PMOD_FIL_ENV] = 0; // P.UP's quarter turn is counted within one press
     shift_pot = -1;
 }
@@ -1280,7 +1355,28 @@ static mod_dest_t velocity_route_dest(int pot) { return pot == POT_MASTER_VOL ? 
 static void show_shift_value(void)
 {
     int pot = shift_value_pot;
-    if ((pot == POT_LFO_FREQ || pot == POT_LFO_AMOUNT) && lfo_sync[shift_value_lfo] == LFO_SYNC_CLOCK)
+    char text[8];
+    if (shift_value_waiting && (pot == POT_LFO_FREQ || pot == POT_LFO_AMOUNT) && lfo_sync[shift_value_lfo] == LFO_SYNC_CLOCK) {
+        const char *name = lfo_note_name(lfo_note_step((float)shift_value / 99.0f));
+        int n = 0;
+        for (; name[n] && n < 6; n++)
+            text[n] = name[n];
+        text[n] = '.';
+        text[n + 1] = 0;
+        display_text(text);
+    } else if (shift_value_waiting) { // a number, and the dot a knob in pickup shows
+        int v = shift_value < 0 ? -shift_value : shift_value, i = 3;
+        text[0] = text[1] = text[2] = text[3] = ' ';
+        do {
+            text[i--] = (char)('0' + v % 10);
+            v /= 10;
+        } while (v && i >= 0);
+        if (shift_value < 0 && i >= 0)
+            text[i] = '-';
+        text[4] = '.';
+        text[5] = 0;
+        display_text(text);
+    } else if ((pot == POT_LFO_FREQ || pot == POT_LFO_AMOUNT) && lfo_sync[shift_value_lfo] == LFO_SYNC_CLOCK)
         display_text(lfo_note_name(lfo_note_step((float)shift_value / 99.0f)));
     else if (pot == POT_NOISE && !shift_value)
         display_text("ALL");
@@ -1290,6 +1386,10 @@ static void show_shift_value(void)
         show_depth(synth_route_tenths(synth_edit_layer(), SRC_VELOCITY, velocity_route_dest(pot)));
     else
         display_number(shift_value);
+    if (pot < 0 && tempo_until && display_serial() == tempo_serial + 1) // the tempo right after its tAP: VALUE still sets it
+        tempo_serial = display_serial();
+    if (pot >= 0)
+        mark_edit();
 }
 
 // No route to adjust and no slot for one: as synth_set_route(), a route waiting at 0 gives up its slot
@@ -1302,8 +1402,8 @@ static int velocity_route_full(int layer, mod_dest_t dest)
     return 1;
 }
 
-// A knob turned under Shift: the secondary it nudges, by `delta` of 4095
-static void shift_turn(int pot, int delta)
+// A knob turned under Shift: the secondary it nudges, by `delta` of 4095, or sets from `reading` (shift_absolute())
+static void shift_turn(int pot, int delta, int reading)
 {
     static const struct { uint8_t pot; char name[5]; int16_t low, high; } table[] = {
         {POT_LFO_FREQ, "dLY", 0, 99},    {POT_LFO_AMOUNT, "FAdE", 0, 99}, {POT_GLIDE, "drFt", 0, 99},
@@ -1340,28 +1440,48 @@ static void shift_turn(int pot, int delta)
     case POT_MASTER_VOL: case POT_FIL_ENV_AMT: value = synth_route(layer, SRC_VELOCITY, velocity_route_dest(pot)); break;
     default: value = synth_cc_number(1); break;
     }
-    // on / off: a quarter turn. The rest a little over the range per sweep: a pot's ends fall short of 0 and 4095, and
-    // this knob only moves the value by turning, so one sweep has to reach both ends (issue 11: no channel 16)
-    float span = pot == POT_PMOD_FIL_ENV ? 4.0f : (float)(table[t].high - table[t].low) * 1.15f;
-    shift_acc[pot] += (float)delta * span / 4095.0f;
-    int step = (int)shift_acc[pot], before = value;
-    shift_acc[pot] -= (float)step;
-    // A negative route on the VCA does nothing on its own, but it's somebody's: it shows as it is, and goes only when the
-    // knob goes up, from 0 (the web page's knob, the same). Everything else moves by the step and stops at its ends.
-    if (!(pot == POT_MASTER_VOL && value < 0 && step <= 0)) {
-        value = (pot == POT_MASTER_VOL && value < 0 ? 0 : value) + step;
-        value = value < table[t].low ? table[t].low : value > table[t].high ? table[t].high : value;
+    shift_value_waiting = 0;
+    int before = value;
+    if (shift_absolute(pot)) {
+        int low = table[t].low, range = table[t].high - low;
+        int to = low + (int)((float)reading * (float)range / 4095.0f + 0.5f);
+        int from = low + (int)((float)shift_from[pot] * (float)range / 4095.0f + 0.5f);
+        uint8_t key = (uint8_t)(pot == POT_LFO_FREQ || pot == POT_LFO_AMOUNT ? which : pot == POT_CUTOFF || pot == POT_RESONANCE ? layer : 0);
+        shift_from[pot] = reading;
+        if (!(shift_taken >> pot & 1) || shift_taken_key[pot] != key) {
+            // turned onto the value or past it, or pickup off (the knob jumps it as soon as it moves)
+            if (!synth_pickup() || to == value || (from - value) * (to - value) < 0) {
+                shift_taken |= 1u << pot;
+                shift_taken_key[pot] = key;
+            } else
+                shift_value_waiting = 1;
+        }
+        if (!shift_value_waiting)
+            value = to;
+    } else {
+        // on / off: a quarter turn. The rest a little over the range per sweep: a pot's ends fall short of 0 and 4095, and
+        // this knob only moves the value by turning, so one sweep has to reach both ends (issue 11: no channel 16)
+        float span = pot == POT_PMOD_FIL_ENV ? 4.0f : (float)(table[t].high - table[t].low) * 1.15f;
+        shift_acc[pot] += (float)delta * span / 4095.0f;
+        int step = (int)shift_acc[pot];
+        shift_acc[pot] -= (float)step;
+        // A negative route on the VCA does nothing on its own, but it's somebody's: it shows as it is, and goes only when the
+        // knob goes up, from 0 (the web page's knob, the same). Everything else moves by the step and stops at its ends.
+        if (!(pot == POT_MASTER_VOL && value < 0 && step <= 0)) {
+            value = (pot == POT_MASTER_VOL && value < 0 ? 0 : value) + step;
+            value = value < table[t].low ? table[t].low : value > table[t].high ? table[t].high : value;
+        }
+        // Resting at 0 takes the route off, and the knob's smallest move is more than a step of VE.F: a slow turn stops there, a sweep goes on
+        if (pot == POT_FIL_ENV_AMT && value * before < 0 && step >= -3 && step <= 3) {
+            value = 0;
+            shift_acc[pot] = 0;
+        }
+        // A route's fraction past an end is no part of the depth: turning up from 0 adds the route after the same turn each time.
+        // Nor is P.UP's, whose step is a quarter turn: from either end the other is that far away
+        if ((velocity_route_pot(pot) || pot == POT_PMOD_FIL_ENV)
+            && ((value <= table[t].low && shift_acc[pot] < 0) || (value >= table[t].high && shift_acc[pot] > 0)))
+            shift_acc[pot] = 0;
     }
-    // Resting at 0 takes the route off, and the knob's smallest move is more than a step of VE.F: a slow turn stops there, a sweep goes on
-    if (pot == POT_FIL_ENV_AMT && value * before < 0 && step >= -3 && step <= 3) {
-        value = 0;
-        shift_acc[pot] = 0;
-    }
-    // A route's fraction past an end is no part of the depth: turning up from 0 adds the route after the same turn each time.
-    // Nor is P.UP's, whose step is a quarter turn: from either end the other is that far away
-    if ((velocity_route_pot(pot) || pot == POT_PMOD_FIL_ENV)
-        && ((value <= table[t].low && shift_acc[pot] < 0) || (value >= table[t].high && shift_acc[pot] > 0)))
-        shift_acc[pot] = 0;
     switch (pot) {
     case POT_LFO_FREQ: lfo_delay[which] = (uint8_t)value; break;
     case POT_LFO_AMOUNT: lfo_fade[which] = (uint8_t)value; break;
@@ -1494,8 +1614,12 @@ static void clock_tap(void)
     }
     display_text("tAP");
     display_until = 0;
+    tempo_until = ms_ticks + 2000; // the name, then the tempo's 1.5 s
+    tempo_serial = display_serial();
+    tempo_steps = 0;
     shift_value = (int)(clock_bpm + 0.5f);
     shift_value_pot = -1;
+    shift_value_waiting = 0; // a tempo, not a knob
     shift_value_at = ms_ticks + 500;
 }
 
@@ -1519,6 +1643,8 @@ static int sys_setting_count(int page)
     case PAGE_SYS_CC_A: case PAGE_SYS_CC_B: return 127; // controllers 1-127
     case PAGE_SYS_CLOCK: return 3;
     case PAGE_SYS_TEMPO: return 271; // 30-300 BPM
+    case PAGE_SYS_HOLD: return 21;  // as ever, stay, 2-20 s (1 s would be shorter than ever)
+    case PAGE_SYS_BEAT: return 2;
     case PAGE_SYS_OUT: {
         static const uint8_t counts[OUT_PAGES] = {3, 3, 17, 2, 2, 2};
         return counts[alt_page % OUT_PAGES];
@@ -1542,6 +1668,8 @@ static int sys_setting_get(int page)
         return (bpm < 30 ? 30 : bpm > 300 ? 300 : bpm) - 30;
     }
     case PAGE_SYS_OUT: return host_setting_get(out_page_setting());
+    case PAGE_SYS_HOLD: return store_midi_out(STORE_DISPLAY_HOLD);
+    case PAGE_SYS_BEAT: return !(store_midi_out(STORE_PANEL_FLAGS) & 1); // on: it blinks
     default: return store_init_patch();
     }
 }
@@ -1558,6 +1686,8 @@ static void sys_setting_set(int page, int value)
     case PAGE_SYS_CLOCK: clock_set_source(value); break;
     case PAGE_SYS_TEMPO: clock_set_bpm((float)(value + 30)); break;
     case PAGE_SYS_OUT: host_setting_set(out_page_setting(), value); break;
+    case PAGE_SYS_HOLD: store_set_midi_out(STORE_DISPLAY_HOLD, value); break;
+    case PAGE_SYS_BEAT: store_set_midi_out(STORE_PANEL_FLAGS, !value); break;
     default: store_set_init_patch(value); break;
     }
 }
@@ -1568,8 +1698,12 @@ static void sys_show_setting(int page)
     int v = sys_setting_get(page);
     if (page == PAGE_SYS_CHANNEL && !v)
         display_text("ALL");
-    else if (page == PAGE_SYS_PICKUP)
+    else if (page == PAGE_SYS_PICKUP || page == PAGE_SYS_BEAT)
         display_text(v ? "on" : "OFF");
+    else if (page == PAGE_SYS_HOLD && v < 2)
+        display_text(v ? "StAY" : "Auto");
+    else if (page == PAGE_SYS_HOLD)
+        display_number(v);
     else if (page == PAGE_SYS_CLOCK)
         display_text(clocks[v]);
     else if (page == PAGE_SYS_OUT) {
@@ -1639,7 +1773,9 @@ static void idle_display(void)
     else if (typed_digits && (saving || preset_mode)) {
         char text[6] = {'P', ' ', typed_digits == 2 ? (char)('0' + typed_value / 10) : ' ', (char)('0' + typed_value % 10), 0};
         display_text(text);
-    } else if (saving || preset_mode)
+    } else if (turned_patch >= 0 && preset_mode && !saving)
+        show_turned(turned_patch);
+    else if (saving || preset_mode)
         show_patch(current_patch);
     else
         display_text("PAnL");
@@ -2046,6 +2182,7 @@ static void show_switch(int index, int on, int always)
     }
     display_text(text);
     display_until = ms_ticks + 1000;
+    mark_edit();
 }
 
 static void control_event(control_kind_t kind, int index, int32_t value)
@@ -2155,8 +2292,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     if (kind == CONTROL_SWITCH && index == SWITCH_SYNC_IN_A && value && clock_source == CLOCK_SYNC_IN)
         sync_in_pulse();
     if (shift_active() && kind == CONTROL_POT && !adsr_pot_index(index)) { // the ADSR knobs: Env 3 / 4, by the engine
-        if (shift_pot_last[index] >= 0)
-            shift_turn(index, (int)value - shift_pot_last[index]);
+        if (shift_pot_last[index] >= 0 || shift_absolute(index)) // an absolute one goes by the reading from its first move
+            shift_turn(index, shift_pot_last[index] >= 0 ? (int)value - shift_pot_last[index] : 0, (int)value);
         shift_pot_last[index] = (int)value;
         return;
     }
@@ -2240,10 +2377,25 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         return;
     if (kind == CONTROL_SWITCH && index == SWITCH_LFO_SHAPE)
         step_lfo_shape(1);
-    if (kind == CONTROL_ENCODER && shape_until && (int32_t)(ms_ticks - shape_until) < 0) {
+    if (kind == CONTROL_ENCODER && shape_until && (int32_t)(ms_ticks - shape_until) < 0 && display_serial() == shape_serial) {
         shape_steps += (int)value;
         if (shape_steps >= 4 || shape_steps <= -4)
             step_lfo_shape(shape_steps > 0 ? 1 : -1);
+        return;
+    }
+    if (kind == CONTROL_ENCODER && tempo_until && (int32_t)(ms_ticks - tempo_until) < 0 && display_serial() == tempo_serial
+        && !menu_open && !saving && !assigning && !browsing) {
+        tempo_steps += (int)value;
+        if (tempo_steps >= 4 || tempo_steps <= -4) { // a click cycle a BPM, Shift ten, as the system menu's tempo page
+            int bpm = (int)(clock_bpm + 0.5f) + (tempo_steps > 0 ? 1 : -1) * (shift_active() ? 10 : 1);
+            tempo_steps = 0;
+            clock_set_bpm((float)bpm);
+            shift_value_at = 0; // the tempo now, not after the name
+            display_number((int)(clock_bpm + 0.5f));
+            display_until = ms_ticks + 1500;
+            tempo_until = display_until;
+            tempo_serial = display_serial();
+        }
         return;
     }
     if (kind == CONTROL_ENCODER && nudge_pot >= 0 && display_serial() == nudge_serial && display_until
@@ -2259,6 +2411,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             display_text(text);
             display_until = ms_ticks + 1500;
             nudge_serial = display_serial();
+            mark_edit();
             free_shown_pot = -1; // the value shows now, not the knob
         }
         encoder_patch_steps = 0; // in preset mode too: the knob's value is on the display, not a patch
@@ -2297,6 +2450,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         static const char names[3][5] = {"OFF", "HALF", "FULL"};
         display_text(names[controls_keytrack()]); // keyboard tracking
         display_until = ms_ticks + 1000;
+        mark_edit();
     }
     if (kind == CONTROL_POT) {
         // a per-layer knob still in pickup shows the edit layer's value, with a dot
@@ -2306,6 +2460,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         }
         synth_pot_touched(index, (int)value); // turned: one resting on its value takes it now, so no stale dot
         int pending = synth_pot_pending(index);
+        // the same knob reported again where it came to rest (controls.c) keeps a VALUE turn that has begun
+        int same = nudge_pot == index && display_serial() == nudge_serial;
         float knob = pending ? synth_pot_value(index) : synth_knob_snap(index, (float)value / 4095.0f);
         char text[8];
         param_value_text(synth_pot_param(index), synth_edit_layer(), knob, text, 0);
@@ -2318,11 +2474,13 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         }
         display_text(text);
         display_until = ms_ticks + 1500;
+        mark_edit();
         nudge_pot = index == POT_MASTER_VOL ? -1 : index; // VALUE adjusts it while it shows (M VOL isn't stored)
         nudge_param = synth_pot_param(index);
         nudge_layer = synth_edit_layer();
         nudge_serial = display_serial();
-        nudge_steps = 0;
+        if (!same)
+            nudge_steps = 0;
         shape_until = 0; // the last thing on the display owns VALUE
         free_shown_pot = -1;
         if (!pending && (index == POT_FREQ_A || index == POT_FREQ_B)
@@ -2400,8 +2558,8 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_BUTTON && index <= BUTTON_9 && value && menu_open) {
         int page = index == BUTTON_0 ? PAGE_DRIFT : index - BUTTON_1; // key 1 = first page, key 0 = the tenth
-        if (menu_system) // the system menu's keys 1-8; 9 and 0 do nothing
-            page = index >= BUTTON_1 && index - BUTTON_1 < PAGE_ALL - PAGE_COUNT ? PAGE_COUNT + index - BUTTON_1 : -1;
+        if (menu_system) // the system menu's keys 1-9, then 0
+            page = PAGE_COUNT + (index == BUTTON_0 ? 9 : index - BUTTON_1);
         if (page < 0)
             ;
         else if (page != menu_page)
@@ -2452,11 +2610,13 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             encoder_patch_steps = 0;
             typed_digits = 0;
             display_until = 0;
-            if (saving)
+            if (saving) {
                 current_patch = n;
-            else
+                show_patch(n);
+            } else {
                 turned_patch = n;
-            show_patch(n);
+                show_turned(n);
+            }
         }
     }
     if (kind == CONTROL_ENCODER && menu_open && menu_page >= 0) {
@@ -2508,6 +2668,9 @@ typedef enum {
     // MIDI out (0.10.0; system-wide): the socket (din.h), notes out (0 off, 1 keys, 2 played), the out channel (0
     // follow, 1-16), clock out, knob moves as CCs, CC A / B out's numbers (0: 12 and 13), program changes out
     SET_MIDI_SOCKET, SET_NOTES_OUT, SET_OUT_CHANNEL, SET_CLOCK_OUT, SET_KNOB_CC, SET_CC_OUT_A, SET_CC_OUT_B, SET_PC_OUT,
+    // the panel (system-wide, after 0.10.0): how long an edit stays on the display (0 as ever, 1 until something else
+    // shows, 2-20 seconds; #61) and the Sync Clock LED off the beat (1; #53). The read-only ones move up by two
+    SET_DISPLAY_HOLD, SET_QUIET_BEAT,
     SET_WRITABLE,                                       // read-only from here
     SET_ENV_SELECT = SET_WRITABLE, SET_PRESET_MODE, SET_CURRENT_PATCH, SET_MORPH, SET_COUNT // morph: set with 44
 } host_setting_t;
@@ -2576,6 +2739,8 @@ static int host_setting_get(int id)
     case SET_KNOB_CC: return store_midi_out(STORE_OUT_FLAGS) >> 1 & 1;
     case SET_CC_OUT_A: case SET_CC_OUT_B: return store_midi_out(id == SET_CC_OUT_A ? STORE_CC_OUT_A : STORE_CC_OUT_B);
     case SET_PC_OUT: return store_midi_out(STORE_OUT_FLAGS) >> 4 & 1;
+    case SET_DISPLAY_HOLD: return store_midi_out(STORE_DISPLAY_HOLD);
+    case SET_QUIET_BEAT: return store_midi_out(STORE_PANEL_FLAGS) & 1;
     case SET_MORPH: return synth_morph_target();
     case SET_ENV_SELECT: return synth_env_select();
     case SET_PRESET_MODE: return preset_mode;
@@ -2603,6 +2768,7 @@ static int host_setting_set(int id, int value)
         [SET_ARP_RANGE] = ARP_RANGE_MAX + 1, [SET_ARP_EXTEND] = ARP_EXTEND_COUNT, [SET_ARP_CHAOS] = ARP_CHAOS_MAX + 1,
         [SET_INIT_PATCH] = PATCH_COUNT + 1, [SET_MIDI_SOCKET] = 3, [SET_NOTES_OUT] = 3, [SET_OUT_CHANNEL] = 17,
         [SET_CLOCK_OUT] = 2, [SET_KNOB_CC] = 2, [SET_CC_OUT_A] = 128, [SET_CC_OUT_B] = 128, [SET_PC_OUT] = 2,
+        [SET_DISPLAY_HOLD] = 21, [SET_QUIET_BEAT] = 2,
     };
     if (id < 0 || id >= SET_WRITABLE || value < 0 || value >= counts[id] || (id == SET_UNISON_VOICES && value < 2))
         return 0;
@@ -2710,6 +2876,8 @@ static int host_setting_set(int id, int value)
         store_set_midi_out(id == SET_CC_OUT_A ? STORE_CC_OUT_A : STORE_CC_OUT_B, value);
         cc_out_sent[id == SET_CC_OUT_B] = -1; // the value goes out again on the new number
         break;
+    case SET_DISPLAY_HOLD: store_set_midi_out(STORE_DISPLAY_HOLD, value); break;
+    case SET_QUIET_BEAT: store_set_midi_out(STORE_PANEL_FLAGS, value); break;
     default:
         synth_set_lfo_shape((id - SET_SHAPE_L1_LFO1) / 2, (id - SET_SHAPE_L1_LFO1) % 2, value);
         break;
@@ -3991,8 +4159,17 @@ int main(void)
         cycles_engine = DWT_CYCCNT - t0;
 
         if (display_until && (int32_t)(now - display_until) > 0) {
-            display_until = 0;
-            idle_display();
+            // an edit still showing: kept until something else shows, or for the setting's seconds from when it showed
+            int hold = store_midi_out(STORE_DISPLAY_HOLD), edit = hold && display_serial() == edit_serial;
+            uint32_t until = edit_at + (uint32_t)hold * 1000u;
+            if (edit && hold == 1)
+                display_until = 0; // it stays: nothing transient is on the display any more
+            else if (edit && (int32_t)(now - until) < 0)
+                display_until = until;
+            else {
+                display_until = 0;
+                idle_display();
+            }
         }
         if (link_led_until && (int32_t)(now - link_led_until) > 0) {
             link_led_until = 0;
@@ -4004,7 +4181,7 @@ int main(void)
         }
         if (saving || recording)
             display_led(LED_REC, (now / (recording ? 125 : 250)) & 1); // faster while recording steps
-        display_led(LED_SYNC_CLOCK, lfo_beat_phase() < 0.12f); // the beat, from whichever clock
+        display_led(LED_SYNC_CLOCK, !(store_midi_out(STORE_PANEL_FLAGS) & 1) && lfo_beat_phase() < 0.12f); // the beat, from whichever clock, unless it's off (#53)
         // signed: the press is stamped from ms_ticks during the poll, which can be a tick past `now`, and unsigned
         // that wrapped into a hold at once (a tap of Arp Assign opened Browse, a tap of Sync Clock restarted the bar)
         if (sync_press_at && (int32_t)(now - sync_press_at) >= HOLD_MS) {
@@ -4040,6 +4217,7 @@ int main(void)
                 param_value_text(synth_pot_param(free_shown_pot), synth_edit_layer(), synth_knob_snap(free_shown_pot, (float)raw / 4095.0f), text, 0);
                 display_text(text);
                 display_until = free_shown_until = now + 1500;
+                mark_edit();
                 if (nudge_pot == free_shown_pot)
                     nudge_serial = display_serial(); // still that knob's value: VALUE still adjusts it
             }
@@ -4067,8 +4245,8 @@ int main(void)
             assign_press_at = 0;
             assign_hold();
         }
-        if (assigning)
-            display_led(LED_ARP_ASSIGN, (now / 250) & 1);
+        if (assigning) // slow while it waits for a source, fast once it has one: the destination and depth (#58)
+            display_led(LED_ARP_ASSIGN, (now / (assign_source_taken ? 100 : 250)) & 1);
         if (browsing && !display_until && browse_frame_now() != browse_frame)
             browse_show();
         tc = DWT_CYCCNT;

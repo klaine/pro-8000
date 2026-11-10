@@ -339,13 +339,14 @@ class SwiftParity(unittest.TestCase):
         self.assertEqual(names, pro800.SETTING_NAMES)
 
     def test_setting_names(self):
-        self.assertEqual(len(pro800.SETTING_NAMES), 108)
+        self.assertEqual(len(pro800.SETTING_NAMES), 110)
         self.assertEqual(pro800.SETTING_NAMES.index("midi-channel"), 77)
         self.assertEqual(pro800.SETTING_NAMES.index("env-count 2 env4"), 74)
         self.assertEqual(pro800.SETTING_NAMES.index("lfo-restart"), 86)
         self.assertEqual(pro800.SETTING_NAMES[91:], ["unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
                                                      "midi-socket", "notes-out", "out-channel", "clock-out", "knob-cc", "cc-out-a",
-                                                     "cc-out-b", "pc-out", "env-select", "preset-mode", "patch", "morph"])
+                                                     "cc-out-b", "pc-out", "display-hold", "beat-led", "env-select", "preset-mode",
+                                                     "patch", "morph"])
 
     def test_lfo_note_times_read_the_same(self):
         """Swift can't run here: the same formula, version and condition as pro800.py's, read off the source."""
@@ -483,9 +484,9 @@ class ReadOnly(unittest.TestCase):
         self.assertIn("init-patch           none (the built-in sound)\n", out)
 
     def test_settings_of_0_10_0_with_midi_out(self):
-        self.synth.settings = [0] * 108
+        self.synth.settings = [0] * 110
         s = self.synth.settings
-        s[96], s[97], s[98], s[99], s[101], s[103], s[104], s[106] = 2, 2, 5, 1, 20, 1, 3, 4
+        s[96], s[97], s[98], s[99], s[101], s[103], s[106], s[108] = 2, 2, 5, 1, 20, 1, 3, 4
         out, code = run(self.synth, "settings")
         self.assertEqual(code, 0)
         for line in ("midi-socket          merge", "notes-out            played", "out-channel          5", "clock-out            on",
@@ -498,20 +499,46 @@ class ReadOnly(unittest.TestCase):
                            (("set", "cc-out-b", "default"), [0x7D, 102, 0, 0]), (("set", "pc-out", "on"), [0x7D, 103, 0, 1])):
             with self.subTest(argv=argv):
                 synth = FakeSynth()
-                synth.settings = [0] * 108
+                synth.settings = [0] * 110
                 run(synth, *argv)
                 self.assertEqual(synth.sent[-1], request_bytes(*sent))
         for cc in ("1", "64", "120", "0", "128"):  # a CC with its own meaning (the firmware refuses it too), or none
             with self.subTest(cc=cc):
                 synth = FakeSynth()
-                synth.settings = [0] * 108
+                synth.settings = [0] * 110
                 out, code = run(synth, "set", "cc-out-a", cc)
                 self.assertNotEqual(code, 0, out)
                 self.assertEqual(synth.sent, [], "nothing sent")
         synth = FakeSynth()
-        synth.settings = [0] * 108
+        synth.settings = [0] * 110
         run(synth, "set", "cc-out-a", "20")
         self.assertEqual(synth.sent[-1], request_bytes(0x7D, 101, 0, 20))
+
+    def test_the_display_hold_and_the_beat_led(self):
+        self.synth.settings = [0] * 110
+        s = self.synth.settings
+        out, _ = run(self.synth, "settings")
+        self.assertIn("display-hold         auto (as ever)\n", out)
+        self.assertIn("beat-led             on (blinks on the beat)\n", out)
+        s[104], s[105] = 7, 1
+        out, _ = run(self.synth, "settings")
+        self.assertIn("display-hold         7 s\n", out)
+        self.assertIn("beat-led             off (quiet)\n", out)
+        for argv, sent in ((("set", "display-hold", "auto"), [0x7D, 104, 0, 0]), (("set", "display-hold", "stay"), [0x7D, 104, 0, 1]),
+                           (("set", "display-hold", "20"), [0x7D, 104, 0, 20]), (("set", "beat-led", "off"), [0x7D, 105, 0, 1]),
+                           (("set", "beat-led", "on"), [0x7D, 105, 0, 0])):
+            with self.subTest(argv=argv):
+                synth = FakeSynth()
+                synth.settings = [0] * 110
+                run(synth, *argv)
+                self.assertEqual(synth.sent[-1], request_bytes(*sent))
+        for bad in ("1", "21", "never"):
+            with self.subTest(bad=bad):
+                synth = FakeSynth()
+                synth.settings = [0] * 110
+                out, code = run(synth, "set", "display-hold", bad)
+                self.assertNotEqual(code, 0, out)
+                self.assertEqual(synth.sent, [])
 
     def test_settings_of_an_older_firmware(self):
         self.synth.settings = self.synth.settings[:82]

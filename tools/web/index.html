@@ -48,9 +48,10 @@
   #scr-top { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; opacity: .7; }
   #scr-big { font-size: 19px; font-weight: 600; letter-spacing: .03em; margin: 1px 0; }
   #scr-sub { font-size: 10px; opacity: .55; }
+  #scr-sub:empty::before { content: "\00a0"; } /* an empty line keeps its height, so the header doesn't jump (#57) */
   #scr-big.renamable { cursor: text; }
   #scr-big.renamable:hover { text-decoration: underline dotted; text-underline-offset: 4px; }
-  #scr-editrow:not([hidden]) { display: flex; gap: 12px; align-items: baseline; margin: 1px 0; font-size: 19px; font-weight: 600; letter-spacing: .03em; }
+  #scr-editrow:not([hidden]) { display: flex; gap: 12px; align-items: baseline; margin: 1px 0 0; /* the field's underline is the 1px */ font-size: 19px; font-weight: 600; letter-spacing: .03em; }
   #scr-edit { flex: 1; min-width: 0; padding: 0; border: 0; border-bottom: 1px dashed currentColor; border-radius: 0; background: none;
               color: inherit; font: inherit; letter-spacing: inherit; text-shadow: inherit; outline: none; }
   .hdr-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -492,18 +493,18 @@
         <tr><td><kbd>Seq 1</kbd> / <kbd>Seq 2</kbd></td><td>Choose the layer the knobs edit. Hold one and turn FREQ A or B: the knob's quarter picks that oscillator's tuning mode, bottom to top <code class="lcd">SEnI</code> <code class="lcd">OCt</code> <code class="lcd">FrEE</code> <code class="lcd">FIHd</code>.</td></tr>
         <tr><td>Hold <kbd>Rec</kbd> + <kbd>Seq 1</kbd></td><td>Record steps from MIDI <code class="lcd">rSEq</code> (REC blinks fast): each note is the next step <code class="lcd">St 3</code>, <kbd>Seq 2</kbd> a rest, <kbd>Rec</kbd> or <kbd>Seq 1</kbd> ends <code class="lcd">donE</code>. The first note is offset 0. <kbd>Rec</kbd> then saves it with the patch.</td></tr>
         <tr><td><kbd>Arp Up-Dn</kbd></td><td>LFO knobs, Shape button and LFO routing edit LFO 1 or LFO 2 (LED lit = LFO 2) <code class="lcd">LFO1</code> <code class="lcd">LFO2</code></td></tr>
-        <tr><td><kbd>Arp Assign</kbd></td><td>Mod assign: the mod matrix (LED blinks) <code class="lcd">SrC</code></td></tr>
-        <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways (until a knob is touched)</td></tr>
+        <tr><td><kbd>Arp Assign</kbd></td><td>Mod assign: the mod matrix (LED blinks: slowly for the source, fast once it's taken) <code class="lcd">SrC</code></td></tr>
+        <tr><td><kbd>LFO Shape</kbd></td><td>Next shape at every press; for 2 s after, <kbd>VALUE</kbd> steps both ways (until a knob or another button shows on the display)</td></tr>
         <tr><td><kbd>VALUE</kbd> after a knob</td><td>While a knob's value shows (1.5 s), a click cycle moves it a tenth <code class="lcd">53.4</code> (Free tuning a tenth of a semitone, a stepped knob a step); the knob then waits until turned, and a save keeps it. Not in a menu, a save or MOD ASSIGN; Shift + <kbd>VALUE</kbd> still steps ten patches</td></tr>
         <tr><td>Keyboard-tracking switch</td><td>Keyboard tracking, as printed (a loaded patch's value holds until it moves)</td></tr>
         <tr data-needs="chord"><td><kbd>Unison</kbd></td><td><code class="lcd">Un.on</code> / <code class="lcd">Un.oF</code>. Turned on with 2 or more keys held: they're the patch's chord <code class="lcd">CHrd</code>, and every key plays it (in place of the unison stack); with one key or none, plain unison and no chord. The pedal pressed over 2 or more keys in Unison takes a new chord too. Saved with the patch; Unison off keeps it</td></tr>
         <tr><td>Waveform, Sync, PMOD, LFO routing buttons</td><td>As printed; each press shows what now sounds: an oscillator's waves in fixed places, saw, tri, square <code class="lcd">A.St_</code> <code class="lcd">b.oFF</code>, the others <code class="lcd">SY.on</code> <code class="lcd">PA.oF</code> <code class="lcd">PF.on</code> <code class="lcd">Fr.on</code></td></tr>
-        <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
-        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span>; M VOL / FIL ENV AMT → the edit layer's Velocity routes to the VCA and the cutoff, the page's Velocity knobs (<code class="lcd">VE.A</code> / <code class="lcd">VE.F</code>; firmware 0.9.4 and up)<span data-needs="pickup">; PMOD FIL ENV → knob pickup <code class="lcd">P.UP</code> <code class="lcd">on</code> / <code class="lcd">OFF</code> (a quarter turn; on firmware before 0.9.4 it's FIL ENV AMT)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page<span data-needs="initPatch">; Settings: the system menu</span>; 0: panic.</td></tr>
+        <tr><td><kbd>Sync Clock</kbd></td><td>Tap the tempo (LED blinks on the beat; right after a tap <kbd>VALUE</kbd> sets it), hold to restart the bar, Shift + press cycles the clock: <code class="lcd">nIdI</code> <code class="lcd">Int</code> <code class="lcd">SYnC</code>.</td></tr>
+        <tr><td><kbd>Sync Source</kbd></td><td>Shift: hold, or press twice to latch (LED). Drift, the LFO's delay / fade, detune and the macro offsets go where the knob points, with pickup (a dot until it's reached); the rest move by how far the knob turns. Filter ADSR knobs → Env 3, amp ADSR knobs → Env 4; LFO FREQ / AMOUNT → the LFO's delay / fade; GLIDE → drift; M TUNE → detune; FINE → bend range; CUTOFF / RESONANCE → macro offsets; A / B LEVEL → CC A / B numbers<span data-needs="midiChannel">; NOISE → the MIDI channel (<code class="lcd">CHnL</code>)</span>; M VOL / FIL ENV AMT → the edit layer's Velocity routes to the VCA and the cutoff, the page's Velocity knobs (<code class="lcd">VE.A</code> / <code class="lcd">VE.F</code>; firmware 0.9.4 and up)<span data-needs="pickup">; PMOD FIL ENV → knob pickup <code class="lcd">P.UP</code> <code class="lcd">on</code> / <code class="lcd">OFF</code> (a quarter turn; on firmware before 0.9.4 it's FIL ENV AMT)</span>. With Rec: compare; Perf: undo the last load or init (sequence, morph target and name too; again redoes); Preset: save here; Seq 1 / 2: copy the layer; 1-9: a Settings page<span data-needs="initPatch">; Settings: the system menu</span>; 0: panic.</td></tr>
         <tr><td><kbd>Preset</kbd></td><td>Preset mode (a patch loaded) ↔ manual mode (the whole panel live; the display shows <code class="lcd">PAnL</code>)</td></tr>
         <tr><td><kbd>Rec</kbd></td><td>Save: it blinks, pick a slot, <kbd>Rec</kbd> again <code class="lcd">donE</code></td></tr>
         <tr><td><kbd>Perf</kbd></td><td>Hold (0.6 s): the init sound (one saw, filter open, velocity → VCA 70 and → cutoff 20)<span data-needs="initPatch">, or your init patch <code class="lcd">InIt.</code>; a tap only says <code class="lcd">HoLd</code></span></td></tr>
-        <tr><td><kbd>Settings</kbd></td><td>The settings menu <code class="lcd">SEt</code> (keys 0-9 below)<span data-needs="initPatch">. Held, or Shift + Settings: the system menu <code class="lcd">SYS</code> (LED blinking): 1 <code class="lcd">CHnL</code>, 2 <code class="lcd">P.UP</code>, 3 <code class="lcd">CC.A</code>, 4 <code class="lcd">CC.b</code>, 5 <code class="lcd">CLoC</code>, 6 <code class="lcd">tEnP</code>, 7 <code class="lcd">InIt</code> (your init patch)<span data-needs="midiOut">, 8 <code class="lcd">dIn</code> MIDI out (Arp Up-Dn: <code class="lcd">nOtE</code> <code class="lcd">CH.ou</code> <code class="lcd">CL.ou</code> <code class="lcd">Pt.CC</code> <code class="lcd">PC.ou</code>)</span>; Shift + <kbd>VALUE</kbd> moves ten</span></td></tr>
+        <tr><td><kbd>Settings</kbd></td><td>The settings menu <code class="lcd">SEt</code> (keys 0-9 below)<span data-needs="initPatch">. Held, or Shift + Settings: the system menu <code class="lcd">SYS</code> (LED blinking): 1 <code class="lcd">CHnL</code>, 2 <code class="lcd">P.UP</code>, 3 <code class="lcd">CC.A</code>, 4 <code class="lcd">CC.b</code>, 5 <code class="lcd">CLoC</code>, 6 <code class="lcd">tEnP</code>, 7 <code class="lcd">InIt</code> (your init patch)<span data-needs="midiOut">, 8 <code class="lcd">dIn</code> MIDI out (Arp Up-Dn: <code class="lcd">nOtE</code> <code class="lcd">CH.ou</code> <code class="lcd">CL.ou</code> <code class="lcd">Pt.CC</code> <code class="lcd">PC.ou</code>)</span><span data-needs="displayHold">, 9 <code class="lcd">diSP</code> how long an edit stays on the display, 0 <code class="lcd">bEAt</code> the beat LED</span>; Shift + <kbd>VALUE</kbd> moves ten</span></td></tr>
         <tr><td><kbd>Tune</kbd></td><td>Autotune, about 25 s, silent <code class="lcd">tUnE</code></td></tr>
       </table>
     </section>
@@ -520,7 +521,7 @@
     <section class="cs">
       <h3>Patches</h3>
       <ul>
-        <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a 3 s pause ends it), or <kbd>VALUE</kbd> steps through them, further the faster it turns (<kbd>Shift</kbd> + <kbd>VALUE</kbd>: ten at a time, round the ends), and loads when it rests (<code class="lcd">P  7</code>, <code class="lcd">P128</code>). An empty slot loads the init sound.</li>
+        <li><b>Load:</b> in preset mode, type the number (1-128; a third digit or a 3 s pause ends it), or <kbd>VALUE</kbd> steps through them, further the faster it turns (<kbd>Shift</kbd> + <kbd>VALUE</kbd>: ten at a time, round the ends), and loads once it has rested half a second, a dot until then (<code class="lcd">P  7.</code>, then <code class="lcd">P  7</code>). An empty slot loads the init sound.</li>
         <li><b>Save:</b> <kbd>Rec</kbd>, two digits or <kbd>VALUE</kbd>, <kbd>Rec</kbd>. <kbd>Preset</kbd> cancels.<span data-needs="initPatch"> <kbd>Perf</kbd> instead of the second <kbd>Rec</kbd>: saved there, and it's your init patch.</span></li>
         <li><b>Init:</b> hold <kbd>Perf</kbd>, then <kbd>Rec</kbd> to keep it anywhere.</li>
         <li>A patch keeps both layers, settings, routes, LFO shapes and step patterns, and its sequence. M VOL isn't stored.</li>
@@ -823,6 +824,14 @@
       in pickup). CC A / B out are mod destinations: the routes' sum as a CC. System-wide, stored a second after a
       change; on the synth: the system menu's key 8 (<code class="lcd">dIn</code>), Arp Up-Dn for its pages.</p>
     <div class="row" id="midi-out-row"></div>
+  </section>
+  <section data-needs="displayHold">
+    <h2>Panel</h2>
+    <p class="hint">How long a knob's or a button's value stays on the display before the patch number comes back: as
+      ever (a second or so), until something else shows, or 2-20 seconds. And whether the Sync Clock LED blinks on the
+      beat. System-wide, stored a second after a change; on the synth: the system menu's keys 9 (<code class="lcd">diSP</code>)
+      and 0 (<code class="lcd">bEAt</code>).</p>
+    <div class="row" id="panel-row"></div>
   </section>
   <section data-needs="ccMap">
     <h2>Controllers</h2>
@@ -1383,6 +1392,7 @@ const FEATURES = {
   chord: ["initPatch", "chord memory and its voicing"],
   ccMap: ["initPatch", "your own CC map, and every parameter by NRPN"],
   midiOut: ["midiSocket", "MIDI out: the THRU socket, notes, clock and knobs"],
+  displayHold: ["displayHold", "how long an edit stays on the display, and a quiet beat LED"],
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -4644,6 +4654,11 @@ buildPiano(); relabel(); buildPots(); buildSwitches(); buildKeys(); buildDisplay
 buildPanel();
 document.getElementById("pickup-row").append(pickupSelect());
 document.getElementById("init-patch-row").append(initPatchSelect());
+document.getElementById("panel-row").append(
+  settingSelect("An edit on the display", ["As ever", "Stays", ...Array.from({ length: 19 }, (_, k) => `${k + 2} s`)],
+    () => settings && settings.displayHold, v => setSetting(SET_ID.displayHold, v), "how long a knob's or a button's value stays on the display"),
+  settingSelect("Beat LED", ["Blinks on the beat", "Off"], () => settings && settings.quietBeat,
+    v => setSetting(SET_ID.quietBeat, v), "the Sync Clock button's LED on the beat, or quiet"));
 document.getElementById("midi-out-row").append(
   settingSelect("THRU socket", ["Thru: the IN socket's messages", "Out: the synth's", "Merge: both"], () => settings && settings.midiSocket,
     v => setSetting(SET_ID.midiSocket, v), "what the THRU socket sends (system-wide)"),

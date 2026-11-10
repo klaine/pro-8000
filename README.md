@@ -46,7 +46,8 @@ The user manual is [MANUAL.md](MANUAL.md).
   - Stage times in seconds, or in note values (1/32 to 8 bars) at the clock's tempo.
 - **Shift:** a second layer on the knobs (LFO delay and fade, drift, detune, bend range, macro offsets, CC
   numbers, the MIDI channel, knob pickup on or off) and buttons (compare, undo, quick save, layer copy, settings pages, panic).
-  Hold Settings for the system menu (MIDI channel, pickup, CC A / B, clock, your init patch, MIDI out); hold Perf
+  Hold Settings for the system menu (MIDI channel, pickup, CC A / B, clock, your init patch, MIDI out, how long an edit
+  stays on the display, the beat LED); hold Perf
   for the init sound or your own init patch. VALUE fine-adjusts the knob on the display, a tenth at a time.
 - **Mod matrix:** 16 routes per layer, assigned from the panel in three steps (source, destination, depth: MOD
   ASSIGN on Arp Assign) and browsed by number, with two macros that are destinations and sources at once.
@@ -242,8 +243,9 @@ multiplexers at once, so every knob is read every 32 ms, with a small dead band 
 two LFOs and four envelopes share the same knobs, a knob whose job changes goes into pickup: the sound keeps the stored
 value until the knob is turned past it (a dot after the number on the display until then), or, with pickup turned off
 (Shift + PMOD FIL ENV), until it moves, when the value jumps to it. Shift is the Sync Source button, held or
-double-pressed to latch; under it the ADSR knobs edit Env 3 and Env 4, every other knob nudges a secondary value by
-how far it moves, and the buttons get second jobs. The display shows real units: 737 Hz of cutoff, 1.25 s of
+double-pressed to latch; under it the ADSR knobs edit Env 3 and Env 4, every other knob sets a secondary value
+(drift, the LFO's delay and fade, detune and the macro offsets where the knob points, with pickup; the rest by how far
+it moves), and the buttons get second jobs. The display shows real units: 737 Hz of cutoff, 1.25 s of
 attack, -12 semitones, or a clock division.
 
 ### Where things are stored

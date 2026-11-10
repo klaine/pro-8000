@@ -1021,6 +1021,7 @@ let settingNames: [String] = ["lfo-sync", "lfo-trigger", "layers", "split", "key
        "osc-tune 1 a", "osc-tune 1 b", "osc-tune 2 a", "osc-tune 2 b", "pickup", "link", "lfo-cycles", "lfo2-cycles", "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)",
        "route-both 2 (0-7)", "route-both 2 (8-15)", "unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
        "midi-socket", "notes-out", "out-channel", "clock-out", "knob-cc", "cc-out-a", "cc-out-b", "pc-out",
+       "display-hold", "beat-led",
        "env-select", "preset-mode", "patch", "morph"]
 let linkNames = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 let curveNames = ["analog", "linear", "swell"]
@@ -1052,6 +1053,7 @@ func setSetting() {
         "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | " +
         "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | init-patch none|<slot> | " +
         "midi-socket thru|out|merge | notes-out off|keys|played | out-channel follow|<1-16> | clock-out|knob-cc|pc-out on|off | " +
+        "display-hold auto|stay|<2-20 s> | beat-led on|off | " +
         "cc-out-a|cc-out-b default|<1-127, not 1 6 32 38 64 96-101 120-127> | " +
         "shape <layer 1|2> <lfo 1|2> \(shapeNames.joined(separator: "|")) | lfo2-dests <layer 1|2> none|pitch,filter,pw | " +
         "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | " +
@@ -1094,6 +1096,10 @@ func setSetting() {
         (id, v) = (98, 0)
     } else if args.count == 2, args[0] == "out-channel", let c = Int(args[1]), (1...16).contains(c) {
         (id, v) = (98, c)
+    } else if args.count == 2, args[0] == "display-hold", let h = ["auto": 0, "stay": 1][args[1]] ?? Int(args[1]).flatMap({ (2...20).contains($0) ? $0 : nil }) {
+        (id, v) = (104, h) // how long an edit stays on the display (after 0.10.0, system-wide)
+    } else if args.count == 2, args[0] == "beat-led", ["on", "off"].contains(args[1]) {
+        (id, v) = (105, args[1] == "off" ? 1 : 0) // the Sync Clock LED on the beat, or quiet
     } else if args.count == 2, let i = ["clock-out": 99, "knob-cc": 100, "pc-out": 103][args[0]], ["on", "off"].contains(args[1]) {
         (id, v) = (UInt8(i), args[1] == "on" ? 1 : 0)
     } else if args.count == 2, ["cc-out-a", "cc-out-b"].contains(args[0]), args[1] == "default" {
@@ -1284,6 +1290,8 @@ func settings() {
         case 98: text = v == 0 ? "follow (the MIDI channel, 1 with all)" : String(v)
         case 99, 100, 103: text = v != 0 ? "on" : "off"
         case 101, 102: text = v != 0 ? "CC \(v)" : "CC \(i == 101 ? 12 : 13) (default)"
+        case 104: text = v == 0 ? "auto (as ever)" : v == 1 ? "stay (until something else shows)" : "\(v) s"
+        case 105: text = v != 0 ? "off (quiet)" : "on (blinks on the beat)"
         case settingNames.firstIndex(of: "env-select")!: text = ["filter and amp", "env 3", "env 4", "env 3 / env 4 (Shift)"][safe: v] ?? text
         case settingNames.firstIndex(of: "patch")!: text = slotName(v)
         case settingNames.firstIndex(of: "morph")!: text = v == 0 ? "none" : slotName(v - 1)

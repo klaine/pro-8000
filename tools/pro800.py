@@ -1218,6 +1218,7 @@ SETTING_NAMES = (["lfo-sync", "lfo-trigger", "layers", "split", "keytrack", "lfo
                     "lfo-restart", "route-both 1 (0-7)", "route-both 1 (8-15)", "route-both 2 (0-7)", "route-both 2 (8-15)",
                     "unison-voices", "arp-range", "arp-extend", "arp-chaos", "init-patch",
                     "midi-socket", "notes-out", "out-channel", "clock-out", "knob-cc", "cc-out-a", "cc-out-b", "pc-out",
+                    "display-hold", "beat-led",
                     "env-select", "preset-mode", "patch", "morph"])
 LINK_NAMES = ["amp-env", "filter-env", "env3", "env4", "lfo1", "lfo2", "filter"]
 SOCKET_NAMES = ["thru", "out", "merge"]  # the THRU socket (0.10.0)
@@ -1262,6 +1263,7 @@ def set_setting():
              "lfo-delay|lfo-fade <lfo 1|2> <0-99> | cc-a|cc-b <controller 1-127> | macro <layer 1|2> <1|2> <offset -99..99> | "
              "clock midi|internal|sync-in | bpm <30-300> | midi-channel all|<1-16> | pickup on|off | init-patch none|<slot> | "
              "midi-socket thru|out|merge | notes-out off|keys|played | out-channel follow|<1-16> | clock-out|knob-cc|pc-out on|off | "
+             "display-hold auto|stay|<2-20 s> | beat-led on|off | "
              "cc-out-a|cc-out-b default|<1-127, not 1 6 32 38 64 96-101 120-127> | "
              f"shape <layer 1|2> <lfo 1|2> {'|'.join(SHAPE_NAMES)} | lfo2-dests <layer 1|2> none|pitch,filter,pw | "
              "cycle <layer 1|2> none|amp,filter,env3,env4 | steps <layer 1|2> <lfo 1|2> <x.x.xx.. (1-16 steps)> | "
@@ -1305,6 +1307,10 @@ def set_setting():
         setting = (97, NOTES_OUT_NAMES.index(args[1]))
     elif n == 2 and name == "out-channel" and (v := 0 if args[1] == "follow" else int_in(args[1], 1, 16)) is not None:
         setting = (98, v)
+    elif n == 2 and name == "display-hold" and (v := {"auto": 0, "stay": 1}.get(args[1], int_in(args[1], 2, 20))) is not None:
+        setting = (104, v)  # how long an edit stays on the display (after 0.10.0, system-wide)
+    elif n == 2 and name == "beat-led" and args[1] in ("on", "off"):
+        setting = (105, int(args[1] == "off"))  # the Sync Clock LED on the beat, or quiet
     elif n == 2 and name in ("clock-out", "knob-cc", "pc-out") and args[1] in ("on", "off"):
         setting = ({"clock-out": 99, "knob-cc": 100, "pc-out": 103}[name], int(args[1] == "on"))
     elif (n == 2 and name in ("cc-out-a", "cc-out-b") and (v := 0 if args[1] == "default" else int_in(args[1], 1, 127)) is not None
@@ -1478,6 +1484,10 @@ def setting_text(i, v):
         return "follow (the MIDI channel, 1 with all)" if v == 0 else str(v)
     if i in (SETTING_NAMES.index("clock-out"), SETTING_NAMES.index("knob-cc"), SETTING_NAMES.index("pc-out")):
         return "on" if v else "off"
+    if i == SETTING_NAMES.index("display-hold"):
+        return "auto (as ever)" if v == 0 else "stay (until something else shows)" if v == 1 else f"{v} s"
+    if i == SETTING_NAMES.index("beat-led"):
+        return "off (quiet)" if v else "on (blinks on the beat)"
     if i in (SETTING_NAMES.index("cc-out-a"), SETTING_NAMES.index("cc-out-b")):
         return f"CC {v}" if v else f"CC {12 if i == SETTING_NAMES.index('cc-out-a') else 13} (default)"
     if i == SETTING_NAMES.index("env-select"):
