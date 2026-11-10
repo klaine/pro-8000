@@ -27,6 +27,10 @@
 //
 // Options after the EEPROM file: --untuned; --no-crystal, where clock_init() fails and USB stays off; --fault, as if the
 // last run crashed; --fault-old, a record whose streak a clean run has cleared; --fault-bad, a record with a bad check word.
+#ifdef __APPLE__ // macOS 26's SDK refuses the ucontext routines without _XOPEN_SOURCE; _DARWIN_C_SOURCE keeps the rest visible
+#define _XOPEN_SOURCE 700
+#define _DARWIN_C_SOURCE
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
