@@ -21,12 +21,13 @@ has moved since its last Tune, press Tune once it's warm: an update keeps the tu
 - [x] #71 on the synth, 2026-11-17: Drift → pitch A 10 with the Drift knob at 0, the held note wanders about ±18 cents.
 - [x] Tune on this machine, then `check`: oscillators within 0.9 cents from note 48 up, filters within 4.3.
 
-## The release build
+## The release build (tried 2026-11-17)
 
-- [ ] `install` of 0.10.5 passes; `version` answers 0.10.5; `fault` shows no record.
-- [ ] The display shows `0. 1 0. 5` for a second and a half at power-up.
-- [ ] `timing` with no notes and with 8 held: no slower than 0.10.0's (NOTES, the 0.10.0 plan's step 1).
-- [ ] `check` within a few cents (Tune first if the synth has moved).
+- [x] `install` of 0.10.5 passes; `version` answers 0.10.5; `fault` shows no record.
+- [ ] The display shows `0. 1 0. 5` for a second and a half at power-up (nobody watched it).
+- [x] `timing` at 0, 1 and 8 voices on the init sound: passes of 1206 / 1420 / 2898 µs against 0.9.5's 1044 / 1254 /
+      2710 (NOTES, "Timing on 0.10.5"); 0.10.0 itself was never measured with notes, so this is 0.10.0 and 0.10.5 together.
+- [x] `check` within a few cents: oscillators 3.4 at worst, filters 1.9 (note 36's octave misreads aside).
 
 ## Still to try by hand
 

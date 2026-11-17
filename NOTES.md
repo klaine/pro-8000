@@ -3060,3 +3060,22 @@ Asked for: the cheap ones of the open list. VERSION stays 0.10.0.
   2.2 cents except the slowest row (-5830, one bad reading). Erratic rather than a new limit; not followed up.
 - Both flashes from P62 (0.10.0, then the branch again): settings, layers, routes and the sequence compared equal after
   the four unsaved edits were put back as before. `fault`: no record.
+
+## Timing on 0.10.5 (2026-11-17)
+
+0.10.5 installed from P62 (`install`: `03 31`, 525 messages, `01 00 00`, `running firmware 0.10.5`; `fault` no record).
+The same four unsaved P62 edits were lost to the restart and put back; settings, layers, routes and the sequence compared
+equal afterwards, and again after the timing on the init sound and P62's reload. `check`: oscillators within 3.4 cents,
+filters within 1.9 (note 36's octave misreads aside). `timing` as the 0.9.5 table was measured (init sound, layers off,
+the notes held from one process, five samples, the median; `scratchpad/timing/measure.py`, not kept):
+
+| Voices | Engine | Refresh | of which ticks | Pass average | Longest in 10 s |
+|---|---|---|---|---|---|
+| 0 | 353 µs | 757 µs | 37 µs | 1206 µs | 2989 µs |
+| 1 | 357 µs | 982 µs | 49 µs | 1420 µs | 3218 µs |
+| 8 | 414 µs | 2337 µs | 235 µs | 2898 µs | 4607 µs |
+
+Against 0.9.5: the engine 323 / 331 / 383 → 353 / 357 / 414, the refresh 660 / 878 / 2212 → 757 / 982 / 2337, the pass
+1044 / 1254 / 2710 → 1206 / 1420 / 2898 (+7-16 %). That's 0.10.0 (MIDI out, chords, the CC map, NRPN) and 0.10.5
+together: 0.10.0 was only timed without notes, on P80 (pass 1141). The VCAs are written every 0.72 ms with eight voices.
+
