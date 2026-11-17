@@ -1,0 +1,285 @@
+{
+"version": "0.9.5",
+"slots": {
+"1": {
+"name": "Deep Sub",
+"group": "bass"
+},
+"2": {
+"name": "Acid Line",
+"group": "bass"
+},
+"3": {
+"name": "Reese Growl",
+"group": "bass"
+},
+"4": {
+"name": "Sync Punch",
+"group": "bass"
+},
+"5": {
+"name": "Fat Stab",
+"group": "bass"
+},
+"6": {
+"name": "Clock Wobble",
+"group": "bass"
+},
+"7": {
+"name": "PWM Bass",
+"group": "bass"
+},
+"8": {
+"name": "PolyMod Bass",
+"group": "bass"
+},
+"9": {
+"name": "Sync Lead",
+"group": "lead"
+},
+"10": {
+"name": "Wide Lead",
+"group": "lead"
+},
+"11": {
+"name": "Press to Scream",
+"group": "lead"
+},
+"12": {
+"name": "Hollow Square",
+"group": "lead"
+},
+"13": {
+"name": "Scoop Whistle",
+"group": "lead"
+},
+"14": {
+"name": "Velo Glide",
+"group": "lead"
+},
+"15": {
+"name": "Brass Solo",
+"group": "lead"
+},
+"16": {
+"name": "Human Lead",
+"group": "lead"
+},
+"17": {
+"name": "Vintage Poly",
+"group": "poly"
+},
+"18": {
+"name": "Poly Brass",
+"group": "poly"
+},
+"19": {
+"name": "Combo Organ",
+"group": "poly"
+},
+"20": {
+"name": "Poly Sync",
+"group": "poly"
+},
+"21": {
+"name": "E Piano",
+"group": "poly"
+},
+"22": {
+"name": "Poly Press",
+"group": "poly"
+},
+"23": {
+"name": "Old Poly",
+"group": "poly"
+},
+"24": {
+"name": "Cycling Wah",
+"group": "poly"
+},
+"25": {
+"name": "Warm Pad",
+"group": "pad"
+},
+"26": {
+"name": "Analog Strings",
+"group": "pad"
+},
+"27": {
+"name": "Slow Evolve",
+"group": "pad"
+},
+"28": {
+"name": "Breathing Pad",
+"group": "pad"
+},
+"29": {
+"name": "Glass Pad",
+"group": "pad"
+},
+"30": {
+"name": "Dark Choir",
+"group": "pad"
+},
+"31": {
+"name": "Touch Swell",
+"group": "pad"
+},
+"32": {
+"name": "Wide Stack",
+"group": "pad"
+},
+"33": {
+"name": "Clavi",
+"group": "pluck"
+},
+"34": {
+"name": "Kalimba",
+"group": "pluck"
+},
+"35": {
+"name": "Harp",
+"group": "pluck"
+},
+"36": {
+"name": "Pizzicato",
+"group": "pluck"
+},
+"37": {
+"name": "FM Bell",
+"group": "pluck"
+},
+"38": {
+"name": "Velo Pluck",
+"group": "pluck"
+},
+"39": {
+"name": "Dice Pluck",
+"group": "pluck"
+},
+"40": {
+"name": "Marimba",
+"group": "pluck"
+},
+"41": {
+"name": "Trance Bass Seq",
+"group": "arp"
+},
+"42": {
+"name": "Acid Seq",
+"group": "arp"
+},
+"43": {
+"name": "Arp Up Pluck",
+"group": "arp"
+},
+"44": {
+"name": "Ratchet Groove",
+"group": "arp"
+},
+"45": {
+"name": "Lane Sweep",
+"group": "arp"
+},
+"46": {
+"name": "Chance Melody",
+"group": "arp"
+},
+"47": {
+"name": "Swing Walk",
+"group": "arp"
+},
+"48": {
+"name": "Chan Duo Seq",
+"group": "arp"
+},
+"49": {
+"name": "S&H Sci-Fi",
+"group": "fx"
+},
+"50": {
+"name": "Wind & Thunder",
+"group": "fx"
+},
+"51": {
+"name": "Laser",
+"group": "fx"
+},
+"52": {
+"name": "Helicopter",
+"group": "fx"
+},
+"53": {
+"name": "Siren",
+"group": "fx"
+},
+"54": {
+"name": "Glitch Steps",
+"group": "fx"
+},
+"55": {
+"name": "Seismic Drone",
+"group": "fx"
+},
+"56": {
+"name": "Metal Clang",
+"group": "fx"
+},
+"57": {
+"name": "Eight Channels",
+"group": "other"
+},
+"58": {
+"name": "MPE Glide",
+"group": "other"
+},
+"59": {
+"name": "Wheel Morph",
+"group": "other"
+},
+"60": {
+"name": "Split Bass Lead",
+"group": "other"
+},
+"61": {
+"name": "Unison Monster",
+"group": "other"
+},
+"62": {
+"name": "Trance Gate",
+"group": "other"
+},
+"63": {
+"name": "Self Player",
+"group": "other"
+},
+"64": {
+"name": "Two Macros",
+"group": "other"
+},
+"65": {
+"name": "Pad + Arp!",
+"group": "user"
+},
+"66": {
+"name": "BsSQ/LD.Split 1",
+"group": "user"
+},
+"75": {
+"name": "Walk On Glass",
+"group": "arp"
+},
+"76": {
+"name": "Ninth Bloom",
+"group": "arp"
+},
+"77": {
+"name": "Touch Of Chaos",
+"group": "arp"
+},
+"78": {
+"name": "Wheel Of Stars",
+"group": "arp"
+}
+}
+}

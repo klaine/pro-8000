@@ -1,0 +1,37 @@
+/* PRO-8000 V in a browser (web/p8-web.js): the start screen, and the shared patch browser in the editor's colours */
+
+:root {
+  /* presetbrowser.css's tokens from the editor's palette (as Crest sets them from its own) */
+  --pb-bg: var(--panel);
+  --pb-field: var(--panel-2);
+  --pb-raised: #34353a;
+  --pb-line: var(--edge);
+  --pb-line-2: #4c4d53;
+  --pb-text: var(--text);
+  --pb-dim: var(--dim);
+  --pb-faint: #5d5f66;
+  --pb-accent: var(--accent);
+  --pb-on-accent: #fff;
+  --pb-radius: 7px;
+  --pb-mono: var(--mono);
+  --pb-width: 560px;
+}
+.p8-nav { min-width: 0; max-width: 230px; }
+.p8-nav .pb-name { min-width: 0; max-width: 150px; }
+#layers { flex-wrap: nowrap; }
+.p8-nav .pb-step { min-width: 34px; height: 40px; font-size: 18px; }
+.p8-nav .pb-name { min-height: 40px; justify-content: center; }
+
+/* the start screen: over the page, which stays hidden until it has started */
+#p8-start { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px;
+            background: #161719; visibility: visible; font: 14px/1.5 "Inter", "Helvetica Neue", system-ui, sans-serif; color: #e9e7e2; }
+.p8-start-card { max-width: 520px; padding: 28px 30px; border-radius: 12px; background: #232427; border: 1px solid #3a3b40;
+                 box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
+.p8-start-logo { font: 800 26px/1 "Inter", system-ui, sans-serif; letter-spacing: .26em; margin-bottom: 14px; }
+.p8-start-logo span { color: #ff5a3c; letter-spacing: 0; }
+.p8-start-card p { color: #b9b7b2; margin: 0 0 16px; }
+.p8-start-card .p8-start-small { color: #8c8e94; font-size: 12px; margin: 16px 0 0; }
+.p8-start-error { color: #ff7a5c; font-size: 12px; margin: 8px 0 0 !important; }
+#p8-start-button { font: 600 15px/1 "Inter", system-ui, sans-serif; padding: 12px 28px; border-radius: 8px; border: 0;
+                   background: #ff5a3c; color: #fff; cursor: pointer; }
+#p8-start-button:disabled { opacity: .6; cursor: default; }

@@ -1,0 +1,100 @@
+/* PRO-8000 V in the firmware's editor page (ui/p8-app.js): the page as one app window, in the page's own style */
+
+/* Nothing of the page shows until p8-app.js has put the app's controls in (progressive rendering showed the
+   page's own header, Connect button included, for a moment) */
+html { background: #161719; }
+body:not(.p8-ready) { visibility: hidden; }
+
+/* An app, not a page: no text selection outside the fields and the reference text, scrollbars in the page's dark */
+body { user-select: none; -webkit-user-select: none; }
+input, textarea, [contenteditable], pre, #tab-device { user-select: text; -webkit-user-select: text; }
+* { scrollbar-width: thin; scrollbar-color: #3a3b40 #161719; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #161719; }
+::-webkit-scrollbar-thumb { background: #3a3b40; border-radius: 5px; border: 2px solid #161719; }
+::-webkit-scrollbar-thumb:hover { background: #4a4b50; }
+
+/* The page's Connect button and the website's links: here the page is always connected, and links open outside */
+#connect, .guides { display: none !important; }
+
+/* The header's connection group: the mode, what the link is doing, then the page's own status line */
+.hdr-group.p8-conn { flex-direction: column; align-items: flex-start; gap: 5px; }
+.p8-mode { display: inline-flex; align-items: center; border: 1px solid var(--edge); border-radius: 7px; background: var(--panel-2); }
+.p8-mode button { border: 0; border-radius: 0; background: transparent; color: var(--dim); font-size: 11px; font-weight: 600;
+                  letter-spacing: .06em; text-transform: uppercase; padding: 6px 11px; }
+.p8-mode button:first-child { border-radius: 6px 0 0 6px; }
+.p8-mode button + button { border-left: 1px solid var(--edge); }
+.p8-mode button[aria-pressed="true"] { background: var(--well); color: #fff; box-shadow: inset 0 -2px 0 var(--accent); }
+.p8-dot { width: 8px; height: 8px; border-radius: 50%; background: #5a5e68; margin: 0 9px; flex: none; }
+.p8-dot.on { background: var(--ok); }
+.p8-dot.busy { background: #e0b84a; }
+.p8-dot.bad { background: var(--warn); }
+#p8-link-msg { color: var(--dim); font-size: 11px; max-width: 280px; }
+#p8-link-msg[hidden], .p8-dot[hidden], .p8-banks[hidden], .p8-synth[hidden], #p8-clock-row[hidden], #p8-settings [hidden] { display: none; }
+
+/* The tab row's right side: the library's banks, or the synth's controls while linked */
+.p8-tabs-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.p8-banks, .p8-synth { display: inline-flex; align-items: center; gap: 6px; }
+.p8-label { color: var(--dim); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; margin-right: 2px; }
+nav.tabs .p8-tabs-right button { border: 1px solid var(--edge); background: var(--panel-2); color: var(--text); border-radius: 7px;
+                                 padding: 4px 9px; font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+nav.tabs .p8-tabs-right button:hover { background: var(--panel); }
+.p8-tabs-right select, .p8-tabs-right input { padding: 4px 8px; font-size: 12px; }
+#p8-bank { width: 4.5em; }
+#p8-bank-name { width: 13em; }
+.p8-synth label { color: var(--dim); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+#p8-send.armed { background: #8a3b2e; border-color: #c0573f; color: #fff; }
+
+/* The System tab's PRO-8000 V section */
+#p8-library { word-break: break-all; }
+
+/* The effects' section in the editor (ui/p8-fx.js), in the page's own style */
+.extras .sec-p8fx { grid-column: 1 / -1; }
+.sec-p8fx .p8fx-groups { display: grid; gap: 14px 22px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); margin-top: 10px; }
+.sec-p8fx .p8fx-group { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--edge); }
+.sec-p8fx .p8fx-group > .row { justify-content: flex-start; }
+.sec-p8fx .p8fx-title { color: var(--label); font: 800 10px/1 var(--sans); letter-spacing: .22em; text-transform: uppercase; }
+.sec-p8fx .p8fx-state { font: 600 11px/1 var(--mono); color: var(--dim); }
+.sec-p8fx .p8fx-state.on { color: var(--accent); }
+
+/* The on-screen keyboard (ui/p8-keys.js), as Amino's and Crest's players: a bar at the foot of the window */
+.p8k { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; display: grid; grid-template-columns: auto 1fr; grid-template-areas: "ctl ctl" "strips keys";
+       gap: 8px 14px; padding: 8px 18px 12px; background: linear-gradient(#1c1d20, #141416); border-top: 1px solid #000;
+       box-shadow: 0 -1px 0 #2c2d31; user-select: none; -webkit-user-select: none; }
+.p8k.folded { grid-template-areas: "ctl"; grid-template-columns: 1fr; padding-bottom: 8px; }
+.p8k.folded .p8k-keys, .p8k.folded .p8k-strips, .p8k.folded .p8k-ctl > :not(.p8k-fold) { display: none; }
+.p8k-ctl { grid-area: ctl; display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+.p8k-group { display: inline-flex; align-items: center; gap: 6px; }
+.p8k-lbl { color: var(--dim); font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.p8k-oct { font: 12px var(--mono); min-width: 28px; text-align: center; }
+.p8k-btn { padding: 3px 10px; font-size: 12px; }
+.p8k-fold { padding: 3px 10px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); background: transparent; }
+.p8k-tip { margin-left: auto; font-size: 10px; color: var(--dim); }
+.p8k-strips { grid-area: strips; display: flex; gap: 10px; }
+.p8k-strip-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.p8k-strip { position: relative; width: 20px; flex: 1; min-height: 56px; background: var(--well); border: 1px solid #000; border-radius: 6px;
+             touch-action: none; cursor: ns-resize; }
+.p8k-strip i { position: absolute; left: 2px; right: 2px; height: 6px; border-radius: 2px; background: var(--accent); }
+.p8k-keys { grid-area: keys; position: relative; height: 88px; touch-action: none; min-width: 0; }
+.p8k-key { position: absolute; top: 0; border: 1px solid #0008; border-radius: 0 0 6px 6px; cursor: pointer; }
+.p8k-key:not(.black) { height: 100%; background: #e9ebe3; z-index: 1; }
+.p8k-key.black { height: 60%; background: #22251d; z-index: 2; }
+.p8k-key.down { background: var(--accent) !important; }
+.p8k-name { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font: 9px var(--mono); color: #555; }
+.p8k-hint { position: absolute; top: 5px; left: 0; right: 0; text-align: center; font: 9px var(--mono); color: #9a968d; pointer-events: none; }
+.p8k-key.black .p8k-hint { color: #6a6c73; }
+@media (hover: none) { .p8k-hint, .p8k-tip { display: none; } }
+@media (max-width: 700px) { .p8k { grid-template-columns: 1fr; grid-template-areas: "ctl" "keys"; } .p8k-strips { display: none; } }
+.p8k input[type="range"] { accent-color: var(--accent); width: 130px; }
+/* the Play tab's own small piano: the keyboard at the foot is the same, bigger */
+#piano { display: none; }
+
+/* The faceplate as on the synth (the editor's own panel layout, which it keeps for 1280 px and wider), down to 860 px:
+   the app's and the plugin's usual window. Narrower than the editor wants, an oscillator's display goes under its
+   knobs; below 1180 px the panel is scaled as a whole to keep that look (p8-app.js), and below 860 px it's the
+   editor's own stacked layout. */
+@media (min-width: 860px) and (max-width: 1280px) {
+  .face { grid-template-columns: minmax(0, 6.4fr) minmax(0, 1.2fr) minmax(0, 5.85fr) minmax(0, 1.4fr);
+          grid-template-areas: "osca osca brand brand" "oscb oscb flt tune" "pm noise flt tune" "lfo glide amp vol"; }
+}
+
