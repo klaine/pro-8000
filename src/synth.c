@@ -2972,8 +2972,8 @@ void synth_update(float dt)
     // square off: PW at maximum, where the pulse fills the cycle (at the minimum it's still ~5 % wide and heard,
     // issue 7). Osc B's pulse held high is a DC offset in the poly-mod source, though (+103 cents on FREQ A at a
     // quarter amount, +746 on the filter at half), so while poly-mod from osc B reaches either, B goes to the
-    // minimum, as p600fw does. The knob keeps to 5-95 %; routes, like the LFOs, go on past it to the CV's ends, where
-    // the pulse is gone (issue 64)
+    // minimum, as p600fw does. The knob keeps to 5-95 %; routes, like the LFOs, go on past it to the CV's ends: silence
+    // at the top, the oscillator's narrowest pulse (still heard) at the bottom (issue 64)
     float pw_a = PW_CV_BOTTOM + PW_CV_RANGE * (clamp01(shared[POT_A_PW]) + shared_mod[DEST_A_PW] * MOD_PW) + lfo_pw;
     float pw_b = PW_CV_BOTTOM + PW_CV_RANGE * (clamp01(shared[POT_B_PW]) + shared_mod[DEST_B_PW] * MOD_PW) + lfo_pw;
     sh_set(CV_PW_A, sw(SWITCH_A_SQUARE) ? cv_from(pw_a) : 0xFFFF);

@@ -3017,7 +3017,10 @@ Asked for: the cheap ones of the open list. VERSION stays 0.10.0.
   and routes go on to the CV's ends, as MANUAL already said. `MOD_PW` is unchanged, so a route inside the range plays as before
   and the editor's ranges (`DEST_SCALE` 0.5) still hold; only a route that was clipped at an end goes further. From PW 50 a
   single route at 99 reaches CV 0.831 (silent above about 0.86); from PW 78 a route of 60, or 99 via ×1.5, is silent.
-  `test_a_route_takes_the_pulse_width_past_the_knobs_ends`. Not tried on the synth.
+  `test_a_route_takes_the_pulse_width_past_the_knobs_ends`. **On the synth** (2026-11-17, the init sound in RAM, osc A's
+  square alone, A3 at velocity 127, `measure`): PW 99 read 218.1 Hz; PW 99 + Fixed → A PW +99, no 218 Hz, only stray edges
+  (9.84 kHz): silent. PW 0 read 217.7 Hz, and PW 0 + Fixed -99 (CV 0) still 217.6: the bottom never goes silent (issue 7's
+  narrowest pulse), so MANUAL now says silence is the top end's only.
 - **#72 not reproduced:** stack 4 + 4, unison voices 2, glide 9000 on both layers, four 4-note chords in a row: layer 1's
   oscillator CVs equal layer 2's to the step at every 25 ms sample (the stacks are aligned blocks, `allocate()` steps by the
   stack size, and both layers see the same notes in the same order). Inside a stack the voices differ by the unison detune
@@ -3033,3 +3036,8 @@ Asked for: the cheap ones of the open list. VERSION stays 0.10.0.
   ASSIGN's scroll has it after `rAnd`. Names in both tools, `plan.py`, `sound-plan.js` and the editor (bipolar there too);
   the editor refuses it for firmware without `displayHold`, the setting that came with it. 0.10.0 refuses a patch's route
   from source 30 as it does any unknown source (`synth.c` drops it at load), so such a patch plays there without it.
+  **On the synth** (2026-11-17, Drift knob 0, Drift → pitch A 10, A3 held): 14 readings over 12 s wandered 215.5-220.1 Hz
+  (about ±18 cents), each near the last; at 0 the same note read a steady 217.9 Hz.
+- **Second flash** (2026-11-17, 23ec279, VERSION still 0.10.0) from P62: four unsaved edits lost to the restart (A tri on,
+  layer 1 FREQ B 76, A / B levels 44 / 45; stored off, 50, 70, 70), put back with `set button` and `param`; checked after
+  the tests and P62's reload: settings, both layers, routes and the sequence as before. `fault`: no record.

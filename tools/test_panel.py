@@ -7588,8 +7588,8 @@ class WebRanges(PanelTest):
             self.assertPage(dest, -99, self.delta(dest, -99, lambda: self.s.cvs()[cv]) / (top - bottom) * 100, "%")
 
     def test_a_route_takes_the_pulse_width_past_the_knobs_ends(self):
-        """Issue 64: the knob keeps to 5-95 %, a route goes on to the CV's ends, where the pulse is gone (above about
-        0.86 of the CV on every oscillator, NOTES: the pulse width knob scaled to 5-95 %)"""
+        """Issue 64: the knob keeps to 5-95 %, a route goes on to the CV's ends: the pulse is gone above about 0.86 of
+        the CV on every oscillator (NOTES: the pulse width knob scaled to 5-95 %); at 0 it's the narrowest, still heard"""
         self.s.set_button("A_SQUARE", 1)
         self.s.set_button("B_SQUARE", 1)
         self.voice()
