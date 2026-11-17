@@ -7518,6 +7518,34 @@ class WebRanges(PanelTest):
             self.s.ms(50)
             self.assertPage(dest, -99, self.delta(dest, -99, lambda: self.s.cvs()[cv]) / (top - bottom) * 100, "%")
 
+    def test_a_route_takes_the_pulse_width_past_the_knobs_ends(self):
+        """Issue 64: the knob keeps to 5-95 %, a route goes on to the CV's ends, where the pulse is gone (above about
+        0.86 of the CV on every oscillator, NOTES: the pulse width knob scaled to 5-95 %)"""
+        self.s.set_button("A_SQUARE", 1)
+        self.s.set_button("B_SQUARE", 1)
+        self.voice()
+        for dest, name, cv in ((14, "a-pw", 38), (15, "b-pw", 39)):
+            with self.subTest(name=name):
+                self.s.param(0, name, 16383)
+                self.s.ms(50)
+                knob_top = self.s.cvs()[cv]
+                self.assertLess(knob_top, 0.86 * 65535, "the knob alone still leaves a pulse")
+                self.route(dest, 99)
+                self.s.ms(150)
+                self.assertEqual(self.s.cvs()[cv], 65535)
+                self.route(dest, 0)
+                self.s.param(0, name, 13000)  # PW 78, as a patch might have it, and a route of 60
+                self.route(dest, 60)
+                self.s.ms(150)
+                self.assertGreater(self.s.cvs()[cv], 0.88 * 65535, "PW 78 and a route of 60 reach silence")
+                self.route(dest, 0)
+                self.s.param(0, name, 0)
+                self.route(dest, -99)
+                self.s.ms(150)
+                self.assertEqual(self.s.cvs()[cv], 0)
+                self.route(dest, 0)
+                self.s.ms(50)
+
     def test_lfo_to_pw_in_percent_of_full(self):
         self.s.set_button("A_SQUARE", 1)
         self.s.param(0, "a-pw", 0x1000)

@@ -3002,3 +3002,28 @@ Asked for: the cheap ones of the open list. VERSION stays 0.10.0.
   waveforms, Sync, PMOD and LFO routing are latches; keyboard tracking is a three-way switch VALUE can't move). A question for
   the reporter.
 - Flash 109,668 B before docs. Counts: test_panel 943 OK; test_pro800 only the 26 `UpdateFiles` failures on the old `.syx` files.
+
+## The panel-fixes build on the synth, and issues checked after it (2026-11-12 to 2026-11-17, Windows)
+
+- **On the synth:** the panel-fixes build installed on 2026-11-12 (`install`, autotune, `running firmware 0.10.0`; VERSION
+  unchanged) from P60. `fault`: no record. The new `display-hold` and `beat-led` read back. Layer 2's unsaved cutoff (44,
+  stored 57) was lost to the restart and put back with `param`, unsaved; the edit layer too. The user went through the panel
+  checklist (#40-#42, #51-#58, #61, #53, the LFO shape window) and found it working. `check` straight after the install read
+  oscillators 10-34 cents flat (more going up) and filters +200 cents at note 60 falling to 0 at 120, against 3.8 and 6.5 at
+  0.10.0's install; no tuning, CV, DAC or clock code changed, so most likely the synth (cold, moved); recheck warm before `tune`.
+  The `backup` command hung after its version request on this machine; `eeprom` read the image in 5 s.
+- **#64: routes to PW stopped at the knob's 5-95 %.** `synth.c` added `DEST_A_PW` / `DEST_B_PW` inside the `clamp01()` with
+  the knob, so no route could reach the silent ends; LFO → PW was added outside it, so it could. Now the knob alone is clamped
+  and routes go on to the CV's ends, as MANUAL already said. `MOD_PW` is unchanged, so a route inside the range plays as before
+  and the editor's ranges (`DEST_SCALE` 0.5) still hold; only a route that was clipped at an end goes further. From PW 50 a
+  single route at 99 reaches CV 0.831 (silent above about 0.86); from PW 78 a route of 60, or 99 via ×1.5, is silent.
+  `test_a_route_takes_the_pulse_width_past_the_knobs_ends`. Not tried on the synth.
+- **#72 not reproduced:** stack 4 + 4, unison voices 2, glide 9000 on both layers, four 4-note chords in a row: layer 1's
+  oscillator CVs equal layer 2's to the step at every 25 ms sample (the stacks are aligned blocks, `allocate()` steps by the
+  stack size, and both layers see the same notes in the same order). Inside a stack the voices differ by the unison detune
+  only. A layer of four holds two stacks of two, so a 4-note chord plays its last two notes on both layers; `layers off` with
+  unison voices 2 gives four stacks of two. (Probe in the session's scratchpad; not kept.)
+- **Already there:** #60 (the out channel, `CH.ou`, 0.10.0: knob CCs, notes and program changes go out on it, apart from the
+  receive channel); #67 (the reporter solved it with Via); #68's curves (`AnLG`, `LIn`, `SUEL` per envelope).
+- **Left for a feature pass:** #71 (Drift as a source: the per-voice walk exists, `voices[].drift`, but a new source is every
+  tool, the editor and the manual, as release velocity was) and #69 (a key centre for Note: needs a per-patch byte).
