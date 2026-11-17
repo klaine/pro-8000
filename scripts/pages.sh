@@ -49,7 +49,7 @@ GITDIR=$(git rev-parse --absolute-git-dir)
 # from nowhere on the site: carried over as the branch has it (the pushed one first), so a rebuild here keeps it
 KEEP=$(git rev-parse -q --verify refs/remotes/origin/pages || git rev-parse -q --verify refs/heads/pages || true)
 if [ -n "$KEEP" ] && git cat-file -e "$KEEP:v" 2>/dev/null; then
-  git archive "$KEEP" v | tar -x -C "$OUT"
+  git -c core.autocrlf=false archive "$KEEP" v | tar -x -C "$OUT" # as stored: autocrlf would give CRLF on Windows
   echo "== pages: v/ carried over from ${KEEP%"${KEEP#???????}"}"
 fi
 INDEX=$ROOT/build/pages.index
