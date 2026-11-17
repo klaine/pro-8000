@@ -152,6 +152,9 @@ typedef struct {
     float random;     // -1..1, new for every note
     float pressure;   // poly aftertouch, 0..1
     float drift[2], drift_to[2], drift_timer; // pitch and cutoff wander, -1..1
+    float wander, wander_to, wander_timer;    // SRC_DRIFT's walk, -1..1, apart from the knob's
+    uint32_t wander_state;                    // and its own random numbers, so the others' (SRC_RANDOM, Drift, the
+                                              // sequence's chances) stay as they were
     env_t amp, filter, env3, env4;
     uint8_t fresh;                // started since the main loop last asked: write its pitch before its VCA opens
     uint8_t release_velocity;     // its key's release velocity (SRC_RELEASE_VELOCITY), set as the gate goes off
@@ -1187,6 +1190,15 @@ static int allocate(int layer, uint8_t key, int slot, int size)
                 best = v;
         }
     return best;
+}
+
+// xorshift32, -1..1, on a state of its own (SRC_DRIFT's per voice)
+static float wander_signed(uint32_t *state)
+{
+    *state ^= *state << 13;
+    *state ^= *state >> 17;
+    *state ^= *state << 5;
+    return (float)(int32_t)*state / 2147483648.0f;
 }
 
 static float random_signed(void) // xorshift32, -1..1
@@ -2576,6 +2588,7 @@ static float source_value(const voice_t *x, int voice, int layer, int source)
     case SRC_ENV3: return x->env3.level;
     case SRC_ENV4: return x->env4.level;
     case SRC_RANDOM: return x->random;
+    case SRC_DRIFT: return x->wander;
     case SRC_NOTE: return (x->pitch - 60.0f) / 60.0f;
     case SRC_SEQ_A: case SRC_SEQ_B: case SRC_SEQ_C: case SRC_SEQ_D: return seq_lane(source - SRC_SEQ_A);
     default: return 0;
@@ -2587,7 +2600,7 @@ static int bipolar(int source)
 {
     return source == SRC_LFO || source == SRC_LFO2 || source == SRC_RANDOM || source == SRC_NOTE
         || (source >= SRC_SEQ_A && source <= SRC_SEQ_D) || source == SRC_BEND || source == SRC_MACRO1
-        || source == SRC_MACRO2;
+        || source == SRC_MACRO2 || source == SRC_DRIFT;
 }
 
 // The routes the fast ticks evaluate (synth_tick()): from the envelopes and LFOs into pitch, cutoff and the VCA.
@@ -3002,6 +3015,15 @@ static void voice_slow(int v, float dt)
             for (int k = 0; k < 2; k++)
                 x->drift[k] += (x->drift_to[k] - x->drift[k]) * (dt > 0.5f ? 1.0f : dt * 2.0f);
         }
+        // SRC_DRIFT: the same walk, always running (it's a few multiplies), on numbers of its own
+        if (!x->wander_state)
+            x->wander_state = 0x9E3779B9u * (uint32_t)(v + 1);
+        x->wander_timer -= dt;
+        if (x->wander_timer <= 0) {
+            x->wander_to = wander_signed(&x->wander_state);
+            x->wander_timer = 1.2f + 0.8f * wander_signed(&x->wander_state);
+        }
+        x->wander += (x->wander_to - x->wander) * (dt > 0.5f ? 1.0f : dt * 2.0f);
         float drift = (float)drift_amount / 99.0f;
 
         // the terms the ticks build on (voice_cvs()); the fast routes they evaluate themselves

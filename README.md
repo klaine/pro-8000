@@ -51,9 +51,9 @@ The user manual is [MANUAL.md](MANUAL.md).
   for the init sound or your own init patch. VALUE fine-adjusts the knob on the display, a tenth at a time.
 - **Mod matrix:** 16 routes per layer, assigned from the panel in three steps (source, destination, depth: MOD
   ASSIGN on Arp Assign) and browsed by number, with two macros that are destinations and sources at once.
-  - 29 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity and release velocity, mod wheel,
-    aftertouch, pitch bend, pedal, two assignable CCs, CC 74 (timbre), gate, random, note, voice number, a fixed 1,
-    the sequencer's four lanes, the arp note's position and the macros.
+  - 30 sources: LFOs (either side of the middle, or 0 to 1), envelopes, velocity and release velocity, mod wheel,
+    aftertouch, pitch bend, pedal, two assignable CCs, CC 74 (timbre), gate, random, a slow drift, note, voice number,
+    a fixed 1, the sequencer's four lanes, the arp note's position and the macros.
   - 50 destinations: pitch, cutoff, the VCA, mixer and pulse widths, every envelope stage, glide, detune, volume,
     the LFOs' amounts, rates and routings, morph, the macros, Arp Chaos, the chord's voicing and two CCs out.
 - **Autotune:** within about a cent across C1-C8. The tables are stored in the EEPROM.
@@ -228,7 +228,7 @@ before the master volume, so tuning is silent.
 - **LFOs that follow a clock.** MIDI clock ticks jitter, so the interrupts timestamp each tick, the firmware averages
   the interval for the tempo, and between ticks it interpolates the phase: smooth, and still landing on the beat. In
   per-voice mode every voice keeps its own phase from its own note-on; each LFO has a delay and a fade-in per voice.
-- **The mod matrix.** 16 routes per layer, each a source (of 29), a destination (of 50) and a depth from -99 to +99.
+- **The mod matrix.** 16 routes per layer, each a source (of 30), a destination (of 50) and a depth from -99 to +99.
   For every voice the engine adds source × depth to the destination, in every tick for the envelope and LFO sources
   and once a pass for the rest. Pitch depths are squared (10 is a quarter semitone, 99 two octaves), VCA routes
   multiply the amp envelope so nothing opens a silent voice, routes into envelope stages and glide scale the time up

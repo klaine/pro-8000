@@ -2000,7 +2000,7 @@ class ModIds(unittest.TestCase):
 
     def test_the_enums_end_where_the_ids_say(self):
         sources, dests = self.enum("SRC"), self.enum("DEST")
-        self.assertEqual((sources[0], sources[-1], len(sources)), ("SRC_NONE", "SRC_RELEASE_VELOCITY", 30))
+        self.assertEqual((sources[0], sources[-1], len(sources)), ("SRC_NONE", "SRC_DRIFT", 31))
         self.assertEqual((dests[0], dests[-1], len(dests)), ("DEST_PITCH_A", "DEST_CC_OUT_B", 50))
 
     def c_strings(self, name):

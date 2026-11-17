@@ -3025,5 +3025,11 @@ Asked for: the cheap ones of the open list. VERSION stays 0.10.0.
   unison voices 2 gives four stacks of two. (Probe in the session's scratchpad; not kept.)
 - **Already there:** #60 (the out channel, `CH.ou`, 0.10.0: knob CCs, notes and program changes go out on it, apart from the
   receive channel); #67 (the reporter solved it with Via); #68's curves (`AnLG`, `LIn`, `SUEL` per envelope).
-- **Left for a feature pass:** #71 (Drift as a source: the per-voice walk exists, `voices[].drift`, but a new source is every
-  tool, the editor and the manual, as release velocity was) and #69 (a key centre for Note: needs a per-patch byte).
+- **Left for a feature pass:** #69 (a key centre for Note: needs a per-patch byte).
+- **#71: Drift as source 30** (`SRC_DRIFT`, `drFt`, bipolar, once a pass). Its own walk per voice (`wander`, the Drift
+  knob's timing: a new target every 0.4-2 s, approached at dt × 2), always running, on an xorshift of its own per voice
+  (`wander_state`, seeded 0x9E3779B9 × (voice + 1)), so `random_state`'s sequence (Random, the Drift knob's walk, the
+  sequence's chances) is what it was with or without the route: `test_the_other_random_numbers_stay_as_they_were`. MOD
+  ASSIGN's scroll has it after `rAnd`. Names in both tools, `plan.py`, `sound-plan.js` and the editor (bipolar there too);
+  the editor refuses it for firmware without `displayHold`, the setting that came with it. 0.10.0 refuses a patch's route
+  from source 30 as it does any unknown source (`synth.c` drops it at load), so such a patch plays there without it.

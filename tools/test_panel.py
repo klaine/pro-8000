@@ -1397,6 +1397,74 @@ class SystemMenu(PanelTest):
         self.assertEqual(lit, {True}, "steady: the sound menu")
 
 
+class DriftSource(PanelTest):
+    """#71: Drift as source 30, a slow random wander per voice (-1..1), running whatever the Drift knob says, on random
+    numbers of its own."""
+
+    def setUp(self):
+        super().setUp()
+        self.DRIFT = pro800.SOURCE_NAMES.index("drift")
+        self.s.no_routes()
+        self.s.setting("keytrack", 0)
+        self.s.param(0, "fil-env-amt", 8192)  # no envelope on the cutoff
+        self.s.param(0, "cutoff", 8000)
+        self.s.param(0, "amp-sus", 16383)
+
+    def route(self, source, dest, depth):
+        d = depth + 99
+        self.s.request(0x56, 0, source, dest, d >> 7, d & 0x7F)
+
+    def cutoffs(self, voices, seconds, step_ms=100):
+        out = {v: [] for v in voices}
+        for _ in range(int(seconds * 1000 / step_ms)):
+            self.s.ms(step_ms)
+            for v in voices:
+                out[v].append(self.s.cvs()[CV_FIL1 + v])
+        return out
+
+    def test_the_source_number_and_name(self):
+        self.assertEqual(self.DRIFT, 30)
+
+    def test_it_wanders_each_voice_on_its_own_with_the_knob_at_0(self):
+        self.assertEqual(self.s.reply(0x54)[pro800.SETTING_NAMES.index("drift")], 0, "the Drift knob at 0")
+        self.s.note(60)
+        self.s.note(64)
+        self.s.ms(50)
+        voices = self.s.gated()
+        self.assertEqual(len(voices), 2)
+        still = self.cutoffs(voices, 1)
+        for v in voices:
+            self.assertEqual(len(set(still[v])), 1, "no route: the cutoff stays")
+        self.route(self.DRIFT, CUTOFF, 99)
+        moving = self.cutoffs(voices, 6)
+        spans = {v: max(moving[v]) - min(moving[v]) for v in voices}
+        for v in voices:
+            self.assertGreater(spans[v], 2000, f"voice {v} wanders over 6 s: {spans}")
+            steps = [abs(b - a) for a, b in zip(moving[v], moving[v][1:])]
+            self.assertLess(max(steps), spans[v] / 2, "smoothly, not in jumps")
+        self.assertNotEqual(moving[voices[0]], moving[voices[1]], "each voice its own way")
+
+    def test_the_other_random_numbers_stay_as_they_were(self):
+        """Random's per-note values come out the same whether a Drift route runs or not"""
+        def randoms(with_drift):
+            self.s.no_routes()
+            self.route(pro800.SOURCE_NAMES.index("random"), CUTOFF, 99)
+            if with_drift:
+                self.route(self.DRIFT, pro800.DEST_NAMES.index("noise"), 50)
+            got = []
+            for _ in range(6):
+                self.s.note(60)
+                self.s.ms(300)
+                got.append(self.s.cvs()[CV_FIL1 + self.s.gated()[0]])
+                self.s.note_off(60)
+                self.s.ms(50)
+            return got
+        plain = randoms(False)
+        self.tearDown()
+        self.setUp()
+        self.assertEqual(randoms(True), plain)
+
+
 class ReleaseVelocity(PanelTest):
     """#8: release velocity as source 29. A route from it does nothing while the voice's key is down, only after the key
     is up, by its lift (rv x depth); 64 for releases no key made, and for a note-on at velocity 0."""
@@ -4505,11 +4573,11 @@ class ModAssign(PanelTest):
     def test_value_scrolls_sources_and_assign_takes_one(self):
         self.begin()
         names = []
-        for _ in range(29):
+        for _ in range(30):
             self.s.turn(1)
             names.append(self.s.shows())
         self.assertEqual(len(set(names)), len(names), f"every source reads differently: {names}")
-        for wanted in ("SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb", "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP", "rVEL"):
+        for wanted in ("SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb", "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP", "rVEL", "drFt"):
             self.assertIn(readable(segments_of(wanted)), names)
         self.s.press("ASSIGN")
 
@@ -4528,12 +4596,13 @@ class ModAssign(PanelTest):
         r = lambda name: readable(segments_of(name))
         self.begin()
         sources = []
-        for _ in range(29):
+        for _ in range(30):
             self.s.turn(1)
             sources.append(self.s.shows())
         self.assertEqual(sources[:4], [r("LFO1"), r("L1.U"), r("LFO2"), r("L2.U")], "the LFOs first, LFO 2 next to LFO 1")
         self.assertEqual(sources[4:8], [r("FEnV"), r("AEnV"), r("EnV3"), r("EnV4")])
-        self.assertEqual(len(set(sources)), 29, "each once")
+        self.assertEqual(sources[sources.index(r("rAnd")) + 1], r("drFt"), "Drift next to Random (#71)")
+        self.assertEqual(len(set(sources)), 30, "each once")
         self.s.press("ASSIGN")
         self.s.press("ASSIGN")
         self.s.ms(1100)
@@ -10126,7 +10195,7 @@ class WebSmallThings(unittest.TestCase):
         """#8: source 29 is 0.10.0's. To older firmware the page says that, not that the layer's 16 routes are taken."""
         page = source("tools", "web", "index.html")
         blocks = ["const FEATURES", "const feature", "const SOURCES", "const VIA_SOURCE", "const ROUTES", "const routesFull",
-                  "const routesTaken", "const RELEASE_VELOCITY_SOURCE", "const sourceTooNew", "async function addRoute("]
+                  "const routesTaken", "const NEWER_SOURCES", "const sourceTooNew", "async function addRoute("]
         out = run_node(NODE_DRIVER % ("""
         let settings = {}, paramsLayer = 0, layerRoutes = [], sent = [], takes = false;
         const setRoute = async (...a) => { sent.push(a); return takes; }, setRouteVia = async (...a) => { sent.push(a); return takes; };
@@ -10139,6 +10208,11 @@ class WebSmallThings(unittest.TestCase):
         takes = true;
         out.now = await addRoute(29, 3, 40, VIA_SOURCE + 29);
         out.sent = sent.length;
+        out.drift010 = await addRoute(30, 3, 40, 100);
+        out.driftVia010 = await addRoute(25, 3, 40, VIA_SOURCE + 30);
+        out.sentDrift = sent.length;
+        settings = { initPatch: 0, displayHold: 0 };
+        out.driftNow = await addRoute(30, 3, 40, 100);
         report(out);
         """))
         self.assertEqual(out["old"], "Release velocity (key up) needs firmware 0.10.0 or later")
@@ -10148,6 +10222,10 @@ class WebSmallThings(unittest.TestCase):
         self.assertIn("are in use", out["full"])
         self.assertEqual(out["now"], "", "0.10.0 takes it")
         self.assertEqual(out["sent"], 4, "the two refused, then the route and its Via")
+        self.assertEqual(out["drift010"], "Drift (slow wander) needs newer firmware", "#71: Drift came after 0.10.0")
+        self.assertEqual(out["driftVia010"], out["drift010"], "as a Via too")
+        self.assertEqual(out["sentDrift"], 4, "nothing asked of 0.10.0")
+        self.assertEqual(out["driftNow"], "", "firmware with the display hold takes it")
 
     def test_a_knob_edit_sends_52_then_6b_and_plans_never_6b(self):
         page = source("tools", "web", "index.html")

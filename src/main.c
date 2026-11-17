@@ -956,7 +956,7 @@ static uint32_t last_pot_at;     // and when: only a knob touched in the 5 s bef
 static const char source_names[SRC_COUNT][5] = {
     "", "LFO1", "FEnV", "AEnV", "VEL", "nod", "PrES", "EnV3", "EnV4", "rAnd", "notE", "LFO2",
     "SEqA", "SEqb", "SEqC", "SEqd", "L1.U", "L2.U", "GAtE", "tInb",
-    "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP", "rVEL",
+    "bEnd", "PEdL", "CC.A", "CC.b", "VoIC", "FIX", "nAC1", "nAC2", "ArP", "rVEL", "drFt",
 };
 static const char dest_names[DEST_COUNT][6] = {
     "P.A", "P.b", "PIt", "CUt", "F.EA", "P.EA", "L.An", "L.Fr", "L.FL", "VCA",
@@ -973,7 +973,7 @@ _Static_assert(DEST_CC_OUT_B == 49, "a destination's name goes in dest_names, in
 static const uint8_t source_order[] = {
     SRC_LFO, SRC_LFO_UNI, SRC_LFO2, SRC_LFO2_UNI, SRC_FILTER_ENV, SRC_AMP_ENV, SRC_ENV3, SRC_ENV4,
     SRC_VELOCITY, SRC_RELEASE_VELOCITY, SRC_MOD_WHEEL, SRC_AFTERTOUCH, SRC_BEND, SRC_PEDAL, SRC_TIMBRE, SRC_CC_A, SRC_CC_B,
-    SRC_NOTE, SRC_GATE, SRC_VOICE, SRC_ARP_NOTE, SRC_RANDOM, SRC_FIXED,
+    SRC_NOTE, SRC_GATE, SRC_VOICE, SRC_ARP_NOTE, SRC_RANDOM, SRC_DRIFT, SRC_FIXED,
     SRC_SEQ_A, SRC_SEQ_B, SRC_SEQ_C, SRC_SEQ_D, SRC_MACRO1, SRC_MACRO2,
 };
 static const uint8_t dest_order[] = {
