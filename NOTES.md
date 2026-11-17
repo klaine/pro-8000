@@ -3041,3 +3041,22 @@ Asked for: the cheap ones of the open list. VERSION stays 0.10.0.
 - **Second flash** (2026-11-17, 23ec279, VERSION still 0.10.0) from P62: four unsaved edits lost to the restart (A tri on,
   layer 1 FREQ B 76, A / B levels 44 / 45; stored off, 50, 70, 70), put back with `set button` and `param`; checked after
   the tests and P62's reload: settings, both layers, routes and the sequence as before. `fault`: no record.
+
+## The tuning that read off on this machine: stale tables (2026-11-17)
+
+- **What:** after the synth moved to this Windows machine, `check` read the oscillators 7-34 cents flat (more going up)
+  and the filters about +200 cents at note 48 falling to 0 at 120 (+250 straight after a power-up), on 2026-11-12 and
+  again on 2026-11-17; `measure` agreed (A3 at 217.6-218.1 Hz, about -17 cents).
+- **Not the branch:** the released 0.10.0 (rebuilt from v0.10.0 = 154efd6, 107,376 B, as released) installed and read the
+  same. No crystal fault either (USB works; without it it wouldn't).
+- **The cause:** `main()` autotunes at power-up only when `tuning_valid()` fails (no tables, or a new table format); an
+  update keeps the tables, and `install`'s "it tunes first" only held for a format change. The tables were the old
+  setup's. `tune` (24 of 24 rows), then `check`: oscillators within 0.9 cents from note 48 up (note 36's octave misreads
+  as ever), filters within 4.3. So: retune after moving the synth or changing its power; MANUAL's Tuning says so now, and
+  both tools' install message says "up to about 30 s if it has to tune first".
+- **dac-test** on the branch build, the same day: unlike 0.7.8's run (every bus above 0.6 MHz failed), several buses passed
+  up to 10.5 MHz while others failed at scattered speeds (SPI modes 0 and 3 failed throughout, as before; mode 1 failed at
+  0.66 and 2.62 MHz and passed at 10.5). The firmware's 0.5 MHz bit-bang passed as ever, and its S&H sweep stayed within
+  2.2 cents except the slowest row (-5830, one bad reading). Erratic rather than a new limit; not followed up.
+- Both flashes from P62 (0.10.0, then the branch again): settings, layers, routes and the sequence compared equal after
+  the four unsaved edits were put back as before. `fault`: no record.

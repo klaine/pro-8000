@@ -2586,7 +2586,7 @@ func install() {
     args = [path, "--yes"]
     flash() // says why and exits if the bootloader doesn't confirm
     // a first boot after an update also autotunes (about 30 s) before it answers
-    print("waiting for the new firmware (it tunes first, about 30 s)", terminator: "")
+    print("waiting for the new firmware (up to about 30 s if it has to tune first)", terminator: "")
     for _ in 0..<75 {
         pump(1)
         print(".", terminator: ""); fflush(stdout)

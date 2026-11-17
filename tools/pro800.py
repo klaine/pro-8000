@@ -2935,8 +2935,9 @@ def install():
                               f"Restart the MIDI service or replug the USB cable, then run: pro800 flash {path} --yes")
     if run_self("flash", path, "--yes", capture=False).returncode != 0:
         fail("the bootloader didn't confirm the update (what happened is above). Quit anything else using MIDI (SynthTribe, a web page in Chrome) and run this again.")
-    # a first boot after an update also autotunes (about 30 s) before it answers
-    show("waiting for the new firmware (it tunes first, about 30 s)", end="")
+    # a first boot with no tables (or a new table format) autotunes, about 30 s, before it answers; the tables survive
+    # an update, so most boots answer within seconds
+    show("waiting for the new firmware (up to about 30 s if it has to tune first)", end="")
     for _ in range(75):
         time.sleep(1)
         show(".", end="")

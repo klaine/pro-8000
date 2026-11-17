@@ -1123,6 +1123,10 @@ update: its refresh holds slightly different voltages, and the old tables read u
 after the synth has warmed up for best results: the filters keep moving for about an hour after switching on, by nearly 200 cents at
 the low notes when measured on the synth, while the oscillators stay within a couple of cents.
 
+An update keeps the tables, so it doesn't retune by itself. Retune after moving the synth to another place, power supply
+or computer, too: the tables are what was measured where it was. One synth read 7-33 cents flat on the oscillators
+(more going up) and about 200 cents sharp on the low filters after a move, until Tune put it right.
+
 ## The web page
 
 Open https://klaine.github.io/pro-8000/editor/ in **Chrome or Edge**, or start it from the repository with
