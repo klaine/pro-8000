@@ -24,20 +24,20 @@ has moved since its last Tune, press Tune once it's warm: an update keeps the tu
 ## The release build (tried 2026-11-17)
 
 - [x] `install` of 0.10.5 passes; `version` answers 0.10.5; `fault` shows no record.
-- [ ] The display shows `0. 1 0. 5` for a second and a half at power-up (nobody watched it).
+- [x] The display shows `0. 1 0. 5` for a second and a half at power-up.
 - [x] `timing` at 0, 1 and 8 voices on the init sound: passes of 1206 / 1420 / 2898 µs against 0.9.5's 1044 / 1254 /
       2710 (NOTES, "Timing on 0.10.5"); 0.10.0 itself was never measured with notes, so this is 0.10.0 and 0.10.5 together.
 - [x] `check` within a few cents: oscillators 3.4 at worst, filters 1.9 (note 36's octave misreads aside).
 
-## Still to try by hand
+## By hand (tried 2026-11-17, fine)
 
-- [ ] System menu key 9 (`diSP`) set to `StAY` or seconds, and key 0 (`bEAt`) `OFF`: wait over a second, power-cycle,
+- [x] System menu key 9 (`diSP`) set to `StAY` or seconds, and key 0 (`bEAt`) `OFF`: wait over a second, power-cycle,
       both are still set. Put them back.
-- [ ] `diSP` with seconds: a knob's value stays that long, and VALUE fine-adjusts it as long as it shows; with `StAY`,
+- [x] `diSP` with seconds: a knob's value stays that long, and VALUE fine-adjusts it as long as it shows; with `StAY`,
       VALUE fine-adjusts for 1.5 s, then steps the patches.
-- [ ] Drift in MOD ASSIGN: VALUE scrolls to `drFt` right after `rAnd`; Arp Assign takes it; a route of 20 into the
+- [x] Drift in MOD ASSIGN: VALUE scrolls to `drFt` right after `rAnd`; Arp Assign takes it; a route of 20 into the
       cutoff on a held chord: each note's brightness wanders on its own, slowly, with no steps.
-- [ ] #64 by ear: an envelope into A PW from PW 70-80, the pulse thins to nothing and comes back (no click at the edge?).
+- [x] #64 by ear: an envelope into A PW from PW 70-80, the pulse thins to nothing and comes back (no click at the edge?).
 
 ## The editor (Chrome or Edge, `scripts/web.sh`)
 
