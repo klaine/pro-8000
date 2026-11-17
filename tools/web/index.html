@@ -1393,7 +1393,7 @@ const FEATURES = {
   ccMap: ["initPatch", "your own CC map, and every parameter by NRPN"],
   midiOut: ["midiSocket", "MIDI out: the THRU socket, notes, clock and knobs"],
   displayHold: ["displayHold", "how long an edit stays on the display, and a quiet beat LED"],
-  driftSource: ["displayHold", "Drift as a mod source"], // after 0.10.0, as the display hold
+  driftSource: ["displayHold", "Drift as a mod source"], // 0.10.5, as the display hold
 };
 const feature = name => !settings || settings[FEATURES[name][0]] !== undefined;
 const missingFeatures = () => Object.keys(FEATURES).filter(f => !feature(f)).map(f => FEATURES[f][1]);
@@ -3884,9 +3884,9 @@ async function loadRoutes() {
   renderRoutes(true);
 }
 document.getElementById("matrix-refresh").onclick = loadRoutes;
-// Sources the connected firmware may not know yet (release velocity came with 0.10.0, Drift after it): it would refuse
+// Sources the connected firmware may not know yet (release velocity came with 0.10.0, Drift with 0.10.5): it would refuse
 // the route
-const NEWER_SOURCES = { 29: ["releaseVelocity", "firmware 0.10.0 or later"], 30: ["driftSource", "newer firmware"] };
+const NEWER_SOURCES = { 29: ["releaseVelocity", "firmware 0.10.0 or later"], 30: ["driftSource", "firmware 0.10.5 or later"] };
 const sourceTooNew = s => NEWER_SOURCES[s] !== undefined && !feature(NEWER_SOURCES[s][0]);
 // A new route on the edited layer, and its Via unless that's 1: what went wrong, or "" once the synth took them
 async function addRoute(src, dest, depth, via) {

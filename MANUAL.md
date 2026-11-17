@@ -1,6 +1,6 @@
 # PRO-8000: user manual
 
-For PRO-8000 0.9.5, an alternative firmware for the Behringer PRO-800, flashed through the synth's own bootloader.
+For PRO-8000 0.10.5, an alternative firmware for the Behringer PRO-800, flashed through the synth's own bootloader.
 It's an independent project, not affiliated with Behringer or Music Tribe. It exists because Music Tribe, Behringer's
 parent company, published [PRO800-Firmware-Packer](https://github.com/MusicTribeOpenSource/PRO800-Firmware-Packer):
 the main-board
@@ -887,7 +887,7 @@ so for a fast LFO straight into the cutoff route the LFO directly.
 | VALUE / web | Macro 1, Macro 2 | `nAC1` `nAC2` |
 | VALUE / web | Arp note position, 0 lowest to 1 highest of the arp's notes (see Sequencer) | `ArP` |
 | 4 again / VALUE / web | Release velocity, 0 to 1: how fast the key came up (0.10.0) | `rVEL` |
-| VALUE / web | Drift, −1 to 1: a slow random wander, each voice its own (after 0.10.0) | `drFt` |
+| VALUE / web | Drift, −1 to 1: a slow random wander, each voice its own (0.10.5) | `drFt` |
 
 **Release velocity** (`rVEL`) is how fast a key was let go, from keyboards that send it. A route from it does
 nothing while the key is down (so `rVEL` → VCA at 99 doesn't silence a held note; as a Via it's ×1 meanwhile) and
@@ -900,7 +900,7 @@ no key made gives 64, the middle: a sequence's or the arp's step ending, all not
 that key's lift (one whose gate already ended has released at 64). A keyboard without
 release velocity sends one value every time (most send 64, some 0), so the route does the same each time.
 
-**Drift** (`drFt`, after 0.10.0; VALUE scrolls to it next to `rAnd`) is a slow random wander, −1 to 1, every voice its
+**Drift** (`drFt`, 0.10.5; VALUE scrolls to it next to `rAnd`) is a slow random wander, −1 to 1, every voice its
 own: a new target every 0.4 to 2 seconds, glided to. It moves as the Drift setting moves the pitch and cutoff, but it's a
 source of its own and runs whatever Drift is set to, so it can wander anything: a little into the cutoff or PW for
 an old poly's unsteadiness, more into a level or an LFO rate. Unlike the LFOs' `drFt` shape (one wander for the

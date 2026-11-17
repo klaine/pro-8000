@@ -10222,7 +10222,7 @@ class WebSmallThings(unittest.TestCase):
         self.assertIn("are in use", out["full"])
         self.assertEqual(out["now"], "", "0.10.0 takes it")
         self.assertEqual(out["sent"], 4, "the two refused, then the route and its Via")
-        self.assertEqual(out["drift010"], "Drift (slow wander) needs newer firmware", "#71: Drift came after 0.10.0")
+        self.assertEqual(out["drift010"], "Drift (slow wander) needs firmware 0.10.5 or later", "#71: Drift came with 0.10.5")
         self.assertEqual(out["driftVia010"], out["drift010"], "as a Via too")
         self.assertEqual(out["sentDrift"], 4, "nothing asked of 0.10.0")
         self.assertEqual(out["driftNow"], "", "firmware with the display hold takes it")

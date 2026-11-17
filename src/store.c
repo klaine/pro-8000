@@ -155,7 +155,7 @@ static void global_mark(void)
 
 // The global block's bytes. 0-15 from 0.7 (checksum at 12 over 0-11), 16-18 the clock (0.9.0, outside it, range-checked).
 // From 0.10.0 (NOTES: the 0.10.0 plan's allocation table): 19 the init patch (slot + 1), 20-27 for MIDI out (20 the socket,
-// 21 notes out, 22 out channel, 23 flags, 24-25 CC out numbers; after 0.10.0 26 the display hold and 27 the panel's
+// 21 notes out, 22 out channel, 23 flags, 24-25 CC out numbers; from 0.10.5 26 the display hold and 27 the panel's
 // flags, spare until then and so 0), 28-31 a checksum over 16-27. Bytes 20-27
 // are written 0 until they're used, under a valid checksum, so a 0 there must always mean that field's default (CC out
 // 0: its default number, as CC A / B's 0 does). 0.9.5 writes only 0-19, so a block it wrote (any setting changed, a

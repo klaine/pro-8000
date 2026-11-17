@@ -1097,7 +1097,7 @@ func setSetting() {
     } else if args.count == 2, args[0] == "out-channel", let c = Int(args[1]), (1...16).contains(c) {
         (id, v) = (98, c)
     } else if args.count == 2, args[0] == "display-hold", let h = ["auto": 0, "stay": 1][args[1]] ?? Int(args[1]).flatMap({ (2...20).contains($0) ? $0 : nil }) {
-        (id, v) = (104, h) // how long an edit stays on the display (after 0.10.0, system-wide)
+        (id, v) = (104, h) // how long an edit stays on the display (0.10.5, system-wide)
     } else if args.count == 2, args[0] == "beat-led", ["on", "off"].contains(args[1]) {
         (id, v) = (105, args[1] == "off" ? 1 : 0) // the Sync Clock LED on the beat, or quiet
     } else if args.count == 2, let i = ["clock-out": 99, "knob-cc": 100, "pc-out": 103][args[0]], ["on", "off"].contains(args[1]) {

@@ -24,7 +24,7 @@ const SETTINGS = ["lfo1Sync", "lfo1Trigger", "layers", "split", "keytrack", "lfo
   // MIDI out (system-wide; 0.10.0): the THRU socket (thru, out, merge), notes out (off, keys, played), the out channel
   // (0 follow, 1-16), clock out, knob moves as CCs, CC A / B out's numbers (0 the defaults, 12 and 13), program changes out
   "midiSocket", "notesOut", "outChannel", "clockOut", "knobCc", "ccOutA", "ccOutB", "pcOut",
-  // the panel (system-wide, after 0.10.0): how long an edit stays on the display (0 as ever, 1 stay, 2-20 s), the
+  // the panel (system-wide, 0.10.5): how long an edit stays on the display (0 as ever, 1 stay, 2-20 s), the
   // Sync Clock LED off the beat (1)
   "displayHold", "quietBeat",
   "envSelect", "presetMode", "patch", "morph"];

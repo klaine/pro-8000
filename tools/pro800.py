@@ -1308,7 +1308,7 @@ def set_setting():
     elif n == 2 and name == "out-channel" and (v := 0 if args[1] == "follow" else int_in(args[1], 1, 16)) is not None:
         setting = (98, v)
     elif n == 2 and name == "display-hold" and (v := {"auto": 0, "stay": 1}.get(args[1], int_in(args[1], 2, 20))) is not None:
-        setting = (104, v)  # how long an edit stays on the display (after 0.10.0, system-wide)
+        setting = (104, v)  # how long an edit stays on the display (0.10.5, system-wide)
     elif n == 2 and name == "beat-led" and args[1] in ("on", "off"):
         setting = (105, int(args[1] == "off"))  # the Sync Clock LED on the beat, or quiet
     elif n == 2 and name in ("clock-out", "knob-cc", "pc-out") and args[1] in ("on", "off"):

@@ -35,7 +35,7 @@ typedef enum {
     SRC_RELEASE_VELOCITY,      // the key's release velocity, 0..1 (#8, 0.10.0): a route from it does nothing while the voice's
                                // gate is on (as a Via: x1), only after the key is up; 64 for a release no key made
     SRC_DRIFT,                 // a slow random wander per voice, -1..1, like the Drift knob's but its own, whatever that's
-                               // set to: a new target every 0.4-2 s, approached smoothly (#71, after 0.10.0)
+                               // set to: a new target every 0.4-2 s, approached smoothly (#71, 0.10.5)
     SRC_COUNT
 } mod_source_t;
 

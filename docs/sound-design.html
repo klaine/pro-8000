@@ -344,7 +344,7 @@
     <p><strong>Poly aftertouch</strong> is the standout. A controller that sends per-note pressure (the Ableton Move's pads do) moves only the voice playing that note. Route aftertouch to cutoff and one finger can lean into a single note of a chord and open just that note's filter. Channel pressure still works too and moves all voices; each voice uses whichever is larger.</p>
     <p>Two layer modes go further. <strong>MPE</strong> gives every note its own MIDI channel, so each has its own pitch bend (48 semitones), its own pressure and its own slide (CC 74, the <span class="led">tInb</span> source) from an MPE controller. <strong>8CH</strong> gives eight mono lines, one per channel, each with its own bend and pressure, for a sequencer that drives them.</p>
     <p><strong>Release velocity</strong> (<span class="led">rVEL</span>, 0.10.0; key 4 pressed twice in MOD ASSIGN) is how fast a key came up, 0 to 1, from keyboards that send it. Its routes do nothing while the key is down and act from the moment it comes up, so it shapes only the end of a note: into the amp and filter release with negative depths, a quick lift cuts the tail short and dark and a slow one lets it ring (P80 Lift Tail). A keyboard without it sends the same lift every time, so the route then does the same each time.</p>
-    <p><strong>Drift</strong> (<span class="led">drFt</span>, newer than 0.10.0; VALUE scrolls to it next to random) is a slow random wander, every voice its own: a new target every 0.4 to 2 seconds, glided to. It is the motion the Drift setting gives the pitch and cutoff, but as a source it runs whatever Drift is set to and can go anywhere: a few points into the cutoff or a pulse width for an old poly's unsteadiness, more into a level or an LFO rate for something that never plays a note the same way twice. The LFOs' <span class="led">drFt</span> shape wanders too, but once for the layer; this one differs on every voice, and leaves both LFOs free.</p>
+    <p><strong>Drift</strong> (<span class="led">drFt</span>, 0.10.5; VALUE scrolls to it next to random) is a slow random wander, every voice its own: a new target every 0.4 to 2 seconds, glided to. It is the motion the Drift setting gives the pitch and cutoff, but as a source it runs whatever Drift is set to and can go anywhere: a few points into the cutoff or a pulse width for an old poly's unsteadiness, more into a level or an LFO rate for something that never plays a note the same way twice. The LFOs' <span class="led">drFt</span> shape wanders too, but once for the layer; this one differs on every voice, and leaves both LFOs free.</p>
   </div>
   <figure>
     <div class="fig"><div class="svg-wrap" style="--min:600px">
@@ -566,7 +566,7 @@
 </div>
 
 <footer class="site">
-  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.10.0 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
+  PRO-8000, firmware for the Behringer PRO-800 · documentation for 0.10.5 · <a href="https://github.com/klaine/pro-8000">Source on GitHub</a> ·
   <a href="index.html">Home</a><a href="how-it-works.html">← How it works</a>
   <br>Wildly experimental and unofficial: use it at your own risk, with no warranty and no liability if it harms your hardware. Not affiliated with Behringer or Music Tribe.
 </footer>
@@ -1002,7 +1002,7 @@ function envLevel(t, o) {
     ["Gate drop", [[16, "cut", 30], [20, "det", 20]], "<b>Gate → cutoff</b> opens the filter only while a key is down, so releases go dark (P47 Swing Walk); <b>Fixed → detune</b> is a plain offset, here 10 cents more spread for this patch only."],
     ["Wheel voicings", [[9, "chv", 99]], "<b>Mod wheel → Chord voicing</b> at 99 over a stored chord: pushing the wheel walks the held chord up through its inversions, each note gliding to its new place. P79 Wheel Voicings."],
     ["Lift tail", [[28, "ea_r", -80], [28, "ef_r", -60]], "<b>Release velocity → amp and filter release</b>, negative: lift a key quickly and its tail is short and dark, slowly and it rings on. Nothing changes while the key is down. P80 Lift Tail."],
-    ["Old poly", [[29, "cut", 6], [29, "pwa", 8]], "<b>Drift → cutoff and PW A</b> at small depths: each voice's filter and pulse width wander slowly on their own, as a tired old poly's do, and both LFOs stay free. (Newer than 0.10.0.)"],
+    ["Old poly", [[29, "cut", 6], [29, "pwa", 8]], "<b>Drift → cutoff and PW A</b> at small depths: each voice's filter and pulse width wander slowly on their own, as a tired old poly's do, and both LFOs stay free. (0.10.5.)"],
     ["CC out", [[0, "cca", 60]], "<b>LFO 1 → CC A out</b>: the route's sum goes out as a MIDI CC (12 by default), so the synth's LFO can move a parameter on another instrument or in a DAW. A free LFO streams it with no note played."]
   ];
   var srcY = {}, srcX = {}, dstPos = {}, sw = 124, top = 16, pitch = 18;

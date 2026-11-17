@@ -2668,7 +2668,7 @@ typedef enum {
     // MIDI out (0.10.0; system-wide): the socket (din.h), notes out (0 off, 1 keys, 2 played), the out channel (0
     // follow, 1-16), clock out, knob moves as CCs, CC A / B out's numbers (0: 12 and 13), program changes out
     SET_MIDI_SOCKET, SET_NOTES_OUT, SET_OUT_CHANNEL, SET_CLOCK_OUT, SET_KNOB_CC, SET_CC_OUT_A, SET_CC_OUT_B, SET_PC_OUT,
-    // the panel (system-wide, after 0.10.0): how long an edit stays on the display (0 as ever, 1 until something else
+    // the panel (system-wide, 0.10.5): how long an edit stays on the display (0 as ever, 1 until something else
     // shows, 2-20 seconds; #61) and the Sync Clock LED off the beat (1; #53). The read-only ones move up by two
     SET_DISPLAY_HOLD, SET_QUIET_BEAT,
     SET_WRITABLE,                                       // read-only from here
