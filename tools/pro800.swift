@@ -66,7 +66,7 @@ Probe (our firmware 0.0.9+):
                                         keytrack off|half|full, lfo 1|2 (the LFO the knobs edit),
                                         bend <1-12> (semitones), detune <0-100> (unison, cents), unison-voices <2-8>, arp-range <1-3> (octaves), arp-extend none|octave|fifth|seventh|ninth, arp-chaos <0-99>, drift <0-99>,
                                         scale off|major|minor|dorian|…|chromatic, root C..B,
-                                        voice <layer> poly|mono|legato last|low|high,
+                                        voice <layer> poly|mono|legato|round-robin last|low|high,
                                         shape <layer> <lfo> tri|square|ramp-up|ramp-down|sine|sh|drift,
                                         lfo2-dests <layer> none|pitch,filter,pw,
                                         cycle <layer> none|amp,filter,env3,env4 (cycling envelopes),
@@ -1028,7 +1028,7 @@ let curveNames = ["analog", "linear", "swell"]
 let scaleNames = ["off", "major", "minor", "dorian", "phrygian", "lydian", "mixolydian", "harmonic-minor", "pentatonic-major",
                   "pentatonic-minor", "blues", "whole-tone", "chromatic"]
 let rootNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-let voiceModes = ["poly", "mono", "legato"], priorities = ["last", "low", "high"]
+let voiceModes = ["poly", "mono", "legato", "round-robin"], priorities = ["last", "low", "high"]
 let divisionNames = ["8bar", "4bar", "2bar", "1bar", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T", "1/16.", "1/16",
                      "1/16T", "1/32"]
 // the latching buttons (switch_t indices) the engine reports with 4C and takes with 4B
@@ -2131,7 +2131,7 @@ let paramTable: [(id: Int, name: String, kind: String, scope: String, min: Int, 
     (85, "lfo2-dests pitch", "bool", "layer", 0, 1, []),
     (86, "lfo2-dests filter", "bool", "layer", 0, 1, []),
     (87, "lfo2-dests pw", "bool", "layer", 0, 1, []),
-    (88, "voice", "raw", "layer", 0, 2, ["poly", "mono", "legato"]),
+    (88, "voice", "raw", "layer", 0, 3, ["poly", "mono", "legato", "round-robin"]),
     (89, "priority", "raw", "layer", 0, 2, ["last", "low", "high"]),
     (90, "macro 1", "signed", "layer", -99, 99, []),
     (91, "macro 2", "signed", "layer", -99, 99, []),

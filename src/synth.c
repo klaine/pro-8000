@@ -190,6 +190,7 @@ static float pedal[LAYERS], cc_source[2][LAYERS];                 // the pedal (
 static int cc_number[2] = {11, 2};                                // CC A / B: expression and breath by default
 static int bend_range = BEND_DEFAULT, detune = DETUNE_DEFAULT;
 static uint8_t voice_mode[LAYERS], priority[LAYERS]; // VOICE_* and PRIORITY_* (synth.h)
+static int round_robin_next[LAYERS] = {-1, -1};
 static int drift_amount;                             // 0..99
 static uint8_t scale, scale_root;                    // SCALE_* (0 off), root 0..11 (C..B)
 static float morph_param[LAYERS][PARAM_COUNT];       // the morph target's knob values
@@ -329,7 +330,10 @@ static int per_channel(void) { return layer_mode >= LAYER_VOICE_PER_CHANNEL; }
 // voice (a pad with one arp or lead voice on top). Voice mode, unison, layer mode and voice count changes all go
 // through synth_all_off(), so a voice never changes layer while it's gated.
 static int layer1_voices; // 0 = automatic
-static int lone_mono(int layer) { return !unison && voice_mode[layer] != VOICE_POLY; }
+static int lone_mono(int layer)
+{
+    return !unison && (voice_mode[layer] == VOICE_MONO || voice_mode[layer] == VOICE_LEGATO);
+}
 static int voice_split(void)
 {
     if (layer1_voices)
@@ -635,11 +639,12 @@ int synth_voice_mode(int layer) { return voice_mode[layer] | priority[layer] << 
 void synth_set_voice_mode(int layer, int bits)
 {
     int mode = bits & 3, prio = bits >> 2 & 3;
-    if (mode > VOICE_LEGATO || prio > PRIORITY_HIGH || (mode == voice_mode[layer] && prio == priority[layer]))
+    if (mode > VOICE_ROUND_ROBIN || prio > PRIORITY_HIGH || (mode == voice_mode[layer] && prio == priority[layer]))
         return;
     synth_all_off();
     voice_mode[layer] = (uint8_t)mode;
     priority[layer] = (uint8_t)prio;
+    round_robin_next[layer] = -1;
 }
 
 int synth_drift(void) { return drift_amount; }
@@ -1074,7 +1079,8 @@ void synth_apply_patch(const patch_t *patch)
     for (int l = 0; l < LAYERS; l++) {
         voice_mode[l] = patch->voice_mode >> (4 * l) & 3;
         priority[l] = patch->voice_mode >> (4 * l + 2) & 3;
-        if (voice_mode[l] > VOICE_LEGATO) voice_mode[l] = VOICE_POLY;
+        if (voice_mode[l] > VOICE_ROUND_ROBIN) voice_mode[l] = VOICE_POLY;
+        round_robin_next[l] = -1;
         if (priority[l] > PRIORITY_HIGH) priority[l] = PRIORITY_LAST;
     }
     synth_set_drift(patch->drift);
@@ -1178,6 +1184,23 @@ static int allocate(int layer, uint8_t key, int slot, int size)
     int first, end, best = -1;
     layer_voices(layer, &first, &end);
     end -= (end - first) % size;
+    if (voice_mode[layer] == VOICE_ROUND_ROBIN) {
+        int groups = (end - first) / size;
+        int start = round_robin_next[layer];
+        if (start < first || start >= end || (start - first) % size)
+            start = first;
+        int offset = (start - first) / size;
+        for (int pass = 0; pass < 3; pass++)
+            for (int i = 0; i < groups; i++) {
+                int v = first + ((offset + i) % groups) * size;
+                voice_t *x = &voices[v];
+                int ok = pass == 0 ? !x->gate && x->amp.stage == ENV_IDLE : pass == 1 ? !x->gate : 1;
+                if (ok) {
+                    round_robin_next[layer] = v + size < end ? v + size : first;
+                    return v;
+                }
+            }
+    }
     for (int v = first; v < end; v += size)
         if (voices[v].key == key && voices[v].slot == slot && (voices[v].gate || voices[v].amp.stage != ENV_IDLE))
             return v;
@@ -1467,11 +1490,16 @@ static int stacked(int layer)
 {
     int first, end;
     layer_voices(layer, &first, &end);
-    return unison_on(layer) && voice_mode[layer] == VOICE_POLY && (end - first) / stack_size(layer) > 1;
+    return unison_on(layer) && (voice_mode[layer] == VOICE_POLY || voice_mode[layer] == VOICE_ROUND_ROBIN)
+        && (end - first) / stack_size(layer) > 1;
 }
 
 // Mono, legato and unison with one stack play one line: the held note the priority picks
-static int mono(int layer) { return voice_mode[layer] != VOICE_POLY || (unison_on(layer) && !stacked(layer)); }
+static int mono(int layer)
+{
+    return voice_mode[layer] == VOICE_MONO || voice_mode[layer] == VOICE_LEGATO
+        || (unison_on(layer) && !stacked(layer));
+}
 
 static uint8_t priority_note(int layer)
 {
@@ -1696,6 +1724,7 @@ void synth_copy_layer(int from, int to)
     if (voice_mode[to] != voice_mode[from])
         synth_all_off(); // the voice split may change (voice_split())
     voice_mode[to] = voice_mode[from];
+    round_robin_next[to] = -1;
     priority[to] = priority[from];
     synth_set_chord(to, chord[from]);
     if (to == edit_layer)

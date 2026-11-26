@@ -1117,6 +1117,7 @@ class Writes(unittest.TestCase):
             (("set", "init-patch", "0"), [0x7D, 95, 0, 1]),
             (("set", "init-patch", "none"), [0x7D, 95, 0, 0]),
             (("set", "voice", "2", "legato", "high"), [0x7D, 28, 0, 10]),
+            (("set", "voice", "2", "round-robin", "high"), [0x7D, 28, 0, 11]),
             (("set", "drift", "99"), [0x7D, 29, 0, 99]),
             (("set", "scale", "chromatic"), [0x7D, 30, 0, 12]),
             (("set", "root", "a#"), [0x7D, 31, 0, 10]),

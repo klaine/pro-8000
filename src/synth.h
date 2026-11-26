@@ -127,7 +127,7 @@ void synth_set_keytrack(int amount);
 int synth_env_select(void);
 
 // Voice modes per layer (bits: mode | priority << 2)
-enum { VOICE_POLY, VOICE_MONO, VOICE_LEGATO };
+enum { VOICE_POLY, VOICE_MONO, VOICE_LEGATO, VOICE_ROUND_ROBIN };
 enum { PRIORITY_LAST, PRIORITY_LOW, PRIORITY_HIGH };
 int synth_voice_mode(int layer);
 void synth_set_voice_mode(int layer, int bits);
