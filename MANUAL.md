@@ -255,7 +255,7 @@ from 48), for controller templates made for it; set CC A off 11 to have its Freq
 | 85 | `lfo2-dests pitch` | LFO 2 to pitch (per layer) | 0 off, 1 on | `L2.Fr` |
 | 86 | `lfo2-dests filter` | LFO 2 to filter (per layer) | 0 off, 1 on | `L2.FL` |
 | 87 | `lfo2-dests pw` | LFO 2 to PW (per layer) | 0 off, 1 on | `L2.PU` |
-| 88 | `voice` | Voice mode (per layer) | 0 poly, 1 mono, 2 legato | `UOIC` |
+| 88 | `voice` | Voice mode (per layer) | 0 poly, 1 mono, 2 legato, 3 round-robin | `UOIC` |
 | 89 | `priority` | Note priority (per layer) | 0 last, 1 low, 2 high | `PrIO` |
 | 90 | `macro 1` | Macro 1 offset (per layer) | -99 to 99 | `nAC1` |
 | 91 | `macro 2` | Macro 2 offset (per layer) | -99 to 99 | `nAC2` |
@@ -348,8 +348,9 @@ sent while no host listened (the Start at power-up among it) is sent later: hold
 
 ### Voice modes, drift, scale, morph
 
-- **Voice mode** (per layer; Settings key 9 `UOIC`, or the web page): `POLY`, mono (`nono`: one voice, every new
-  note retriggers the envelopes) or legato (`LEG`: one voice, retriggers only after all keys are up). In mono, Env 3
+- **Voice mode** (per layer; Settings key 9 `UOIC`, or the web page): `POLY`, round robin (`rObI`: polyphonic, rotating
+  through the layer's voices for each note), mono (`nono`: one voice, every new note retriggers the envelopes) or
+  legato (`LEG`: one voice, retriggers only after all keys are up). In mono, Env 3
   and Env 4 start again from 0 on every new note, so a high sustain still sweeps (from 0.9.5; a route from them to the
   VCA can step there). The amp and filter envelopes do that with an attack of 30 ms or more, after a short fade so
   they don't click (see Envelopes). Note
@@ -1070,7 +1071,7 @@ time on a page with more than 20 values), and Settings closes it.
 | 6 | `En.A` / `En.F` / `En.3` / `En.4`: envelope mode (6 again: next one; Arp Up-Dn: its trigger `tr.A`, timing `tI.A`, curve `CU.A`, cycles `Cn.A`; ATT / DEC: delay / hold) | `AdSr`, `dAHd`, `CYCL`, `8bAr` … `1-32`; trigger `dn`, `UP`; timing `SEC`, `SYnC`; curve `AnLG`, `LIn`, `SUEL`; cycles `LOOP`, `1` … `99` |
 | 7 | `bEnd`: pitch bend range | 1-12 semitones (default 2) |
 | 8 | `dEtU`: unison detune, cents between the outermost voices | 0-100 (default 14) |
-| 9 | `UOIC`: the edit layer's voice mode | `POLY`, `nono`, `LEG` |
+| 9 | `UOIC`: the edit layer's voice mode | `POLY`, `nono`, `LEG`, `rObI` |
 | 0 | `drFt`: drift | 0-99 |
 
 Settings live in the patch, so save the patch to keep them.

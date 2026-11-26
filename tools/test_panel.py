@@ -2618,7 +2618,7 @@ class SettingsMenu(PanelTest):
     def test_voice_modes(self):
         self.open("9")
         self.s.ms(700)
-        for name in ("nono", "LEG", "POLY"):
+        for name in ("nono", "LEG", "rObI", "POLY"):
             self.s.turn(1)
             self.assertShows(name)
 
@@ -5899,6 +5899,23 @@ class VoiceModes(PanelTest):
         for note in (60, 64, 67):
             self.s.note(note)
         self.assertEqual(len(self.s.gated()), 3)
+
+    def test_round_robin_repeated_notes_take_the_next_voice(self):
+        self.s.setting("voice 1", 3)
+        for count in range(1, 9):
+            self.s.note(60)
+            self.assertEqual(self.s.gated(), list(range(count)))
+
+    def test_round_robin_voice_mode_is_saved_in_the_patch(self):
+        self.s.setting("voice 1", 3)
+        self.s.setting("voice 2", 3 | 2 << 2)
+        self.store_patch(128)
+        self.s.setting("voice 1", 0)
+        self.s.setting("voice 2", 0)
+        self.type_number(128)
+        self.s.ms(1100)
+        self.assertEqual(self.s.settings()["voice 1"], 3)
+        self.assertEqual(self.s.settings()["voice 2"], 3 | 2 << 2)
 
     def test_mono_one_voice_every_key_held(self):
         self.s.setting("voice 1", 1)

@@ -749,7 +749,7 @@ static int setting_count(int page)
     static const int counts[PAGE_COUNT] = {LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3,
                                            ENV_MODE_COUNT,
                                            12, 101,           // bend 1-12 semitones, detune 0-100 cents
-                                           3, 100};           // the edit layer's voice mode, drift 0-99
+                                           4, 100};           // the edit layer's voice mode, drift 0-99
     if (page == PAGE_LFO_TRIGGER && alt_page)
         return 99; // 1-99 cycles
     if (page == PAGE_LAYERS && alt_page)
@@ -891,7 +891,7 @@ static void show_setting(int page)
     else if (page == PAGE_DRIFT)
         display_number(synth_drift());
     else if (page == PAGE_VOICE) {
-        static const char modes[3][5] = {"POLY", "nono", "LEG"};
+        static const char modes[4][5] = {"POLY", "nono", "LEG", "rObI"};
         display_text(modes[setting_get(page)]);
     }
     else
@@ -2762,7 +2762,7 @@ static int host_setting_set(int id, int value)
         LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, LAYER_MODE_COUNT, 128, 3, LFO_SYNC_COUNT, LFO_TRIGGER_COUNT, 2, 2,
         LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, LFO_SHAPE_COUNT, 8, 8, 16, 16,
         [SET_CYCLE_SYNC ... SET_CYCLE_SYNC + 7] = LFO_DIVISIONS + 1, [SET_BEND] = 13, [SET_DETUNE] = 101,
-        [SET_VOICE_L1] = 11, [SET_VOICE_L2] = 11, [SET_DRIFT] = 100, [SET_SCALE] = SCALE_COUNT, [SET_ROOT] = 12,
+        [SET_VOICE_L1] = 12, [SET_VOICE_L2] = 12, [SET_DRIFT] = 100, [SET_SCALE] = SCALE_COUNT, [SET_ROOT] = 12,
         [SET_LFO1_DELAY ... SET_LFO2_FADE] = 100, [SET_CC_A] = 128, [SET_CC_B] = 128,
         [SET_MACRO_L1_1 ... SET_MACRO_L2_2] = 199, [SET_CLOCK_SOURCE] = 3, [SET_BPM] = 301,
         [SET_ENV_TRIGGER_L1 ... SET_ENV_DAHDSR_L2] = 16, [SET_ENV_CURVE_L1] = 256, [SET_ENV_CURVE_L2] = 256,

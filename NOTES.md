@@ -141,7 +141,7 @@ Some may already exist in a simpler form in stock firmware; check before buildin
 - Envelopes: delay and hold stages, curves, looping (envelope as LFO), a 3rd mod envelope.
 - Patch morph between two patches on the mod wheel or pedal (switches flip at the midpoint).
 - Chord memory, strum, inversions and voicing spread.
-- Voice modes: unison stacks (e.g. 2 notes × 4 voices), round-robin vs reuse, note priority,
+- Voice modes: unison stacks (e.g. 2 notes × 4 voices), round-robin voice allocation, note priority,
   legato vs retrigger glide.
 - Microtuning: port p600fw's MIDI Tuning Standard support, add Scala scales.
 - Self-oscillating filter played as a tuned sine (the autotune already measures how the filter tracks pitch).
@@ -3078,4 +3078,3 @@ the notes held from one process, five samples, the median; `scratchpad/timing/me
 Against 0.9.5: the engine 323 / 331 / 383 → 353 / 357 / 414, the refresh 660 / 878 / 2212 → 757 / 982 / 2337, the pass
 1044 / 1254 / 2710 → 1206 / 1420 / 2898 (+7-16 %). That's 0.10.0 (MIDI out, chords, the CC map, NRPN) and 0.10.5
 together: 0.10.0 was only timed without notes, on P80 (pass 1141). The VCAs are written every 0.72 ms with eight voices.
-

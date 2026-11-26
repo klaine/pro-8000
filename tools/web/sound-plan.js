@@ -115,9 +115,9 @@ const JSON_SETTINGS = [
   ...[1, 2].flatMap(l => [1, 2].map(n => [`shape ${l} ${n}`, `shape${l}${n}`, jOne(JN.shapes)])),
   ...[1, 2].flatMap(l => [
     [`lfo2-dests ${l}`, `lfo2Dests${l}`, jBits(["pitch", "filter", "pw"])],
-    [`voice ${l}`, `voice${l}`, { dec: v => `${["poly", "mono", "legato"][v & 3]} ${["last", "low", "high"][v >> 2 & 3]}`,
-      enc: (x, k) => { const [m, p] = String(x).split(" "); const mi = ["poly", "mono", "legato"].indexOf(m), pi = ["last", "low", "high"].indexOf(p);
-        return mi >= 0 && pi >= 0 ? mi | pi << 2 : bad(`${k}: "poly|mono|legato last|low|high", not ${JSON.stringify(x)}`); } }],
+    [`voice ${l}`, `voice${l}`, { dec: v => `${["poly", "mono", "legato", "round-robin"][v & 3]} ${["last", "low", "high"][v >> 2 & 3]}`,
+      enc: (x, k) => { const [m, p] = String(x).split(" "); const mi = ["poly", "mono", "legato", "round-robin"].indexOf(m), pi = ["last", "low", "high"].indexOf(p);
+        return mi >= 0 && pi >= 0 ? mi | pi << 2 : bad(`${k}: "poly|mono|legato|round-robin last|low|high", not ${JSON.stringify(x)}`); } }],
     [`cycle ${l}`, `cycle${l}`, jBits(JN.envs)],
     ...JN.envs.map((e, i) => [`cycle-sync ${l} ${e}`, `cycleSync${l}_${i}`,
       { dec: v => v ? JN.divisions[v - 1] : "free", enc: (x, k) => x === "free" ? 0 : jOne(JN.divisions).enc(x, k) + 1 }]),
