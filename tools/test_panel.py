@@ -908,6 +908,25 @@ class DisplayHold(PanelTest):
         self.s.turn(1)
         self.assertShows("P  2.", "VALUE goes back to the patches")
 
+    def test_stay_keeps_a_value_fine_tuned_with_value(self):
+        self.s.long_press("SETTINGS")
+        self.s.press("9")
+        self.s.ms(800)
+        self.s.turn(1)
+        self.assertShows("StAY")
+        self.s.press("SETTINGS")
+        shown = self.knob()
+        self.s.turn(1)
+        fine_tuned = self.s.shows()
+        self.assertNotEqual(fine_tuned, shown, "VALUE fine-tuned the knob's value")
+        self.s.ms(10000)
+        self.assertEqual(self.s.shows(), fine_tuned, "the fine-tuned value stays on the display")
+        self.s.turn(1)
+        self.assertNotEqual(self.s.shows(), fine_tuned, "VALUE can keep fine-tuning the value while it stays")
+        fine_tuned = self.s.shows()
+        self.s.ms(10000)
+        self.assertEqual(self.s.shows(), fine_tuned, "the further fine-tuned value also stays")
+
     def test_seconds_keep_it_that_long_from_when_it_showed(self):
         self.s.setting("display-hold", 5)
         shown = self.knob()
