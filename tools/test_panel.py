@@ -2193,6 +2193,20 @@ class ValueNudge(PanelTest):
         self.s.let_go("SHIFT")
         self.assertEqual(self.s.params_raw()["resonance"], before)
 
+    def test_latched_shift_value_still_fine_tunes_the_displayed_parameter(self):
+        self.s.press("REC", "3", "REC")
+        self.s.ms(1100)
+        self.s.ms(500)
+        self.touch("RESONANCE", 0.3)
+        shown = self.s.shows()
+        self.s.press("SHIFT", "SHIFT")
+        self.assertTrue(self.s.led("SYNC_SOURCE"), "Shift is latched")
+        self.assertEqual(self.s.shows(), shown, "latching Shift keeps the parameter value visible")
+        before = self.tenths("resonance")
+        self.s.turn(1)
+        self.assertNotEqual(self.tenths("resonance"), before, "VALUE fine-tuned the parameter")
+        self.assertEqual(self.s.settings()["patch"], 2, "the latched Shift did not jump ten patches")
+
     def test_free_tuning_by_tenths_of_a_semitone(self):
         self.manual()
         self.s.setting("osc-tune 1 a", 2)
