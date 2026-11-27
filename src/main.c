@@ -2398,8 +2398,10 @@ static void control_event(control_kind_t kind, int index, int32_t value)
         }
         return;
     }
-    if (kind == CONTROL_ENCODER && nudge_pot >= 0 && display_serial() == nudge_serial && display_until
-        && (int32_t)(ms_ticks - display_until) < 0 && synth_pot_param(nudge_pot) == nudge_param
+    if (kind == CONTROL_ENCODER && nudge_pot >= 0 && display_serial() == nudge_serial
+        && ((display_until && (int32_t)(ms_ticks - display_until) < 0)
+            || store_midi_out(STORE_DISPLAY_HOLD) == 1)
+        && synth_pot_param(nudge_pot) == nudge_param
         && synth_edit_layer() == nudge_layer && !menu_open && !saving && !recording && !comparing && !shift_active()) {
         nudge_steps += (int)value;
         int steps = nudge_steps / 4; // a quadrature cycle a step
