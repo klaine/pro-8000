@@ -86,7 +86,7 @@ const PARAMS = [
   {"id": 85, "name": "lfo2-dests pitch", "label": "LFO 2 to pitch", "code": "L2.Fr", "scope": "layer", "kind": "bool", "min": 0, "max": 1},
   {"id": 86, "name": "lfo2-dests filter", "label": "LFO 2 to filter", "code": "L2.FL", "scope": "layer", "kind": "bool", "min": 0, "max": 1},
   {"id": 87, "name": "lfo2-dests pw", "label": "LFO 2 to PW", "code": "L2.PU", "scope": "layer", "kind": "bool", "min": 0, "max": 1},
-  {"id": 88, "name": "voice", "label": "Voice mode", "code": "UOIC", "scope": "layer", "kind": "raw", "min": 0, "max": 2, "values": ["poly", "mono", "legato"]},
+  {"id": 88, "name": "voice", "label": "Voice mode", "code": "UOIC", "scope": "layer", "kind": "raw", "min": 0, "max": 3, "values": ["poly", "mono", "legato", "round-robin"]},
   {"id": 89, "name": "priority", "label": "Note priority", "code": "PrIO", "scope": "layer", "kind": "raw", "min": 0, "max": 2, "values": ["last", "low", "high"]},
   {"id": 90, "name": "macro 1", "label": "Macro 1 offset", "code": "nAC1", "scope": "layer", "kind": "signed", "min": -99, "max": 99},
   {"id": 91, "name": "macro 2", "label": "Macro 2 offset", "code": "nAC2", "scope": "layer", "kind": "signed", "min": -99, "max": 99},
