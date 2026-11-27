@@ -95,8 +95,9 @@ moves a tenth of a semitone; a stepped one (FREQ in Semitones or Octave, a synce
 values) a step; a value in other units (Hz, times, semitones) the same tenth of a 0-99 unit (1/990 of the knob's
 travel), so its text may not change at every click. It works on the value the display shows, the stored one if the knob is waiting with a dot, and on the
 edit layer. The knob then waits until you turn it. A save keeps the tenth. In preset mode this takes VALUE from the
-patches while the value shows; Shift + VALUE still steps ten patches. Not in a menu, a save or MOD ASSIGN, and not
-for M VOL (it isn't stored). The display goes back to whole numbers when you next touch the knob.
+patches while the value shows; hold Shift + VALUE to step ten patches, while latched Shift still allows fine adjustment.
+Not in a menu, a save or MOD ASSIGN, and not for M VOL (it isn't stored). The display goes back to whole numbers when
+you next touch the knob.
 
 ## Playing
 

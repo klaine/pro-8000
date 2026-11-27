@@ -2242,8 +2242,12 @@ static void control_event(control_kind_t kind, int index, int32_t value)
             shift_held = 1;
             if (ms_ticks - shift_tap_at < 400) { // two quick presses: latch
                 shift_latched = !shift_latched;
-                display_text(shift_latched ? "SHFt" : "oFF");
-                display_until = ms_ticks + 800;
+                int keep_value = shift_latched && nudge_pot >= 0 && display_serial() == nudge_serial
+                    && display_until && (int32_t)(ms_ticks - display_until) < 0;
+                if (!keep_value) {
+                    display_text(shift_latched ? "SHFt" : "oFF");
+                    display_until = ms_ticks + 800;
+                }
             }
             shift_tap_at = ms_ticks;
         } else
@@ -2400,7 +2404,7 @@ static void control_event(control_kind_t kind, int index, int32_t value)
     }
     if (kind == CONTROL_ENCODER && nudge_pot >= 0 && display_serial() == nudge_serial && display_until
         && (int32_t)(ms_ticks - display_until) < 0 && synth_pot_param(nudge_pot) == nudge_param
-        && synth_edit_layer() == nudge_layer && !menu_open && !saving && !recording && !comparing && !shift_active()) {
+        && synth_edit_layer() == nudge_layer && !menu_open && !saving && !recording && !comparing && !shift_held) {
         nudge_steps += (int)value;
         int steps = nudge_steps / 4; // a quadrature cycle a step
         nudge_steps -= steps * 4;
